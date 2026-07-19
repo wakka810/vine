@@ -2,16 +2,18 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-19T22:16:56.616Z",
+  "recordedAt": "2026-07-19T22:59:27.404Z",
   "repository": {
-    "implementationCommit": "a9d097951f7bbb9661f1896332baff85891f4a70",
-    "implementationTree": "a2889390e3297e6db0dec356f6ba55ce8c27fc80",
-    "headCommit": "a9d097951f7bbb9661f1896332baff85891f4a70",
+    "implementationCommit": "ddb1606197b5ae9d016cd6fe6a5bd0b0bd2fbd30",
+    "implementationTree": "fc262791f5b53a1a8397b278ebd572ced9f195df",
+    "headCommit": "ddb1606197b5ae9d016cd6fe6a5bd0b0bd2fbd30",
     "dirty": true,
     "dirtyPaths": [
+      "docs/private-target-evidence.json",
       "vine.zip"
     ],
     "allowedDirtyPaths": [
+      "docs/private-target-evidence.json",
       "vine.zip"
     ],
     "executionInputsClean": true,
@@ -177,8 +179,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 193041,
-      "sha256": "8d2e030bd641e5a69fff5ed901d8122e0f322d49ff5e2a16ff1c8a19d436f326"
+      "bytes": 193039,
+      "sha256": "db977e44af77142944152ac634efdc1e058d816716afed5d8b348886064b9100"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -193,12 +195,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3764,
-      "sha256": "7901906b3118926cc113659f2487c1f6c55e75a0193e1201b0eb54df7495019b"
+      "sha256": "974b1cdfc1d4a6e10377e3e9874b7b558565d9dfb4014af34871fce610146917"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 3352611,
-      "sha256": "e26b6eb1b91f16bbcdcee4f7bac3de54d457836db5779710dfb478c20b55556a"
+      "bytes": 3352772,
+      "sha256": "232d805c421888c22afd627716eab95c51221f3add69927304ecaff990521bb7"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -230,5 +232,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "4f900ece0cdab019f38824f040aeb0d3021e2737d89b2ade3deb8dd8888e4e62"
   },
-  "payloadSha256": "2c097c4543391bb1b23ceac68b0dca87c5c5d68fb10df830712edbe2d9c68749"
+  "payloadSha256": "647e56350e17d81c79d4386f9d59cb018f76b4cf0737f36f97c18415a4397e26"
 }
