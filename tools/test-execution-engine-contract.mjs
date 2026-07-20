@@ -379,6 +379,55 @@ assert.deepEqual(engine.cacheEffectCounts(), {
   generatedCodeInvalidations: 1,
 });
 
+const pageOnlyBytes = Uint8Array.from(mappedBytes);
+new DataView(pageOnlyBytes.buffer).setUint32(0, 0x1357_9bdf, true);
+engine.applyMemoryDelta({
+  fromGeneration: 2n,
+  generation: 3n,
+  cacheEffects: {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  },
+  mappingOperations: [],
+  pages: [
+    {
+      address: mappedAddress,
+      owner: 2,
+      protection: protection.data,
+      ownerSealed: true,
+      dirty: true,
+      bytes: pageOnlyBytes,
+    },
+  ],
+});
+assert.equal(engine.readGuestU32(mappedAddress), 0x1357_9bdf);
+assert.throws(
+  () =>
+    engine.applyMemoryDelta({
+      fromGeneration: 3n,
+      generation: 4n,
+      cacheEffects: {
+        flushTlb: false,
+        invalidateInstructionFetch: false,
+        invalidateGeneratedCode: false,
+      },
+      mappingOperations: [],
+      pages: [
+        {
+          address: mappedAddress,
+          owner: 3,
+          protection: protection.data,
+          ownerSealed: true,
+          dirty: true,
+          bytes: mappedBytes,
+        },
+      ],
+    }),
+  /owner does not match/u,
+);
+assert.equal(engine.readGuestU32(mappedAddress), 0x1357_9bdf);
+
 assert.throws(
   () =>
     engine.applyMemoryDelta({
@@ -402,7 +451,7 @@ assert.throws(
     }),
   /address allocation mismatch/u,
 );
-assert.equal(engine.readGuestU32(mappedAddress), 0xa5a5_5a5a);
+assert.equal(engine.readGuestU32(mappedAddress), 0x1357_9bdf);
 
 engine.applyMemoryDelta({
   fromGeneration: 2n,

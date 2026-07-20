@@ -22,9 +22,9 @@ assert.match(worker, /summary runtime evidence is only supported for the private
 assert.match(worker, /summary BGI evidence retained detailed call payloads/u);
 
 assert.match(fullProbe, /searchParams\.get\("evidence"\) === "full" \? "full" : "summary"/u);
-assert.match(fullProbe, /instructionBudget: scenario === "watchdog" \? 4 : 512/u);
+assert.match(fullProbe, /instructionBudget: scenario === "watchdog" \? 4 : 1024/u);
 assert.match(benchmark, /evidenceLevel: "summary"/u);
-assert.match(benchmark, /instructionBudget: 512/u);
+assert.match(benchmark, /instructionBudget: 1024/u);
 assert.match(benchmark, /report\.supportedCallCount === expected\.supportedCalls/u);
 assert.match(benchmark, /report\.supportedCalls\.length === 0/u);
 

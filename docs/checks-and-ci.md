@@ -97,7 +97,7 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-critical-section-capacity-v1.json`](../fixtures/benchmarks/bgi-browser-critical-section-capacity-v1.json).
+[`bgi-browser-d3d9-create-device-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-create-device-v1.json).
 It repeats the complete current session, checks count／terminal semantics on every
 summary-evidence repetition while the standalone Chrome check retains full ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,

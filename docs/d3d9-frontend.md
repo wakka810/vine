@@ -10,11 +10,16 @@ allocator, or generation mutation. QueryInterface, AddRef, Release, and final
 backing retirement use the generic COM plan／commit path.
 `GetAdapterCount` at slot 4, `GetAdapterIdentifier` at slot 5,
 `GetAdapterDisplayMode` at slot 8,
-`CheckDeviceType` at slot 9, `CheckDeviceFormat` at slot 10, and `GetDeviceCaps`
-at slot 14, and `GetAdapterMonitor` at slot 15 delegate through a
-version-neutral COM gateway to the D3D9 semantic handler. Other unreached
-slots return a typed fault with interface, slot, method, endpoint, and call
-site.
+`CheckDeviceType` at slot 9, `CheckDeviceFormat` at slot 10, `GetDeviceCaps`
+at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
+delegate through a version-neutral COM gateway to the D3D9 semantic handler.
+`CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface, but
+only its IUnknown methods are implemented at this boundary. Other unreached
+slots return a typed fault with interface, slot, method, endpoint, and call site.
+The catalog fixes each x86 method name, explicit stack-word count, and return
+class. In particular, slots 11, 21, and 22 are `void`, while slot 80 returns a
+32-bit floating value through x87 `ST(0)`; those methods remain unsupported and
+therefore do not yet require a completion transport for those return classes.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -31,7 +36,7 @@ relations for the private workload.
 
 ## Bounded logical adapter count
 
-Version 7 of `D3d9CompatibilityPolicy` retains profile
+Version 8 of `D3d9CompatibilityPolicy` retains profile
 `single-logical-adapter-v1`. `IDirect3D9::GetAdapterCount` returns unsigned
 value `1` after validating that `RuntimeDisplays` still exposes the coherent
 `single-monitor-1920x1080-v1` profile. The count is D3D9 policy authority; the
@@ -49,7 +54,7 @@ enumeration and host or browser GPU topology remain outside this profile.
 
 ## Bounded adapter-to-monitor mapping
 
-The version 7 `primary-adapter-monitor-v1` profile maps adapter `0` to the
+The version 8 `primary-adapter-monitor-v1` profile maps adapter `0` to the
 logical primary HMONITOR owned by `RuntimeDisplays`. The D3D9 policy owns only
 the adapter-to-display-profile mapping; it neither allocates nor copies the
 monitor identity. `GetAdapterMonitor(0)` therefore returns `0x4f010001`, the
@@ -73,7 +78,7 @@ are recorded in the current manifest.
 
 ## Bounded adapter display mode
 
-Version 7 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 8 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -106,7 +111,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 7 policy enables adapter `0`, flags `0`, and profile
+The same version 8 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -140,7 +145,7 @@ fixture. Raw native captures remain ignored under `.work/`.
 
 ## Bounded virtual device capabilities
 
-Version 7 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
+Version 8 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
 `primary-hal-readscanline-dynamic-textures-ps3-v1`. The handler zero-fills one
 304-byte, 4-byte-aligned x86 `D3DCAPS9` and publishes only these nonzero words:
 
@@ -176,7 +181,7 @@ guest-memory transaction.
 
 ## Bounded device-type predicate
 
-Version 7 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
+Version 8 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
 `IDirect3D9::CheckDeviceType`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 `D3DFMT_X8R8G8B8` adapter／back-buffer formats, and both windowed and
 full-screen mode. The x86 `BOOL` follows the Windows convention: zero means
@@ -200,7 +205,7 @@ completion. Every path preserves LastError, COM reference count, guest memory,
 
 ## Bounded device-format predicate
 
-Version 7 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
+Version 8 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
 `IDirect3D9::CheckDeviceFormat`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 adapter／checked format `D3DFMT_X8R8G8B8`, resource type `D3DRTYPE_TEXTURE`,
 and either Usage `0` or `D3DUSAGE_DYNAMIC` (`0x200`). The predicate is
@@ -223,16 +228,61 @@ combination outside the bounded profile is unavailable. All paths preserve
 LastError, COM reference count, guest memory, `RuntimeGraphics`, and browser
 renderer resources.
 
+## Bounded logical device creation
+
+Version 8 adds `primary-windowed-hal-device-v1` for the reached
+`IDirect3D9::CreateDevice` call. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
+behavior flags `D3DCREATE_MULTITHREADED | D3DCREATE_HARDWARE_VERTEXPROCESSING`
+(`0x44`), one live focus／device HWND, and one 56-byte x86
+`D3DPRESENT_PARAMETERS` with this bounded shape:
+
+```text
+BackBufferWidth/Height/Format  0 / 0 / D3DFMT_UNKNOWN
+BackBufferCount               1
+MultiSampleType/Quality       NONE / 0
+SwapEffect                    DISCARD
+Windowed                      TRUE
+EnableAutoDepthStencil        FALSE
+AutoDepthStencilFormat        D3DFMT_D16
+Flags/refresh/interval        0 / 0 / 0
+```
+
+The zero width and height resolve from the live `RuntimeUser32` client geometry;
+the zero format resolves from policy to `D3DFMT_X8R8G8B8`. For the primary
+window this atomically publishes the 12-byte prefix `800, 600, 22`, the new
+device interface pointer, the child COM identity, and one `RuntimeGraphics`-
+owned logical device. Preflight covers both guest write spans, window／display
+authority, graphics capacity, COM backing, and address allocation before any
+publication. Invalid identity or overlapping／NULL pointers return
+`D3DERR_INVALIDCALL`; a well-formed request outside the bounded policy returns
+`D3DERR_NOTAVAILABLE`; memory or resource exhaustion faults before mutation.
+
+The logical graphics device owns the normalized presentation, window relation,
+and COM-object association. It has its own monotonic ID namespace and no browser
+renderer association yet. The child COM object starts at reference count `1`
+and retains one reference to the creating root interface. Its final `Release`
+retires the logical graphics association and device backing, then releases the
+retained root reference; if that was the root's last reference, root retirement
+cascades in the same planned operation.
+
+Two independent native traces each contain three successful device creations.
+All begin with zero width／height／format and preserve the remaining presentation
+fields; the returned native sizes are `800x600` once and `1280x720` twice, with
+format `22`. The direct BGI call is RVA `0x5ACA5`, returns `S_OK`, and its first
+reached device operation is slot 23 `CreateTexture`; a nested device `AddRef`
+returns `2`. Native pointers and host geometry are artifact evidence, not Vine
+guest identities.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
 frontends. They do not share COM identity, vtables, version-specific enums, or
 device-loss state. A WineD3D-like internal layer is introduced only below those
-frontends: the planned `RuntimeGraphics` owner accepts validated logical
+frontends: `RuntimeGraphics` accepts validated logical
 device／resource／command contracts and coordinates the browser renderer
-adapter. It begins at the D3D9 `CreateDevice` subsystem gateway, where the first
-real logical graphics state is required. Root creation and adapter-query leaves
-do not allocate placeholder graphics state.
+adapter. The D3D9 `CreateDevice` gateway now creates the first logical device;
+root creation and adapter-query leaves still do not allocate placeholder
+graphics state.
 
 This keeps the translation seam available without building frameworks for
 unreached or deferred APIs. D3D10／11 and DXGI remain outside active scope until
@@ -244,7 +294,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-get-adapter-monitor
+npm run check:runtime:bgi -- --profile d3d9-create-device
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,
@@ -256,27 +306,32 @@ the exact virtual identity and zero-bounded 304-byte caps. It also verifies the
 windowed／full-screen device-type predicates and the reached dynamic texture
 format predicate. Rust tests separately fix every output byte and the invalid
 adapter／flags／device type／format／usage／resource type／NULL／unwritable／policy／
-display-authority paths. The fixture also verifies that adapter `0` has a
+display-authority paths. They also fix the complete device vtable catalog,
+presentation normalization, child／root reference relation, graphics capacity,
+stale-plan rejection, cross-owner publication, and final cascading retirement.
+The fixture also verifies that adapter `0` has a
 non-NULL monitor and the first past-end adapter has none. The private Node and
-Chrome profiles record two identical adapter-monitor completions, including
-identity equality with `MonitorFromWindow`, and stop next at
-`IDirect3D9::CreateDevice`.
+Chrome profiles record identical `CreateDevice` completion, guest writes, COM
+identity, and logical graphics state, then stop at
+`IDirect3DDevice9::CreateTexture` slot 23.
 
-The historical `d3d9-get-adapter-count` runner disables only the adapter-monitor
-policy and therefore remains stopped at slot 15 with a typed policy fault. This
-evidence-profile gate does not alter the version 7 semantic handler or the
-active browser runtime policy.
+Historical D3D9 runners expose only the frontend methods enabled by their bounded
+evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
+`d3d9-get-adapter-monitor` stops at slot 16 through the common
+`com-method-unsupported` path, while the active `d3d9-create-device` profile
+delegates slot 16 to the version 8 handler. This profile selection does not alter
+the semantic handler or active browser runtime policy.
 
 ## Non-claims
 
 - Only the bounded single logical adapter count, adapter-to-primary-monitor
   mapping, current display-mode, virtual adapter-identifier, virtual
   device-capability, exact device-type predicate, and exact texture-format
-  predicate queries are implemented. Mode enumeration, general
-  device／format／usage checks,
-  `CreateDevice`, device/resource state, draw, Present, Reset, and renderer
+  predicate queries plus the exact windowed HAL `CreateDevice` profile are
+  implemented. Mode enumeration, general device／format／usage checks, texture
+  creation, other device/resource state, draw, Present, Reset, and renderer
   output remain unsupported.
-- The current root object does not create a `RuntimeGraphics` device or browser
-  resource.
+- `CreateDevice` creates Rust logical state only. It does not create a browser
+  renderer resource, Canvas／WebGL／WebGPU context, swap chain, or visible frame.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are
   not claimed.

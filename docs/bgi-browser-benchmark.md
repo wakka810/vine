@@ -4,33 +4,34 @@
 
 - Status: threshold passed
 - Date: 2026-07-20
-- Workload: 17,841-call `user32-set-window-pos-activation` private BGI generic session
-- Observation status: `current-runtime-user32-window-observation`
+- Workload: 17,849-call `d3d9-create-device` private BGI generic session
+- Observation status: `current-d3d9-create-device-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-runtime-user32-window-v1.json`](../fixtures/benchmarks/bgi-browser-runtime-user32-window-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-create-device-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-create-device-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `user32-set-window-pos-activation` BGI
+This observation repeats the complete `d3d9-create-device` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,841 calls over 11,807,189 guest
-instructions, performs 74,763 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,849 calls over 11,807,772 guest
+instructions, performs 63,571 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
 creation, small-icon send, initial show／hide callbacks, client-rect query,
-window-long update, and same-geometry activation. It then reaches the
-`USER32.dll!MonitorFromWindow` structured stop.
+window-long update, and same-geometry activation, then creates one Rust-owned
+logical D3D9 device with an 800x600 format-22 presentation. It reaches
+`IDirect3DDevice9::CreateTexture` at slot 23 without creating a browser renderer.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, WinMM, icon／cursor, window-class, logical-window, system-metric, large-heap,
-and source-file contracts. Every
+source-file, D3D9 adapter, and root-device contracts. Every
 repetition checks call and instruction counts, crossing count, large-allocation
 identity, materialization identity, source completion count, memory digest, next
 structured stop, and zero pending work before retaining only a compact scalar
-summary. Protocol v7 uses full ordered call evidence for the standalone Chrome／
-Node semantic-equivalence check and a streaming canonical digest for this benchmark;
-the latter retains sequence uniqueness and terminal semantics without retaining
-17,841 detailed call objects or canonical strings on every repetition. Completed report payloads,
+summary. Protocol v7 uses independently computed full-sequence canonical digests
+for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
+the digest retains sequence uniqueness and terminal semantics without retaining
+17,849 detailed call objects or canonical strings on every repetition. Completed report payloads,
 including source-read records, are released after scalar capture. The capacity,
 Worker evidence boundary, and slice budget changed in this checkpoint, so the
 workload was rerun against the exact current Rust/Wasm and Worker artifacts
@@ -59,65 +60,62 @@ required sample is a failure. Report schema version 2 also stores a structured
 
 ## Result
 
-The authoritative clean-profile Chrome run completed 32 sessions with no
-failure. The User32 window version 1 configuration retained all 17 existing
-threshold values unchanged before this 180-second run. The previous source-read
-and create-window workload configurations remain unchanged as historical
+The authoritative clean-profile Chrome run completed 30 sessions with no
+failure. The CreateDevice version 1 configuration retained all 17 existing
+threshold values unchanged before this 180-second run. Previous workload
+configurations remain unchanged as historical
 evidence; their identities are not applied to this current workload.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 32 |
+| Completed sessions | >= 24 | 30 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 6,035.420 ms |
-| Maximum slice p99 | <= 10 ms | 4.815 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.020 ms |
-| Main heartbeat gap maximum | <= 250 ms | 21.995 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,218,523 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 31,456.49 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,115,120 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 1,883,456.51 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 65,441,792 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 19,737,862 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 841,649.99 bytes/min |
+| Session latency p95 | <= 8,000 ms | 7,767.390 ms |
+| Maximum slice p99 | <= 10 ms | 4.090 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.040 ms |
+| Main heartbeat gap maximum | <= 250 ms | 27.470 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,037,094 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 80,260.44 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 22,447,760 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,163,580.72 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 65,273,856 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 14,786,026 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 766,012.27 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 946,976 bytes with SHA-256
-`4f900ece0cdab019f38824f040aeb0d3021e2737d89b2ade3deb8dd8888e4e62`.
+The exact report is 917,887 bytes with SHA-256
+`83fcc157d30c013b3f338b07a9ee2c2f7eb517d9c67b2e0fa84987228d19217b`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
 
-## Current User32 workload and allocation correction
+## Current CreateDevice workload and transport correction
 
 The retained benchmark configuration still described the earlier
-`kernel32-load-library-a` stop after the active runtime had advanced to
-`user32-set-window-pos-activation`. Reproduction failed before measurement with
-an exact workload mismatch: 17,824／11,806,582／`GetClientRect` versus
-17,841／11,807,189／`MonitorFromWindow`. The old fixture remains historical; the
-current manifest now selects the new versioned User32 fixture.
+`user32-set-window-pos-activation` stop after the active runtime had advanced to
+`d3d9-create-device`. The old fixture remains historical; the current manifest
+selects the new exact 17,849-call／11,807,772-instruction／`CreateTexture` fixture.
 
-The first current-workload run exposed four unchanged threshold failures. The
-new execute bitmap performed a full lookup for every opcode and decode byte,
-giving 22 sessions and an 8,420.095 ms P95. A slice-local validated-page cache,
-reset at every budget call, restored latency without allowing permission state
-to cross a host mapping change. The engine contract protects an RX page to NX
-between slices and requires reason `3`, PFEC-equivalent `0x15`, and the exact
-fault byte after cache reset.
+The first current run completed 14 sessions and had 14,831.200 ms P95, failing
+minimum sessions and latency. The second completed 24 sessions but still had
+10,199.540 ms P95 and a 71,565,312-byte Worker capacity maximum, failing latency
+and capacity. Their ignored reports remain under `.work/`; neither was accepted
+by retry or threshold change.
 
-The remaining runs passed latency but exposed transient Worker heap and
-capacity pressure. Dirty discovery allocated and sorted all writable mappings
-for each of 40,289 batches, then copied 87,903 pages into a second contiguous
-payload. It now sorts only dirty mappings and synchronously copies borrowed
-engine views into the existing Wasm bridge input; the snapshot API remains
-independent. Chrome HeapProfiler then identified 10.98 MiB of live canonical
-call strings retained by the summary digest. The digest now streams contiguous
-sequence values into SHA-256, buffers only out-of-order callback gaps, reuses its
-64-word compression schedule, and uses one UTF-8 encode buffer. Node and Chrome
-still produce digest
-`9e8cd6e57ed3073c4e6325ab629f4159e85706717f02bfb9b064cad3441ef7c3`.
+The bounded title slice increased from 512 to 1,024 instructions while the
+watchdog remains 4. Page-only host deltas now validate against live mappings
+without cloning the registry; mapping-changing deltas retain cloned preflight.
+The Rust bridge no longer recomputes a per-page SHA when the aggregate payload
+SHA already authenticates the batch, and a successful acknowledgement reports
+the invariant post-reconciliation dirty-page count `0`. These changes reduced
+the repeated workload to 63,571 Wasm crossings per session.
+
+The summary digest now streams canonical JSON fragments directly into reusable
+UTF-8 and SHA state, retaining only bounded out-of-order fragments. Node and
+Chrome still produce exact digest
+`d062bba8eef984451f149034d3bb1f27b2d92a81184be5ffcfa4fcddb8f74f14`.
 The final run passed all 17 original thresholds; no GC forcing, retry-based
 acceptance, or threshold change was used.
 
@@ -177,7 +175,7 @@ loader now verifies and compiles once, then creates a fresh engine instance for
 each session from the verified `WebAssembly.Module`. No CPU context, mapping,
 guest memory, or Rust runtime is shared. The passing run reduced peak backing
 storage below the unchanged limit. That correction remains part of the loader
-contract; this current benchmark observes 19,737,862
+contract; this current benchmark observes 14,786,026
 bytes and retains bounded p95 latency without changing any threshold.
 
 ## Environment
@@ -191,7 +189,7 @@ bytes and retains bounded p95 latency without changing any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `5288a685799f16365cc6783a27e38b6c39cf12fb`
+The report records base implementation commit `5b2f3b3dbec55792139d98e5848b18b027264e1c`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -200,12 +198,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,353,018 | `369f6ed5ae0a3178b918cf60b627517935e473091741c385cfeb188e31c409d9` |
+| Rust runtime core Wasm | 3,420,622 | `6dd86d69ad90ccf2bbe705ad08aaec42fc3555280bda8e721c5b2bf0c7118e5a` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
-| Runtime Worker bundle | 153,871 | `896d0c1003b4c4b49b18b2441c41a738a45a5c1a686d9f1f082036510316179d` |
-| BGI benchmark bundle | 9,579 | `1fd3f86eac898a5f33b6f29baba1de4f447714ddf45064d2c2556474aac76eba` |
+| Runtime Worker bundle | 154,859 | `98c860aadd3d0ecb1c8b81beed1e817331348c6c44ee4ae34de14f72b351024b` |
+| BGI benchmark bundle | 10,076 | `e29175046e7f46e3ac057a4870cdb8a2ef42c0a992717ba3d096b8e90d9018d9` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| User32 window version 1 configuration | 1,197 | `9f5a7bc94bbe9ae147251649731b7e64e45a77b437a931e7c1f38d23d5f12337` |
+| CreateDevice version 1 configuration | 1,172 | `72a45f4071c408ccdf5630521dc0e82310e1dadffb6b422e4e1a1e4f4d82de78` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte

@@ -9,6 +9,7 @@ mod com;
 mod displays;
 mod files;
 mod gdi;
+mod graphics;
 mod heaps;
 mod input;
 mod kernel;
@@ -60,6 +61,14 @@ pub use gdi::{
     RuntimeDeviceContextId, RuntimeFillRectResult, RuntimeGdiObject, RuntimeGdiObjectId,
     RuntimeGdiObjectKind, RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId,
     RuntimeGetDcResult, RuntimeGetStockObjectResult,
+};
+pub(crate) use graphics::RuntimeGraphicsDeviceCreateRequest;
+pub use graphics::{
+    RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,
+    RUNTIME_GRAPHICS_DEVICE_LIMIT, RuntimeBrowserRendererResourceId, RuntimeGraphicsColorFormat,
+    RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsFrontend,
+    RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation, RuntimeGraphicsRendererAssociation,
+    RuntimeGraphicsRendererOwnership,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

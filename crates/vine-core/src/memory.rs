@@ -2657,6 +2657,27 @@ impl GuestMemory {
         address: GuestAddress,
         bytes: &[u8],
     ) -> Result<GuestPageReconciliation, GuestMemoryError> {
+        let changed_bytes =
+            self.reconcile_reflected_page_bytes(acknowledged_generation, owner, address, bytes)?;
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        Ok(GuestPageReconciliation {
+            generation: acknowledged_generation,
+            address,
+            owner,
+            bytes_reconciled: bytes.len(),
+            changed_bytes,
+            content_sha256: hex_digest(&hasher.finalize()),
+        })
+    }
+
+    fn reconcile_reflected_page_bytes(
+        &mut self,
+        acknowledged_generation: u64,
+        owner: MemoryOwnerId,
+        address: GuestAddress,
+        bytes: &[u8],
+    ) -> Result<usize, GuestMemoryError> {
         self.ensure_synchronized()?;
         if !self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::invalid_request(
@@ -2730,17 +2751,7 @@ impl GuestMemory {
             .count();
         self.journal_frame_bytes_before(frame)?;
         self.frames.bytes_mut(frame)?.copy_from_slice(bytes);
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-
-        Ok(GuestPageReconciliation {
-            generation: acknowledged_generation,
-            address,
-            owner,
-            bytes_reconciled: bytes.len(),
-            changed_bytes,
-            content_sha256: hex_digest(&hasher.finalize()),
-        })
+        Ok(changed_bytes)
     }
 
     pub fn reconcile_cpu_writeback_binary(
@@ -2891,7 +2902,7 @@ impl GuestMemory {
             let mut transaction = self.begin_transaction();
             for &index in &changed_order {
                 let writeback = &batch.pages[index];
-                transaction.reconcile_reflected_page(
+                transaction.reconcile_reflected_page_bytes(
                     batch.base_generation,
                     writeback.owner,
                     writeback.address,

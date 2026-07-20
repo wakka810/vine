@@ -15,9 +15,13 @@ const focusedSetWindowLongAObservation =
 const focusedSetWindowPosSizeObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-pos-size");
+const focusedD3d9CreateDeviceObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-create-device");
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
+let focusedD3d9DeviceMethodCaptured = false;
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2318,6 +2322,72 @@ function snapshotD3d9DeviceCaps(pointer) {
   }
 }
 
+function snapshotD3d9PresentParameters(pointer) {
+  const size = 56;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 D3DPRESENT_PARAMETERS observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      fields: {
+        backBufferWidth: view.getUint32(0, true),
+        backBufferHeight: view.getUint32(4, true),
+        backBufferFormat: view.getUint32(8, true),
+        backBufferCount: view.getUint32(12, true),
+        multiSampleType: view.getUint32(16, true),
+        multiSampleQuality: view.getUint32(20, true),
+        swapEffect: view.getUint32(24, true),
+        deviceWindow: view.getUint32(28, true),
+        windowed: view.getUint32(32, true),
+        enableAutoDepthStencil: view.getUint32(36, true),
+        autoDepthStencilFormat: view.getUint32(40, true),
+        flags: view.getUint32(44, true),
+        fullScreenRefreshRateInHz: view.getUint32(48, true),
+        presentationInterval: view.getUint32(52, true),
+      },
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotPointerSlot(pointer) {
+  const size = 4;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 pointer-slot observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      value: pointer.readPointer().toString(),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotLong(pointer) {
   const size = 4;
   if (pointer.isNull()) {
@@ -2678,6 +2748,128 @@ const idirect3d9Methods = [
   [16, "CreateDevice", 6],
 ];
 
+const idirect3ddevice9Methods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "TestCooperativeLevel", 0],
+  [4, "GetAvailableTextureMem", 0],
+  [5, "EvictManagedResources", 0],
+  [6, "GetDirect3D", 1],
+  [7, "GetDeviceCaps", 1],
+  [8, "GetDisplayMode", 2],
+  [9, "GetCreationParameters", 1],
+  [10, "SetCursorProperties", 3],
+  [11, "SetCursorPosition", 3],
+  [12, "ShowCursor", 1],
+  [13, "CreateAdditionalSwapChain", 2],
+  [14, "GetSwapChain", 2],
+  [15, "GetNumberOfSwapChains", 0],
+  [16, "Reset", 1],
+  [17, "Present", 4],
+  [18, "GetBackBuffer", 4],
+  [19, "GetRasterStatus", 2],
+  [20, "SetDialogBoxMode", 1],
+  [21, "SetGammaRamp", 3],
+  [22, "GetGammaRamp", 2],
+  [23, "CreateTexture", 8],
+  [24, "CreateVolumeTexture", 9],
+  [25, "CreateCubeTexture", 7],
+  [26, "CreateVertexBuffer", 6],
+  [27, "CreateIndexBuffer", 6],
+  [28, "CreateRenderTarget", 8],
+  [29, "CreateDepthStencilSurface", 8],
+  [30, "UpdateSurface", 4],
+  [31, "UpdateTexture", 2],
+  [32, "GetRenderTargetData", 2],
+  [33, "GetFrontBufferData", 2],
+  [34, "StretchRect", 5],
+  [35, "ColorFill", 3],
+  [36, "CreateOffscreenPlainSurface", 6],
+  [37, "SetRenderTarget", 2],
+  [38, "GetRenderTarget", 2],
+  [39, "SetDepthStencilSurface", 1],
+  [40, "GetDepthStencilSurface", 1],
+  [41, "BeginScene", 0],
+  [42, "EndScene", 0],
+  [43, "Clear", 6],
+  [44, "SetTransform", 2],
+  [45, "GetTransform", 2],
+  [46, "MultiplyTransform", 2],
+  [47, "SetViewport", 1],
+  [48, "GetViewport", 1],
+  [49, "SetMaterial", 1],
+  [50, "GetMaterial", 1],
+  [51, "SetLight", 2],
+  [52, "GetLight", 2],
+  [53, "LightEnable", 2],
+  [54, "GetLightEnable", 2],
+  [55, "SetClipPlane", 2],
+  [56, "GetClipPlane", 2],
+  [57, "SetRenderState", 2],
+  [58, "GetRenderState", 2],
+  [59, "CreateStateBlock", 2],
+  [60, "BeginStateBlock", 0],
+  [61, "EndStateBlock", 1],
+  [62, "SetClipStatus", 1],
+  [63, "GetClipStatus", 1],
+  [64, "GetTexture", 2],
+  [65, "SetTexture", 2],
+  [66, "GetTextureStageState", 3],
+  [67, "SetTextureStageState", 3],
+  [68, "GetSamplerState", 3],
+  [69, "SetSamplerState", 3],
+  [70, "ValidateDevice", 1],
+  [71, "SetPaletteEntries", 2],
+  [72, "GetPaletteEntries", 2],
+  [73, "SetCurrentTexturePalette", 1],
+  [74, "GetCurrentTexturePalette", 1],
+  [75, "SetScissorRect", 1],
+  [76, "GetScissorRect", 1],
+  [77, "SetSoftwareVertexProcessing", 1],
+  [78, "GetSoftwareVertexProcessing", 0],
+  [79, "SetNPatchMode", 1],
+  [80, "GetNPatchMode", 0],
+  [81, "DrawPrimitive", 3],
+  [82, "DrawIndexedPrimitive", 6],
+  [83, "DrawPrimitiveUP", 4],
+  [84, "DrawIndexedPrimitiveUP", 8],
+  [85, "ProcessVertices", 6],
+  [86, "CreateVertexDeclaration", 2],
+  [87, "SetVertexDeclaration", 1],
+  [88, "GetVertexDeclaration", 1],
+  [89, "SetFVF", 1],
+  [90, "GetFVF", 1],
+  [91, "CreateVertexShader", 2],
+  [92, "SetVertexShader", 1],
+  [93, "GetVertexShader", 1],
+  [94, "SetVertexShaderConstantF", 3],
+  [95, "GetVertexShaderConstantF", 3],
+  [96, "SetVertexShaderConstantI", 3],
+  [97, "GetVertexShaderConstantI", 3],
+  [98, "SetVertexShaderConstantB", 3],
+  [99, "GetVertexShaderConstantB", 3],
+  [100, "SetStreamSource", 4],
+  [101, "GetStreamSource", 4],
+  [102, "SetStreamSourceFreq", 2],
+  [103, "GetStreamSourceFreq", 2],
+  [104, "SetIndices", 1],
+  [105, "GetIndices", 1],
+  [106, "CreatePixelShader", 2],
+  [107, "SetPixelShader", 1],
+  [108, "GetPixelShader", 1],
+  [109, "SetPixelShaderConstantF", 3],
+  [110, "GetPixelShaderConstantF", 3],
+  [111, "SetPixelShaderConstantI", 3],
+  [112, "GetPixelShaderConstantI", 3],
+  [113, "SetPixelShaderConstantB", 3],
+  [114, "GetPixelShaderConstantB", 3],
+  [115, "DrawRectPatch", 3],
+  [116, "DrawTriPatch", 3],
+  [117, "DeletePatch", 1],
+  [118, "CreateQuery", 2],
+];
+
 function findExport(module, name) {
   if (typeof module.findExportByName === "function") {
     return module.findExportByName(name);
@@ -2787,13 +2979,97 @@ function attachThreadAffinityTickCountObserver(module) {
   });
 }
 
+function attachIdirect3ddevice9(object) {
+  if (object.isNull()) {
+    return;
+  }
+  try {
+    const vtable = object.readPointer();
+    const vtableKey = `IDirect3DDevice9:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      return;
+    }
+    observedVtables.add(vtableKey);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirect3ddevice9Methods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirect3DDevice9:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          if (
+            focusedD3d9CreateDeviceObservation &&
+            focusedD3d9DeviceMethodCaptured
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          const objectAddress = args[0].toString();
+          const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
+            args[index + 1].toString(),
+          );
+          this.traceObject = objectAddress;
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: objectAddress,
+              arguments: arguments_,
+            },
+            this.returnAddress,
+          );
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+            },
+            this.lastError,
+          );
+          if (focusedD3d9CreateDeviceObservation) {
+            focusedD3d9DeviceMethodCaptured = true;
+          }
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirect3DDevice9",
+      object: object.toString(),
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirect3DDevice9",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
 function attachIdirect3d9(object) {
   if (object.isNull()) {
     return;
   }
   try {
     const vtable = object.readPointer();
-    const vtableKey = vtable.toString();
+    const vtableKey = `IDirect3D9:${vtable}`;
     if (observedVtables.has(vtableKey)) {
       return;
     }
@@ -2857,6 +3133,30 @@ function attachIdirect3d9(object) {
                     256,
                   ),
                 };
+          this.traceD3d9CreateDevicePresentationOutput =
+            slot === 16 ? args[5] : null;
+          this.traceD3d9CreateDeviceOutput = slot === 16 ? args[6] : null;
+          this.traceD3d9CreateDevice =
+            this.traceD3d9CreateDevicePresentationOutput === null
+              ? null
+              : {
+                  adapter: args[1].toUInt32(),
+                  deviceType: args[2].toUInt32(),
+                  focusWindow: args[3].toString(),
+                  behaviorFlags: args[4].toUInt32(),
+                  presentationParameters: {
+                    before: snapshotD3d9PresentParameters(
+                      this.traceD3d9CreateDevicePresentationOutput,
+                    ),
+                  },
+                  deviceOutput: {
+                    before: snapshotPointerSlot(this.traceD3d9CreateDeviceOutput),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -2896,6 +3196,22 @@ function attachIdirect3d9(object) {
                     this.traceD3d9DeviceCapsOutput,
                   ),
                 };
+          const d3d9CreateDevice =
+            this.traceD3d9CreateDevice === null
+              ? null
+              : {
+                  ...this.traceD3d9CreateDevice,
+                  presentationParameters: {
+                    ...this.traceD3d9CreateDevice.presentationParameters,
+                    after: snapshotD3d9PresentParameters(
+                      this.traceD3d9CreateDevicePresentationOutput,
+                    ),
+                  },
+                  deviceOutput: {
+                    ...this.traceD3d9CreateDevice.deviceOutput,
+                    after: snapshotPointerSlot(this.traceD3d9CreateDeviceOutput),
+                  },
+                };
           finishCall(
             this.traceFrame,
             {
@@ -2910,9 +3226,20 @@ function attachIdirect3d9(object) {
                 ? {}
                 : { d3d9AdapterIdentifier }),
               ...(d3d9DeviceCaps === null ? {} : { d3d9DeviceCaps }),
+              ...(d3d9CreateDevice === null ? {} : { d3d9CreateDevice }),
             },
             lastError,
           );
+          if (
+            d3d9CreateDevice !== null &&
+            result.toInt32() >= 0 &&
+            typeof d3d9CreateDevice.deviceOutput.after.value === "string" &&
+            d3d9CreateDevice.deviceOutput.after.value !== "0x0"
+          ) {
+            attachIdirect3ddevice9(
+              ptr(d3d9CreateDevice.deviceOutput.after.value),
+            );
+          }
         },
       });
     }

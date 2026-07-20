@@ -70,6 +70,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-system-info",
     "enum-display-monitors",
     "com-initialization",
+    "d3d9-create-device",
 )
 
 

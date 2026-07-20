@@ -311,7 +311,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v7();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v8();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -473,7 +473,7 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v7();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v8();
         d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
@@ -743,10 +743,11 @@ impl BrowserRuntime {
         self.memory
             .acknowledge_delta(generation)
             .map_err(error_string)?;
+        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
         Ok(json!({
             "kind": "acknowledged",
             "generation": generation,
-            "dirtyPages": self.memory.stats().dirty_pages,
+            "dirtyPages": 0,
         }))
     }
 
@@ -759,10 +760,11 @@ impl BrowserRuntime {
             .memory
             .reconcile_cpu_writeback_binary(control, payload)
             .map_err(error_string)?;
+        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
         let metadata = json!({
             "kind": "writeback-reconciled",
             "receipt": receipt,
-            "dirtyPages": self.memory.stats().dirty_pages,
+            "dirtyPages": 0,
         });
         Ok((metadata, receipt))
     }
@@ -1381,6 +1383,9 @@ impl BrowserRuntime {
                 }
                 let capability_cluster = match fault.target.as_ref() {
                     Some(target) if target.interface == "IDirect3D9" => "d3d9-idirect3d9-method",
+                    Some(target) if target.interface == "IDirect3DDevice9" => {
+                        "d3d9-idirect3ddevice9-method"
+                    }
                     _ => "com-method-dispatch",
                 };
                 let reflection = self.memory.current_reflection().map_err(error_string)?;

@@ -59,8 +59,9 @@ const supportedObservations = new Set([
   "processor-feature",
   "unhandled-exception-filter",
   "com-initialization",
+  "d3d9-create-device",
 ]);
-const idirect3d9MethodNames = [
+export const idirect3d9MethodNames = [
   "QueryInterface",
   "AddRef",
   "Release",
@@ -78,6 +79,146 @@ const idirect3d9MethodNames = [
   "GetDeviceCaps",
   "GetAdapterMonitor",
   "CreateDevice",
+];
+const idirect3ddevice9Methods = [
+  ["QueryInterface", 2],
+  ["AddRef", 0],
+  ["Release", 0],
+  ["TestCooperativeLevel", 0],
+  ["GetAvailableTextureMem", 0],
+  ["EvictManagedResources", 0],
+  ["GetDirect3D", 1],
+  ["GetDeviceCaps", 1],
+  ["GetDisplayMode", 2],
+  ["GetCreationParameters", 1],
+  ["SetCursorProperties", 3],
+  ["SetCursorPosition", 3],
+  ["ShowCursor", 1],
+  ["CreateAdditionalSwapChain", 2],
+  ["GetSwapChain", 2],
+  ["GetNumberOfSwapChains", 0],
+  ["Reset", 1],
+  ["Present", 4],
+  ["GetBackBuffer", 4],
+  ["GetRasterStatus", 2],
+  ["SetDialogBoxMode", 1],
+  ["SetGammaRamp", 3],
+  ["GetGammaRamp", 2],
+  ["CreateTexture", 8],
+  ["CreateVolumeTexture", 9],
+  ["CreateCubeTexture", 7],
+  ["CreateVertexBuffer", 6],
+  ["CreateIndexBuffer", 6],
+  ["CreateRenderTarget", 8],
+  ["CreateDepthStencilSurface", 8],
+  ["UpdateSurface", 4],
+  ["UpdateTexture", 2],
+  ["GetRenderTargetData", 2],
+  ["GetFrontBufferData", 2],
+  ["StretchRect", 5],
+  ["ColorFill", 3],
+  ["CreateOffscreenPlainSurface", 6],
+  ["SetRenderTarget", 2],
+  ["GetRenderTarget", 2],
+  ["SetDepthStencilSurface", 1],
+  ["GetDepthStencilSurface", 1],
+  ["BeginScene", 0],
+  ["EndScene", 0],
+  ["Clear", 6],
+  ["SetTransform", 2],
+  ["GetTransform", 2],
+  ["MultiplyTransform", 2],
+  ["SetViewport", 1],
+  ["GetViewport", 1],
+  ["SetMaterial", 1],
+  ["GetMaterial", 1],
+  ["SetLight", 2],
+  ["GetLight", 2],
+  ["LightEnable", 2],
+  ["GetLightEnable", 2],
+  ["SetClipPlane", 2],
+  ["GetClipPlane", 2],
+  ["SetRenderState", 2],
+  ["GetRenderState", 2],
+  ["CreateStateBlock", 2],
+  ["BeginStateBlock", 0],
+  ["EndStateBlock", 1],
+  ["SetClipStatus", 1],
+  ["GetClipStatus", 1],
+  ["GetTexture", 2],
+  ["SetTexture", 2],
+  ["GetTextureStageState", 3],
+  ["SetTextureStageState", 3],
+  ["GetSamplerState", 3],
+  ["SetSamplerState", 3],
+  ["ValidateDevice", 1],
+  ["SetPaletteEntries", 2],
+  ["GetPaletteEntries", 2],
+  ["SetCurrentTexturePalette", 1],
+  ["GetCurrentTexturePalette", 1],
+  ["SetScissorRect", 1],
+  ["GetScissorRect", 1],
+  ["SetSoftwareVertexProcessing", 1],
+  ["GetSoftwareVertexProcessing", 0],
+  ["SetNPatchMode", 1],
+  ["GetNPatchMode", 0],
+  ["DrawPrimitive", 3],
+  ["DrawIndexedPrimitive", 6],
+  ["DrawPrimitiveUP", 4],
+  ["DrawIndexedPrimitiveUP", 8],
+  ["ProcessVertices", 6],
+  ["CreateVertexDeclaration", 2],
+  ["SetVertexDeclaration", 1],
+  ["GetVertexDeclaration", 1],
+  ["SetFVF", 1],
+  ["GetFVF", 1],
+  ["CreateVertexShader", 2],
+  ["SetVertexShader", 1],
+  ["GetVertexShader", 1],
+  ["SetVertexShaderConstantF", 3],
+  ["GetVertexShaderConstantF", 3],
+  ["SetVertexShaderConstantI", 3],
+  ["GetVertexShaderConstantI", 3],
+  ["SetVertexShaderConstantB", 3],
+  ["GetVertexShaderConstantB", 3],
+  ["SetStreamSource", 4],
+  ["GetStreamSource", 4],
+  ["SetStreamSourceFreq", 2],
+  ["GetStreamSourceFreq", 2],
+  ["SetIndices", 1],
+  ["GetIndices", 1],
+  ["CreatePixelShader", 2],
+  ["SetPixelShader", 1],
+  ["GetPixelShader", 1],
+  ["SetPixelShaderConstantF", 3],
+  ["GetPixelShaderConstantF", 3],
+  ["SetPixelShaderConstantI", 3],
+  ["GetPixelShaderConstantI", 3],
+  ["SetPixelShaderConstantB", 3],
+  ["GetPixelShaderConstantB", 3],
+  ["DrawRectPatch", 3],
+  ["DrawTriPatch", 3],
+  ["DeletePatch", 1],
+  ["CreateQuery", 2],
+];
+export const idirect3ddevice9MethodNames = idirect3ddevice9Methods.map(
+  ([name]) => name,
+);
+const d3d9PresentParameterFields = [
+  "backBufferWidth",
+  "backBufferHeight",
+  "backBufferFormat",
+  "backBufferCount",
+  "multiSampleType",
+  "multiSampleQuality",
+  "swapEffect",
+  "deviceWindow",
+  "windowed",
+  "enableAutoDepthStencil",
+  "autoDepthStencilFormat",
+  "flags",
+  "fullScreenRefreshRateInHz",
+  "presentationInterval",
 ];
 const d3d9DeviceCapsFieldLayout = [
   ["deviceType", "u32"],
@@ -254,12 +395,21 @@ const validateCallTarget = (event, selectedVtables) => {
     }
     return;
   }
-  if (event.interface !== "IDirect3D9" || !selectedVtables.includes("idirect3d9")) {
+  if (!selectedVtables.includes("idirect3d9")) {
+    throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
+  }
+  const methodNames =
+    event.interface === "IDirect3D9"
+      ? idirect3d9MethodNames
+      : event.interface === "IDirect3DDevice9"
+        ? idirect3ddevice9MethodNames
+        : null;
+  if (methodNames === null) {
     throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
   }
   if (
     !Number.isInteger(event.vtableSlot) ||
-    idirect3d9MethodNames[event.vtableSlot] !== event.api
+    methodNames[event.vtableSlot] !== event.api
   ) {
     throw new Error(`${event.kind} sequence ${event.sequence} has invalid vtable slot`);
   }
@@ -549,6 +699,87 @@ const normalizeD3d9DeviceCapsSnapshot = (snapshot, sequence, phase) => {
       0,
     ),
     fields,
+  };
+};
+
+const normalizeD3d9PresentParametersSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 56 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 56 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    ) ||
+    snapshot.fields === null ||
+    typeof snapshot.fields !== "object" ||
+    !d3d9PresentParameterFields.every(
+      (field) =>
+        Number.isInteger(snapshot.fields[field]) &&
+        snapshot.fields[field] >= 0 &&
+        snapshot.fields[field] <= 0xffffffff,
+    )
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid D3DPRESENT_PARAMETERS ${phase} snapshot`,
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  const view = new DataView(bytes.buffer);
+  const fields = Object.fromEntries(
+    d3d9PresentParameterFields.map((field, index) => [
+      field,
+      view.getUint32(index * 4, true),
+    ]),
+  );
+  if (JSON.stringify(fields) !== JSON.stringify(snapshot.fields)) {
+    throw new Error(
+      `api-leave sequence ${sequence} has inconsistent D3DPRESENT_PARAMETERS ${phase} bytes`,
+    );
+  }
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytes: [...snapshot.bytes],
+    bytesSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    fields,
+  };
+};
+
+const normalizePointerSlotSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 4 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 4 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    ) ||
+    typeof snapshot.value !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.value)
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid pointer-slot ${phase} snapshot`,
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  const value = new DataView(bytes.buffer).getUint32(0, true);
+  if (BigInt(snapshot.value) !== BigInt(value)) {
+    throw new Error(
+      `api-leave sequence ${sequence} has inconsistent pointer-slot ${phase} bytes`,
+    );
+  }
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytes: [...snapshot.bytes],
+    value: `0x${value.toString(16)}`,
   };
 };
 
@@ -863,11 +1094,17 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     .filter((event) => event.kind === "vtable-observed")
     .map((event) => {
       if (requireCallMetadata) {
-        if (event.interface !== "IDirect3D9") {
+        const methodNames =
+          event.interface === "IDirect3D9"
+            ? idirect3d9MethodNames
+            : event.interface === "IDirect3DDevice9"
+              ? idirect3ddevice9MethodNames
+              : null;
+        if (methodNames === null) {
           throw new Error(`unsupported observed vtable: ${event.interface}`);
         }
         if (!selectedVtables.includes("idirect3d9")) {
-          throw new Error("IDirect3D9 vtable was observed without selection");
+          throw new Error(`${event.interface} vtable was observed without selection`);
         }
         if (
           typeof event.object !== "string" ||
@@ -875,21 +1112,23 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           typeof event.vtable !== "string" ||
           !/^0x[0-9a-f]+$/iu.test(event.vtable) ||
           !Array.isArray(event.slots) ||
-          event.slots.length !== 17 ||
+          event.slots.length !== methodNames.length ||
           !event.slots.every(
             (slot, index) =>
               slot?.slot === index &&
-              slot.name === idirect3d9MethodNames[index] &&
+              slot.name === methodNames[index] &&
               typeof slot.address === "string" &&
               /^0x[0-9a-f]+$/iu.test(slot.address),
           )
         ) {
-          throw new Error("IDirect3D9 vtable has invalid slot metadata");
+          throw new Error(`${event.interface} vtable has invalid slot metadata`);
         }
       }
       return {
         sequence: event.sequence,
         interface: event.interface,
+        object: event.object ?? null,
+        vtable: event.vtable ?? null,
         slots: Array.isArray(event.slots)
           ? event.slots.map(({ slot, name }) => ({ slot, name }))
           : [],
@@ -1194,6 +1433,178 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const createDevices = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3D9" &&
+        pair.enter.vtableSlot === 16 &&
+        pair.enter.api === "CreateDevice" &&
+        pair.leave.d3d9CreateDevice !== undefined,
+    )
+    .map((pair) => {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+        throw new Error(
+          `api-enter sequence ${pair.enter.sequence} has invalid CreateDevice arguments`,
+        );
+      }
+      const [adapter, deviceType, focusWindow, behaviorFlags] = pair.enter.arguments
+        .slice(0, 4)
+        .map((argument, index) =>
+          normalizeD3d9U32Argument(
+            argument,
+            pair.enter.sequence,
+            index,
+            "CreateDevice",
+          ),
+        );
+      normalizeD3d9U32Argument(
+        pair.enter.arguments[4],
+        pair.enter.sequence,
+        4,
+        "CreateDevice",
+      );
+      normalizeD3d9U32Argument(
+        pair.enter.arguments[5],
+        pair.enter.sequence,
+        5,
+        "CreateDevice",
+      );
+      const observation = pair.leave.d3d9CreateDevice;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        observation.adapter !== adapter ||
+        observation.deviceType !== deviceType ||
+        typeof observation.focusWindow !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(observation.focusWindow) ||
+        BigInt(observation.focusWindow) !== BigInt(focusWindow) ||
+        observation.behaviorFlags !== behaviorFlags ||
+        observation.presentationParameters === null ||
+        typeof observation.presentationParameters !== "object" ||
+        observation.deviceOutput === null ||
+        typeof observation.deviceOutput !== "object"
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid CreateDevice observation`,
+        );
+      }
+      const presentationBefore = normalizeD3d9PresentParametersSnapshot(
+        observation.presentationParameters.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const presentationAfter = normalizeD3d9PresentParametersSnapshot(
+        observation.presentationParameters.after,
+        pair.leave.sequence,
+        "after",
+      );
+      const deviceOutputBefore = normalizePointerSlotSnapshot(
+        observation.deviceOutput.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const deviceOutputAfter = normalizePointerSlotSnapshot(
+        observation.deviceOutput.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        presentationBefore.pointer.toLowerCase() !==
+          presentationAfter.pointer.toLowerCase() ||
+        presentationAfter.pointer.toLowerCase() !==
+          pair.enter.arguments[4].toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its D3DPRESENT_PARAMETERS pointer`,
+        );
+      }
+      if (
+        deviceOutputBefore.pointer.toLowerCase() !==
+          deviceOutputAfter.pointer.toLowerCase() ||
+        deviceOutputAfter.pointer.toLowerCase() !==
+          pair.enter.arguments[5].toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its CreateDevice output pointer`,
+        );
+      }
+      const presentationChangedBytes = observation.presentationParameters.before.bytes.reduce(
+        (count, byte, index) =>
+          count +
+          (byte === observation.presentationParameters.after.bytes[index] ? 0 : 1),
+        0,
+      );
+      const deviceOutputChangedBytes = observation.deviceOutput.before.bytes.reduce(
+        (count, byte, index) =>
+          count + (byte === observation.deviceOutput.after.bytes[index] ? 0 : 1),
+        0,
+      );
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        adapter,
+        deviceType,
+        focusWindow: `0x${focusWindow.toString(16)}`,
+        behaviorFlags,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        presentationChangedBytes,
+        presentationParameters: {
+          before: presentationBefore,
+          after: presentationAfter,
+        },
+        deviceOutputChangedBytes,
+        deviceOutput: {
+          before: deviceOutputBefore,
+          after: deviceOutputAfter,
+        },
+        returnedDevice: deviceOutputAfter.value,
+        immediateConsumer: observation.immediateConsumer ?? null,
+      };
+    });
+
+  const deviceCalls = apiPairing.pairs
+    .filter((pair) => pair.enter.interface === "IDirect3DDevice9")
+    .map((pair) => {
+      const method = idirect3ddevice9Methods[pair.enter.vtableSlot];
+      if (
+        method === undefined ||
+        method[0] !== pair.enter.api ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== method[1] ||
+        !pair.enter.arguments.every(
+          (argument) =>
+            typeof argument === "string" && /^0x[0-9a-f]+$/iu.test(argument),
+        ) ||
+        typeof pair.leave.result !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(pair.leave.result)
+      ) {
+        throw new Error(
+          `IDirect3DDevice9 api pair at sequence ${pair.enter.sequence} is invalid`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        slot: pair.enter.vtableSlot,
+        method: pair.enter.api,
+        object: pair.enter.object,
+        arguments: [...pair.enter.arguments],
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+      };
+    });
+
   return {
     schema: summarySchema,
     source: {
@@ -1249,6 +1660,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       deviceTypeChecks,
       deviceFormatChecks,
       deviceCaps,
+      createDevices,
+      deviceCalls,
     },
     categories,
     files: {

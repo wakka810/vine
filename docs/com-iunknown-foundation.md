@@ -41,13 +41,22 @@ mutation前にunsupported faultとなる。詳細なnative／Node／Chrome evide
 
 ## Atomicityとlifetime
 
+- `RuntimeComMutationPlan`はowner generationを固定するopaque targeted planである。Registration、
+  `QueryInterface`、`AddRef`、`Release`、parent retentionは影響するrecord／indexだけをcommitし、
+  subsystem rootのclone／swapをrollback機構にしない。COM backing allocation／retirementも
+  `ProcessAddressReservationPlan`／`ProcessAddressReleasePlan`で同じstale-plan規則に従う。
 - installはguest mapping／protectionをmemory transactionへstageし、allocation planとCOM registration
   planをともにpreflightしてからcommitする。失敗時はowner、mapping、allocation ID、COM IDを残さない。
 - `QueryInterface`のguest output writeとreference incrementは一つのtransaction境界で完了する。
 - `AddRef`／non-final `Release`はshared object countだけを更新する。
+- child object registrationはliveなolder parent interfaceを検証し、child publicationと同時にparent
+  objectのshared countを一つ増やす。Child final `Release`はその保持referenceを解放し、parent countが
+  zeroになればparent retirementも同じplanへ含める。Parent pointerやcountをgraphics owner／browserへ
+  複製しない。
 - final `Release`は全interface／endpoint index、guest mapping、memory owner、process allocationを同時に
-  退役させる。いずれかのpreflight／memory operationが失敗した場合、Rust identityとallocationを
-  partial mutationしない。
+  退役させる。Cascading retirementは全backing、address allocation、関連subsystem retirementを先に
+  preflightする。いずれかのpreflight／memory operationが失敗した場合、Rust identity、parent count、
+  allocation、関連logical resourceをpartial mutationしない。
 - apartment initialization／uninitializationはthread ownerがprevious recordを持つplanを作り、stale
   commitを拒否する。Count overflow、duplicate uninitialize、wrong lifecycleはmutation-freeであり、
   thread exitはそのthreadのapartmentだけをretireする。
@@ -71,12 +80,12 @@ npm run check:com-foundation
 ```
 
 Rust fixtureはpointer→vtable→UD2 endpoint、canonical IUnknown identity、supported／unknown IID、HRESULT、
-stdcall cleanup、LastError preserve、shared count、final retirement、malformed call／install／release rollback、
-具体的なunsupported診断を固定する。Node contractはBrowser IDの非再利用、immutable association、local
+stdcall cleanup、LastError preserve、shared count、child-held parent reference、cascading final retirement、
+malformed call／install／release rollback、具体的なunsupported診断を固定する。Node contractはBrowser IDの非再利用、immutable association、local
 releaseとRust refcountの分離を固定する。このgateは`check:fast`にも含まれる。
 
-Windows traceではselected `IDirect3D9` rootの`AddRef`／`Release`到達が既に記録されているが、本実装は
-synthetic共通foundationだけである。`IDirect3D9`／device／resource、DirectInput、DirectSound、DirectDraw、
+Windows traceではselected `IDirect3D9` rootと`IDirect3DDevice9` childのlifetime relationが記録され、
+bounded D3D9 frontendがこの共通foundationへ接続済みである。Texture等のresource COM object、DirectInput、DirectSound、DirectDraw、
 graphics／audio backend、guest `CoInitializeEx`／`CoUninitialize`、cross-thread marshaling、class factory、
 BSTR／VARIANT／automationは実装しない。
 具体的interfaceはcorpus traceから別taskとしてこのfoundationへ接続する。

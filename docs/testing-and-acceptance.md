@@ -323,7 +323,15 @@ traceはdisplay mode 4 calls、identifier 1 call、device caps 1 call、device t
 1／`CreateDevice` parented 3／その他internal 9 callsをidentityで分ける。Identifier consumerがHRESULT
 signだけを読みhost GPU fieldを消費しないこと、caps consumerがHRESULT signとoffset 8／12／204だけを
 読むこと、両predicate callerがHRESULT signを検査することを固定する。
-`RuntimeGraphics`／renderer resourceを生成しないこともroot query leavesのnon-claimとして固定する。詳細は
+Root query leavesが`RuntimeGraphics`／renderer resourceを生成しないことも固定する。Slot 16は6-word／
+HRESULT ABI、56-byte x86 `D3DPRESENT_PARAMETERS`のstrict windowed HAL band、live HWNDからの
+800×600 resolution、format 22へのnormalization、12-byte prefixと4-byte device pointerのatomic writeを
+検証する。Complete 119-slot `IDirect3DDevice9` catalog、child-held root reference、logical graphics deviceの
+private ownership、capacity／stale plan／failure atomicity、final device releaseによるgraphics retirementと
+optional root cascadeもunit／aggregate fixtureで固定する。Node／Chromeはsame ordered completion、guest
+write、COM identity、logical presentationとslot 23 `CreateTexture` stopを比較し、browser rendererが未生成で
+あることを要求する。Native two-run oracleはzero width／height／formatのresolution、remaining field preserve、
+non-NULL device、first reached device method、nested AddRef relationを固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

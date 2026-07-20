@@ -957,6 +957,11 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #preflightHostDelta(delta: HostMemoryDelta): PhysicalCapacityRequirement {
+    if (delta.mappingOperations.length === 0) {
+      this.#preflightDeltaPages(delta.pages, this.#mappings);
+      return this.#capacityRequirement(this.#mappings.size, this.#pageTables.size);
+    }
+
     const mappings = new Map<number, PlannedMapping>(
       [...this.#mappings].map(([address, mapping]) => [
         address,
@@ -1104,8 +1109,16 @@ export class V86Mirror implements ExecutionEngine {
       }
     }
 
+    this.#preflightDeltaPages(delta.pages, mappings);
+    return capacity;
+  }
+
+  #preflightDeltaPages(
+    pages: HostMemoryDelta["pages"],
+    mappings: ReadonlyMap<number, PlannedMapping>,
+  ): void {
     const dirtyAddresses = new Set<number>();
-    for (const page of delta.pages) {
+    for (const page of pages) {
       invariant((page.address & (memoryPageSize - 1)) === 0, "host delta page is unaligned");
       invariant(page.bytes.byteLength === memoryPageSize, "host delta page is not 4 KiB");
       invariant(!dirtyAddresses.has(page.address), "host delta repeats a dirty page");
@@ -1118,7 +1131,6 @@ export class V86Mirror implements ExecutionEngine {
         "host delta protection does not match the mirror",
       );
     }
-    return capacity;
   }
 
   #applyMappingOperation(operation: MappingOperation): void {

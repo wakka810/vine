@@ -12,16 +12,21 @@ use crate::com::{
     ComReturnValue,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
-use crate::runtime::{RuntimeComIid, RuntimeComReturnKind};
+use crate::runtime::{
+    RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsColorFormat,
+    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
+    RuntimeStateError, RuntimeStateErrorClass,
+};
 
 pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 7;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 8;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
+pub const D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH: u32 = 56;
 pub const D3D9_D3DDEVTYPE_HAL: u32 = 1;
 pub const D3D9_D3DCAPS_READ_SCANLINE: u32 = 0x0002_0000;
 pub const D3D9_D3DCAPS2_DYNAMICTEXTURES: u32 = 0x2000_0000;
@@ -30,6 +35,11 @@ pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
+pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
+pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
+pub const D3D9_D3DFMT_D16: u32 = 80;
+pub const D3D9_D3DMULTISAMPLE_NONE: u32 = 0;
+pub const D3D9_D3DSWAPEFFECT_DISCARD: u32 = 3;
 pub const D3D9_D3DERR_NOTAVAILABLE: ComHResult = ComHResult(0x8876_086a_u32 as i32);
 pub const D3D9_D3DERR_INVALIDCALL: ComHResult = ComHResult(0x8876_086c_u32 as i32);
 pub const D3D9_VIRTUAL_DRIVER: &str = "vine-d3d9.dll";
@@ -41,6 +51,10 @@ pub const D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES: [u8; 16] = [
 ];
 pub const D3D9_IDIRECT3D9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0xca, 0xcb, 0xbd, 0x81, 0xd4, 0x64, 0x6d, 0x42, 0xae, 0x8d, 0xad, 0x01, 0x47, 0xf4, 0x27, 0x5c,
+]);
+pub const D3D9_IDIRECT3DDEVICE9_CLASS_IDENTITY: &str = "d3d9.idirect3ddevice9.v1";
+pub const D3D9_IDIRECT3DDEVICE9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0x96, 0x3b, 0x22, 0xd0, 0x7a, 0xbf, 0xfd, 0x43, 0x92, 0xbd, 0xa4, 0x3b, 0x0d, 0x82, 0xb9, 0xeb,
 ]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -129,6 +143,31 @@ pub struct D3d9CheckDeviceFormatPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9CreateDevicePolicy {
+    pub profile_id: String,
+    pub display_profile_id: String,
+    pub adapter: u32,
+    pub device_type: u32,
+    pub behavior_flags: u32,
+    pub requested_back_buffer_width: u32,
+    pub requested_back_buffer_height: u32,
+    pub requested_back_buffer_format: u32,
+    pub resolved_back_buffer_format: u32,
+    pub back_buffer_count: u32,
+    pub multi_sample_type: u32,
+    pub multi_sample_quality: u32,
+    pub swap_effect: u32,
+    pub device_window_matches_focus_window: bool,
+    pub windowed: u32,
+    pub enable_auto_depth_stencil: u32,
+    pub auto_depth_stencil_format: u32,
+    pub flags: u32,
+    pub full_screen_refresh_rate_in_hz: u32,
+    pub presentation_interval: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -140,14 +179,15 @@ pub struct D3d9CompatibilityPolicy {
     pub get_device_caps: Option<D3d9DeviceCapsPolicy>,
     pub check_device_type: Option<D3d9CheckDeviceTypePolicy>,
     pub check_device_format: Option<D3d9CheckDeviceFormatPolicy>,
+    pub create_device: Option<D3d9CreateDevicePolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v7() -> Self {
+    pub fn controlled_v8() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v7".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v8".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -210,6 +250,28 @@ impl D3d9CompatibilityPolicy {
                 resource_type: D3D9_D3DRTYPE_TEXTURE,
                 check_format: D3D9_D3DFMT_X8R8G8B8,
                 supported_usages: [0, D3D9_D3DUSAGE_DYNAMIC],
+            }),
+            create_device: Some(D3d9CreateDevicePolicy {
+                profile_id: "primary-windowed-hal-device-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                adapter: 0,
+                device_type: D3D9_D3DDEVTYPE_HAL,
+                behavior_flags: D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED,
+                requested_back_buffer_width: 0,
+                requested_back_buffer_height: 0,
+                requested_back_buffer_format: D3D9_D3DFMT_UNKNOWN,
+                resolved_back_buffer_format: D3D9_D3DFMT_X8R8G8B8,
+                back_buffer_count: 1,
+                multi_sample_type: D3D9_D3DMULTISAMPLE_NONE,
+                multi_sample_quality: 0,
+                swap_effect: D3D9_D3DSWAPEFFECT_DISCARD,
+                device_window_matches_focus_window: true,
+                windowed: 1,
+                enable_auto_depth_stencil: 0,
+                auto_depth_stencil_format: D3D9_D3DFMT_D16,
+                flags: 0,
+                full_screen_refresh_rate_in_hz: 0,
+                presentation_interval: 0,
             }),
         }
     }
@@ -332,6 +394,34 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 device-format check must describe the bounded primary HAL texture band",
             ));
         }
+        if let Some(create) = self.create_device.as_ref()
+            && (!valid_policy_id(&create.profile_id)
+                || !valid_policy_id(&create.display_profile_id)
+                || create.adapter != 0
+                || create.device_type != D3D9_D3DDEVTYPE_HAL
+                || create.behavior_flags != D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED
+                || create.requested_back_buffer_width != 0
+                || create.requested_back_buffer_height != 0
+                || create.requested_back_buffer_format != D3D9_D3DFMT_UNKNOWN
+                || create.resolved_back_buffer_format != D3D9_D3DFMT_X8R8G8B8
+                || create.back_buffer_count != 1
+                || create.multi_sample_type != D3D9_D3DMULTISAMPLE_NONE
+                || create.multi_sample_quality != 0
+                || create.swap_effect != D3D9_D3DSWAPEFFECT_DISCARD
+                || !create.device_window_matches_focus_window
+                || create.windowed != 1
+                || create.enable_auto_depth_stencil != 0
+                || create.auto_depth_stencil_format != D3D9_D3DFMT_D16
+                || create.flags != 0
+                || create.full_screen_refresh_rate_in_hz != 0
+                || create.presentation_interval != 0)
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-create-device-profile-invalid",
+                "D3D9 device-creation profile must describe the reached bounded windowed HAL presentation",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_count
                 .as_ref()
@@ -352,6 +442,9 @@ impl D3d9CompatibilityPolicy {
                 .as_ref()
                 .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
             self.check_device_format
+                .as_ref()
+                .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
+            self.create_device
                 .as_ref()
                 .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
         ];
@@ -375,6 +468,9 @@ impl D3d9CompatibilityPolicy {
             self.check_device_format
                 .as_ref()
                 .map(|profile| profile.adapter_format),
+            self.create_device
+                .as_ref()
+                .map(|profile| profile.resolved_back_buffer_format),
         ];
         let mut coherent_adapter_formats = coherent_adapter_formats.into_iter().flatten();
         if let Some(primary) = coherent_adapter_formats.next()
@@ -387,6 +483,77 @@ impl D3d9CompatibilityPolicy {
             ));
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9PresentParameters {
+    pub back_buffer_width: u32,
+    pub back_buffer_height: u32,
+    pub back_buffer_format: u32,
+    pub back_buffer_count: u32,
+    pub multi_sample_type: u32,
+    pub multi_sample_quality: u32,
+    pub swap_effect: u32,
+    pub device_window: u32,
+    pub windowed: u32,
+    pub enable_auto_depth_stencil: u32,
+    pub auto_depth_stencil_format: u32,
+    pub flags: u32,
+    pub full_screen_refresh_rate_in_hz: u32,
+    pub presentation_interval: u32,
+}
+
+impl D3d9PresentParameters {
+    pub fn from_x86_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH as usize {
+            return None;
+        }
+        let mut words = [0_u32; 14];
+        for (word, bytes) in words.iter_mut().zip(bytes.chunks_exact(4)) {
+            *word = u32::from_le_bytes(bytes.try_into().ok()?);
+        }
+        Some(Self {
+            back_buffer_width: words[0],
+            back_buffer_height: words[1],
+            back_buffer_format: words[2],
+            back_buffer_count: words[3],
+            multi_sample_type: words[4],
+            multi_sample_quality: words[5],
+            swap_effect: words[6],
+            device_window: words[7],
+            windowed: words[8],
+            enable_auto_depth_stencil: words[9],
+            auto_depth_stencil_format: words[10],
+            flags: words[11],
+            full_screen_refresh_rate_in_hz: words[12],
+            presentation_interval: words[13],
+        })
+    }
+
+    fn matches_policy(self, policy: &D3d9CreateDevicePolicy, focus_window: u32) -> bool {
+        self.back_buffer_width == policy.requested_back_buffer_width
+            && self.back_buffer_height == policy.requested_back_buffer_height
+            && self.back_buffer_format == policy.requested_back_buffer_format
+            && self.back_buffer_count == policy.back_buffer_count
+            && self.multi_sample_type == policy.multi_sample_type
+            && self.multi_sample_quality == policy.multi_sample_quality
+            && self.swap_effect == policy.swap_effect
+            && (!policy.device_window_matches_focus_window || self.device_window == focus_window)
+            && self.windowed == policy.windowed
+            && self.enable_auto_depth_stencil == policy.enable_auto_depth_stencil
+            && self.auto_depth_stencil_format == policy.auto_depth_stencil_format
+            && self.flags == policy.flags
+            && self.full_screen_refresh_rate_in_hz == policy.full_screen_refresh_rate_in_hz
+            && self.presentation_interval == policy.presentation_interval
+    }
+
+    fn resolved_prefix(self, width: u32, height: u32, format: u32) -> Vec<u8> {
+        [width, height, format]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect()
     }
 }
 
@@ -510,6 +677,19 @@ fn write_fixed_ansi(bytes: &mut [u8], offset: usize, capacity: usize, value: &st
     bytes[offset..offset + value.len()].copy_from_slice(value.as_bytes());
 }
 
+fn guest_ranges_overlap(
+    left: GuestAddress,
+    left_length: usize,
+    right: GuestAddress,
+    right_length: usize,
+) -> bool {
+    let left_start = u64::from(left.0);
+    let right_start = u64::from(right.0);
+    let left_end = left_start + left_length as u64;
+    let right_end = right_start + right_length as u64;
+    left_start < right_end && right_start < left_end
+}
+
 pub fn dispatch_d3d9_api(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -556,6 +736,7 @@ fn dispatch_d3d9_frontend_call(
             (9, "CheckDeviceType") => (5, RuntimeComReturnKind::HResult),
             (10, "CheckDeviceFormat") => (6, RuntimeComReturnKind::HResult),
             (14, "GetDeviceCaps") => (3, RuntimeComReturnKind::HResult),
+            (16, "CreateDevice") => (6, RuntimeComReturnKind::HResult),
             _ => {
                 return call.fault(
                     ComFaultClass::RuntimeDefect,
@@ -592,6 +773,7 @@ fn dispatch_d3d9_frontend_call(
         9 => dispatch_check_device_type(policy, call),
         10 => dispatch_check_device_format(policy, call),
         14 => dispatch_get_device_caps(policy, call),
+        16 => dispatch_create_device(policy, call),
         _ => unreachable!(),
     }
 }
@@ -653,6 +835,171 @@ fn dispatch_get_adapter_monitor(
         .expect("display authority preflight requires a primary monitor")
         .handle;
     call.complete(ComReturnValue::U32(monitor_handle), Vec::new())
+}
+
+fn dispatch_create_device(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(create_policy) = policy.create_device.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-create-device",
+            "create-device-policy-disabled",
+            "D3D9 compatibility policy does not enable CreateDevice",
+        );
+    };
+    let adapter = call.frame().explicit_arguments[0];
+    let device_type = call.frame().explicit_arguments[1];
+    let focus_window = call.frame().explicit_arguments[2];
+    let behavior_flags = call.frame().explicit_arguments[3];
+    let presentation_pointer = call.frame().explicit_arguments[4];
+    let output_pointer = call.frame().explicit_arguments[5];
+    if adapter != create_policy.adapter
+        || device_type != create_policy.device_type
+        || focus_window == 0
+        || presentation_pointer == 0
+        || output_pointer == 0
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if behavior_flags != create_policy.behavior_flags {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    if let Some((code, message)) =
+        primary_display_authority_fault(&call, &create_policy.display_profile_id)
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-create-device",
+            code,
+            message,
+        );
+    }
+
+    let presentation_address = GuestAddress(presentation_pointer);
+    let output_address = GuestAddress(output_pointer);
+    if guest_ranges_overlap(
+        presentation_address,
+        D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH as usize,
+        output_address,
+        4,
+    ) {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if let Err(error) = call.memory().validate_access(
+        presentation_address,
+        D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH as usize,
+        MemoryAccess::Read,
+    ) {
+        return call.memory_fault(error);
+    }
+    if let Err(error) = call
+        .memory()
+        .validate_access(presentation_address, 12, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    if let Err(error) = call
+        .memory()
+        .validate_access(output_address, 4, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    let presentation_bytes = match call.memory().read(
+        presentation_address,
+        D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH as usize,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let presentation = D3d9PresentParameters::from_x86_bytes(&presentation_bytes)
+        .expect("validated D3DPRESENT_PARAMETERS bytes must decode");
+    if presentation.device_window != focus_window {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if !presentation.matches_policy(create_policy, focus_window) {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+
+    let graphics_plan =
+        match call
+            .runtime()
+            .plan_graphics_device_creation(RuntimeGraphicsDeviceCreateRequest {
+                frontend: RuntimeGraphicsFrontend::D3d9,
+                window_handle: focus_window,
+                color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+                back_buffer_count: presentation.back_buffer_count,
+                sample_count: 1,
+                present_mode: RuntimeGraphicsPresentMode::Discard,
+                windowed: true,
+            }) {
+            Ok(plan) => plan,
+            Err(error)
+                if matches!(
+                    error.class,
+                    RuntimeStateErrorClass::InvalidInput
+                        | RuntimeStateErrorClass::NotFound
+                        | RuntimeStateErrorClass::Conflict
+                ) =>
+            {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) => return call.runtime_fault(error),
+        };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_device_creation(&graphics_plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let planned_device_id = graphics_plan.id();
+    let logical_presentation = graphics_plan.presentation();
+    let presentation_prefix = presentation.resolved_prefix(
+        logical_presentation.width,
+        logical_presentation.height,
+        create_policy.resolved_back_buffer_format,
+    );
+
+    let mut call = call;
+    let (installed, guest_writes) = match call.install_child_com_object_with_guest_writes(
+        direct3ddevice9_object_spec(),
+        |object| {
+            let interface = object
+                .interfaces
+                .iter()
+                .find(|interface| interface.iid == D3D9_IDIRECT3DDEVICE9_IID)
+                .ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "d3d9-create-device",
+                        "idirect3ddevice9-installation-missing",
+                        "installed D3D9 device object has no IDirect3DDevice9 interface",
+                    )
+                })?;
+            Ok(vec![
+                (presentation_address, presentation_prefix),
+                (
+                    output_address,
+                    interface.guest_pointer.0.to_le_bytes().to_vec(),
+                ),
+            ])
+        },
+    ) {
+        Ok(result) => result,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let device = call
+        .runtime_mut()
+        .commit_graphics_device_creation(graphics_plan, installed.object.id);
+    debug_assert_eq!(device.id, planned_device_id);
+    debug_assert_eq!(device.presentation, logical_presentation);
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
 }
 
 fn dispatch_check_device_format(
@@ -1040,8 +1387,157 @@ pub fn direct3d9_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("CheckDeviceFormatConversion", 4),
                     ComMethodSpec::frontend_hresult("GetDeviceCaps", 3),
                     ComMethodSpec::frontend_u32("GetAdapterMonitor", 1),
-                    ComMethodSpec::unsupported_hresult("CreateDevice", 6),
+                    ComMethodSpec::frontend_hresult("CreateDevice", 6),
                 ],
+            },
+        ],
+    }
+}
+
+const D3D9_IDIRECT3DDEVICE9_ABI: [(&str, u16); 119] = [
+    ("QueryInterface", 2),
+    ("AddRef", 0),
+    ("Release", 0),
+    ("TestCooperativeLevel", 0),
+    ("GetAvailableTextureMem", 0),
+    ("EvictManagedResources", 0),
+    ("GetDirect3D", 1),
+    ("GetDeviceCaps", 1),
+    ("GetDisplayMode", 2),
+    ("GetCreationParameters", 1),
+    ("SetCursorProperties", 3),
+    ("SetCursorPosition", 3),
+    ("ShowCursor", 1),
+    ("CreateAdditionalSwapChain", 2),
+    ("GetSwapChain", 2),
+    ("GetNumberOfSwapChains", 0),
+    ("Reset", 1),
+    ("Present", 4),
+    ("GetBackBuffer", 4),
+    ("GetRasterStatus", 2),
+    ("SetDialogBoxMode", 1),
+    ("SetGammaRamp", 3),
+    ("GetGammaRamp", 2),
+    ("CreateTexture", 8),
+    ("CreateVolumeTexture", 9),
+    ("CreateCubeTexture", 7),
+    ("CreateVertexBuffer", 6),
+    ("CreateIndexBuffer", 6),
+    ("CreateRenderTarget", 8),
+    ("CreateDepthStencilSurface", 8),
+    ("UpdateSurface", 4),
+    ("UpdateTexture", 2),
+    ("GetRenderTargetData", 2),
+    ("GetFrontBufferData", 2),
+    ("StretchRect", 5),
+    ("ColorFill", 3),
+    ("CreateOffscreenPlainSurface", 6),
+    ("SetRenderTarget", 2),
+    ("GetRenderTarget", 2),
+    ("SetDepthStencilSurface", 1),
+    ("GetDepthStencilSurface", 1),
+    ("BeginScene", 0),
+    ("EndScene", 0),
+    ("Clear", 6),
+    ("SetTransform", 2),
+    ("GetTransform", 2),
+    ("MultiplyTransform", 2),
+    ("SetViewport", 1),
+    ("GetViewport", 1),
+    ("SetMaterial", 1),
+    ("GetMaterial", 1),
+    ("SetLight", 2),
+    ("GetLight", 2),
+    ("LightEnable", 2),
+    ("GetLightEnable", 2),
+    ("SetClipPlane", 2),
+    ("GetClipPlane", 2),
+    ("SetRenderState", 2),
+    ("GetRenderState", 2),
+    ("CreateStateBlock", 2),
+    ("BeginStateBlock", 0),
+    ("EndStateBlock", 1),
+    ("SetClipStatus", 1),
+    ("GetClipStatus", 1),
+    ("GetTexture", 2),
+    ("SetTexture", 2),
+    ("GetTextureStageState", 3),
+    ("SetTextureStageState", 3),
+    ("GetSamplerState", 3),
+    ("SetSamplerState", 3),
+    ("ValidateDevice", 1),
+    ("SetPaletteEntries", 2),
+    ("GetPaletteEntries", 2),
+    ("SetCurrentTexturePalette", 1),
+    ("GetCurrentTexturePalette", 1),
+    ("SetScissorRect", 1),
+    ("GetScissorRect", 1),
+    ("SetSoftwareVertexProcessing", 1),
+    ("GetSoftwareVertexProcessing", 0),
+    ("SetNPatchMode", 1),
+    ("GetNPatchMode", 0),
+    ("DrawPrimitive", 3),
+    ("DrawIndexedPrimitive", 6),
+    ("DrawPrimitiveUP", 4),
+    ("DrawIndexedPrimitiveUP", 8),
+    ("ProcessVertices", 6),
+    ("CreateVertexDeclaration", 2),
+    ("SetVertexDeclaration", 1),
+    ("GetVertexDeclaration", 1),
+    ("SetFVF", 1),
+    ("GetFVF", 1),
+    ("CreateVertexShader", 2),
+    ("SetVertexShader", 1),
+    ("GetVertexShader", 1),
+    ("SetVertexShaderConstantF", 3),
+    ("GetVertexShaderConstantF", 3),
+    ("SetVertexShaderConstantI", 3),
+    ("GetVertexShaderConstantI", 3),
+    ("SetVertexShaderConstantB", 3),
+    ("GetVertexShaderConstantB", 3),
+    ("SetStreamSource", 4),
+    ("GetStreamSource", 4),
+    ("SetStreamSourceFreq", 2),
+    ("GetStreamSourceFreq", 2),
+    ("SetIndices", 1),
+    ("GetIndices", 1),
+    ("CreatePixelShader", 2),
+    ("SetPixelShader", 1),
+    ("GetPixelShader", 1),
+    ("SetPixelShaderConstantF", 3),
+    ("GetPixelShaderConstantF", 3),
+    ("SetPixelShaderConstantI", 3),
+    ("GetPixelShaderConstantI", 3),
+    ("SetPixelShaderConstantB", 3),
+    ("GetPixelShaderConstantB", 3),
+    ("DrawRectPatch", 3),
+    ("DrawTriPatch", 3),
+    ("DeletePatch", 1),
+    ("CreateQuery", 2),
+];
+
+pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
+    let methods = D3D9_IDIRECT3DDEVICE9_ABI
+        .iter()
+        .enumerate()
+        .map(|(slot, (name, argument_words))| match slot {
+            0 => ComMethodSpec::query_interface(),
+            1 => ComMethodSpec::add_ref(),
+            2 => ComMethodSpec::release(),
+            4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
+            11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
+            80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),
+            _ => ComMethodSpec::unsupported_hresult(*name, *argument_words),
+        })
+        .collect();
+    ComObjectSpec {
+        class_identity: D3D9_IDIRECT3DDEVICE9_CLASS_IDENTITY.to_owned(),
+        interfaces: vec![
+            ComInterfaceSpec::iunknown(),
+            ComInterfaceSpec {
+                iid: D3D9_IDIRECT3DDEVICE9_IID,
+                name: "IDirect3DDevice9".to_owned(),
+                methods,
             },
         ],
     }

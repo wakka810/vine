@@ -29,22 +29,40 @@ function rotateRight(value, bits) {
   return (value >>> bits) | (value << (32 - bits));
 }
 
-function canonicalJson(value) {
+function emitCanonicalJson(value, emit) {
   if (value === null || typeof value !== "object") {
     const encoded = JSON.stringify(value);
     if (encoded === undefined) {
       throw new TypeError("semantic call contains a non-serializable scalar");
     }
-    return encoded;
+    emit(encoded);
+    return;
   }
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => canonicalJson(entry ?? null)).join(",")}]`;
+    emit("[");
+    for (let index = 0; index < value.length; index += 1) {
+      if (index > 0) {
+        emit(",");
+      }
+      emitCanonicalJson(value[index] ?? null, emit);
+    }
+    emit("]");
+    return;
   }
   const fields = Object.keys(value)
     .filter((key) => value[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`);
-  return `{${fields.join(",")}}`;
+    .sort();
+  emit("{");
+  for (let index = 0; index < fields.length; index += 1) {
+    if (index > 0) {
+      emit(",");
+    }
+    const key = fields[index];
+    emit(JSON.stringify(key));
+    emit(":");
+    emitCanonicalJson(value[key], emit);
+  }
+  emit("}");
 }
 
 class Sha256 {
@@ -198,6 +216,7 @@ export class SemanticCallDigest {
   #nextSequence = 1;
   #count = 0;
   #finished = false;
+  #emit = (fragment) => this.#updateText(fragment);
 
   update(call) {
     if (this.#finished) {
@@ -209,18 +228,21 @@ export class SemanticCallDigest {
     if (call.sequence < this.#nextSequence || this.#pendingCalls.has(call.sequence)) {
       throw new Error(`semantic call sequence ${call.sequence} is duplicated`);
     }
-    const canonical = `${canonicalJson(normalizeSemanticCall(call))}\n`;
+    const normalized = normalizeSemanticCall(call);
     this.#count += 1;
     if (call.sequence === this.#nextSequence) {
-      this.#updateDigest(canonical);
+      this.#updateDigest(normalized);
       this.#nextSequence += 1;
       while (this.#pendingCalls.has(this.#nextSequence)) {
-        this.#updateDigest(this.#pendingCalls.get(this.#nextSequence));
+        this.#updateFragments(this.#pendingCalls.get(this.#nextSequence));
         this.#pendingCalls.delete(this.#nextSequence);
         this.#nextSequence += 1;
       }
     } else {
-      this.#pendingCalls.set(call.sequence, canonical);
+      const fragments = [];
+      emitCanonicalJson(normalized, (fragment) => fragments.push(fragment));
+      fragments.push("\n");
+      this.#pendingCalls.set(call.sequence, fragments);
     }
   }
 
@@ -234,14 +256,25 @@ export class SemanticCallDigest {
     }
     this.#finished = true;
     for (const sequence of [...this.#pendingCalls.keys()].sort((left, right) => left - right)) {
-      this.#updateDigest(this.#pendingCalls.get(sequence));
+      this.#updateFragments(this.#pendingCalls.get(sequence));
     }
     this.#pendingCalls.clear();
     return this.#sha256.digestHex();
   }
 
-  #updateDigest(canonical) {
-    let remaining = canonical;
+  #updateDigest(normalized) {
+    emitCanonicalJson(normalized, this.#emit);
+    this.#updateText("\n");
+  }
+
+  #updateFragments(fragments) {
+    for (const fragment of fragments) {
+      this.#updateText(fragment);
+    }
+  }
+
+  #updateText(fragment) {
+    let remaining = fragment;
     while (remaining.length > 0) {
       const { read, written } = this.#encoder.encodeInto(remaining, this.#encodedBuffer);
       if (read === 0) {

@@ -3638,3 +3638,53 @@ device type `1`、focus window `0x48010001`、behavior flags `0x44`、presentati
 `0x101038F0`、output pointer `0x101517C4`、endpoint `0x01001130`、return `0x1005ACA5`の
 `com-method-unsupported`である。これは最初のlogical device、presentation state、graphics resource owner、
 browser renderer transaction boundaryを必要とするsubsystem gatewayであり、API単体leafとして実装しない。
+
+## 117. BGI D3D9 logical device creation
+
+Focused `d3d9-create-device` observationを独立に2回取得した。Primary raw traceは2,333,677 bytes／
+7,075 records／3,498 balanced API pairs／SHA-256
+`df65b1108c813c948a7092db20bff85748f7654a1f7c2a98459980ebfc3f4071`、summaryは275,843 bytes／
+SHA-256 `b49c7ee4179bbcd1f7df888c81e7a8fea1ffeb5fd14201fbaf6cd444bf0f8f60`である。Confirmation
+raw traceは2,355,307 bytes／7,121 records／3,521 balanced pairs／SHA-256
+`2b2da627c61b0a337a28912d77bdece390d45e965254a27b8e58ccb3130c95c3`、summaryは275,855 bytes／
+SHA-256 `a419a38f4fbb66deeddb634ab99e71841c23e624903d41e6a817e163c5d47e7b`で、両summaryともdiagnosticsは0である。
+Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceにはsuccessful `IDirect3D9::CreateDevice`が3 callsある。Adapter `0`、`D3DDEVTYPE_HAL`、behavior
+flags `0x44`で、input `BackBufferWidth／Height／Format`は全て`0／0／0`、他のpresentation fieldsは
+`BackBufferCount 1`、multisample `0／0`、`D3DSWAPEFFECT_DISCARD`、Windowed `1`、auto depth-stencil
+disabled、format `D3DFMT_D16`、残りzeroである。Nativeは一callを`800x600／format 22`、二callを
+`1280x720／format 22`へ解決し、remaining fieldsを保存してnon-NULL deviceと`S_OK`を返した。Observed
+LastErrorは0で、BGI direct caller RVA `0x0005ACA5`はHRESULT signを消費する。新しいfull 119-slot
+`IDirect3DDevice9` vtable observationでは最初の到達methodがslot 23 `CreateTexture(1024, 1024, 1, 0,
+22, 2, output, 0)`であり、その内側のdevice `AddRef`は`2`を返す。Native HWND、COM pointer、vtable、
+resolved desktop geometryはartifact identityであり、Vine guest identityへimportしない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-8 `primary-windowed-hal-device-v1`だけを実装した。Sequence 17,849／instruction
+11,807,387でroot `0x01000004`から呼ばれ、live HWND `0x48010001`のclient geometryを使ってpresentation
+prefixへ`200300005802000016000000`を書き、device pointer `0x01010004`をoutputへ書いて`S_OK`を返す。
+`RuntimeCom`はobject ID 3／interface ID 6のchildをreference count 1でpublishし、root countはretained
+referenceにより2となる。`RuntimeGraphics`はlogical device ID 1とpresentation `800x600／format 22／
+one buffer／one sample／discard／windowed`を所有する。Guest 16 bytes、COM identity、graphics associationは
+全owner preflight後にpublishされ、final device releaseはgraphics associationをretireして必要ならroot
+retirementへcascadeする。Browser renderer resourceは生成しない。
+
+Node summaryは17,849 calls／11,807,772 instructions、17,904 writebacks／36,055 dirty pages／
+1,807,469 changed bytes、16,564 host deltas、generation 34,733を通す。Semantic SHA-256は
+`d062bba8eef984451f149034d3bb1f27b2d92a81184be5ffcfa4fcddb8f74f14`、final memory SHA-256は
+`5317e97d117c7599c9900bb903c4ab184ab4f97db3cad6d9c6f951ba1941dbd1`、reportは82,615 bytes／
+SHA-256 `84f01520ec438b4919fd8fe39e8bcc86abfef83d09373475847025e8ed333abb`である。
+
+Chrome Runtime Workerもsame ordered completion／instructions／semantic digestを再現し、29,082 slices、
+11,178 budget yields、29,080 writebacks／61,961 pages、16,564 mapping deltas、17,755 mapping dirty pages、
+generation 27→45,911、63,571 Wasm crossings、87,212 success execution transitions、terminal pending work zeroを
+通す。Elapsedは5,692.240 ms、maximum sliceは3.660 ms、1,141 heartbeat samplesのmaximum gapは
+31.035 msである。Browser reportは116,599 bytes／SHA-256
+`94a2bd202dfab3bfab47f0b70f7c75d1195f4efbbde80996c7a4414422a31601`である。Wasm artifactは
+3,420,622 bytes／SHA-256 `6dd86d69ad90ccf2bbe705ad08aaec42fc3555280bda8e721c5b2bf0c7118e5a`である。
+
+次stopはinstruction 11,807,772、`IDirect3DDevice9` slot 23／`CreateTexture`、this `0x01010004`、
+arguments `1024, 1024, 1, 0, 22, 2, 0x101038C8, 0`、endpoint `0x010111A0`、return
+`0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
+Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。

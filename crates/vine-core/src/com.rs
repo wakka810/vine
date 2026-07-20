@@ -97,6 +97,24 @@ impl ComMethodSpec {
         }
     }
 
+    pub fn unsupported_void(name: impl Into<String>, explicit_argument_words: u16) -> Self {
+        Self {
+            name: name.into(),
+            explicit_argument_words,
+            return_kind: RuntimeComReturnKind::Void,
+            implementation: RuntimeComMethodImplementation::Unsupported,
+        }
+    }
+
+    pub fn unsupported_x87_f32(name: impl Into<String>, explicit_argument_words: u16) -> Self {
+        Self {
+            name: name.into(),
+            explicit_argument_words,
+            return_kind: RuntimeComReturnKind::X87F32,
+            implementation: RuntimeComMethodImplementation::Unsupported,
+        }
+    }
+
     pub fn frontend_hresult(name: impl Into<String>, explicit_argument_words: u16) -> Self {
         Self {
             name: name.into(),
@@ -290,6 +308,27 @@ impl ComFrontendCall<'_> {
         self.runtime
     }
 
+    pub(crate) fn runtime_mut(&mut self) -> &mut RuntimeKernel {
+        self.runtime
+    }
+
+    pub(crate) fn install_child_com_object_with_guest_writes<F>(
+        &mut self,
+        spec: ComObjectSpec,
+        build_guest_writes: F,
+    ) -> Result<(InstalledComObject, Vec<ComGuestWriteReceipt>), RuntimeStateError>
+    where
+        F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+    {
+        install_com_object_with_guest_writes(
+            self.memory,
+            self.runtime,
+            Some(self.frame.interface_id),
+            spec,
+            build_guest_writes,
+        )
+    }
+
     pub(crate) fn fault(
         self,
         class: ComFaultClass,
@@ -309,6 +348,10 @@ impl ComFrontendCall<'_> {
 
     pub(crate) fn memory_fault(self, error: GuestMemoryError) -> ComDispatchOutcome {
         ComDispatchOutcome::Fault(fault_from_memory(error, self.trap, Some(&self.target)))
+    }
+
+    pub(crate) fn runtime_fault(self, error: RuntimeStateError) -> ComDispatchOutcome {
+        ComDispatchOutcome::Fault(fault_from_runtime(error, self.trap, Some(&self.target)))
     }
 
     pub(crate) fn complete(
@@ -347,6 +390,20 @@ pub fn install_com_object(
     runtime: &mut RuntimeKernel,
     spec: ComObjectSpec,
 ) -> Result<InstalledComObject, RuntimeStateError> {
+    install_com_object_with_guest_writes(memory, runtime, None, spec, |_| Ok(Vec::new()))
+        .map(|(installed, _)| installed)
+}
+
+pub(crate) fn install_com_object_with_guest_writes<F>(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    parent_interface_id: Option<RuntimeComInterfaceId>,
+    spec: ComObjectSpec,
+    build_guest_writes: F,
+) -> Result<(InstalledComObject, Vec<ComGuestWriteReceipt>), RuntimeStateError>
+where
+    F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+{
     validate_object_spec(&spec)?;
     let reservation = runtime.plan_com_address_reservation(ProcessAddressAllocationRequest {
         purpose: ProcessAddressAllocationPurpose::ComEndpoint,
@@ -439,6 +496,7 @@ pub fn install_com_object(
     let registration = runtime.plan_com_registration(RuntimeComObjectRegistration {
         class_identity: spec.class_identity,
         initial_reference_count: 1,
+        parent_interface_id,
         backing: RuntimeComBacking {
             address_allocation_id: allocation.id,
             memory_owner,
@@ -446,12 +504,31 @@ pub fn install_com_object(
         },
         interfaces: layout.interfaces,
     })?;
+    let planned_result = registration.registration_result();
+    let planned_installation = InstalledComObject {
+        object: planned_result.object,
+        interfaces: planned_result.interfaces,
+    };
+    let additional_writes = build_guest_writes(&planned_installation)?;
+    let mut guest_writes = Vec::with_capacity(additional_writes.len());
+    for (address, bytes) in additional_writes {
+        let result = transaction
+            .write(address, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        guest_writes.push(ComGuestWriteReceipt {
+            address,
+            bytes,
+            result,
+        });
+    }
     let result = runtime.commit_com_installation(reservation, registration)?;
     transaction.commit_transaction();
-    Ok(InstalledComObject {
+    let installed = InstalledComObject {
         object: result.object,
         interfaces: result.interfaces,
-    })
+    };
+    debug_assert_eq!(installed, planned_installation);
+    Ok((installed, guest_writes))
 }
 
 pub fn dispatch_com_call(
@@ -662,14 +739,21 @@ fn dispatch_release(
         }
     };
     let result = plan.result();
-    let retired = result.retired_backing.is_some();
-    if let Some(backing) = &result.retired_backing {
+    let retired = result
+        .retirements
+        .iter()
+        .any(|retirement| retirement.object_id == result.interface.object_id);
+    if !result.retirements.is_empty() {
         let mut transaction = memory.begin_transaction();
-        if let Err(error) = transaction.release_region(backing.memory_owner, backing.range.base) {
-            return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
-        }
-        if let Err(error) = transaction.destroy_owner(backing.memory_owner) {
-            return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
+        for retirement in &result.retirements {
+            let backing = &retirement.backing;
+            if let Err(error) = transaction.release_region(backing.memory_owner, backing.range.base)
+            {
+                return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
+            }
+            if let Err(error) = transaction.destroy_owner(backing.memory_owner) {
+                return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
+            }
         }
         if let Err(error) = runtime.commit_com_release(plan) {
             return ComDispatchOutcome::Fault(fault_from_runtime(error, trap, Some(&target)));

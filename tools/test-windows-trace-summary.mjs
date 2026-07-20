@@ -7,7 +7,11 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { summarizeTrace } from "./summarize-windows-trace.mjs";
+import {
+  idirect3d9MethodNames,
+  idirect3ddevice9MethodNames,
+  summarizeTrace,
+} from "./summarize-windows-trace.mjs";
 
 const schema = "vine.win32-trace.v2";
 const adapterIdentifierBefore = Array(1100).fill(0xcc);
@@ -43,6 +47,40 @@ deviceCapsView.setFloat32(112, 1.0, true);
 deviceCapsView.setFloat32(176, 64.0, true);
 deviceCapsView.setInt32(252, -1, true);
 const deviceCapsAfter = [...deviceCapsBytes];
+const presentParametersBeforeFields = {
+  backBufferWidth: 800,
+  backBufferHeight: 600,
+  backBufferFormat: 22,
+  backBufferCount: 1,
+  multiSampleType: 0,
+  multiSampleQuality: 0,
+  swapEffect: 1,
+  deviceWindow: 0x55_0000,
+  windowed: 1,
+  enableAutoDepthStencil: 1,
+  autoDepthStencilFormat: 75,
+  flags: 0,
+  fullScreenRefreshRateInHz: 0,
+  presentationInterval: 0x8000_0000,
+};
+const presentParametersAfterFields = {
+  ...presentParametersBeforeFields,
+  backBufferCount: 2,
+};
+const encodePresentParameters = (fields) => {
+  const bytes = new Uint8Array(56);
+  const view = new DataView(bytes.buffer);
+  Object.values(fields).forEach((value, index) =>
+    view.setUint32(index * 4, value, true),
+  );
+  return [...bytes];
+};
+const presentParametersBefore = encodePresentParameters(
+  presentParametersBeforeFields,
+);
+const presentParametersAfter = encodePresentParameters(
+  presentParametersAfterFields,
+);
 const events = [
   {
     schema,
@@ -58,7 +96,7 @@ const events = [
       seconds: 1.25,
       killAfter: true,
       vtables: ["idirect3d9"],
-      observations: [],
+      observations: ["d3d9-create-device"],
     },
   },
   {
@@ -83,7 +121,7 @@ const events = [
     pointerSize: 4,
     processId: 123,
     selectedVtables: ["idirect3d9"],
-    selectedObservations: [],
+    selectedObservations: ["d3d9-create-device"],
   },
   {
     schema,
@@ -237,25 +275,7 @@ const events = [
     interface: "IDirect3D9",
     object: "0x330000",
     vtable: "0x76010000",
-    slots: [
-      "QueryInterface",
-      "AddRef",
-      "Release",
-      "RegisterSoftwareDevice",
-      "GetAdapterCount",
-      "GetAdapterIdentifier",
-      "GetAdapterModeCount",
-      "EnumAdapterModes",
-      "GetAdapterDisplayMode",
-      "CheckDeviceType",
-      "CheckDeviceFormat",
-      "CheckDeviceMultiSampleType",
-      "CheckDepthStencilMatch",
-      "CheckDeviceFormatConversion",
-      "GetDeviceCaps",
-      "GetAdapterMonitor",
-      "CreateDevice",
-    ].map((name, slot) => ({
+    slots: idirect3d9MethodNames.map((name, slot) => ({
       slot,
       name,
       address: `0x7601${slot.toString(16).padStart(4, "0")}`,
@@ -432,6 +452,103 @@ const events = [
   },
   {
     schema,
+    sequence: 30,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "CreateDevice",
+    interface: "IDirect3D9",
+    vtableSlot: 16,
+    object: "0x330000",
+    arguments: ["0x0", "0x1", "0x550000", "0x44", "0x381000", "0x382000"],
+  },
+  {
+    schema,
+    sequence: 31,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "CreateDevice",
+    interface: "IDirect3D9",
+    vtableSlot: 16,
+    object: "0x330000",
+    result: "0x0",
+    d3d9CreateDevice: {
+      adapter: 0,
+      deviceType: 1,
+      focusWindow: "0x550000",
+      behaviorFlags: 0x44,
+      presentationParameters: {
+        before: {
+          pointer: "0x381000",
+          size: 56,
+          bytes: presentParametersBefore,
+          fields: presentParametersBeforeFields,
+        },
+        after: {
+          pointer: "0x381000",
+          size: 56,
+          bytes: presentParametersAfter,
+          fields: presentParametersAfterFields,
+        },
+      },
+      deviceOutput: {
+        before: {
+          pointer: "0x382000",
+          size: 4,
+          bytes: [0xcc, 0xcc, 0xcc, 0xcc],
+          value: "0xcccccccc",
+        },
+        after: {
+          pointer: "0x382000",
+          size: 4,
+          bytes: [0, 0, 0x39, 0],
+          value: "0x390000",
+        },
+      },
+      immediateConsumer: null,
+    },
+  },
+  {
+    schema,
+    sequence: 32,
+    threadId: 10,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x390000",
+    vtable: "0x76020000",
+    slots: idirect3ddevice9MethodNames.map((name, slot) => ({
+      slot,
+      name,
+      address: `0x7602${slot.toString(16).padStart(4, "0")}`,
+    })),
+  },
+  {
+    schema,
+    sequence: 33,
+    threadId: 10,
+    kind: "api-enter",
+    module: "d3d9.dll",
+    api: "SetRenderState",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 57,
+    object: "0x390000",
+    arguments: ["0x7", "0x1"],
+  },
+  {
+    schema,
+    sequence: 34,
+    threadId: 10,
+    kind: "api-leave",
+    module: "d3d9.dll",
+    api: "SetRenderState",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 57,
+    object: "0x390000",
+    result: "0x0",
+  },
+  {
+    schema,
     kind: "trace-stop",
     timestamp: "2026-07-10T00:00:01.250Z",
     reason: "timeout-kill",
@@ -588,6 +705,32 @@ for (const call of [
     durationMs: 0,
     lastError: 0,
   },
+  {
+    callId: 14,
+    parentCallId: null,
+    enterSequence: 30,
+    leaveSequence: 31,
+    caller: {
+      address: "0x0045aca5",
+      module: "abi-smoke.exe",
+      rva: 0x5aca5,
+    },
+    durationMs: 48,
+    lastError: 0,
+  },
+  {
+    callId: 15,
+    parentCallId: null,
+    enterSequence: 33,
+    leaveSequence: 34,
+    caller: {
+      address: "0x0045ad00",
+      module: "abi-smoke.exe",
+      rva: 0x5ad00,
+    },
+    durationMs: 1,
+    lastError: 0,
+  },
 ]) {
   const enter = events.find((event) => event.sequence === call.enterSequence);
   const leave = events.find((event) => event.sequence === call.leaveSequence);
@@ -628,25 +771,25 @@ assert.deepEqual(summary.trace.captureArguments, {
   seconds: 1.25,
   killAfter: true,
   vtables: ["idirect3d9"],
-  observations: [],
+  observations: ["d3d9-create-device"],
 });
 assert.deepEqual(summary.trace.selectedVtables, ["idirect3d9"]);
 assert.deepEqual(summary.trace.sequence, {
-  events: 30,
+  events: 35,
   first: 0,
-  last: 29,
+  last: 34,
   contiguous: true,
 });
 assert.deepEqual(summary.trace.apiPairing, {
   contract: "call-id-v1",
-  enters: 13,
-  leaves: 13,
-  pairs: 13,
+  enters: 15,
+  leaves: 15,
+  pairs: 15,
   maxDepth: 2,
   balanced: true,
 });
 assert.equal(summary.modules.length, 2);
-assert.equal(summary.apis.length, 12);
+assert.equal(summary.apis.length, 14);
 assert.deepEqual(summary.apis[0], {
   module: "KERNEL32.DLL",
   api: "CreateFileA",
@@ -663,25 +806,16 @@ assert.deepEqual(summary.vtables, [
   {
     sequence: 19,
     interface: "IDirect3D9",
-    slots: [
-      "QueryInterface",
-      "AddRef",
-      "Release",
-      "RegisterSoftwareDevice",
-      "GetAdapterCount",
-      "GetAdapterIdentifier",
-      "GetAdapterModeCount",
-      "EnumAdapterModes",
-      "GetAdapterDisplayMode",
-      "CheckDeviceType",
-      "CheckDeviceFormat",
-      "CheckDeviceMultiSampleType",
-      "CheckDepthStencilMatch",
-      "CheckDeviceFormatConversion",
-      "GetDeviceCaps",
-      "GetAdapterMonitor",
-      "CreateDevice",
-    ].map((name, slot) => ({ slot, name })),
+    object: "0x330000",
+    vtable: "0x76010000",
+    slots: idirect3d9MethodNames.map((name, slot) => ({ slot, name })),
+  },
+  {
+    sequence: 32,
+    interface: "IDirect3DDevice9",
+    object: "0x390000",
+    vtable: "0x76020000",
+    slots: idirect3ddevice9MethodNames.map((name, slot) => ({ slot, name })),
   },
 ]);
 assert.deepEqual(summary.d3d9.adapterDisplayModes, [
@@ -889,6 +1023,66 @@ assert.deepEqual(deviceCaps.after.fields.vs20DynamicFlowControlDepth, {
   value: -1,
 });
 assert.equal(deviceCaps.immediateConsumer, null);
+assert.equal(summary.d3d9.createDevices.length, 1);
+const [createDevice] = summary.d3d9.createDevices;
+assert.equal(createDevice.sequence, 30);
+assert.equal(createDevice.callId, 14);
+assert.equal(createDevice.parentCallId, null);
+assert.deepEqual(createDevice.caller, {
+  module: "abi-smoke.exe",
+  rva: 0x5aca5,
+});
+assert.equal(createDevice.adapter, 0);
+assert.equal(createDevice.deviceType, 1);
+assert.equal(createDevice.focusWindow, "0x550000");
+assert.equal(createDevice.behaviorFlags, 0x44);
+assert.equal(createDevice.result, "0x0");
+assert.equal(createDevice.lastError, 0);
+assert.equal(createDevice.presentationChangedBytes, 1);
+assert.deepEqual(
+  createDevice.presentationParameters.before.fields,
+  presentParametersBeforeFields,
+);
+assert.deepEqual(
+  createDevice.presentationParameters.after.fields,
+  presentParametersAfterFields,
+);
+assert.equal(
+  createDevice.presentationParameters.before.bytesSha256,
+  crypto
+    .createHash("sha256")
+    .update(Uint8Array.from(presentParametersBefore))
+    .digest("hex"),
+);
+assert.equal(createDevice.deviceOutputChangedBytes, 4);
+assert.deepEqual(createDevice.deviceOutput.before, {
+  pointer: "0x382000",
+  size: 4,
+  bytes: [0xcc, 0xcc, 0xcc, 0xcc],
+  value: "0xcccccccc",
+});
+assert.deepEqual(createDevice.deviceOutput.after, {
+  pointer: "0x382000",
+  size: 4,
+  bytes: [0, 0, 0x39, 0],
+  value: "0x390000",
+});
+assert.equal(createDevice.returnedDevice, "0x390000");
+assert.equal(createDevice.immediateConsumer, null);
+assert.deepEqual(summary.d3d9.deviceCalls, [
+  {
+    sequence: 33,
+    callId: 15,
+    parentCallId: null,
+    caller: { module: "abi-smoke.exe", rva: 0x5ad00 },
+    slot: 57,
+    method: "SetRenderState",
+    object: "0x390000",
+    arguments: ["0x7", "0x1"],
+    result: "0x0",
+    lastError: 0,
+  },
+]);
 assert.equal(summary.categories.file.calls, 3);
 assert.equal(summary.categories.window.first.api, "CreateWindowExA");
 assert.equal(summary.categories.graphics.first.api, "Direct3DCreate9");
@@ -1036,6 +1230,65 @@ changedDeviceCapsPointer.find(
 assert.throws(
   () => summarizeTrace(encode(changedDeviceCapsPointer)),
   /changed its D3DCAPS9 output pointer/,
+);
+
+const truncatedPresentParameters = structuredClone(events);
+truncatedPresentParameters
+  .find((event) => event.sequence === 31)
+  .d3d9CreateDevice.presentationParameters.after.bytes.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedPresentParameters)),
+  /invalid D3DPRESENT_PARAMETERS after snapshot/,
+);
+
+const inconsistentPresentParameters = structuredClone(events);
+inconsistentPresentParameters.find(
+  (event) => event.sequence === 31,
+).d3d9CreateDevice.presentationParameters.after.fields.backBufferCount = 3;
+assert.throws(
+  () => summarizeTrace(encode(inconsistentPresentParameters)),
+  /inconsistent D3DPRESENT_PARAMETERS after bytes/,
+);
+
+const changedPresentParametersPointer = structuredClone(events);
+changedPresentParametersPointer.find(
+  (event) => event.sequence === 31,
+).d3d9CreateDevice.presentationParameters.after.pointer = "0x381010";
+assert.throws(
+  () => summarizeTrace(encode(changedPresentParametersPointer)),
+  /changed its D3DPRESENT_PARAMETERS pointer/,
+);
+
+const inconsistentDeviceOutput = structuredClone(events);
+inconsistentDeviceOutput.find(
+  (event) => event.sequence === 31,
+).d3d9CreateDevice.deviceOutput.after.value = "0x390004";
+assert.throws(
+  () => summarizeTrace(encode(inconsistentDeviceOutput)),
+  /inconsistent pointer-slot after bytes/,
+);
+
+const changedDeviceOutputPointer = structuredClone(events);
+changedDeviceOutputPointer.find(
+  (event) => event.sequence === 31,
+).d3d9CreateDevice.deviceOutput.after.pointer = "0x382004";
+assert.throws(
+  () => summarizeTrace(encode(changedDeviceOutputPointer)),
+  /changed its CreateDevice output pointer/,
+);
+
+const truncatedDeviceVtable = structuredClone(events);
+truncatedDeviceVtable.find((event) => event.sequence === 32).slots.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedDeviceVtable)),
+  /IDirect3DDevice9 vtable has invalid slot metadata/,
+);
+
+const truncatedDeviceMethodArguments = structuredClone(events);
+truncatedDeviceMethodArguments.find((event) => event.sequence === 33).arguments.pop();
+assert.throws(
+  () => summarizeTrace(encode(truncatedDeviceMethodArguments)),
+  /IDirect3DDevice9 api pair at sequence 33 is invalid/,
 );
 
 const truncatedDeviceTypeArguments = structuredClone(events);

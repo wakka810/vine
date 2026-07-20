@@ -57,6 +57,8 @@ impl Serialize for RuntimeComInterfaceId {
 pub enum RuntimeComReturnKind {
     HResult,
     U32,
+    Void,
+    X87F32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -120,6 +122,8 @@ pub struct RuntimeComObjectRecord {
     pub id: RuntimeComObjectId,
     pub class_identity: String,
     pub reference_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_interface_id: Option<RuntimeComInterfaceId>,
     pub canonical_iunknown_interface_id: RuntimeComInterfaceId,
     pub interface_ids: Vec<RuntimeComInterfaceId>,
     pub backing: RuntimeComBacking,
@@ -148,6 +152,7 @@ pub(crate) struct RuntimeComInterfaceRegistration {
 pub(crate) struct RuntimeComObjectRegistration {
     pub class_identity: String,
     pub initial_reference_count: u32,
+    pub parent_interface_id: Option<RuntimeComInterfaceId>,
     pub backing: RuntimeComBacking,
     pub interfaces: Vec<RuntimeComInterfaceRegistration>,
 }
@@ -171,7 +176,13 @@ pub(crate) struct RuntimeComQueryResult {
 pub(crate) struct RuntimeComReferenceResult {
     pub interface: RuntimeComInterfaceRecord,
     pub reference_count: u32,
-    pub retired_backing: Option<RuntimeComBacking>,
+    pub retirements: Vec<RuntimeComObjectRetirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeComObjectRetirement {
+    pub object_id: RuntimeComObjectId,
+    pub backing: RuntimeComBacking,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,38 +192,117 @@ pub(crate) struct RuntimeComRegistrationResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeComMutationOutcome {
-    Registered(RuntimeComRegistrationResult),
-    Queried(RuntimeComQueryResult),
-    Referenced(RuntimeComReferenceResult),
+struct RuntimeComReferenceCountUpdate {
+    object_id: RuntimeComObjectId,
+    previous: u32,
+    next: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeComRetirementMutation {
+    object: RuntimeComObjectRecord,
+    interfaces: Vec<RuntimeComInterfaceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeComMutation {
+    Registration {
+        expected_generation: u64,
+        next_generation: u64,
+        next_object_id: u64,
+        next_interface_id: u64,
+        parent_reference_update: Option<RuntimeComReferenceCountUpdate>,
+        object: RuntimeComObjectRecord,
+        interfaces: Vec<RuntimeComInterfaceRecord>,
+    },
+    Query {
+        expected_generation: u64,
+        next_generation: u64,
+        reference_update: Option<RuntimeComReferenceCountUpdate>,
+        source_interface: RuntimeComInterfaceRecord,
+        target_interface: Option<RuntimeComInterfaceRecord>,
+        reference_count: u32,
+    },
+    Reference {
+        expected_generation: u64,
+        next_generation: u64,
+        reference_updates: Vec<RuntimeComReferenceCountUpdate>,
+        retirements: Vec<RuntimeComRetirementMutation>,
+        interface: RuntimeComInterfaceRecord,
+        reference_count: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RuntimeComMutationPlan {
-    previous: RuntimeCom,
-    next: RuntimeCom,
-    outcome: RuntimeComMutationOutcome,
+    mutation: RuntimeComMutation,
 }
 
 impl RuntimeComMutationPlan {
     pub(crate) fn registration_result(&self) -> RuntimeComRegistrationResult {
-        match &self.outcome {
-            RuntimeComMutationOutcome::Registered(result) => result.clone(),
+        match &self.mutation {
+            RuntimeComMutation::Registration {
+                object, interfaces, ..
+            } => RuntimeComRegistrationResult {
+                object: object.clone(),
+                interfaces: interfaces.clone(),
+            },
             _ => unreachable!("COM mutation plan is not an object registration"),
         }
     }
 
     pub(crate) fn query_result(&self) -> RuntimeComQueryResult {
-        match &self.outcome {
-            RuntimeComMutationOutcome::Queried(result) => result.clone(),
+        match &self.mutation {
+            RuntimeComMutation::Query {
+                source_interface,
+                target_interface,
+                reference_count,
+                ..
+            } => RuntimeComQueryResult {
+                source_interface: source_interface.clone(),
+                target_interface: target_interface.clone(),
+                reference_count: *reference_count,
+            },
             _ => unreachable!("COM mutation plan is not QueryInterface"),
         }
     }
 
     pub(crate) fn reference_result(&self) -> RuntimeComReferenceResult {
-        match &self.outcome {
-            RuntimeComMutationOutcome::Referenced(result) => result.clone(),
+        match &self.mutation {
+            RuntimeComMutation::Reference {
+                interface,
+                reference_count,
+                retirements,
+                ..
+            } => RuntimeComReferenceResult {
+                interface: interface.clone(),
+                reference_count: *reference_count,
+                retirements: retirements
+                    .iter()
+                    .map(|retirement| RuntimeComObjectRetirement {
+                        object_id: retirement.object.id,
+                        backing: retirement.object.backing.clone(),
+                    })
+                    .collect(),
+            },
             _ => unreachable!("COM mutation plan is not a reference mutation"),
+        }
+    }
+
+    fn expected_generation(&self) -> u64 {
+        match &self.mutation {
+            RuntimeComMutation::Registration {
+                expected_generation,
+                ..
+            }
+            | RuntimeComMutation::Query {
+                expected_generation,
+                ..
+            }
+            | RuntimeComMutation::Reference {
+                expected_generation,
+                ..
+            } => *expected_generation,
         }
     }
 }
@@ -230,6 +320,8 @@ pub struct RuntimeCom {
     iid_index: BTreeMap<(RuntimeComObjectId, RuntimeComIid), RuntimeComInterfaceId>,
     next_object_id: u64,
     next_interface_id: u64,
+    #[serde(skip)]
+    mutation_generation: u64,
 }
 
 impl Default for RuntimeCom {
@@ -242,6 +334,7 @@ impl Default for RuntimeCom {
             iid_index: BTreeMap::new(),
             next_object_id: 1,
             next_interface_id: 1,
+            mutation_generation: 0,
         }
     }
 }
@@ -334,25 +427,25 @@ impl RuntimeCom {
         &self,
         registration: RuntimeComObjectRegistration,
     ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
-        let mut next = self.clone();
-        let object = next.register_object(registration)?;
-        let interfaces = object
-            .interface_ids
-            .iter()
-            .map(|id| {
-                next.interfaces
-                    .get(id)
-                    .expect("new COM object lost a registered interface")
-                    .clone()
+        let parent_reference_update = registration
+            .parent_interface_id
+            .map(|parent_interface_id| {
+                let parent_object_id = self.interface(parent_interface_id)?.object_id;
+                self.plan_reference_increment(parent_object_id)
             })
-            .collect();
+            .transpose()?;
+        let (object, interfaces, next_object_id, next_interface_id) =
+            self.build_registration(registration)?;
         Ok(RuntimeComMutationPlan {
-            previous: self.clone(),
-            next,
-            outcome: RuntimeComMutationOutcome::Registered(RuntimeComRegistrationResult {
+            mutation: RuntimeComMutation::Registration {
+                expected_generation: self.mutation_generation,
+                next_generation: self.next_mutation_generation()?,
+                next_object_id,
+                next_interface_id,
+                parent_reference_update,
                 object,
                 interfaces,
-            }),
+            },
         })
     }
 
@@ -369,20 +462,27 @@ impl RuntimeCom {
             .copied()
             .map(|id| self.interface(id).cloned())
             .transpose()?;
-        let mut next = self.clone();
-        let reference_count = if target_interface.is_some() {
-            next.increment_reference_count(object.id)?
+        let reference_update = if target_interface.is_some() {
+            Some(self.plan_reference_increment(object.id)?)
         } else {
-            object.reference_count
+            None
         };
+        let reference_count = reference_update
+            .as_ref()
+            .map_or(object.reference_count, |update| update.next);
         Ok(RuntimeComMutationPlan {
-            previous: self.clone(),
-            next,
-            outcome: RuntimeComMutationOutcome::Queried(RuntimeComQueryResult {
+            mutation: RuntimeComMutation::Query {
+                expected_generation: self.mutation_generation,
+                next_generation: if reference_update.is_some() {
+                    self.next_mutation_generation()?
+                } else {
+                    self.mutation_generation
+                },
+                reference_update,
                 source_interface,
                 target_interface,
                 reference_count,
-            }),
+            },
         })
     }
 
@@ -391,16 +491,17 @@ impl RuntimeCom {
         interface_id: RuntimeComInterfaceId,
     ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
         let interface = self.interface(interface_id)?.clone();
-        let mut next = self.clone();
-        let reference_count = next.increment_reference_count(interface.object_id)?;
+        let update = self.plan_reference_increment(interface.object_id)?;
+        let reference_count = update.next;
         Ok(RuntimeComMutationPlan {
-            previous: self.clone(),
-            next,
-            outcome: RuntimeComMutationOutcome::Referenced(RuntimeComReferenceResult {
+            mutation: RuntimeComMutation::Reference {
+                expected_generation: self.mutation_generation,
+                next_generation: self.next_mutation_generation()?,
+                reference_updates: vec![update],
+                retirements: Vec::new(),
                 interface,
                 reference_count,
-                retired_backing: None,
-            }),
+            },
         })
     }
 
@@ -409,39 +510,27 @@ impl RuntimeCom {
         interface_id: RuntimeComInterfaceId,
     ) -> Result<RuntimeComMutationPlan, RuntimeStateError> {
         let interface = self.interface(interface_id)?.clone();
-        let object = self.object(interface.object_id)?.clone();
-        if object.reference_count == 0 {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-com",
-                "com-reference-count-underflow",
-                "live COM object has zero references",
-            ));
-        }
-        let reference_count = object.reference_count - 1;
-        let mut next = self.clone();
-        let retired_backing = if reference_count == 0 {
-            next.retire_object(object.id)?;
-            Some(object.backing)
-        } else {
-            next.objects
-                .get_mut(&object.id)
-                .expect("cloned COM object disappeared")
-                .reference_count = reference_count;
-            None
-        };
+        let mut reference_updates = Vec::new();
+        let mut retirements = Vec::new();
+        let reference_count = self.plan_reference_release(
+            interface.object_id,
+            &mut reference_updates,
+            &mut retirements,
+        )?;
         Ok(RuntimeComMutationPlan {
-            previous: self.clone(),
-            next,
-            outcome: RuntimeComMutationOutcome::Referenced(RuntimeComReferenceResult {
+            mutation: RuntimeComMutation::Reference {
+                expected_generation: self.mutation_generation,
+                next_generation: self.next_mutation_generation()?,
+                reference_updates,
+                retirements,
                 interface,
                 reference_count,
-                retired_backing,
-            }),
+            },
         })
     }
 
     pub(crate) fn preflight(&self, plan: &RuntimeComMutationPlan) -> Result<(), RuntimeStateError> {
-        if self != &plan.previous {
+        if self.mutation_generation != plan.expected_generation() {
             return Err(RuntimeStateError::conflict(
                 "runtime-com",
                 "com-mutation-plan-stale",
@@ -452,14 +541,83 @@ impl RuntimeCom {
     }
 
     pub(crate) fn commit(&mut self, plan: RuntimeComMutationPlan) {
-        debug_assert_eq!(self, &plan.previous);
-        *self = plan.next;
+        debug_assert_eq!(self.mutation_generation, plan.expected_generation());
+        match plan.mutation {
+            RuntimeComMutation::Registration {
+                next_generation,
+                next_object_id,
+                next_interface_id,
+                parent_reference_update,
+                object,
+                interfaces,
+                ..
+            } => {
+                if let Some(update) = parent_reference_update {
+                    self.commit_reference_update(update);
+                }
+                for interface in interfaces {
+                    for method in interface.methods.values() {
+                        let replaced = self
+                            .endpoint_index
+                            .insert(method.endpoint, (interface.id, method.slot));
+                        debug_assert!(replaced.is_none());
+                    }
+                    let pointer_replaced = self
+                        .pointer_index
+                        .insert(interface.guest_pointer, interface.id);
+                    debug_assert!(pointer_replaced.is_none());
+                    let iid_replaced = self
+                        .iid_index
+                        .insert((object.id, interface.iid), interface.id);
+                    debug_assert!(iid_replaced.is_none());
+                    let interface_replaced = self.interfaces.insert(interface.id, interface);
+                    debug_assert!(interface_replaced.is_none());
+                }
+                let object_replaced = self.objects.insert(object.id, object);
+                debug_assert!(object_replaced.is_none());
+                self.next_object_id = next_object_id;
+                self.next_interface_id = next_interface_id;
+                self.mutation_generation = next_generation;
+            }
+            RuntimeComMutation::Query {
+                next_generation,
+                reference_update,
+                ..
+            } => {
+                if let Some(update) = reference_update {
+                    self.commit_reference_update(update);
+                }
+                self.mutation_generation = next_generation;
+            }
+            RuntimeComMutation::Reference {
+                next_generation,
+                reference_updates,
+                retirements,
+                ..
+            } => {
+                for update in reference_updates {
+                    self.commit_reference_update(update);
+                }
+                for retirement in retirements {
+                    self.commit_retirement(retirement);
+                }
+                self.mutation_generation = next_generation;
+            }
+        }
     }
 
-    fn register_object(
-        &mut self,
+    fn build_registration(
+        &self,
         registration: RuntimeComObjectRegistration,
-    ) -> Result<RuntimeComObjectRecord, RuntimeStateError> {
+    ) -> Result<
+        (
+            RuntimeComObjectRecord,
+            Vec<RuntimeComInterfaceRecord>,
+            u64,
+            u64,
+        ),
+        RuntimeStateError,
+    > {
         validate_registration(self, &registration)?;
         let object_id = RuntimeComObjectId(self.next_object_id);
         let next_object_id = self.next_object_id.checked_add(1).ok_or_else(|| {
@@ -488,6 +646,7 @@ impl RuntimeCom {
             })?;
 
         let mut interface_ids = Vec::with_capacity(registration.interfaces.len());
+        let mut interfaces = Vec::with_capacity(registration.interfaces.len());
         let mut canonical_iunknown_interface_id = None;
         for (index, interface) in registration.interfaces.into_iter().enumerate() {
             let index = u64::try_from(index).expect("bounded COM interface index fits u64");
@@ -521,15 +680,8 @@ impl RuntimeCom {
             if record.iid == RUNTIME_COM_IUNKNOWN_IID {
                 canonical_iunknown_interface_id = Some(interface_id);
             }
-            for method in record.methods.values() {
-                self.endpoint_index
-                    .insert(method.endpoint, (interface_id, method.slot));
-            }
-            self.pointer_index
-                .insert(record.guest_pointer, interface_id);
-            self.iid_index.insert((object_id, record.iid), interface_id);
-            self.interfaces.insert(interface_id, record);
             interface_ids.push(interface_id);
+            interfaces.push(record);
         }
         let canonical_iunknown_interface_id = canonical_iunknown_interface_id.ok_or_else(|| {
             RuntimeStateError::runtime_defect(
@@ -542,60 +694,112 @@ impl RuntimeCom {
             id: object_id,
             class_identity: registration.class_identity,
             reference_count: registration.initial_reference_count,
+            parent_interface_id: registration.parent_interface_id,
             canonical_iunknown_interface_id,
             interface_ids,
             backing: registration.backing,
         };
-        self.objects.insert(object_id, object.clone());
-        self.next_object_id = next_object_id;
-        self.next_interface_id = next_interface_id;
-        Ok(object)
+        Ok((object, interfaces, next_object_id, next_interface_id))
     }
 
-    fn increment_reference_count(
-        &mut self,
+    fn plan_reference_increment(
+        &self,
         object_id: RuntimeComObjectId,
-    ) -> Result<u32, RuntimeStateError> {
-        let object = self.objects.get_mut(&object_id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-com",
-                "com-object-id-unknown",
-                "COM reference mutation targets an unknown logical object",
-            )
-        })?;
-        object.reference_count = object.reference_count.checked_add(1).ok_or_else(|| {
+    ) -> Result<RuntimeComReferenceCountUpdate, RuntimeStateError> {
+        let object = self.object(object_id)?;
+        let next = object.reference_count.checked_add(1).ok_or_else(|| {
             RuntimeStateError::resource_limit(
                 "runtime-com",
                 "com-reference-count-overflow",
                 "COM reference count overflowed ULONG accounting",
             )
         })?;
-        Ok(object.reference_count)
+        Ok(RuntimeComReferenceCountUpdate {
+            object_id,
+            previous: object.reference_count,
+            next,
+        })
     }
 
-    fn retire_object(&mut self, object_id: RuntimeComObjectId) -> Result<(), RuntimeStateError> {
-        let object = self.objects.remove(&object_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
+    fn plan_reference_release(
+        &self,
+        object_id: RuntimeComObjectId,
+        reference_updates: &mut Vec<RuntimeComReferenceCountUpdate>,
+        retirements: &mut Vec<RuntimeComRetirementMutation>,
+    ) -> Result<u32, RuntimeStateError> {
+        let object = self.object(object_id)?.clone();
+        if object.reference_count == 0 {
+            return Err(RuntimeStateError::runtime_defect(
                 "runtime-com",
-                "com-object-retirement-missing",
-                "preflighted COM object disappeared during retirement",
-            )
-        })?;
-        for interface_id in object.interface_ids {
-            let interface = self.interfaces.remove(&interface_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-com",
-                    "com-interface-retirement-missing",
-                    "COM object retirement found a missing interface",
-                )
-            })?;
-            self.pointer_index.remove(&interface.guest_pointer);
-            self.iid_index.remove(&(object_id, interface.iid));
+                "com-reference-count-underflow",
+                "live COM object has zero references",
+            ));
+        }
+        let reference_count = object.reference_count - 1;
+        if reference_count != 0 {
+            reference_updates.push(RuntimeComReferenceCountUpdate {
+                object_id,
+                previous: object.reference_count,
+                next: reference_count,
+            });
+            return Ok(reference_count);
+        }
+
+        let interfaces = object
+            .interface_ids
+            .iter()
+            .map(|interface_id| self.interface(*interface_id).cloned())
+            .collect::<Result<Vec<_>, _>>()?;
+        let parent_interface_id = object.parent_interface_id;
+        retirements.push(RuntimeComRetirementMutation { object, interfaces });
+        if let Some(parent_interface_id) = parent_interface_id {
+            let parent_object_id = self.interface(parent_interface_id)?.object_id;
+            self.plan_reference_release(parent_object_id, reference_updates, retirements)?;
+        }
+        Ok(0)
+    }
+
+    fn commit_reference_update(&mut self, update: RuntimeComReferenceCountUpdate) {
+        let object = self
+            .objects
+            .get_mut(&update.object_id)
+            .expect("preflighted COM reference target disappeared");
+        debug_assert_eq!(object.reference_count, update.previous);
+        object.reference_count = update.next;
+    }
+
+    fn commit_retirement(&mut self, retirement: RuntimeComRetirementMutation) {
+        let object_id = retirement.object.id;
+        let removed_object = self
+            .objects
+            .remove(&object_id)
+            .expect("preflighted COM object disappeared during retirement");
+        debug_assert_eq!(removed_object, retirement.object);
+        for expected in retirement.interfaces {
+            let interface = self
+                .interfaces
+                .remove(&expected.id)
+                .expect("preflighted COM interface disappeared during retirement");
+            debug_assert_eq!(interface, expected);
+            let pointer = self.pointer_index.remove(&interface.guest_pointer);
+            debug_assert_eq!(pointer, Some(interface.id));
+            let iid = self.iid_index.remove(&(object_id, interface.iid));
+            debug_assert_eq!(iid, Some(interface.id));
             for method in interface.methods.values() {
-                self.endpoint_index.remove(&method.endpoint);
+                let endpoint = self.endpoint_index.remove(&method.endpoint);
+                debug_assert_eq!(endpoint, Some((interface.id, method.slot)));
             }
         }
-        Ok(())
+    }
+
+    fn next_mutation_generation(&self) -> Result<u64, RuntimeStateError> {
+        self.mutation_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-com",
+                "com-mutation-generation-exhausted",
+                "COM mutation generation is exhausted",
+            )
+        })
     }
 }
 
@@ -616,6 +820,15 @@ fn validate_registration(
             "com-initial-reference-count-zero",
             "new COM objects require at least one owning reference",
         ));
+    }
+    if let Some(parent_interface_id) = registration.parent_interface_id {
+        let parent = runtime.interface(parent_interface_id)?;
+        if parent.object_id.0 >= runtime.next_object_id {
+            return Err(com_registration_error(
+                "com-parent-reference-order-invalid",
+                "COM parent reference must target an older live object",
+            ));
+        }
     }
     if registration.backing.address_allocation_id.0 == 0
         || registration.backing.memory_owner.0 == 0
@@ -859,26 +1072,96 @@ mod tests {
         );
     }
 
+    #[test]
+    fn child_registration_and_final_release_hold_one_parent_reference_atomically() {
+        let mut runtime = RuntimeCom::default();
+        let parent = runtime.plan_registration(registration()).unwrap();
+        let parent_object = parent.registration_result().object;
+        runtime.commit(parent);
+
+        let parent_interface_id = parent_object.interface_ids[1];
+        let mut child_registration = registration_at(0x0101_0000, 38, 5);
+        child_registration.class_identity = "fixture.synthetic-child.v1".to_owned();
+        child_registration.parent_interface_id = Some(parent_interface_id);
+        let child = runtime.plan_registration(child_registration).unwrap();
+        let child_object = child.registration_result().object;
+        assert_eq!(child_object.parent_interface_id, Some(parent_interface_id));
+        assert_eq!(runtime.object(parent_object.id).unwrap().reference_count, 1);
+        runtime.commit(child);
+        assert_eq!(runtime.object(parent_object.id).unwrap().reference_count, 2);
+
+        let release_external_parent = runtime.plan_release(parent_interface_id).unwrap();
+        let external_result = release_external_parent.reference_result();
+        assert_eq!(external_result.reference_count, 1);
+        assert!(external_result.retirements.is_empty());
+        runtime.commit(release_external_parent);
+
+        let child_interface_id = child_object.interface_ids[1];
+        let release_child = runtime.plan_release(child_interface_id).unwrap();
+        let result = release_child.reference_result();
+        assert_eq!(result.reference_count, 0);
+        assert_eq!(
+            result
+                .retirements
+                .iter()
+                .map(|retirement| retirement.object_id)
+                .collect::<Vec<_>>(),
+            [child_object.id, parent_object.id]
+        );
+        runtime.commit(release_child);
+        assert!(runtime.is_empty());
+    }
+
+    #[test]
+    fn rejected_child_registration_does_not_increment_parent() {
+        let mut runtime = RuntimeCom::default();
+        let parent = runtime.plan_registration(registration()).unwrap();
+        let parent_object = parent.registration_result().object;
+        runtime.commit(parent);
+        let before = runtime.clone();
+
+        let mut child_registration = registration();
+        child_registration.parent_interface_id = Some(parent_object.interface_ids[1]);
+        assert_eq!(
+            runtime
+                .plan_registration(child_registration)
+                .unwrap_err()
+                .code,
+            "com-interface-pointer-invalid"
+        );
+        assert_eq!(runtime, before);
+    }
+
     fn registration() -> RuntimeComObjectRegistration {
+        registration_at(0x0100_0000, 37, 4)
+    }
+
+    fn registration_at(
+        base: u32,
+        address_allocation_id: u64,
+        memory_owner: u32,
+    ) -> RuntimeComObjectRegistration {
         RuntimeComObjectRegistration {
             class_identity: "fixture.synthetic-com.v1".to_owned(),
             initial_reference_count: 1,
+            parent_interface_id: None,
             backing: RuntimeComBacking {
-                address_allocation_id: ProcessAddressAllocationId(37),
-                memory_owner: MemoryOwnerId(4),
+                address_allocation_id: ProcessAddressAllocationId(address_allocation_id),
+                memory_owner: MemoryOwnerId(memory_owner),
                 range: RuntimeAddressRange {
-                    base: GuestAddress(0x0100_0000),
+                    base: GuestAddress(base),
                     byte_length: 0x2000,
                 },
             },
             interfaces: vec![
-                interface(RUNTIME_COM_IUNKNOWN_IID, "IUnknown", 0, 0),
-                interface(SYNTHETIC_IID, "ISynthetic", 4, 0x100),
+                interface(base, RUNTIME_COM_IUNKNOWN_IID, "IUnknown", 0, 0),
+                interface(base, SYNTHETIC_IID, "ISynthetic", 4, 0x100),
             ],
         }
     }
 
     fn interface(
+        base: u32,
         iid: RuntimeComIid,
         name: &str,
         pointer_offset: u32,
@@ -887,8 +1170,8 @@ mod tests {
         RuntimeComInterfaceRegistration {
             iid,
             name: name.to_owned(),
-            guest_pointer: GuestAddress(0x0100_0000 + pointer_offset),
-            vtable: GuestAddress(0x0100_0100 + pointer_offset * 4),
+            guest_pointer: GuestAddress(base + pointer_offset),
+            vtable: GuestAddress(base + 0x100 + pointer_offset * 4),
             methods: [
                 (
                     "QueryInterface",
@@ -915,7 +1198,7 @@ mod tests {
                 RuntimeComMethodRegistration {
                     slot: slot as u16,
                     name: method.to_owned(),
-                    endpoint: GuestAddress(0x0100_1000 + endpoint_offset + slot as u32 * 16),
+                    endpoint: GuestAddress(base + 0x1000 + endpoint_offset + slot as u32 * 16),
                     explicit_argument_words: words,
                     return_kind,
                     implementation,

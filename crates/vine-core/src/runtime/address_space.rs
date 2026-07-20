@@ -186,13 +186,30 @@ pub struct ProcessAddressMappingRequirements {
 pub struct ProcessAddressSpaceAllocator {
     allocations: BTreeMap<ProcessAddressAllocationId, ProcessAddressAllocationRecord>,
     next_id: u64,
+    #[serde(skip)]
+    mutation_generation: u64,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessAddressReservationPlan {
-    previous: ProcessAddressSpaceAllocator,
-    next: ProcessAddressSpaceAllocator,
+    expected_generation: u64,
+    next_generation: u64,
+    expected_next_id: u64,
+    next_id: u64,
     pub(crate) allocation: ProcessAddressAllocationRecord,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessAddressReleasePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    allocations: Vec<ProcessAddressAllocationRecord>,
+}
+
+impl ProcessAddressReleasePlan {
+    pub(crate) fn allocations(&self) -> &[ProcessAddressAllocationRecord] {
+        &self.allocations
+    }
 }
 
 impl ProcessAddressSpaceAllocator {
@@ -200,6 +217,7 @@ impl ProcessAddressSpaceAllocator {
         let mut allocator = Self {
             allocations: BTreeMap::new(),
             next_id: 1,
+            mutation_generation: 0,
         };
         for (purpose, owner, range) in [
             (
@@ -327,11 +345,12 @@ impl ProcessAddressSpaceAllocator {
         &self,
         request: ProcessAddressAllocationRequest,
     ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
-        let mut next = self.clone();
-        let allocation = next.reserve(request)?;
+        let (allocation, next_id) = self.build_reservation(None, request, false)?;
         Ok(ProcessAddressReservationPlan {
-            previous: self.clone(),
-            next,
+            expected_generation: self.mutation_generation,
+            next_generation: self.next_mutation_generation()?,
+            expected_next_id: self.next_id,
+            next_id,
             allocation,
         })
     }
@@ -340,26 +359,111 @@ impl ProcessAddressSpaceAllocator {
         &self,
         plan: &ProcessAddressReservationPlan,
     ) -> Result<(), RuntimeStateError> {
-        if self != &plan.previous {
+        if self.mutation_generation != plan.expected_generation
+            || self.next_id != plan.expected_next_id
+        {
             return Err(RuntimeStateError::conflict(
                 "runtime-address-space",
                 "address-allocation-reservation-plan-stale",
                 "process address allocations changed after reservation planning",
             ));
         }
-        if plan.next.allocation(plan.allocation.id).is_err() {
+        if self.allocations.contains_key(&plan.allocation.id) {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-address-space",
                 "address-allocation-reservation-plan-invalid",
-                "planned process address allocation is missing from the next allocator state",
+                "planned process address allocation identity is already live",
             ));
         }
         Ok(())
     }
 
     pub(crate) fn commit_reservation(&mut self, plan: ProcessAddressReservationPlan) {
-        debug_assert_eq!(self, &plan.previous);
-        *self = plan.next;
+        debug_assert_eq!(self.mutation_generation, plan.expected_generation);
+        debug_assert_eq!(self.next_id, plan.expected_next_id);
+        let replaced = self.allocations.insert(plan.allocation.id, plan.allocation);
+        debug_assert!(replaced.is_none());
+        self.next_id = plan.next_id;
+        self.mutation_generation = plan.next_generation;
+    }
+
+    pub(crate) fn plan_releases(
+        &self,
+        ids: &[ProcessAddressAllocationId],
+    ) -> Result<ProcessAddressReleasePlan, RuntimeStateError> {
+        let requested = ids
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        if requested.len() != ids.len() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-address-space",
+                "address-allocation-release-duplicate",
+                "one process address allocation cannot be released twice in one plan",
+            ));
+        }
+        let mut allocations = Vec::with_capacity(ids.len());
+        for id in ids {
+            let record = self.allocation(*id)?.clone();
+            if record.release_policy != ProcessAddressAllocationReleasePolicy::Explicit {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-address-space",
+                    "address-allocation-release-policy",
+                    "permanent process address allocation cannot be released",
+                ));
+            }
+            if self.allocations.values().any(|allocation| {
+                allocation.parent_id == Some(*id) && !requested.contains(&allocation.id)
+            }) {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-address-space",
+                    "address-allocation-has-children",
+                    "process address allocation cannot be released while children are live",
+                ));
+            }
+            allocations.push(record);
+        }
+        Ok(ProcessAddressReleasePlan {
+            expected_generation: self.mutation_generation,
+            next_generation: if allocations.is_empty() {
+                self.mutation_generation
+            } else {
+                self.next_mutation_generation()?
+            },
+            allocations,
+        })
+    }
+
+    pub(crate) fn preflight_releases(
+        &self,
+        plan: &ProcessAddressReleasePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.mutation_generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-address-space",
+                "address-allocation-release-plan-stale",
+                "process address allocations changed after release planning",
+            ));
+        }
+        for expected in &plan.allocations {
+            if self.allocations.get(&expected.id) != Some(expected) {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-address-space",
+                    "address-allocation-release-plan-stale",
+                    "a planned process address allocation changed before release",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_releases(&mut self, plan: ProcessAddressReleasePlan) {
+        debug_assert_eq!(self.mutation_generation, plan.expected_generation);
+        for expected in plan.allocations {
+            let removed = self.allocations.remove(&expected.id);
+            debug_assert_eq!(removed.as_ref(), Some(&expected));
+        }
+        self.mutation_generation = plan.next_generation;
     }
 
     pub fn reserve_within(
@@ -374,26 +478,9 @@ impl ProcessAddressSpaceAllocator {
         &mut self,
         id: ProcessAddressAllocationId,
     ) -> Result<ProcessAddressAllocationRecord, RuntimeStateError> {
-        let record = self.allocation(id)?.clone();
-        if record.release_policy != ProcessAddressAllocationReleasePolicy::Explicit {
-            return Err(RuntimeStateError::conflict(
-                "runtime-address-space",
-                "address-allocation-release-policy",
-                "permanent process address allocation cannot be released",
-            ));
-        }
-        if self
-            .allocations
-            .values()
-            .any(|allocation| allocation.parent_id == Some(id))
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-address-space",
-                "address-allocation-has-children",
-                "process address allocation cannot be released while children are live",
-            ));
-        }
-        self.allocations.remove(&id);
+        let plan = self.plan_releases(&[id])?;
+        let record = plan.allocations[0].clone();
+        self.commit_releases(plan);
         Ok(record)
     }
 
@@ -453,6 +540,20 @@ impl ProcessAddressSpaceAllocator {
         request: ProcessAddressAllocationRequest,
         preferred_required: bool,
     ) -> Result<ProcessAddressAllocationRecord, RuntimeStateError> {
+        let (record, next_id) = self.build_reservation(parent_id, request, preferred_required)?;
+        let next_generation = self.next_mutation_generation()?;
+        self.allocations.insert(record.id, record.clone());
+        self.next_id = next_id;
+        self.mutation_generation = next_generation;
+        Ok(record)
+    }
+
+    fn build_reservation(
+        &self,
+        parent_id: Option<ProcessAddressAllocationId>,
+        request: ProcessAddressAllocationRequest,
+        preferred_required: bool,
+    ) -> Result<(ProcessAddressAllocationRecord, u64), RuntimeStateError> {
         validate_request(&request)?;
         let aligned_reserve_size =
             align_up(request.reserve_size, GUEST_PAGE_SIZE).ok_or_else(|| {
@@ -539,9 +640,17 @@ impl ProcessAddressSpaceAllocator {
             release_policy: request.release_policy,
             executable: request.executable,
         };
-        self.allocations.insert(id, record.clone());
-        self.next_id = next_id;
-        Ok(record)
+        Ok((record, next_id))
+    }
+
+    fn next_mutation_generation(&self) -> Result<u64, RuntimeStateError> {
+        self.mutation_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-address-space",
+                "address-allocation-mutation-generation-exhausted",
+                "process address allocation mutation generation is exhausted",
+            )
+        })
     }
 
     fn first_fit(
@@ -959,5 +1068,70 @@ mod tests {
             "address-allocation-release-policy"
         );
         assert_eq!(allocator, before);
+    }
+
+    #[test]
+    fn reservation_and_release_plans_are_mutation_free_and_reject_stale_commits() {
+        let mut allocator =
+            ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
+        let first_plan = allocator
+            .plan_reservation(search_request(
+                ProcessAddressAllocationPurpose::MappedFile,
+                "planned-first",
+                ProcessAddressAllocationClassification::MappedFile,
+                ProcessAddressAllocationLifetime::Object,
+            ))
+            .unwrap();
+        let first = first_plan.allocation.clone();
+        assert_eq!(
+            allocator.allocation(first.id).unwrap_err().code,
+            "address-allocation-id-unknown"
+        );
+        allocator.preflight_reservation_commit(&first_plan).unwrap();
+        allocator.commit_reservation(first_plan);
+        assert_eq!(allocator.allocation(first.id).unwrap(), &first);
+
+        let stale_reservation = allocator
+            .plan_reservation(search_request(
+                ProcessAddressAllocationPurpose::MappedFile,
+                "planned-stale",
+                ProcessAddressAllocationClassification::MappedFile,
+                ProcessAddressAllocationLifetime::Object,
+            ))
+            .unwrap();
+        let stale_release = allocator.plan_releases(&[first.id]).unwrap();
+        let second = allocator
+            .reserve(search_request(
+                ProcessAddressAllocationPurpose::MappedFile,
+                "committed-second",
+                ProcessAddressAllocationClassification::MappedFile,
+                ProcessAddressAllocationLifetime::Object,
+            ))
+            .unwrap();
+        let before_stale = allocator.clone();
+        assert_eq!(
+            allocator
+                .preflight_reservation_commit(&stale_reservation)
+                .unwrap_err()
+                .code,
+            "address-allocation-reservation-plan-stale"
+        );
+        assert_eq!(
+            allocator
+                .preflight_releases(&stale_release)
+                .unwrap_err()
+                .code,
+            "address-allocation-release-plan-stale"
+        );
+        assert_eq!(allocator, before_stale);
+
+        let release = allocator.plan_releases(&[first.id]).unwrap();
+        allocator.preflight_releases(&release).unwrap();
+        allocator.commit_releases(release);
+        assert_eq!(
+            allocator.allocation(first.id).unwrap_err().code,
+            "address-allocation-id-unknown"
+        );
+        assert_eq!(allocator.allocation(second.id).unwrap(), &second);
     }
 }

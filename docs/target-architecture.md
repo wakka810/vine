@@ -353,7 +353,7 @@ UNMAPPED -> RESERVED -> COMMITTED
 
 host の実行権限とは無関係に、guest `EXECUTE` を論理検査する。write-to-code が発生した場合は decode/cache を無効化し、policy によって継続または診断停止する。
 
-current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memoryをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後はengineがowner／address付きchanged-page batchを返し、Rustへatomic reconcileしてgenerationを一度だけ進める。現在のv86 adapterは内部で全writable PTE Dirty bitをscanするが、Rust protocolとWorker loopはその発見方式を要求しない。host-originated通常data writeのlive roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはreserve／commit／protect／decommit／releaseとdirty pagesをclone registryで全件preflightしてからone batchで適用し、private heapのlazy mappingとlater dirty-only updateを同じsessionで処理する。protectはgeneric TLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。
+current ingressはRust `GuestMemory`をbyte authority、`ExecutionEngine` memoryをexecution mirrorとし、page R／W／Xとowner sealをfetch前に検査する。初回reflection、host側mapping／dirty delta、CPU側writebackはbinary control metadataとcontiguous 4 KiB payloadを分離する。bounded slice後はengineがowner／address付きchanged-page batchを返し、Rustへatomic reconcileしてgenerationを一度だけ進める。現在のv86 adapterは内部で全writable PTE Dirty bitをscanするが、Rust protocolとWorker loopはその発見方式を要求しない。host-originated通常data writeのlive roundtrip、連続2 sliceのstack／heap／surface／RWX writeback、generation／owner付きBGI reconciliationが成立した。Browser Workerはmapping-changingなreserve／commit／protect／decommit／releaseをclone registryで全件preflightしてからone batchで適用する。Mappingを変えないpage-only host deltaはlive mappingのowner／range／protection／generationを全件検証し、registry全体を複製せず同じatomic batch境界で適用する。Private heapのlazy mappingとlater dirty-only updateは同じsessionで成立する。protectはgeneric TLB／instruction-fetch／generated-code effectへ接続し、decommit／release後のstale accessはstructured stopになる。pending host delta中のexecution、generation conflict、partial batchはfail-closedであり、cancellationは同期batchの途中へ割り込まない。receiptが曖昧な場合はCPU contextを保持してRust current reflectionからmirrorを再構築する。
 
 Execution mirrorのcapacityはRust prepared metadataをauthorityとする。v86 poolは64 KiBからpreflight済み需要へ幾何成長し、BGI profileは16,384 committed guest pages／64 MiBを上限とする。全page-table overheadとVGA MMIO holeを含むmirror ceilingは71,442,432 bytesである。成長時はfresh adapterへversioned CPU context、mapping bytes、protection、dirty stateを移し、physical identityをsemantic stateへ昇格させない。Decommit／releaseはzeroed free-listと空page-table回収へ接続し、上限超過は`v86-physical-pool-exhausted`としてmutation前に停止する。
 
@@ -649,11 +649,19 @@ D3D10／11は、それぞれのABI、COM identity、device／resource state、lo
 logical device／resource／commandを渡すRust内部の`RuntimeGraphics` boundaryとする。これは複数frontendの
 共通事実を抽出する場所であり、COM pointer、vtable slot、D3D version固有enumをauthorityとして保持しない。
 
-`RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contractが確定した時に
-最小vertical sliceとして導入する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
+`RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contractを所有する
+private Rust subsystemとして導入済みである。Window relation、normalized presentation、COM-object association、
+monotonic device IDとgenerationをowner-local plan／commitで管理し、4096-device capacity、stale plan、process
+teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
 graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
 関連は別namespaceのnon-owning associationにする。この順序により、未到達D3D8／10／11 frameworkを先行実装せず、
 後からfrontendを追加できるtranslation seamを今のauthority境界で確保する。
+
+`CreateDevice`はlive HWND／display profile、56-byte x86 presentation input、guest output spans、COM child
+registration、graphics capacityを全てpreflightする。Guest presentation prefix／device pointer、child COM
+identity、logical graphics deviceは一つの外部観測可能transactionとしてpublishする。Deviceはroot interfaceを
+一reference保持し、final releaseはCOM backing／process allocation／graphics associationをまとめてretireし、
+必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
 
 ### 13.2 GDI frontend
 

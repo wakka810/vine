@@ -28,13 +28,13 @@ use super::address_space::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     ProcessAddressAllocationReleasePolicy, ProcessAddressAllocationRequest,
-    ProcessAddressReservationPlan, ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout,
-    RuntimeAddressRange,
+    ProcessAddressReleasePlan, ProcessAddressReservationPlan, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
-    RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectRegistration,
-    RuntimeComReferenceResult, RuntimeComRegistrationResult,
+    RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectId,
+    RuntimeComObjectRegistration, RuntimeComReferenceResult, RuntimeComRegistrationResult,
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::files::{
@@ -47,6 +47,11 @@ use super::gdi::{
     RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeFillRectResult, RuntimeGdi,
     RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiSurface, RuntimeGdiSurfaceId,
     RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetStockObjectResult,
+};
+use super::graphics::{
+    RuntimeGraphics, RuntimeGraphicsDevice, RuntimeGraphicsDeviceCreateRequest,
+    RuntimeGraphicsDeviceCreationPlan, RuntimeGraphicsDeviceCreationRequest,
+    RuntimeGraphicsDeviceId, RuntimeGraphicsDeviceRetirementPlan, RuntimeGraphicsWindowTarget,
 };
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
@@ -223,8 +228,8 @@ impl RuntimeCallbackMutationPlan {
 
 pub(crate) struct RuntimeComReleasePlan {
     com: RuntimeComMutationPlan,
-    previous_address_space: Option<ProcessAddressSpaceAllocator>,
-    next_address_space: Option<ProcessAddressSpaceAllocator>,
+    address_space: Option<ProcessAddressReleasePlan>,
+    graphics: Option<RuntimeGraphicsDeviceRetirementPlan>,
 }
 
 impl RuntimeComReleasePlan {
@@ -329,6 +334,7 @@ pub struct RuntimeKernel {
     input: RuntimeInput,
     user32: RuntimeUser32,
     gdi: RuntimeGdi,
+    graphics: RuntimeGraphics,
     timers: RuntimeTimers,
     objects: RuntimeObjectTable,
     com: RuntimeCom,
@@ -419,6 +425,8 @@ struct RuntimeStateSnapshot<'a> {
     user32: Option<&'a RuntimeUser32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<&'a RuntimeGdi>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics: Option<&'a RuntimeGraphics>,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
     com: Option<&'a RuntimeCom>,
@@ -461,6 +469,7 @@ impl Serialize for RuntimeKernel {
             input: &self.input,
             user32: (!self.user32.is_empty()).then_some(&self.user32),
             gdi: (!self.gdi.is_empty()).then_some(&self.gdi),
+            graphics: (!self.graphics.is_empty()).then_some(&self.graphics),
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
             modules: &self.modules,
@@ -558,6 +567,7 @@ impl RuntimeKernel {
             input: RuntimeInput::default(),
             user32: RuntimeUser32::default(),
             gdi: RuntimeGdi::default(),
+            graphics: RuntimeGraphics::default(),
             timers: RuntimeTimers::default(),
             objects,
             com: RuntimeCom::default(),
@@ -988,10 +998,19 @@ impl RuntimeKernel {
     ) -> Result<RuntimeComReleasePlan, RuntimeStateError> {
         let com = self.com.plan_release(interface_id)?;
         let result = com.reference_result();
-        let (previous_address_space, next_address_space) =
-            if let Some(backing) = &result.retired_backing {
-                let mut next = self.address_space_allocator.clone();
-                let released = next.release(backing.address_allocation_id)?;
+        let address_space = if result.retirements.is_empty() {
+            None
+        } else {
+            let allocation_ids = result
+                .retirements
+                .iter()
+                .map(|retirement| retirement.backing.address_allocation_id)
+                .collect::<Vec<_>>();
+            let plan = self
+                .address_space_allocator
+                .plan_releases(&allocation_ids)?;
+            for (retirement, released) in result.retirements.iter().zip(plan.allocations()) {
+                let backing = &retirement.backing;
                 if released.range != backing.range
                     || released.purpose != ProcessAddressAllocationPurpose::ComEndpoint
                     || released.owner != RUNTIME_COM_ADDRESS_OWNER
@@ -1006,14 +1025,21 @@ impl RuntimeKernel {
                         "retiring COM object does not own the expected process allocation",
                     ));
                 }
-                (Some(self.address_space_allocator.clone()), Some(next))
-            } else {
-                (None, None)
-            };
+            }
+            Some(plan)
+        };
+        let retired_object_ids = result
+            .retirements
+            .iter()
+            .map(|retirement| retirement.object_id)
+            .collect::<BTreeSet<_>>();
+        let graphics = self
+            .graphics
+            .plan_com_object_retirements(&retired_object_ids)?;
         Ok(RuntimeComReleasePlan {
             com,
-            previous_address_space,
-            next_address_space,
+            address_space,
+            graphics,
         })
     }
 
@@ -1022,14 +1048,23 @@ impl RuntimeKernel {
         plan: &RuntimeComReleasePlan,
     ) -> Result<(), RuntimeStateError> {
         self.com.preflight(&plan.com)?;
-        if let Some(previous) = &plan.previous_address_space
-            && &self.address_space_allocator != previous
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com",
-                "com-release-allocation-plan-stale",
-                "process address allocations changed after COM release planning",
-            ));
+        if let Some(address_space) = &plan.address_space {
+            self.address_space_allocator
+                .preflight_releases(address_space)
+                .map_err(|error| {
+                    if error.code == "address-allocation-release-plan-stale" {
+                        RuntimeStateError::conflict(
+                            "runtime-com",
+                            "com-release-allocation-plan-stale",
+                            "process address allocations changed after COM release planning",
+                        )
+                    } else {
+                        error
+                    }
+                })?;
+        }
+        if let Some(graphics) = &plan.graphics {
+            self.graphics.preflight_com_object_retirement(graphics)?;
         }
         Ok(())
     }
@@ -1041,8 +1076,11 @@ impl RuntimeKernel {
         self.preflight_com_release(&plan)?;
         let result = plan.result();
         self.com.commit(plan.com);
-        if let Some(next) = plan.next_address_space {
-            self.address_space_allocator = next;
+        if let Some(address_space) = plan.address_space {
+            self.address_space_allocator.commit_releases(address_space);
+        }
+        if let Some(graphics) = plan.graphics {
+            self.graphics.commit_com_object_retirement(graphics);
         }
         Ok(result)
     }
@@ -3204,6 +3242,84 @@ impl RuntimeKernel {
         self.gdi.surfaces()
     }
 
+    pub(crate) fn plan_graphics_device_creation(
+        &self,
+        request: RuntimeGraphicsDeviceCreateRequest,
+    ) -> Result<RuntimeGraphicsDeviceCreationPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        let target = self.resolve_graphics_window_target(request.window_handle)?;
+        self.graphics
+            .plan_device_creation(RuntimeGraphicsDeviceCreationRequest {
+                frontend: request.frontend,
+                target,
+                color_format: request.color_format,
+                back_buffer_count: request.back_buffer_count,
+                sample_count: request.sample_count,
+                present_mode: request.present_mode,
+                windowed: request.windowed,
+            })
+    }
+
+    pub(crate) fn preflight_graphics_device_creation(
+        &self,
+        plan: &RuntimeGraphicsDeviceCreationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.graphics.preflight_device_creation(plan)
+    }
+
+    pub(crate) fn commit_graphics_device_creation(
+        &mut self,
+        plan: RuntimeGraphicsDeviceCreationPlan,
+        com_object_id: RuntimeComObjectId,
+    ) -> RuntimeGraphicsDevice {
+        self.graphics.commit_device_creation(plan, com_object_id)
+    }
+
+    pub fn graphics_device(
+        &self,
+        id: RuntimeGraphicsDeviceId,
+    ) -> Result<&RuntimeGraphicsDevice, RuntimeStateError> {
+        self.graphics.device(id)
+    }
+
+    pub fn graphics_devices(&self) -> &BTreeMap<RuntimeGraphicsDeviceId, RuntimeGraphicsDevice> {
+        self.graphics.devices()
+    }
+
+    fn resolve_graphics_window_target(
+        &self,
+        window_handle: u32,
+    ) -> Result<RuntimeGraphicsWindowTarget, RuntimeStateError> {
+        let window = self.user32.window(window_handle).map_err(|_| {
+            RuntimeStateError::not_found(
+                "runtime-graphics",
+                "graphics-window-handle-unknown",
+                format!("logical graphics HWND {window_handle:#010x} is not live"),
+            )
+        })?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-window-lifecycle-state-invalid",
+                "logical graphics device creation requires a created window",
+            ));
+        }
+        if window.creation.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-window-thread-mismatch",
+                "logical graphics device creation requires the window owner guest thread",
+            ));
+        }
+        Ok(RuntimeGraphicsWindowTarget {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id: window.creation.owner_thread_id,
+            client_width: window.creation.geometry.client_width,
+            client_height: window.creation.geometry.client_height,
+        })
+    }
+
     fn resolve_gdi_window_target(
         &self,
         window_handle: u32,
@@ -3446,6 +3562,23 @@ impl RuntimeKernel {
                 "runtime-gdi",
                 "gdi-operation-state-invalid",
                 "GDI operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_graphics_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-operation-state-invalid",
+                "graphics operation requires a running process and active current thread",
             ));
         }
         Ok(())
@@ -4048,16 +4181,23 @@ impl RuntimeKernel {
             ));
         }
         let payload_teardown = self.plan_payload_object_teardown(&BTreeSet::new())?;
+        let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
             self.gdi.preflight_process_teardown(gdi_plan)?;
         }
+        if let Some(graphics_plan) = graphics_teardown.as_ref() {
+            self.graphics.preflight_process_teardown(graphics_plan)?;
+        }
         if let Some(user32_plan) = user32_teardown.as_ref() {
             self.user32.preflight_process_teardown(user32_plan)?;
         }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(graphics_plan) = graphics_teardown {
+            self.graphics.commit_process_teardown(graphics_plan);
+        }
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
         }
@@ -4133,6 +4273,7 @@ impl RuntimeKernel {
             .flat_map(|thread| thread.source_read_cancellation.request_ids())
             .collect::<BTreeSet<_>>();
         let payload_teardown = self.plan_payload_object_teardown(&cancelling_source_reads)?;
+        let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
@@ -4141,6 +4282,9 @@ impl RuntimeKernel {
         }
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
             self.gdi.preflight_process_teardown(gdi_plan)?;
+        }
+        if let Some(graphics_plan) = graphics_teardown.as_ref() {
+            self.graphics.preflight_process_teardown(graphics_plan)?;
         }
         if let Some(user32_plan) = user32_teardown.as_ref() {
             self.user32.preflight_process_teardown(user32_plan)?;
@@ -4160,6 +4304,9 @@ impl RuntimeKernel {
             self.scheduler.commit_lane(terminal_scheduler_plan);
         }
         self.commit_payload_object_teardown(payload_teardown)?;
+        if let Some(graphics_plan) = graphics_teardown {
+            self.graphics.commit_process_teardown(graphics_plan);
+        }
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
         }
@@ -4753,6 +4900,31 @@ impl std::error::Error for RuntimeStateError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::com::{
+        COM_S_OK, ComCallTrap, ComDispatchOutcome, ComReturnValue, install_com_object,
+    };
+    use crate::d3d9::{
+        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DDEVTYPE_HAL, D3D9_D3DFMT_D16,
+        D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE,
+        D3D9_D3DSWAPEFFECT_DISCARD, D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID,
+        D3d9CompatibilityPolicy, direct3d9_object_spec, dispatch_d3d9_com_call,
+    };
+    use crate::memory::{MemoryLimits, MemoryOwnerKind};
+    use crate::runtime::{
+        RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
+        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeGraphicsColorFormat,
+        RuntimeGraphicsPresentMode, RuntimeWindowClassModule, RuntimeWindowClassNameA,
+        RuntimeWindowClassReference, RuntimeWindowGeometry, RuntimeWindowNameA,
+        RuntimeWindowProcedureCallingConvention,
+    };
+    use crate::{ExecutionSession, RuntimeRect, Rva};
+
+    const D3D9_FIXTURE_MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
+    const D3D9_FIXTURE_STACK: GuestAddress = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x100);
+    const D3D9_FIXTURE_PRESENTATION: GuestAddress =
+        GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x800);
+    const D3D9_FIXTURE_OUTPUT: GuestAddress = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x900);
+    const D3D9_FIXTURE_CALL_SITE: GuestAddress = GuestAddress(0x1005_aca5);
 
     #[test]
     fn failed_private_heap_registration_preserves_the_slot_allocator() {
@@ -4932,5 +5104,396 @@ mod tests {
             runtime.scheduler().host_requests().get(&request.request_id),
             Some(&request)
         );
+    }
+
+    #[test]
+    fn d3d9_create_device_commits_guest_com_and_graphics_state_then_retires_as_one_lifetime() {
+        let mut runtime = d3d9_fixture_runtime();
+        let window = seed_created_d3d9_window(&mut runtime);
+        let mut memory = d3d9_fixture_memory();
+        let root = install_com_object(&mut memory, &mut runtime, direct3d9_object_spec())
+            .expect("install D3D9 root COM object");
+        let root_interface = root
+            .interfaces
+            .iter()
+            .find(|interface| interface.iid == D3D9_IDIRECT3D9_IID)
+            .expect("IDirect3D9 interface")
+            .clone();
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let presentation_words = [
+            0,
+            0,
+            D3D9_D3DFMT_UNKNOWN,
+            1,
+            D3D9_D3DMULTISAMPLE_NONE,
+            0,
+            D3D9_D3DSWAPEFFECT_DISCARD,
+            window.handle,
+            1,
+            0,
+            D3D9_D3DFMT_D16,
+            0,
+            0,
+            0,
+        ];
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_PRESENTATION, &presentation_words);
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                root_interface.guest_pointer.0,
+                0,
+                D3D9_D3DDEVTYPE_HAL,
+                window.handle,
+                D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED,
+                D3D9_FIXTURE_PRESENTATION.0,
+                D3D9_FIXTURE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let completion = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v8(),
+                ComCallTrap {
+                    endpoint_address: root_interface.methods[&16].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("CreateDevice did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(completion.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(
+            completion.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 32)
+        );
+        assert_eq!(completion.guest_writes.len(), 2);
+        assert_eq!(
+            completion.guest_writes[0].address,
+            D3D9_FIXTURE_PRESENTATION
+        );
+        assert_eq!(completion.guest_writes[1].address, D3D9_FIXTURE_OUTPUT);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let presentation = memory
+            .read(D3D9_FIXTURE_PRESENTATION, presentation_words.len() * 4)
+            .expect("resolved presentation parameters");
+        let resolved_words = presentation
+            .chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(&resolved_words[..3], &[800, 600, D3D9_D3DFMT_X8R8G8B8]);
+        assert_eq!(&resolved_words[3..], &presentation_words[3..]);
+        let device_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_OUTPUT, 4)
+                .expect("CreateDevice output pointer")
+                .try_into()
+                .unwrap(),
+        );
+        let device_interface = runtime
+            .com_interface_for_pointer(GuestAddress(device_pointer))
+            .expect("IDirect3DDevice9 output")
+            .clone();
+        assert_eq!(device_interface.iid, D3D9_IDIRECT3DDEVICE9_IID);
+        let device_object = runtime
+            .com()
+            .object(device_interface.object_id)
+            .expect("device COM object")
+            .clone();
+        assert_eq!(device_object.reference_count, 1);
+        assert_eq!(device_object.parent_interface_id, Some(root_interface.id));
+        assert_eq!(
+            runtime
+                .com()
+                .object(root.object.id)
+                .unwrap()
+                .reference_count,
+            2
+        );
+
+        let graphics = runtime
+            .graphics_devices()
+            .values()
+            .next()
+            .expect("logical graphics device")
+            .clone();
+        assert_eq!(runtime.graphics_devices().len(), 1);
+        assert_eq!(graphics.window_id, window.id);
+        assert_eq!(graphics.window_handle, window.handle);
+        assert_eq!(graphics.owner_thread_id, RuntimeThreadId(0x2000));
+        assert_eq!(graphics.com_object_id, device_object.id);
+        assert_eq!(graphics.presentation.width, 800);
+        assert_eq!(graphics.presentation.height, 600);
+        assert_eq!(
+            graphics.presentation.color_format,
+            RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+        );
+        assert_eq!(graphics.presentation.back_buffer_count, 1);
+        assert_eq!(graphics.presentation.sample_count, 1);
+        assert_eq!(
+            graphics.presentation.present_mode,
+            RuntimeGraphicsPresentMode::Discard
+        );
+        assert!(graphics.presentation.windowed);
+        assert!(graphics.renderer.is_none());
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let root_release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &root_interface,
+            root_interface.guest_pointer,
+        );
+        assert_eq!(root_release.return_value, ComReturnValue::U32(1));
+        assert!(!root_release.object_retired);
+        assert_eq!(
+            runtime
+                .com()
+                .object(root.object.id)
+                .unwrap()
+                .reference_count,
+            1
+        );
+        assert_eq!(runtime.graphics_devices().len(), 1);
+
+        let device_release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &device_interface,
+            device_interface.guest_pointer,
+        );
+        assert_eq!(device_release.return_value, ComReturnValue::U32(0));
+        assert!(device_release.object_retired);
+        assert!(runtime.com().is_empty());
+        assert!(runtime.graphics_devices().is_empty());
+        assert!(memory.read(root_interface.guest_pointer, 4).is_err());
+        assert!(memory.read(device_interface.guest_pointer, 4).is_err());
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+    }
+
+    fn d3d9_fixture_runtime() -> RuntimeKernel {
+        let mut runtime = RuntimeKernel::new(RuntimeBootstrap {
+            process_id: RuntimeProcessId(0x1000),
+            initial_thread_id: RuntimeThreadId(0x2000),
+            initial_last_error: 0x1234_5678,
+            address_space: ProcessAddressSpaceLayout::vine_v1(),
+            clock: RuntimeClockState {
+                wall_clock_file_time: 134_282_016_000_000_000,
+                tick_count: 3_600_000,
+                performance_counter: 12_345_678_901,
+            },
+            startup_info: RuntimeStartupInfo {
+                profile_id: "d3d9-create-device-transaction-test".to_owned(),
+                bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
+            },
+            process_image_path_a: RuntimeProcessImagePathA {
+                source_authority: "d3d9-create-device-transaction-fixture".to_owned(),
+                bytes_with_nul: b"C:\\Vine\\fixture.exe\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            initial_current_directory_a: RuntimeCurrentDirectoryA {
+                source_authority: "d3d9-create-device-transaction-fixture".to_owned(),
+                bytes_with_nul: b"C:\\Vine\0".to_vec(),
+                encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+            },
+            encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+            encoded_pointer_token_prefix: 0xec01_0000,
+        })
+        .expect("D3D9 transaction runtime");
+        runtime
+            .start_initial_thread()
+            .expect("start fixture thread");
+        runtime
+            .configure_display_profile(RuntimeDisplayProfile {
+                id: "single-monitor-1920x1080-v1".to_owned(),
+                primary_monitor_rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1920,
+                    bottom: 1080,
+                },
+            })
+            .expect("configure fixture display");
+        runtime
+    }
+
+    fn seed_created_d3d9_window(runtime: &mut RuntimeKernel) -> RuntimeWindow {
+        let module = RuntimeWindowClassModule {
+            module_id: RuntimeModuleId(1),
+            load_base: GuestAddress(0x1000_0000),
+            source_sha256: "0".repeat(64),
+        };
+        let class_plan = runtime
+            .user32
+            .plan_window_class_registration(RuntimeWindowClassRegistration {
+                module: module.clone(),
+                style: 0x28,
+                window_procedure: RuntimeWindowProcedure {
+                    module_id: module.module_id,
+                    address: GuestAddress(0x1009_2550),
+                    rva: Rva(0x0009_2550),
+                    calling_convention: RuntimeWindowProcedureCallingConvention::Stdcall,
+                    argument_bytes: RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+                },
+                class_extra_bytes: 0,
+                window_extra_bytes: 0,
+                icon: None,
+                cursor: None,
+                background_brush: 0,
+                menu_name: None,
+                class_name: RuntimeWindowClassNameA {
+                    value: "BGI - Main window".to_owned(),
+                    encoding: RUNTIME_WINDOW_CLASS_NAME_A_ENCODING.to_owned(),
+                },
+                small_icon: None,
+            })
+            .expect("plan fixture window class");
+        let class = runtime
+            .user32
+            .commit_window_class_registration(class_plan)
+            .expect("commit fixture window class");
+        let creation_plan = runtime
+            .user32
+            .plan_window_creation(RuntimeWindowCreationRequest {
+                owner_thread_id: RuntimeThreadId(0x2000),
+                class: RuntimeWindowClassReference {
+                    class_id: class.class_id,
+                    atom: class.atom,
+                    module_id: module.module_id,
+                },
+                instance: module,
+                name: RuntimeWindowNameA {
+                    value: "Ethornell - BURIKO General Interpreter".to_owned(),
+                    encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+                },
+                extended_style: 0x0004_0000,
+                effective_extended_style: 0x0004_0100,
+                style: 0x80ca_0000,
+                effective_style: 0x84ca_0000,
+                geometry: RuntimeWindowGeometry {
+                    x: 557,
+                    y: 214,
+                    width: 806,
+                    height: 629,
+                    client_x: 560,
+                    client_y: 240,
+                    client_width: 800,
+                    client_height: 600,
+                },
+                parent: 0,
+                menu: 0,
+                create_parameter: 0,
+                entry_last_error: 0x1234_5678,
+            })
+            .expect("plan fixture window");
+        let created = runtime
+            .user32
+            .commit_window_creation(creation_plan)
+            .expect("commit fixture window");
+        for (message, result) in [
+            (RuntimeWindowCreationMessage::NonClientCreate, 1),
+            (RuntimeWindowCreationMessage::NonClientCalculate, 0),
+            (RuntimeWindowCreationMessage::Create, 0),
+            (RuntimeWindowCreationMessage::Size, 0),
+            (RuntimeWindowCreationMessage::Move, 0),
+        ] {
+            let plan = runtime
+                .user32
+                .plan_window_creation_callback(created.window_id, message, result)
+                .expect("plan fixture window callback");
+            runtime
+                .user32
+                .commit_window_creation_callback(plan)
+                .expect("commit fixture window callback");
+        }
+        runtime
+            .window(created.handle)
+            .expect("created fixture window")
+            .clone()
+    }
+
+    fn d3d9_fixture_memory() -> GuestMemory {
+        let mut memory = GuestMemory::new(MemoryLimits::default()).expect("fixture guest memory");
+        let owner = memory
+            .create_owner(MemoryOwnerKind::Runtime)
+            .expect("fixture memory owner");
+        let range = memory
+            .reserve_fixed(
+                owner,
+                MemoryRegionKind::Runtime,
+                D3D9_FIXTURE_MEMORY_BASE,
+                0x3000,
+            )
+            .expect("fixture memory reservation");
+        memory
+            .commit(
+                owner,
+                range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .expect("fixture memory commit");
+        memory.seal_owner(owner).expect("seal fixture memory owner");
+        let reflection = memory
+            .pending_reflection()
+            .expect("fixture initial memory reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge fixture initial memory");
+        memory
+    }
+
+    fn write_d3d9_fixture_words(memory: &mut GuestMemory, address: GuestAddress, words: &[u32]) {
+        let bytes = words
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect::<Vec<_>>();
+        memory.write(address, &bytes).expect("write fixture words");
+    }
+
+    fn acknowledge_d3d9_fixture_memory(memory: &mut GuestMemory) {
+        if memory.stats().pending_invalidation.is_some() {
+            let delta = memory.pending_delta().expect("fixture pending delta");
+            memory
+                .acknowledge_delta(delta.generation)
+                .expect("acknowledge fixture delta");
+        }
+    }
+
+    fn dispatch_d3d9_fixture_release(
+        memory: &mut GuestMemory,
+        runtime: &mut RuntimeKernel,
+        interface: &RuntimeComInterfaceRecord,
+        pointer: GuestAddress,
+    ) -> crate::com::ComCallCompletion {
+        write_d3d9_fixture_words(
+            memory,
+            D3D9_FIXTURE_STACK,
+            &[D3D9_FIXTURE_CALL_SITE.0, pointer.0],
+        );
+        acknowledge_d3d9_fixture_memory(memory);
+        let mut session = ExecutionSession::new(memory, runtime);
+        match session.dispatch_com_call(ComCallTrap {
+            endpoint_address: interface.methods[&2].endpoint,
+            stack_pointer: D3D9_FIXTURE_STACK,
+            return_address: D3D9_FIXTURE_CALL_SITE,
+            call_site: D3D9_FIXTURE_CALL_SITE,
+        }) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("COM Release did not complete: {other:?}"),
+        }
     }
 }

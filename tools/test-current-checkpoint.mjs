@@ -219,6 +219,33 @@ assert.ok(
   ),
 );
 
+const duplicatedGraphicsAuthority = structuredClone(manifest);
+duplicatedGraphicsAuthority.activeRuntimeCheckpoint.d3d9Frontend.runtimeGraphics.stateOwner =
+  "runtime/com.rs::RuntimeCom";
+assert.ok(
+  validateCurrentCheckpoint(duplicatedGraphicsAuthority).some((error) =>
+    error.includes("active D3D9 frontend boundary"),
+  ),
+);
+
+const browserOwnedCreateDeviceState = structuredClone(manifest);
+browserOwnedCreateDeviceState.activeRuntimeCheckpoint.latestEvidence.d3d9CreateDeviceBrowserOwnsComOrGraphicsState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedCreateDeviceState).some((error) =>
+    error.includes("latest D3D9 CreateDevice evidence"),
+  ),
+);
+
+const partialCreateDevicePublication = structuredClone(manifest);
+partialCreateDevicePublication.activeRuntimeCheckpoint.latestEvidence.d3d9CreateDeviceGuestComGraphicsAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialCreateDevicePublication).some((error) =>
+    error.includes("latest D3D9 CreateDevice evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;
