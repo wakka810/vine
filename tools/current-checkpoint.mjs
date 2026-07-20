@@ -405,9 +405,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_352_778 ||
+    browserRuntimeCoreWasm.bytes !== 3_357_537 ||
     browserRuntimeCoreWasm.sha256 !==
-      "12c75144628bd0d7390bc5298e55cc2e6756f8f6b3732ce4ab35f1bd32fcd02d"
+      "2439091fc1a5a2d19894982d70cf87f0b6934c8af86c2da574ded9e86508632c"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
