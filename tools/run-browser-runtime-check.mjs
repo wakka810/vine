@@ -477,7 +477,18 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   let snapshot = null;
   while (Date.now() < deadline) {
-    snapshot = await evaluate(client, `window.__vineBgiCheck`);
+    try {
+      snapshot = await evaluate(client, `window.__vineBgiCheck`);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Cannot find default execution context")
+      ) {
+        await wait(50);
+        continue;
+      }
+      throw error;
+    }
     if (snapshot?.error !== null && snapshot?.error !== undefined) {
       throw new Error(`BGI browser runtime failed: ${snapshot.error}`);
     }

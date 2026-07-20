@@ -18,7 +18,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 5;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 6;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -42,6 +42,14 @@ pub const D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES: [u8; 16] = [
 pub const D3D9_IDIRECT3D9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0xca, 0xcb, 0xbd, 0x81, 0xd4, 0x64, 0x6d, 0x42, 0xae, 0x8d, 0xad, 0x01, 0x47, 0xf4, 0x27, 0x5c,
 ]);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9AdapterCountPolicy {
+    pub profile_id: String,
+    pub display_profile_id: String,
+    pub adapter_count: u32,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +125,7 @@ pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
+    pub get_adapter_count: Option<D3d9AdapterCountPolicy>,
     pub get_adapter_display_mode: Option<D3d9AdapterDisplayModePolicy>,
     pub get_adapter_identifier: Option<D3d9AdapterIdentifierPolicy>,
     pub get_device_caps: Option<D3d9DeviceCapsPolicy>,
@@ -125,11 +134,16 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v5() -> Self {
+    pub fn controlled_v6() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v5".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v6".to_owned(),
+            get_adapter_count: Some(D3d9AdapterCountPolicy {
+                profile_id: "single-logical-adapter-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                adapter_count: 1,
+            }),
             get_adapter_display_mode: Some(D3d9AdapterDisplayModePolicy {
                 profile_id: "primary-adapter-1920x1080-60-x8r8g8b8-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -195,6 +209,17 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-compatibility-policy-header-invalid",
                 "D3D9 compatibility policy has an unsupported schema, version, or ID",
+            ));
+        }
+        if let Some(count) = self.get_adapter_count.as_ref()
+            && (!valid_policy_id(&count.profile_id)
+                || !valid_policy_id(&count.display_profile_id)
+                || count.adapter_count != 1)
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-adapter-count-profile-invalid",
+                "D3D9 adapter-count profile must describe exactly one logical primary adapter",
             ));
         }
         if let Some(mode) = self.get_adapter_display_mode.as_ref()
@@ -283,6 +308,9 @@ impl D3d9CompatibilityPolicy {
             ));
         }
         let coherent_profiles = [
+            self.get_adapter_count
+                .as_ref()
+                .map(|profile| (0, profile.display_profile_id.as_str())),
             self.get_adapter_display_mode
                 .as_ref()
                 .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
@@ -491,24 +519,26 @@ fn dispatch_d3d9_frontend_call(
             "D3D9 frontend received a COM method outside its registered IDirect3D9 route",
         );
     }
-    let expected_argument_words = match (call.frame().vtable_slot, call.frame().method.as_str()) {
-        (5, "GetAdapterIdentifier") => 3,
-        (8, "GetAdapterDisplayMode") => 2,
-        (9, "CheckDeviceType") => 5,
-        (10, "CheckDeviceFormat") => 6,
-        (14, "GetDeviceCaps") => 3,
-        _ => {
-            return call.fault(
-                ComFaultClass::RuntimeDefect,
-                "d3d9-com-dispatch",
-                "d3d9-com-route-mismatch",
-                "D3D9 frontend received a COM method outside its registered IDirect3D9 route",
-            );
-        }
-    };
+    let (expected_argument_words, expected_return_kind) =
+        match (call.frame().vtable_slot, call.frame().method.as_str()) {
+            (4, "GetAdapterCount") => (0, RuntimeComReturnKind::U32),
+            (5, "GetAdapterIdentifier") => (3, RuntimeComReturnKind::HResult),
+            (8, "GetAdapterDisplayMode") => (2, RuntimeComReturnKind::HResult),
+            (9, "CheckDeviceType") => (5, RuntimeComReturnKind::HResult),
+            (10, "CheckDeviceFormat") => (6, RuntimeComReturnKind::HResult),
+            (14, "GetDeviceCaps") => (3, RuntimeComReturnKind::HResult),
+            _ => {
+                return call.fault(
+                    ComFaultClass::RuntimeDefect,
+                    "d3d9-com-dispatch",
+                    "d3d9-com-route-mismatch",
+                    "D3D9 frontend received a COM method outside its registered IDirect3D9 route",
+                );
+            }
+        };
     if call.explicit_argument_words() != expected_argument_words
         || call.frame().explicit_arguments.len() != usize::from(expected_argument_words)
-        || call.return_kind() != RuntimeComReturnKind::HResult
+        || call.return_kind() != expected_return_kind
     {
         return call.fault(
             ComFaultClass::RuntimeDefect,
@@ -526,6 +556,7 @@ fn dispatch_d3d9_frontend_call(
         );
     }
     match call.frame().vtable_slot {
+        4 => dispatch_get_adapter_count(policy, call),
         5 => dispatch_get_adapter_identifier(policy, call),
         8 => dispatch_get_adapter_display_mode(policy, call),
         9 => dispatch_check_device_type(policy, call),
@@ -533,6 +564,31 @@ fn dispatch_d3d9_frontend_call(
         14 => dispatch_get_device_caps(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_get_adapter_count(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(count_policy) = policy.get_adapter_count.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-adapter-count",
+            "get-adapter-count-policy-disabled",
+            "D3D9 compatibility policy does not enable GetAdapterCount",
+        );
+    };
+    if let Some((code, message)) =
+        primary_display_authority_fault(&call, &count_policy.display_profile_id)
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-adapter-count",
+            code,
+            message,
+        );
+    }
+    call.complete(ComReturnValue::U32(count_policy.adapter_count), Vec::new())
 }
 
 fn dispatch_check_device_format(
@@ -908,7 +964,7 @@ pub fn direct3d9_object_spec() -> ComObjectSpec {
                     ComMethodSpec::add_ref(),
                     ComMethodSpec::release(),
                     ComMethodSpec::unsupported_hresult("RegisterSoftwareDevice", 1),
-                    ComMethodSpec::unsupported_u32("GetAdapterCount", 0),
+                    ComMethodSpec::frontend_u32("GetAdapterCount", 0),
                     ComMethodSpec::frontend_hresult("GetAdapterIdentifier", 3),
                     ComMethodSpec::unsupported_u32("GetAdapterModeCount", 2),
                     ComMethodSpec::unsupported_hresult("EnumAdapterModes", 4),

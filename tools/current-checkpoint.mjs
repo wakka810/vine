@@ -405,9 +405,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_357_537 ||
+    browserRuntimeCoreWasm.bytes !== 3_359_613 ||
     browserRuntimeCoreWasm.sha256 !==
-      "2439091fc1a5a2d19894982d70cf87f0b6934c8af86c2da574ded9e86508632c"
+      "af80dc301fd91c61276cdcc06658a0e0b5c1a1fee942f7e74e6f2ffba34160c6"
   ) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
@@ -424,26 +424,26 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     browserRuntimeFixture.bytes !== 3_584 ||
     browserRuntimeFixture.sha256 !==
-      "7e584ea6a241b09715ff85d855755aca8ce5a01a3f073edce0fcd65c24cda7fd" ||
+      "6a2f987855975cd120d60b26f3190877efdd1ce6e55f08ac416faa35ea9d06fe" ||
     browserRuntimeFixture.nativeExitCode !== 0
   ) {
     errors.push("browser runtime fixture identity is invalid");
   }
   if (
-    browserEvidence.guestInstructions !== 1_945 ||
-    browserEvidence.cpuSlices !== 252 ||
+    browserEvidence.guestInstructions !== 1_954 ||
+    browserEvidence.cpuSlices !== 253 ||
     browserEvidence.budgetYields !== 233 ||
     browserEvidence.hostRequests !== 2 ||
     browserEvidence.rustSchedulerTransitions !== 2 ||
     browserEvidence.callbackEntries !== 2 ||
     browserEvidence.maximumCallbackDepth !== 2 ||
-    browserEvidence.writebackBatches !== 60 ||
-    browserEvidence.writebackPages !== 62 ||
+    browserEvidence.writebackBatches !== 62 ||
+    browserEvidence.writebackPages !== 64 ||
     browserEvidence.initialGeneration !== 15 ||
-    browserEvidence.finalGeneration !== 120 ||
+    browserEvidence.finalGeneration !== 122 ||
     browserEvidence.runtimeCoreLinearMemoryBytes !== 1_638_400 ||
     browserEvidence.executionEngineLinearMemoryBytes !== 9_961_472 ||
-    browserEvidence.executionStateMachine?.success?.transitionCount !== 760 ||
+    browserEvidence.executionStateMachine?.success?.transitionCount !== 763 ||
     browserEvidence.executionStateMachine?.cancellation?.transitionCount !== 12 ||
     browserEvidence.executionStateMachine?.watchdog?.transitionCount !== 12 ||
     browserEvidence.exitCode !== 0 ||
@@ -564,6 +564,11 @@ export function validateCurrentCheckpoint(manifest) {
     "sourceReadPendingAfterCleanup",
     "callbackReplacements",
     "logicalWindowCompletions",
+    "d3d9GetAdapterCountCompletions",
+    "d3d9GetAdapterCountSequence",
+    "d3d9GetAdapterCountResult",
+    "d3d9GetAdapterCountGuestWriteBytes",
+    "d3d9GetAdapterCountReferenceCount",
     "d3d9GetAdapterDisplayModeCompletions",
     "d3d9GetAdapterDisplayModeSequence",
     "d3d9GetAdapterDisplayModeReferenceCount",
@@ -698,7 +703,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 120_854 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 120_857 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -758,6 +763,15 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.monitorFromWindowFailureAtomicity !== true ||
     bgiBrowserEvidence.monitorFromWindowHostDisplayTopologyImported !== false ||
     bgiBrowserEvidence.monitorFromWindowBrowserDisplayTopologyImported !== false ||
+    bgiBrowserEvidence.d3d9GetAdapterCountCompletions !== 1 ||
+    bgiBrowserEvidence.d3d9GetAdapterCountSequence !== 17_843 ||
+    bgiBrowserEvidence.d3d9GetAdapterCountArguments?.join(",") !==
+      "0x01000004" ||
+    bgiBrowserEvidence.d3d9GetAdapterCountResult !== 1 ||
+    bgiBrowserEvidence.d3d9GetAdapterCountGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.d3d9GetAdapterCountReferenceCount !== 1 ||
+    bgiBrowserEvidence.d3d9GetAdapterCountObjectRetired !== false ||
+    bgiBrowserEvidence.d3d9GetAdapterCountOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.d3d9GetAdapterDisplayModeCompletions !== 1 ||
     bgiBrowserEvidence.d3d9GetAdapterDisplayModeSequence !== 17_817 ||
     bgiBrowserEvidence.d3d9GetAdapterDisplayModeArguments?.join(",") !==
@@ -1352,6 +1366,32 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.compatibilityPolicy",
     errors,
   );
+  const d3d9AdapterCount = requireRecord(
+    d3d9.getAdapterCount,
+    "activeRuntimeCheckpoint.d3d9Frontend.getAdapterCount",
+    errors,
+  );
+  const d3d9NativeAdapterCount = requireRecord(
+    d3d9.nativeAdapterCountEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeAdapterCountEvidence",
+    errors,
+  );
+  const d3d9PrivateAdapterCount = requireRecord(
+    d3d9.privateRuntimeAdapterCountEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAdapterCountEvidence",
+    errors,
+  );
+  const d3d9PrivateAdapterCountArguments = requireOrderedStringArray(
+    d3d9PrivateAdapterCount.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAdapterCountEvidence.arguments",
+    errors,
+  );
+  for (const [value, label] of [
+    [d3d9NativeAdapterCount.traceSha256, "nativeAdapterCountEvidence.traceSha256"],
+    [d3d9NativeAdapterCount.summarySha256, "nativeAdapterCountEvidence.summarySha256"],
+  ]) {
+    requireSha256(value, `activeRuntimeCheckpoint.d3d9Frontend.${label}`, errors);
+  }
   const d3d9DisplayMode = requireRecord(
     d3d9.getAdapterDisplayMode,
     "activeRuntimeCheckpoint.d3d9Frontend.getAdapterDisplayMode",
@@ -1558,7 +1598,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.invalidSdkReturnsNullBeforeMutation !== true ||
     d3d9IUnknownMethods.join(",") !== "QueryInterface,AddRef,Release" ||
     d3d9ImplementedRootMethods.join(",") !==
-      "QueryInterface,AddRef,Release,GetAdapterIdentifier,GetAdapterDisplayMode,GetDeviceCaps,CheckDeviceType,CheckDeviceFormat" ||
+      "QueryInterface,AddRef,Release,GetAdapterCount,GetAdapterIdentifier,GetAdapterDisplayMode,GetDeviceCaps,CheckDeviceType,CheckDeviceFormat" ||
     d3d9.backingPages !== 2 ||
     d3d9.dataPageFinalProtection !== "read-only" ||
     d3d9.endpointPageFinalProtection !== "read-execute" ||
@@ -1568,10 +1608,50 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 5 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v5" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 6 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v6" ||
     d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-v1" ||
+    d3d9AdapterCount.slot !== 4 ||
+    d3d9AdapterCount.explicitArgumentWords !== 0 ||
+    d3d9AdapterCount.returnKind !== "u32" ||
+    d3d9AdapterCount.profileId !== "single-logical-adapter-v1" ||
+    d3d9AdapterCount.adapterCount !== 1 ||
+    d3d9AdapterCount.countAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    d3d9AdapterCount.displayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    d3d9AdapterCount.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9AdapterCount.guestWriteBytes !== 0 ||
+    d3d9AdapterCount.referenceCountMutation !== false ||
+    d3d9AdapterCount.lastErrorPolicy !== "preserve" ||
+    d3d9AdapterCount.hostGpuTopologyImported !== false ||
+    d3d9AdapterCount.browserGpuTopologyImported !== false ||
+    d3d9NativeAdapterCount.traceSchema !== "vine.win32-trace.v2" ||
+    d3d9NativeAdapterCount.traceBytes !== 2_267_972 ||
+    d3d9NativeAdapterCount.traceLines !== 7_133 ||
+    d3d9NativeAdapterCount.traceSha256 !==
+      "cfefd83bc32f2de6e8b7feda96a09240b2ac7aedb3bc76ded41064a0d224c898" ||
+    d3d9NativeAdapterCount.summaryBytes !== 58_021 ||
+    d3d9NativeAdapterCount.summarySha256 !==
+      "3e8f8b52e23131b8efea737e3dfa94bdb10d9f14526fe2bf44bdb56715959aa9" ||
+    d3d9NativeAdapterCount.diagnostics !== 0 ||
+    d3d9NativeAdapterCount.directCallsPerTrace !== 6 ||
+    d3d9NativeAdapterCount.callerRva !== "0x00059d36" ||
+    d3d9NativeAdapterCount.result !== 1 ||
+    d3d9NativeAdapterCount.lastError !== 0 ||
+    d3d9NativeAdapterCount.consumer !==
+      "store-count-in-edi-loop-adapter-indices-and-compare-monitor-identity" ||
+    d3d9NativeAdapterCount.sourceExecutableHashUnchanged !== true ||
+    d3d9PrivateAdapterCount.nodeSequence !== 17_843 ||
+    d3d9PrivateAdapterCount.nodeInstructionCount !== 11_807_197 ||
+    d3d9PrivateAdapterCount.chromeSequence !== 17_843 ||
+    d3d9PrivateAdapterCountArguments.join(",") !== "0x01000004" ||
+    d3d9PrivateAdapterCount.returnAddress !== "0x10059d36" ||
+    d3d9PrivateAdapterCount.result !== 1 ||
+    d3d9PrivateAdapterCount.guestWriteBytes !== 0 ||
+    d3d9PrivateAdapterCount.referenceCount !== 1 ||
+    d3d9PrivateAdapterCount.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9DisplayMode.slot !== 8 ||
     d3d9DisplayMode.explicitArgumentWords !== 2 ||
     d3d9DisplayMode.returnKind !== "h-result" ||
@@ -2927,6 +3007,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeSetWindowPosActivationConfirmationTraceSha256",
     "nativeMonitorFromWindowOracleSourceSha256",
     "nativeMonitorFromWindowOracleExecutableSha256",
+    "nativeD3d9GetAdapterCountTraceSha256",
+    "nativeD3d9GetAdapterCountSummarySha256",
     "nativeLargeHeapPrimaryTraceSha256",
     "nativeLargeHeapConfirmationTraceSha256",
     "nativeCreateWindowExAPrimaryTraceSha256",
@@ -3093,7 +3175,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-monitor-from-window.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-d3d9-get-adapter-count.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -3555,11 +3637,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_897 ||
-    latestEvidence.writebackDirtyPages !== 36_047 ||
-    latestEvidence.writebackChangedBytes !== 1_807_324 ||
+    latestEvidence.writebackBatches !== 17_898 ||
+    latestEvidence.writebackDirtyPages !== 36_048 ||
+    latestEvidence.writebackChangedBytes !== 1_807_333 ||
     latestEvidence.hostDeltaBatches !== 16_562 ||
-    latestEvidence.finalMemoryGeneration !== 34_591
+    latestEvidence.finalMemoryGeneration !== 34_592
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -3869,6 +3951,57 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest MonitorFromWindow evidence is invalid");
   }
   if (
+    latestEvidence.nativeD3d9GetAdapterCountTraceBytes !== 2_267_972 ||
+    latestEvidence.nativeD3d9GetAdapterCountTraceLines !== 7_133 ||
+    latestEvidence.nativeD3d9GetAdapterCountTraceSha256 !==
+      "cfefd83bc32f2de6e8b7feda96a09240b2ac7aedb3bc76ded41064a0d224c898" ||
+    latestEvidence.nativeD3d9GetAdapterCountSummaryBytes !== 58_021 ||
+    latestEvidence.nativeD3d9GetAdapterCountSummarySha256 !==
+      "3e8f8b52e23131b8efea737e3dfa94bdb10d9f14526fe2bf44bdb56715959aa9" ||
+    latestEvidence.nativeD3d9GetAdapterCountTraceDiagnostics !== 0 ||
+    latestEvidence.nativeD3d9GetAdapterCountCallsPerTrace !== 6 ||
+    latestEvidence.nativeD3d9GetAdapterCountCallerRva !== "0x00059d36" ||
+    latestEvidence.nativeD3d9GetAdapterCountResult !== 1 ||
+    latestEvidence.nativeD3d9GetAdapterCountLastError !== 0 ||
+    latestEvidence.nativeD3d9GetAdapterCountConsumer !==
+      "store-count-in-edi-loop-adapter-indices-and-compare-monitor-identity" ||
+    latestEvidence.nativeD3d9GetAdapterCountExecutableHashUnchanged !== true ||
+    latestEvidence.d3d9GetAdapterCountImplemented !== true ||
+    latestEvidence.d3d9GetAdapterCountSequence !== 17_843 ||
+    latestEvidence.d3d9GetAdapterCountInstructionCount !== 11_807_197 ||
+    latestEvidence.d3d9GetAdapterCountArguments?.join(",") !== "0x01000004" ||
+    latestEvidence.d3d9GetAdapterCountReturnAddress !== "0x10059d36" ||
+    latestEvidence.d3d9GetAdapterCountResult !== 1 ||
+    latestEvidence.d3d9GetAdapterCountLastError !== 0 ||
+    latestEvidence.d3d9GetAdapterCountGuestWriteBytes !== 0 ||
+    latestEvidence.d3d9GetAdapterCountPolicySchema !==
+      "vine.d3d9-compatibility-policy" ||
+    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 6 ||
+    latestEvidence.d3d9GetAdapterCountPolicyId !==
+      "d3d9-primary-virtual-adapter-v6" ||
+    latestEvidence.d3d9GetAdapterCountProfileId !==
+      "single-logical-adapter-v1" ||
+    latestEvidence.d3d9GetAdapterCountDisplayProfileId !==
+      "single-monitor-1920x1080-v1" ||
+    latestEvidence.d3d9GetAdapterCountCapabilityAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    latestEvidence.d3d9GetAdapterCountDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    latestEvidence.d3d9GetAdapterCountReferenceCount !== 1 ||
+    latestEvidence.d3d9GetAdapterCountReferenceCountMutation !== false ||
+    latestEvidence.d3d9GetAdapterCountFailureAtomicity !== true ||
+    latestEvidence.d3d9GetAdapterCountBrowserOwnsComState !== false ||
+    latestEvidence.d3d9GetAdapterCountRuntimeGraphicsCreated !== false ||
+    latestEvidence.d3d9GetAdapterCountRendererResourceCreated !== false ||
+    latestEvidence.d3d9GetAdapterCountHostGpuTopologyImported !== false ||
+    latestEvidence.d3d9GetAdapterCountBrowserGpuTopologyImported !== false ||
+    latestEvidence.d3d9GetAdapterCountNodeCompletions !== 1 ||
+    latestEvidence.d3d9GetAdapterCountChromeCompletions !== 1 ||
+    latestEvidence.d3d9GetAdapterCountNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest D3D9 adapter-count evidence is invalid");
+  }
+  if (
     latestEvidence.d3d9RootFactoryImplemented !== true ||
     latestEvidence.d3d9RootFactorySequence !== 17_816 ||
     latestEvidence.d3d9RootFactoryInstructionCount !== 11_806_445 ||
@@ -3961,9 +4094,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 5 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 6 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-virtual-adapter-v5" ||
+      "d3d9-primary-virtual-adapter-v6" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
@@ -4053,9 +4186,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 5 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 6 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
-      "d3d9-primary-virtual-adapter-v5" ||
+      "d3d9-primary-virtual-adapter-v6" ||
     latestEvidence.d3d9GetAdapterIdentifierProfileId !==
       "primary-virtual-adapter-identifier-v1" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
@@ -4159,9 +4292,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetDeviceCapsOtherFieldsZero !== true ||
     latestEvidence.d3d9GetDeviceCapsPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 5 ||
+    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 6 ||
     latestEvidence.d3d9GetDeviceCapsPolicyId !==
-      "d3d9-primary-virtual-adapter-v5" ||
+      "d3d9-primary-virtual-adapter-v6" ||
     latestEvidence.d3d9GetDeviceCapsProfileId !==
       "primary-hal-readscanline-dynamic-textures-ps3-v1" ||
     latestEvidence.d3d9GetDeviceCapsDisplayProfileId !==
@@ -4270,9 +4403,9 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-fullscreen-nonzero-windowed" ||
     latestEvidence.d3d9CheckDeviceTypePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 5 ||
+    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 6 ||
     latestEvidence.d3d9CheckDeviceTypePolicyId !==
-      "d3d9-primary-virtual-adapter-v5" ||
+      "d3d9-primary-virtual-adapter-v6" ||
     latestEvidence.d3d9CheckDeviceTypeProfileId !==
       "primary-hal-x8r8g8b8-windowed-fullscreen-v1" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayProfileId !==
@@ -4368,9 +4501,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CheckDeviceFormatNotAvailableResult !== "0x8876086a" ||
     latestEvidence.d3d9CheckDeviceFormatPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 5 ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 6 ||
     latestEvidence.d3d9CheckDeviceFormatPolicyId !==
-      "d3d9-primary-virtual-adapter-v5" ||
+      "d3d9-primary-virtual-adapter-v6" ||
     latestEvidence.d3d9CheckDeviceFormatProfileId !==
       "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
     latestEvidence.d3d9CheckDeviceFormatDisplayProfileId !==
@@ -4785,7 +4918,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "logical SetWindowLongA GWL_STYLE mutation in the RuntimeUser32-owned effective window style" ||
+      "read-only IDirect3D9 GetAdapterCount query against one policy-owned logical adapter" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

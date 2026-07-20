@@ -183,6 +183,24 @@ assert.ok(
   ),
 );
 
+const invalidAdapterCountPolicy = structuredClone(manifest);
+invalidAdapterCountPolicy.activeRuntimeCheckpoint.d3d9Frontend.getAdapterCount.adapterCount =
+  2;
+assert.ok(
+  validateCurrentCheckpoint(invalidAdapterCountPolicy).some((error) =>
+    error.includes("active D3D9 frontend boundary"),
+  ),
+);
+
+const browserOwnedAdapterCount = structuredClone(manifest);
+browserOwnedAdapterCount.activeRuntimeCheckpoint.latestEvidence.d3d9GetAdapterCountBrowserGpuTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedAdapterCount).some((error) =>
+    error.includes("latest D3D9 adapter-count evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;

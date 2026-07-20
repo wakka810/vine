@@ -105,6 +105,15 @@ impl ComMethodSpec {
             implementation: RuntimeComMethodImplementation::Frontend,
         }
     }
+
+    pub fn frontend_u32(name: impl Into<String>, explicit_argument_words: u16) -> Self {
+        Self {
+            name: name.into(),
+            explicit_argument_words,
+            return_kind: RuntimeComReturnKind::U32,
+            implementation: RuntimeComMethodImplementation::Frontend,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

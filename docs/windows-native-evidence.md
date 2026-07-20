@@ -3550,3 +3550,43 @@ geometry、host／browser topologyはnative観測済みでもreached contractへ
 `0x01000004`、return `0x10059D36`の`com-method-unsupported`である。`GetAdapterCount`、
 `GetAdapterMonitor`、multi-adapter enumeration、host GPU topology、graphics resource、rendererは今回の
 checkpointで実装済みとしない。
+
+## 115. BGI D3D9 logical adapter count
+
+既存のselected-`IDirect3D9` trace v2
+`.work/windows-traces/sakura-idirect3d9-v2-clean-20260711-035657.jsonl`を
+adapter-count oracleとして再利用する。Raw traceは2,267,972 bytes／7,133 records／SHA-256
+`cfefd83bc32f2de6e8b7feda96a09240b2ac7aedb3bc76ded41064a0d224c898`、summaryは
+58,021 bytes／SHA-256
+`3e8f8b52e23131b8efea737e3dfa94bdb10d9f14526fe2bf44bdb56715959aa9`で、diagnosticsは0である。
+BGI direct caller RVA `0x00059D36`からslot 4 `GetAdapterCount()`へ6 calls到達し、すべてunsigned
+result `1`、observed LastError `0`である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+Immutable PE disassemblyではreturn valueをEDIへ保存し、adapter indexを`[0, count)`で反復する。
+各iterationはslot 15 `GetAdapterMonitor(index)`を呼び、返ったHMONITORを直前の
+`MonitorFromWindow` resultと比較する。したがってreached contractは一つのlogical adapterと、そのadapterが
+primary logical monitorへ対応する後続identity relationである。Host adapter countやGPU topologyはgoldenにしない。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-6 D3D9 policyの`single-logical-adapter-v1`だけを有効にし、unsigned `1`を返す。
+Countは`D3d9CompatibilityPolicy`、profile存在性は`RuntimeDisplays`がauthorityを持つ。Successはguest memory、
+LastError、COM reference count、object lifetime、generationを変更しない。Disabled／malformed policy、missing／
+mismatched display profileはcompletion前のtyped faultとなり、allocator、COM state、display stateを部分更新しない。
+`RuntimeGraphics`やbrowser renderer resourceは作らず、TypeScript側へWindows adapter stateを複製しない。
+
+Node summaryは17,843 calls／11,807,216 instructions、17,898 writebacks／36,048 dirty pages／
+1,807,333 changed bytes、16,562 host deltas、generation 34,592を通す。Reportは55,353 bytes／
+SHA-256 `63783b504b76f1dbb6b17d6014c9bbb75c60436bed3630e779b8fa76606b54c1`、semantic digestは
+`fc823022523c04a1fc8c7f6b6f751c4aaaac532040ec084fd366b119cf429d30`、final memory SHA-256は
+`3690b976c824226903ee7905169b12fe7e4fa715b3154f1976b368573bb5aed4`である。Chrome Runtime Workerも
+same ordered calls／instructions／digestを再現し、40,297 slices、40,291 writebacks／87,905 pages、
+16,562 mapping deltas、generation 56,986、74,769 Wasm crossings、terminal pending work zeroを通す。
+Browser reportは193,690 bytes／SHA-256
+`4b66547957a4732d294f01d22e0cc819836022d9a625e21e3b09ac72ec3a3b45`である。
+
+このread-only semantic leafはWorker protocol、resource topology、memory ownership、performance-sensitive
+translation pathを変更しないため、直前のpassing 32-session observationを性能正本として保持する。
+Multi-adapter、mode enumeration、host／browser GPU topology、`RuntimeGraphics` device、rendererは未実装である。
+次stopはinstruction 11,807,216、`IDirect3D9` slot 15／`GetAdapterMonitor(0)`、this
+`0x01000004`、endpoint `0x01001120`、return `0x10059D5E`の`com-method-unsupported`である。

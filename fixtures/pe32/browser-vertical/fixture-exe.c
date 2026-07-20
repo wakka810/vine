@@ -38,7 +38,7 @@ typedef struct fixture_idirect3d9_vtable {
   unsigned int(__stdcall *add_ref)(fixture_idirect3d9 *self);
   unsigned int(__stdcall *release)(fixture_idirect3d9 *self);
   void *register_software_device;
-  void *get_adapter_count;
+  unsigned int(__stdcall *get_adapter_count)(fixture_idirect3d9 *self);
   int(__stdcall *get_adapter_identifier)(
       fixture_idirect3d9 *self, unsigned int adapter, unsigned int flags,
       fixture_d3d_adapter_identifier *identifier);
@@ -159,6 +159,11 @@ int __cdecl fixture_entry(void) {
   if (direct3d == 0) {
     return 4;
   }
+  const unsigned int adapter_count =
+      direct3d->vtable->get_adapter_count(direct3d);
+  if (adapter_count == 0) {
+    return fixture_d3d9_failure(direct3d, 18);
+  }
   fixture_d3d_display_mode mode = {0xccccccccu, 0xccccccccu, 0xccccccccu,
                                    0xccccccccu};
   if (direct3d->vtable->get_adapter_display_mode(direct3d, 0, &mode) != 0) {
@@ -196,6 +201,9 @@ int __cdecl fixture_entry(void) {
       identifier.vendor_id == 0 && identifier.device_id == 0 &&
       identifier.sub_sys_id == 0 && identifier.revision == 0 &&
       identifier.whql_level == 0 && has_vine_device_identifier;
+  if (has_vine_identity && adapter_count != 1) {
+    return fixture_d3d9_failure(direct3d, 18);
+  }
   const int has_vine_display_mode =
       mode.width == 1920 && mode.height == 1080 && mode.refresh_rate == 60 &&
       mode.format == 22;
