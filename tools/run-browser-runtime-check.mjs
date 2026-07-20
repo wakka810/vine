@@ -1367,13 +1367,17 @@ if (serveOnly) {
         const configuration = JSON.parse(configurationBytes);
         assert.equal(configuration.schema, "vine.bgi-browser-benchmark");
         assert.equal(configuration.schemaVersion, 1);
+        const nextApi =
+          checkpoint.nextStructuredStop.kind === "com-method"
+            ? `${checkpoint.nextStructuredStop.interface}::${checkpoint.nextStructuredStop.method}`
+            : checkpoint.nextStructuredStop.api;
         assert.deepEqual(configuration.workload, {
           profile: checkpoint.activeRuntimeCheckpoint.profile,
           guestInstructions: checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,
           supportedCalls: checkpoint.browserCheckpoint.bgiRuntimeEvidence.supportedCalls,
           sourceReadCompletions:
             checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceReadCompletions,
-          nextApi: checkpoint.nextStructuredStop.api,
+          nextApi,
         });
         assert.equal(
           bgiBenchmarkMilliseconds,

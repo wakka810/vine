@@ -279,11 +279,28 @@ function validateSession(report: SessionReport, expected: any): void {
       "BGI page-fault error code changed",
     );
   } else {
-    invariant(isRecord(endpoint) && isRecord(endpoint.symbol), "BGI next endpoint is malformed");
-    invariant(
-      `${endpoint.module}!${endpoint.symbol.name}`.toLowerCase() === expected.nextApi.toLowerCase(),
-      "BGI next API changed",
-    );
+    invariant(isRecord(endpoint), "BGI next endpoint is malformed");
+    if (endpoint.kind === "com-method") {
+      const target = endpoint.target;
+      invariant(
+        isRecord(target) &&
+          typeof target.interface === "string" &&
+          typeof target.method === "string",
+        "BGI next COM endpoint is malformed",
+      );
+      invariant(
+        `${target.interface}::${target.method}`.toLowerCase() ===
+          expected.nextApi.toLowerCase(),
+        "BGI next COM method changed",
+      );
+    } else {
+      invariant(isRecord(endpoint.symbol), "BGI next API endpoint is malformed");
+      invariant(
+        `${endpoint.module}!${endpoint.symbol.name}`.toLowerCase() ===
+          expected.nextApi.toLowerCase(),
+        "BGI next API changed",
+      );
+    }
   }
   invariant(fault.code === expected.nextFaultCode, "BGI next fault changed");
   invariant(

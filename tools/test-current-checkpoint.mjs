@@ -174,6 +174,15 @@ assert.ok(
   ),
 );
 
+const invalidNativeMonitorFallback = structuredClone(manifest);
+invalidNativeMonitorFallback.activeRuntimeCheckpoint.latestEvidence.nativeMonitorFromWindowInvalidWindowLastError =
+  0;
+assert.ok(
+  validateCurrentCheckpoint(invalidNativeMonitorFallback).some((error) =>
+    error.includes("latest MonitorFromWindow evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;
@@ -661,6 +670,15 @@ mutableDisplayProfile.activeRuntimeCheckpoint.user32CompatibilityPolicy.configur
 assert.ok(
   validateCurrentCheckpoint(mutableDisplayProfile).some((error) =>
     error.includes("User32 compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedMonitorLookup = structuredClone(manifest);
+browserOwnedMonitorLookup.activeRuntimeCheckpoint.latestEvidence.monitorFromWindowBrowserDisplayTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedMonitorLookup).some((error) =>
+    error.includes("latest MonitorFromWindow evidence"),
   ),
 );
 

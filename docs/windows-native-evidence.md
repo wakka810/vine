@@ -3488,3 +3488,65 @@ composition、DOM focusは実装済みとしない。このwindow leafはgraphic
 renderer境界を変更せず、D3D8／9／将来D3D10／11 frontendの分離方針にも例外を作らない。Worker crossingと
 resource topologyを変えるcheckpointではないため、直前の180秒runtime-system module lifecycle observationを
 性能正本として保持する。
+
+## 114. BGI logical monitor lookup
+
+独立したCOFF-i386 oracleはhidden top-level window、desktop window、invalid HWND、NULLに対して
+`MonitorFromWindow`を呼び、各call前にLastError `0x5A5A`を設定した。Oracle sourceは1,920 bytes／
+SHA-256 `9443dcc8744ff0a39ee22485f7ad3f15a3413a1c51306361f117605bb82d271a`、x86 executableは
+78,848 bytes／SHA-256 `c499b514839719a8536b663b02f09d98ed098c66cc27b6a8bd8979f53e1cdda9`
+で、raw source／binaryは`.work/windows-traces/`に保持しGitへ追加しない。
+
+| Target | Flags | Result | LastError |
+|---|---|---|---|
+| invalid HWND | `0`／`1`／`2` | NULL | 3 callsとも`ERROR_INVALID_WINDOW_HANDLE` 1,400 |
+| hidden window | `0`／`1`／`2` | 同じnon-NULL monitor | sentinel `0x5A5A`を保存 |
+| desktop window | `0`／`1`／`2` | hidden windowと同じmonitor | sentinel `0x5A5A`を保存 |
+| NULL | `0` | NULL | sentinel `0x5A5A`を保存 |
+| NULL | `1`／`2` | 同じprimary monitor | sentinel `0x5A5A`を保存 |
+| hidden window | `3` | NULL | `ERROR_INVALID_FLAGS` 1,004 |
+
+Immutable PE disassemblyではRVA `0x00059D13`がglobal main HWNDとflagを渡し、return RVA
+`0x00059D19`からHMONITORをそのまま返す。Primary continuationはflag `1`
+（`MONITOR_DEFAULTTOPRIMARY`）を一回到達する。RVA `0x00059D22`のcallerは結果をEBXへ保持し、
+`IDirect3D9::GetAdapterCount`後のloopでslot 15 `GetAdapterMonitor(adapter)`の返値と比較する。
+したがって必要なsemanticsは単なるnon-NULLではなく、D3D9 frontendが後で返すlogical monitorとの
+identity一致である。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-16 User32 policyでlive logical HWND＋flag `1`だけを有効にする。Window validityは
+`RuntimeUser32`、primary monitor identity／profile／rectangleは`RuntimeDisplays`をauthorityとし、
+logical HMONITOR `0x4F010001`を返す。成功はLastErrorを保存し、unknown／stale HWNDはNULL／1,400、
+unreached flagはmutation前の`monitor-from-window-flags-unsupported`とする。Display profile mismatch、
+missing primary monitor、invalid HWND、unsupported flagではwindow、display、allocator、guest memory、
+generationを部分更新しない。Browser display topologyやhost HMONITORをimportせず、Workerはordered
+completionのimmutable metadataだけを検証する。
+
+Node summaryは17,842 calls／11,807,197 instructions、17,897 writebacks／36,047 dirty pages／
+1,807,324 changed bytes、16,562 host deltas、generation 34,591を通す。Reportは55,357 bytes／
+SHA-256 `4a057195fa1855ce98e9f4c57009e391dcae6a560a91005d6c14f28834518cb8`、final memory
+SHA-256は`98bd3eae9bde19766e317a90693e7aa6b7fc119b1208070650412ff6bfb37325`である。Chrome
+Runtime Workerもsame ordered calls／instructions／memory digestを再現し、40,296 slices、40,290
+writebacks／87,904 pages、16,562 mapping deltas、generation 56,985、74,766 Wasm crossings、terminal
+pending work zeroを通す。Browser reportは193,673 bytes／SHA-256
+`e95b09a2d9e6d9526d57233d2a9877f7306954152e837fe632b346961098c195`である。
+
+このread-only semantic leafはWorker protocol、resource topology、memory ownershipを変えないため、
+直前のpassing 17,841-call／32-session observationを性能正本として保持する。確認のため同じ17 thresholdsで
+current workloadを180秒ずつ二回測定したが、unrelatedなuser-owned VM／application workloadが約3 CPU
+coresを継続消費し、空きmemoryが約2.5 GiBのhostでは、19 sessions／p95 10,738.750 msと
+18 sessions／p95 11,625.325 msとなった。両runともsemantic failureは0で、failed reportはそれぞれ
+940,024 bytes／SHA-256 `678c3316c55867d0123421b76fa59f59ca0cdc0611871a23da8a2b5f74133221`、
+914,066 bytes／SHA-256 `364cb93d7986307debd233f4b79dd5222018d60068b6ccd7ffcf15893d3a79e5`
+として`.work/`へ保持する。First runだけWorker heap capacityも69,636,096 bytesで失敗し、second runは
+63,606,784 bytesで通過した。Thresholdを緩和せず、これらをpassing evidenceへ昇格しない。
+
+同じhost load下のNode A/B各3回では直前profileが平均41.031秒、新profileが41.466秒で、差は各runの
+分散内だった。これによりMonitorFromWindow一call／8 instructions固有の退行ではなく、clean performance
+oracleを満たさないambient loadと分類する。NULL、flags `0`／`2`、multiple monitor、nearest-monitor
+geometry、host／browser topologyはnative観測済みでもreached contractへ昇格しない。
+
+次stopはinstruction 11,807,197、`IDirect3D9` slot 4／`GetAdapterCount()`、this
+`0x01000004`、return `0x10059D36`の`com-method-unsupported`である。`GetAdapterCount`、
+`GetAdapterMonitor`、multi-adapter enumeration、host GPU topology、graphics resource、rendererは今回の
+checkpointで実装済みとしない。

@@ -13,9 +13,9 @@ use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
-    LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
-    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
-    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
+    LOGICAL_MONITOR_HANDLE_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
     RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
     RuntimeRect, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
@@ -30,8 +30,9 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 15;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 16;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
+pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1";
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
@@ -70,6 +71,7 @@ const WM_IME_NOTIFY: u32 = 0x0282;
 const ICON_SMALL: u32 = 0;
 const ICON_SMALL2: u32 = 2;
 const HWND_NOTOPMOST: u32 = 0xffff_fffe;
+const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
@@ -142,6 +144,13 @@ pub struct User32SetWindowLongAPolicy {
     pub requested_style: u32,
     pub retained_style_mask: u32,
     pub invalid_index: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32MonitorFromWindowPolicy {
+    pub profile_id: String,
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -223,6 +232,7 @@ pub struct User32CompatibilityPolicy {
     pub send_message_a: Option<User32SendMessageAPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
     pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
+    pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
     pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
@@ -231,11 +241,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v15() -> Self {
+    pub fn controlled_v16() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-v15"
+            id: "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-monitor-v16"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-v1".to_owned(),
@@ -293,6 +303,10 @@ impl User32CompatibilityPolicy {
                 requested_style: 0x90ca_0000,
                 retained_style_mask: 0x0400_0000,
                 invalid_index: INVALID_WINDOW_LONG_INDEX,
+            }),
+            monitor_from_window: Some(User32MonitorFromWindowPolicy {
+                profile_id: "live-window-default-to-primary-v1".to_owned(),
+                flags: MONITOR_DEFAULTTOPRIMARY,
             }),
             load_cursor_a: Some(User32LoadCursorAPolicy {
                 profile_id: "system-arrow-and-module-shared-cursor-v2".to_owned(),
@@ -485,6 +499,18 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-set-window-long-a-profile-invalid",
                 "User32 SetWindowLongA profile requires the reached GWL_STYLE visibility transition and retained native style bits",
+            ));
+        }
+        if let Some(profile) = self.monitor_from_window.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.flags != MONITOR_DEFAULTTOPRIMARY
+                || self.enum_display_monitors.is_none()
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-monitor-from-window-profile-invalid",
+                "User32 MonitorFromWindow profile requires the reached live-window primary-monitor fallback",
             ));
         }
         if let Some(profile) = self.load_cursor_a.as_ref()
@@ -749,6 +775,12 @@ pub fn dispatch_user32_api_with_policy(
         }
         SET_WINDOW_LONG_A_IMPLEMENTATION => {
             match handle_set_window_long_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        MONITOR_FROM_WINDOW_IMPLEMENTATION => {
+            match handle_monitor_from_window(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -1057,6 +1089,76 @@ fn handle_get_client_rect(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
         .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_monitor_from_window(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let monitor_policy = policy.monitor_from_window.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-display",
+            "monitor-from-window-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical monitor lookup from a window",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let flags = required_argument(contract, frame, 1, "monitor fallback flags")?;
+    if flags != monitor_policy.flags {
+        return Err(ApiFault::unsupported(
+            "user32-display",
+            "monitor-from-window-flags-unsupported",
+            "MonitorFromWindow currently supports only the reached MONITOR_DEFAULTTOPRIMARY flag",
+        ));
+    }
+    match session.runtime().window(window_handle) {
+        Ok(_) => {}
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_MONITOR_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            })
+            .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+    let display = policy.enum_display_monitors.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "monitor-from-window-display-policy-missing",
+            "validated MonitorFromWindow policy has no logical display profile",
+        )
+    })?;
+    let monitor = session.runtime().primary_monitor().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-display",
+            "logical-primary-monitor-missing",
+            "MonitorFromWindow policy is enabled but RuntimeDisplays has no primary monitor",
+        )
+    })?;
+    if session.runtime().display_profile_id() != Some(display.id.as_str())
+        || !monitor.primary
+        || monitor.rect != display.primary_monitor_rect
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-display",
+            "logical-display-profile-mismatch",
+            "Rust display authority does not match the selected User32 compatibility profile",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_MONITOR_HANDLE_NAMESPACE.to_owned(),
+        value: monitor.handle,
+    })
+    .with_last_error(preserved_last_error))
 }
 
 fn handle_get_dc(
@@ -4188,6 +4290,7 @@ pub fn user32_contract_for_endpoint(
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
+        "MonitorFromWindow" => Ok(Some(monitor_from_window_contract(endpoint)?)),
         "GetDC" => Ok(Some(get_dc_contract(endpoint)?)),
         "FillRect" => Ok(Some(fill_rect_contract(endpoint)?)),
         "ReleaseDC" => Ok(Some(release_dc_contract(endpoint)?)),
@@ -4420,6 +4523,31 @@ pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CLIENT_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn monitor_from_window_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                u32_argument("flags"),
+            ],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_MONITOR_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: MONITOR_FROM_WINDOW_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -4742,7 +4870,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v15();
+        let policy = User32CompatibilityPolicy::controlled_v16();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -4772,14 +4900,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v16();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v16();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -4790,21 +4918,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v16();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v16();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v16();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -4815,7 +4943,14 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v16();
+        invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
+        assert_eq!(
+            invalid_monitor.validate().unwrap_err().code,
+            "user32-monitor-from-window-profile-invalid"
+        );
+
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v16();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -4826,7 +4961,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v16();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -4838,7 +4973,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v16();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -4849,7 +4984,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v16();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -4860,7 +4995,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v16();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -4871,7 +5006,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v15();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v16();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

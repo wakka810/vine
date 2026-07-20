@@ -24,9 +24,9 @@ use vine_core::{
     gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
     get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
     load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract,
-    set_window_long_a_contract, set_window_pos_contract, swap_mouse_button_contract,
-    user32_contract_for_endpoint,
+    monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
+    send_message_a_contract, set_window_long_a_contract, set_window_pos_contract,
+    swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -107,6 +107,10 @@ const SET_WINDOW_LONG_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0d3
 const SET_WINDOW_LONG_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 52);
 const SET_WINDOW_LONG_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1fc0;
 const SET_WINDOW_LONG_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_cae3);
+const MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0cd0);
+const MONITOR_FROM_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 56);
+const MONITOR_FROM_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1fe0;
+const MONITOR_FROM_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_9d19);
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
@@ -180,7 +184,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v15();
+        let policy = User32CompatibilityPolicy::controlled_v16();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -271,7 +275,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v15();
+        let mut policy = User32CompatibilityPolicy::controlled_v16();
         policy
             .swap_mouse_button
             .as_mut()
@@ -368,7 +372,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v15();
+        let policy = User32CompatibilityPolicy::controlled_v16();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -523,7 +527,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v15(),
+            policy: User32CompatibilityPolicy::controlled_v16(),
         }
     }
 
@@ -769,7 +773,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v15(),
+            policy: User32CompatibilityPolicy::controlled_v16(),
         }
     }
 
@@ -970,7 +974,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v15(),
+            policy: User32CompatibilityPolicy::controlled_v16(),
         }
     }
 
@@ -1017,6 +1021,7 @@ struct RegisterClassFixture {
     fill_rect_endpoint: ApiEndpointIdentity,
     release_dc_endpoint: ApiEndpointIdentity,
     set_window_long_a_endpoint: ApiEndpointIdentity,
+    monitor_from_window_endpoint: ApiEndpointIdentity,
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
@@ -1107,6 +1112,10 @@ impl RegisterClassFixture {
             (
                 SET_WINDOW_LONG_A_IAT_ADDRESS,
                 SET_WINDOW_LONG_A_ENDPOINT_ADDRESS,
+            ),
+            (
+                MONITOR_FROM_WINDOW_IAT_ADDRESS,
+                MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS,
             ),
         ] {
             memory
@@ -1232,6 +1241,12 @@ impl RegisterClassFixture {
                 0,
                 0x0000_0559,
             ],
+        );
+        write_words(
+            &mut memory,
+            runtime_owner,
+            GuestAddress(MONITOR_FROM_WINDOW_STACK_POINTER),
+            &[MONITOR_FROM_WINDOW_RETURN_ADDRESS.0, 0x4801_0001, 1],
         );
 
         let class_words = |index: u32| {
@@ -1521,6 +1536,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let monitor_from_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(206),
+            address: MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1410),
+            iat_address: MONITOR_FROM_WINDOW_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "MonitorFromWindow".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1537,6 +1567,7 @@ impl RegisterClassFixture {
                 fill_rect_endpoint.clone(),
                 release_dc_endpoint.clone(),
                 set_window_long_a_endpoint.clone(),
+                monitor_from_window_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1559,10 +1590,12 @@ impl RegisterClassFixture {
                 release_dc_contract(release_dc_endpoint.clone()).expect("ReleaseDC contract"),
                 set_window_long_a_contract(set_window_long_a_endpoint.clone())
                     .expect("SetWindowLongA contract"),
+                monitor_from_window_contract(monitor_from_window_endpoint.clone())
+                    .expect("MonitorFromWindow contract"),
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v15();
+        let policy = User32CompatibilityPolicy::controlled_v16();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -1586,6 +1619,7 @@ impl RegisterClassFixture {
             fill_rect_endpoint,
             release_dc_endpoint,
             set_window_long_a_endpoint,
+            monitor_from_window_endpoint,
             window_procedure,
             callback_sentinel,
             policy,
@@ -1817,6 +1851,22 @@ impl RegisterClassFixture {
             self.get_client_rect_endpoint.clone(),
             GuestAddress(GET_CLIENT_RECT_STACK_POINTER),
             GET_CLIENT_RECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_monitor_from_window(&mut self, window_handle: u32, flags: u32) {
+        self.write_live_words(
+            GuestAddress(MONITOR_FROM_WINDOW_STACK_POINTER),
+            &[MONITOR_FROM_WINDOW_RETURN_ADDRESS.0, window_handle, flags],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_monitor_from_window(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.monitor_from_window_endpoint.clone(),
+            GuestAddress(MONITOR_FROM_WINDOW_STACK_POINTER),
+            MONITOR_FROM_WINDOW_RETURN_ADDRESS,
         )
     }
 
@@ -2445,6 +2495,43 @@ fn get_client_rect_contract_is_two_argument_stdcall_with_conditional_rect_output
 }
 
 #[test]
+fn monitor_from_window_contract_is_two_argument_stdcall_with_nullable_logical_monitor() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(206),
+        address: MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1410),
+        iat_address: MONITOR_FROM_WINDOW_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "MonitorFromWindow".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = monitor_from_window_contract(endpoint).expect("MonitorFromWindow contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && !*nullable
+    ));
+    assert!(matches!(
+        &contract.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-monitor.v1" && *nullable
+    ));
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
     let fixture = RegisterClassFixture::new();
     let get_dc = user32_contract_for_endpoint(fixture.get_dc_endpoint.clone())
@@ -2883,6 +2970,88 @@ fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() 
 }
 
 #[test]
+fn monitor_from_window_returns_rust_logical_primary_and_preserves_failures() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed MonitorFromWindow LastError");
+    fixture.configure_monitor_from_window(window_handle, 1);
+    let runtime_before_success = fixture.runtime.clone();
+    let memory_before_success = fixture.memory.stats();
+    let completion = match fixture.dispatch_monitor_from_window() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected MonitorFromWindow completion, got {other:?}"),
+    };
+    assert_eq!(
+        completion.eax,
+        RegisterUpdate::Set(RUNTIME_PRIMARY_MONITOR_HANDLE)
+    );
+    assert_eq!(completion.last_error, sentinel);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(
+        completion.stack_pointer.0,
+        MONITOR_FROM_WINDOW_STACK_POINTER + 12
+    );
+    assert_eq!(fixture.runtime, runtime_before_success);
+    assert_eq!(fixture.memory.stats(), memory_before_success);
+
+    fixture.configure_monitor_from_window(0x4801_ffff, 1);
+    let windows_before_invalid_window = fixture.runtime.windows().clone();
+    let monitor_before_invalid_window = fixture.runtime.primary_monitor().cloned();
+    let memory_before_invalid_window = fixture.memory.stats();
+    let invalid_window = match fixture.dispatch_monitor_from_window() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND MonitorFromWindow completion, got {other:?}"),
+    };
+    assert_eq!(invalid_window.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_window.last_error, 1400);
+    assert!(invalid_window.guest_writes.is_empty());
+    assert_eq!(fixture.runtime.windows(), &windows_before_invalid_window);
+    assert_eq!(
+        fixture.runtime.primary_monitor().cloned(),
+        monitor_before_invalid_window
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
+    assert_eq!(fixture.memory.stats(), memory_before_invalid_window);
+
+    fixture.configure_monitor_from_window(window_handle, 2);
+    let runtime_before_flags = fixture.runtime.clone();
+    let memory_before_flags = fixture.memory.stats();
+    let unsupported_flags = match fixture.dispatch_monitor_from_window() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected unsupported MonitorFromWindow flags, got {other:?}"),
+    };
+    assert_eq!(unsupported_flags.class, ApiFaultClass::Unsupported);
+    assert_eq!(
+        unsupported_flags.code,
+        "monitor-from-window-flags-unsupported"
+    );
+    assert_eq!(fixture.runtime, runtime_before_flags);
+    assert_eq!(fixture.memory.stats(), memory_before_flags);
+
+    fixture.configure_monitor_from_window(window_handle, 1);
+    fixture
+        .policy
+        .enum_display_monitors
+        .as_mut()
+        .expect("display policy")
+        .id = "single-monitor-1920x1080-mismatch".to_owned();
+    let runtime_before_mismatch = fixture.runtime.clone();
+    let memory_before_mismatch = fixture.memory.stats();
+    let mismatch = match fixture.dispatch_monitor_from_window() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected MonitorFromWindow display mismatch, got {other:?}"),
+    };
+    assert_eq!(mismatch.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(mismatch.code, "logical-display-profile-mismatch");
+    assert_eq!(fixture.runtime, runtime_before_mismatch);
+    assert_eq!(fixture.memory.stats(), memory_before_mismatch);
+}
+
+#[test]
 fn window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
@@ -3240,6 +3409,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.send_message_a = None;
     disabled.policy.set_window_pos = None;
     disabled.policy.set_window_long_a = None;
+    disabled.policy.monitor_from_window = None;
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled metrics policy fault, got {other:?}"),

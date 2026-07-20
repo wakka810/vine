@@ -142,6 +142,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-window-dc-fill",
         "user32-set-window-long-a",
         "user32-set-window-pos-activation",
+        "user32-monitor-from-window",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -203,6 +204,7 @@ assert(
       "gdi-window-dc-fill",
       "user32-set-window-long-a",
       "user32-set-window-pos-activation",
+      "user32-monitor-from-window",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -228,6 +230,7 @@ if (
     "gdi-window-dc-fill",
     "user32-set-window-long-a",
     "user32-set-window-pos-activation",
+    "user32-monitor-from-window",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -246,7 +249,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-get-client-rect" ||
     genericRuntimeCapability === "gdi-window-dc-fill" ||
     genericRuntimeCapability === "user32-set-window-long-a" ||
-    genericRuntimeCapability === "user32-set-window-pos-activation"
+    genericRuntimeCapability === "user32-set-window-pos-activation" ||
+    genericRuntimeCapability === "user32-monitor-from-window"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -381,7 +385,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const monitorFromWindowEnabled =
+  genericRuntimeCapability === "user32-monitor-from-window";
 const setWindowPosActivationEnabled =
+  monitorFromWindowEnabled ||
   genericRuntimeCapability === "user32-set-window-pos-activation";
 const setWindowLongAEnabled =
   setWindowPosActivationEnabled ||
@@ -585,7 +592,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setWindowPosActivationEnabled
+      ? monitorFromWindowEnabled
+        ? "v86-bgi-monitor-from-window"
+      : setWindowPosActivationEnabled
         ? "v86-bgi-set-window-pos-activation"
       : setWindowLongAEnabled
         ? "v86-bgi-set-window-long-a"
@@ -4535,6 +4544,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (monitorFromWindowEnabled) {
+        validateMonitorFromWindowResult(genericResult);
       } else if (setWindowPosActivationEnabled) {
         validateSetWindowPosActivationResult(genericResult);
       } else if (setWindowLongAEnabled) {
@@ -4690,6 +4701,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : monitorFromWindowEnabled
+            ? "bgi MonitorFromWindow logical primary lookup"
           : setWindowPosActivationEnabled
             ? "bgi SetWindowPos same-geometry activation"
           : setWindowLongAEnabled
@@ -5892,6 +5905,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : monitorFromWindowEnabled
+          ? 71
         : setWindowPosActivationEnabled
           ? 70
         : setWindowLongAEnabled
@@ -6022,7 +6037,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-v15",
+      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-monitor-v16",
     );
     assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
     assert.deepEqual(ready.primaryMonitor, {
@@ -12417,6 +12432,100 @@ function validateSetWindowPosActivationResult(result) {
   );
 }
 
+function validateMonitorFromWindowResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_842);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_897);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_047,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_324,
+  );
+  assert.equal(result.hostDeltas.length, 16_562);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_591);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "MonitorFromWindow",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.deepEqual(
+    {
+      sequence: call.sequence,
+      occurrence: call.occurrence,
+      instruction: call.trapInstructionCount,
+      arguments: call.arguments,
+      result: call.result,
+      returnAddress: call.returnAddress,
+      stackPointerDelta: call.stackPointerAfter - call.stackPointerBefore,
+      lastError: call.lastError,
+      guestWrites: call.guestWrites,
+      implementationId: call.implementationId,
+    },
+    {
+      sequence: 17_842,
+      occurrence: 1,
+      instruction: 11_807_189,
+      arguments: [0x4801_0001, 1],
+      result: { action: "set", value: 0x4f01_0001 },
+      returnAddress: 0x1005_9d19,
+      stackPointerDelta: 12,
+      lastError: 0,
+      guestWrites: [],
+      implementationId: "user32.monitor-from-window.v1",
+    },
+  );
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3d9-root.v1");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.interface.name, "IDirect3D9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0100_0004);
+  assert.equal(endpoint.target.method.slot, 4);
+  assert.equal(endpoint.target.method.name, "GetAdapterCount");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 0);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_9d36);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3D9");
+  assert.equal(result.fault.fault.target.vtableSlot, 4);
+  assert.equal(result.fault.fault.target.method, "GetAdapterCount");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "98bd3eae9bde19766e317a90693e7aa6b7fc119b1208070650412ff6bfb37325",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_807_197);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, 0x0100_1070);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 4);
+  assert.equal(terminal.returnAddress, 0x1005_9d36);
+  assert.equal(terminal.stackWords[1], 0x0100_0004);
+}
+
 function validateLoadLibraryAResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -14224,6 +14333,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : monitorFromWindowEnabled
+          ? "vine.v86-bgi-monitor-from-window"
         : setWindowPosActivationEnabled
           ? "vine.v86-bgi-set-window-pos-activation"
         : setWindowLongAEnabled
