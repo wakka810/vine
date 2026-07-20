@@ -235,8 +235,15 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. A separate repeated-session benchmark evaluates the versioned latency,
+same structured stop. The reached D3D9 path now includes Rust-owned logical device and texture
+descriptors plus their COM lifetime; the Worker observes completions but owns neither identity nor
+resource state. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
+
+A benchmark threshold failure does not invalidate a passing semantic-equivalence run, but it
+blocks the next primary checkpoint. Exact failure, host-load evidence, protected thresholds, and
+resume condition are recorded in the current manifest; the Worker document does not duplicate
+those changing measurements.
 
 Current measurements, artifact identities, exact stop data, and report hashes are recorded only
 in [current-checkpoint.json](current-checkpoint.json). Detailed private-run non-claims remain in
@@ -248,6 +255,7 @@ in [current-checkpoint.json](current-checkpoint.json). Detailed private-run non-
 ```powershell
 npm run check:runtime:browser-worker
 npm run check:runtime:bgi-browser
+npm run check:runtime:bgi-browser-benchmark
 npm run serve:runtime:browser-worker
 npm run check:runtime:browser-worker:stress
 ```
@@ -263,6 +271,7 @@ stress command adds the 30-minute repeated lifecycle run.
 - full-play peak committed pages and memory-pressure ceiling beyond the bounded 64 MiB guest limit
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - long-idle heap-capacity plateau and full-play growth slope
+- isolated rerun of any active private-workload performance blocker
 - the next unsupported BGI capability and title output path
 
 The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,

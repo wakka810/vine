@@ -188,6 +188,7 @@ enum GenericRuntimeCapability {
     D3d9GetAdapterCount,
     D3d9GetAdapterMonitor,
     D3d9CreateDevice,
+    D3d9CreateTexture,
 }
 
 struct GenericRuntimeProcess {
@@ -2309,6 +2310,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9GetAdapterCount
                     | GenericRuntimeCapability::D3d9GetAdapterMonitor
                     | GenericRuntimeCapability::D3d9CreateDevice
+                    | GenericRuntimeCapability::D3d9CreateTexture
             )
         ) {
             let loader = kernel32_policy
@@ -2970,6 +2972,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3004,7 +3007,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::MonitorFromWindow
             | GenericRuntimeCapability::D3d9GetAdapterCount
             | GenericRuntimeCapability::D3d9GetAdapterMonitor
-            | GenericRuntimeCapability::D3d9CreateDevice,
+            | GenericRuntimeCapability::D3d9CreateDevice
+            | GenericRuntimeCapability::D3d9CreateTexture,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3074,6 +3078,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3085,6 +3090,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3092,21 +3098,32 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v8();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v9();
     if !matches!(
         requested_capability,
         Some(
             GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9CreateDevice)
+        Some(
+            GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
+        )
     ) {
         d3d9_policy.create_device = None;
+        d3d9_policy.create_texture = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9CreateTexture)
+    ) {
+        d3d9_policy.create_texture = None;
     }
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
@@ -3390,6 +3407,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4612,6 +4630,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9GetAdapterCount
                             | GenericRuntimeCapability::D3d9GetAdapterMonitor
                             | GenericRuntimeCapability::D3d9CreateDevice
+                            | GenericRuntimeCapability::D3d9CreateTexture
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4646,6 +4665,7 @@ fn run_v86_generic_runtime_session(
                         14 => d3d9_policy.get_device_caps.is_some(),
                         15 => d3d9_policy.get_adapter_monitor.is_some(),
                         16 => d3d9_policy.create_device.is_some(),
+                        23 => d3d9_policy.create_texture.is_some(),
                         _ => true,
                     };
                     if d3d9_frontend_enabled
@@ -4666,6 +4686,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9GetAdapterCount
                                     | GenericRuntimeCapability::D3d9GetAdapterMonitor
                                     | GenericRuntimeCapability::D3d9CreateDevice
+                                    | GenericRuntimeCapability::D3d9CreateTexture
                             )
                         )
                     {
@@ -4714,6 +4735,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4725,6 +4747,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4737,6 +4760,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4750,6 +4774,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let load_library_a_enabled = matches!(
@@ -4764,6 +4789,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4784,6 +4810,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4822,6 +4849,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5328,6 +5356,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9GetAdapterCount
                 | GenericRuntimeCapability::D3d9GetAdapterMonitor
                 | GenericRuntimeCapability::D3d9CreateDevice
+                | GenericRuntimeCapability::D3d9CreateTexture
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -5704,6 +5733,11 @@ fn runtime_capability_cluster(endpoint: &GenericRuntimeEndpoint) -> String {
             if target.interface.name == "IDirect3DDevice9" =>
         {
             "d3d9-idirect3ddevice9-method".to_owned()
+        }
+        GenericRuntimeEndpoint::ComMethod { target }
+            if target.interface.name == "IDirect3DTexture9" =>
+        {
+            "d3d9-idirect3dtexture9-method".to_owned()
         }
         GenericRuntimeEndpoint::ComMethod { .. } => "com-method-dispatch".to_owned(),
         GenericRuntimeEndpoint::DynamicExport { endpoint }
@@ -11074,6 +11108,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-get-adapter-count" => GenericRuntimeCapability::D3d9GetAdapterCount,
                 "d3d9-get-adapter-monitor" => GenericRuntimeCapability::D3d9GetAdapterMonitor,
                 "d3d9-create-device" => GenericRuntimeCapability::D3d9CreateDevice,
+                "d3d9-create-texture" => GenericRuntimeCapability::D3d9CreateTexture,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

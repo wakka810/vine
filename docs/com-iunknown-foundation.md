@@ -84,8 +84,10 @@ stdcall cleanup、LastError preserve、shared count、child-held parent referenc
 malformed call／install／release rollback、具体的なunsupported診断を固定する。Node contractはBrowser IDの非再利用、immutable association、local
 releaseとRust refcountの分離を固定する。このgateは`check:fast`にも含まれる。
 
-Windows traceではselected `IDirect3D9` rootと`IDirect3DDevice9` childのlifetime relationが記録され、
-bounded D3D9 frontendがこの共通foundationへ接続済みである。Texture等のresource COM object、DirectInput、DirectSound、DirectDraw、
+Windows traceではselected `IDirect3D9` rootと`IDirect3DDevice9` childのlifetime relationが記録される。
+Controlled Rust／private runtime evidenceはさらに`IDirect3DTexture9` childがdevice referenceを保持し、
+texture final releaseからdevice／rootへcascadeできることを固定する。Bounded D3D9 frontendはこの共通
+foundationへ接続済みである。Surface／buffer等の追加resource COM object、DirectInput、DirectSound、DirectDraw、
 graphics／audio backend、guest `CoInitializeEx`／`CoUninitialize`、cross-thread marshaling、class factory、
 BSTR／VARIANT／automationは実装しない。
 具体的interfaceはcorpus traceから別taskとしてこのfoundationへ接続する。

@@ -329,8 +329,13 @@ HRESULT ABI、56-byte x86 `D3DPRESENT_PARAMETERS`のstrict windowed HAL band、l
 検証する。Complete 119-slot `IDirect3DDevice9` catalog、child-held root reference、logical graphics deviceの
 private ownership、capacity／stale plan／failure atomicity、final device releaseによるgraphics retirementと
 optional root cascadeもunit／aggregate fixtureで固定する。Node／Chromeはsame ordered completion、guest
-write、COM identity、logical presentationとslot 23 `CreateTexture` stopを比較し、browser rendererが未生成で
-あることを要求する。COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedな
+write、COM identity、logical presentationを比較する。Slot 23は8-word／HRESULT ABI、exact
+1024x1024／one-level／usage 0／format 22／system-memory profile、4-byte texture pointer publication、
+complete 22-slot `IDirect3DTexture9` catalog、child-held device reference、private logical descriptor／indexを
+検証する。Invalid／unsupported／unwritable／capacity／stale pathsはguest、COM、graphics stateをpartial
+mutationせず、final texture releaseはlogical textureをretireして必要ならdevice／rootへcascadeする。
+Node／Chromeはsame ordered texture completionとslot 18 `GetSurfaceLevel` stopを比較し、browser rendererと
+texture storageが未生成であることを要求する。COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedな
 capture幅とし、return address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。
 Native two-run oracleはzero width／height／formatのresolution、remaining field preserve、
 non-NULL device、first reached device method、nested AddRef relationを固定する。詳細は
@@ -850,7 +855,10 @@ Ordered completion、source-read request／cursor／payload identity、final mem
 module detach、pending work zeroを要求する。別のversioned workload gateは同じWorkerでsessionを反復し、
 latency／slice／heartbeat distribution、main／Worker heap、backing storage、Rust／execution-engine linear
 memory、Wasm crossingをthreshold判定する。必要sampleが取得不能ならfailし、current resultはmanifestだけへ
-保存する。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および
+保存する。Threshold failureはretryやlimit変更で合格化せず、exact failure、artifact、試した切り分け、
+保持するinvariant、必要権限、再開条件をstructured blockerとして同じmanifestへ残す。Host負荷を利用者の
+許可なく停止せず、同じfixtureをisolated hostで再測定しても失敗する場合だけWorker profileとbounded
+optimizationへ進む。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
 - create／show／resize／destroy と message order
@@ -954,6 +962,10 @@ Phase 1 の `Q-055` で versioned fuzz profile を定める。profile は target
 ### 7.1 基準環境
 
 Phase 0 で実際に利用する desktop を primary reference device として定める。記録項目は CPU、memory、OS、browser build、power mode、display refresh、audio sample rate、cross-origin isolation、graphics backend である。追加端末は比較が必要になった時点で加える。
+
+Performance acceptance時は測定対象外の継続CPU／GPU workloadも記録し、versioned workloadが固定thresholdを
+外れたhostをclean referenceとして扱わない。外部workloadを停止する権限がない場合はstructured blockerとし、
+同一duration／thresholdのisolated rerunを再開条件にする。
 
 ### 7.2 指標
 

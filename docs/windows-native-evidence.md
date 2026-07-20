@@ -3688,3 +3688,50 @@ generation 27→45,911、63,571 Wasm crossings、87,212 success execution transi
 arguments `1024, 1024, 1, 0, 22, 2, 0x101517CC, 0`、endpoint `0x010111A0`、return
 `0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
+
+## 118. BGI D3D9 logical texture creation
+
+Section 117のfocused `d3d9-create-device` observationをtexture oracleとして再利用する。Primary raw traceは
+2,333,677 bytes／7,075 records／3,498 balanced API pairs／SHA-256
+`df65b1108c813c948a7092db20bff85748f7654a1f7c2a98459980ebfc3f4071`、summaryは275,843 bytes／
+SHA-256 `b49c7ee4179bbcd1f7df888c81e7a8fea1ffeb5fd14201fbaf6cd444bf0f8f60`である。Confirmation raw traceは
+2,355,307 bytes／7,121 records／3,521 balanced pairs／SHA-256
+`2b2da627c61b0a337a28912d77bdece390d45e965254a27b8e58ccb3130c95c3`、summaryは275,855 bytes／
+SHA-256 `a419a38f4fbb66deeddb634ab99e71841c23e624903d41e6a817e163c5d47e7b`で、両summaryともdiagnosticsは0である。
+Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceにはBGI caller RVA `0x0005A715`からsuccessful `IDirect3DDevice9::CreateTexture`が一callあり、
+argumentsはwidth／height `1024／1024`、levels `1`、usage `0`、format `22`、pool `2`、shared handle NULL、
+result `S_OK`、observed LastError `0`である。CallerはHRESULT signを消費し、直後に返されたtextureのslot 18
+`GetSurfaceLevel(0, output)`を呼ぶ。Focused hookはtexture output snapshotを取得していないため、native pointer値、
+vtable bytes、reference count、surface outputをsemantic goldenにしない。Source executableは1,193,472 bytes／
+SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-9 `primary-system-memory-x8r8g8b8-texture-v1`だけを実装した。Sequence 17,850／instruction
+11,807,772でdevice `0x01010004`から呼ばれ、output `0x101517CC`へtexture pointer `0x01020004`を書いて
+`S_OK`を返す。`RuntimeCom`はobject ID 4／interface ID 8の22-slot childをreference count 1でpublishし、
+device countはretained referenceにより2となる。`RuntimeGraphics`はlogical texture ID 1、device ID 1との
+relation、descriptor `1024／1024／1／usage none／B8G8R8X8／system-memory`を所有する。Guest 4 bytes、COM
+identity、graphics associationは全owner preflight後にpublishされ、texture final releaseはassociationをretireして
+必要ならdevice／root retirementへcascadeする。Texel storageとbrowser renderer resourceは生成しない。
+
+Node summaryは17,850 calls／11,807,783 terminal instructions、17,905 writebacks／36,056 dirty pages／
+1,807,483 changed bytes、16,565 host deltas、generation 34,770を通す。Semantic SHA-256は
+`bfaf1165757018add907c7777315a9c814b2caacef29b5fe06704be542450e58`、final memory SHA-256は
+`6d4f6d179c38596d280df1cc940c137b4e16cf1293eced104b2db60ee36ad944`、reportは56,558 bytes／
+SHA-256 `0874e21b79c357eb3544a48171f5056809cf8e2314ac15995538877907dd58c5`である。
+
+Chrome Runtime Workerもsame ordered completion／instructions／semantic digestを再現し、29,081 writebacks／
+61,962 pages、16,565 mapping deltas／17,758 dirty pages、generation 27→45,948、63,575 Wasm crossings、terminal
+pending work zeroを通す。Browser reportは116,634 bytes／SHA-256
+`f52c5b25de5d278171d0321a6042f26903924b2b09e83bba116ccf91aa895aa8`である。最初の180-second benchmarkは
+26 semantic sessionsと16／17 thresholdsを通したが、session P95 8,437.465 msが8,000 ms ceilingを超えた。
+外部CPU workloadを利用者権限なしに停止せずstructured blockerへ記録した後、利用者が該当workloadを停止した。
+同一fixture／duration／thresholdのisolated rerunは45 sessions、semantic failure 0、session P95
+4,131.915 ms、17／17 thresholds passとなり、blockerを解消した。Passing reportは946,295 bytes／SHA-256
+`3819bd12367772a3b48f83a85ba48b2272b57a7187723a3bb9a683ff437080d4`である。
+
+次stopはinstruction 11,807,783、`IDirect3DTexture9` slot 18／`GetSurfaceLevel`、this `0x01020004`、
+arguments `0, 0x006FFD38`、endpoint `0x01021150`、return `0x1005A731`の`com-method-unsupported`である。
+Surface identity／storage／pitch／Lock、renderer、draw、Present、Reset、device loss、first visible frameはこの
+checkpointで実装済みとしない。

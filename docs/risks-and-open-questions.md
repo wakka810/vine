@@ -57,6 +57,7 @@ contextを保存／復元し、ownerがhost work待機中に別guest threadを�
 | R-DATA | Crash、quota、path差、external replacementでsaveを失う、またはsource moduleが変わる | Immutable source／writable overlay ruleとexplicit durability boundary | Read-only failureまたはlast committed stateへrollbackし、source EXE／DLLをshadow／rewriteしない |
 | R-EXHAUSTION | Malformed inputまたはguest resource growthがmemory、thread、surface、log、parser limitを枯渇させる | Memory-safe bounded parser、quota、watchdog、typed exhaustion | Partial commitなしでtitleを停止し、最小diagnosticとregression fixtureを残す |
 | R-BROWSER | Browser feature／hosting policy差で同revisionのbehaviorが分岐する | Versioned adapterとcapability detection | Supported browser／deployment tierを狭めるか、測定済みfallbackを用意する |
+| R-PERFORMANCE | Ambient host loadまたはtitle workload growthでversioned latency／memory thresholdを外れ、clean oracleを判定できない | Fixed fixture／duration／threshold、repeated distribution、same-host bounded comparison、structured blocker | 外部workloadを勝手に停止せずisolated hostで同条件を再実行する。再現時だけprofileに基づくbounded optimizationを行う |
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

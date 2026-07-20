@@ -255,8 +255,10 @@ Mutable logical COM object／interface／IID／pointer／endpoint indexとshared
 `runtime/com.rs::RuntimeCom`だけが所有する。COM identityはWin32 HANDLE用`RuntimeObjectTable`へ混在させず、
 aggregateはCOM plan、process address allocation、GuestMemory transactionをpreflightしてからtargeted
 commitする。Final `Release`は全interface index、guest mapping、memory owner、allocation IDを同時に退役
-させる。Browser-side Web API resourceは別namespaceの非所有associationであり、COM refcount authorityを
-持たない。詳細は[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
+させる。Child objectはparent interfaceを一reference保持し、cascading final releaseでは全COM backing、
+address allocation、関連logical resource retirementをpreflightしてから一括commitする。Browser-side Web
+API resourceは別namespaceの非所有associationであり、COM refcount authorityを持たない。詳細は
+[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
 images、import bindings、runtime export tableはprivate
@@ -649,10 +651,11 @@ D3D10／11は、それぞれのABI、COM identity、device／resource state、lo
 logical device／resource／commandを渡すRust内部の`RuntimeGraphics` boundaryとする。これは複数frontendの
 共通事実を抽出する場所であり、COM pointer、vtable slot、D3D version固有enumをauthorityとして保持しない。
 
-`RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contractを所有する
-private Rust subsystemとして導入済みである。Window relation、normalized presentation、COM-object association、
-monotonic device IDとgenerationをowner-local plan／commitで管理し、4096-device capacity、stale plan、process
-teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
+`RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contract、
+`CreateTexture` gatewayで最初のdevice-related logical texture descriptorを所有するprivate Rust subsystemである。
+Window relation、normalized presentation、COM-object association、device-to-texture index、monotonic device／
+texture IDとgenerationをowner-local plan／commitで管理し、各4,096-object capacity、stale plan、process teardownを
+mutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
 graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
 関連は別namespaceのnon-owning associationにする。この順序により、未到達D3D8／10／11 frameworkを先行実装せず、
 後からfrontendを追加できるtranslation seamを今のauthority境界で確保する。
@@ -662,6 +665,12 @@ registration、graphics capacityを全てpreflightする。Guest presentation pr
 identity、logical graphics deviceは一つの外部観測可能transactionとしてpublishする。Deviceはroot interfaceを
 一reference保持し、final releaseはCOM backing／process allocation／graphics associationをまとめてretireし、
 必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
+
+`CreateTexture`はlive device association、bounded descriptor、guest output span、COM child registration、
+graphics texture capacityを全てpreflightする。Guest texture pointer、child COM identity、logical textureは一つの
+外部観測可能transactionとしてpublishする。Textureはdevice interfaceを一reference保持し、final releaseは
+texture associationを退役して必要ならdevice／root retirementへcascadeする。Logical descriptorはtexture bytes、
+lock staging、browser renderer resourceの代用ではなく、それらは到達methodごとの後続gatewayで追加する。
 
 ### 13.2 GDI frontend
 
@@ -675,7 +684,7 @@ COM vtable と HRESULT の ABI を提供し、surface create、lock、blit、fli
 
 サクラノ詩の runtime trace で観測した interface／method／format／state だけを versioned support band とする。
 
-- `Direct3DCreate9` から IDirect3D9／IDirect3DDevice9 の COM identity と lifetime を構築する
+- `Direct3DCreate9` から IDirect3D9／IDirect3DDevice9／到達resource interfaceの COM identity と lifetime を構築する
 - CreateDevice／Reset／cooperative state と logical HWND／canvas presentation を接続する
 - guest-visible Lock／Unlock memory と backend texture／buffer allocation を分離する
 - fixed-function state、vertex format、blend、sampler、draw を WebGL2 または WebGPU command へ変換する

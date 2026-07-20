@@ -15,14 +15,16 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsColorFormat,
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage, RuntimeStateError,
+    RuntimeStateErrorClass,
 };
 
 pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 8;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 9;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -40,6 +42,7 @@ pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
 pub const D3D9_D3DFMT_D16: u32 = 80;
 pub const D3D9_D3DMULTISAMPLE_NONE: u32 = 0;
 pub const D3D9_D3DSWAPEFFECT_DISCARD: u32 = 3;
+pub const D3D9_D3DPOOL_SYSTEMMEM: u32 = 2;
 pub const D3D9_D3DERR_NOTAVAILABLE: ComHResult = ComHResult(0x8876_086a_u32 as i32);
 pub const D3D9_D3DERR_INVALIDCALL: ComHResult = ComHResult(0x8876_086c_u32 as i32);
 pub const D3D9_VIRTUAL_DRIVER: &str = "vine-d3d9.dll";
@@ -55,6 +58,10 @@ pub const D3D9_IDIRECT3D9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes
 pub const D3D9_IDIRECT3DDEVICE9_CLASS_IDENTITY: &str = "d3d9.idirect3ddevice9.v1";
 pub const D3D9_IDIRECT3DDEVICE9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0x96, 0x3b, 0x22, 0xd0, 0x7a, 0xbf, 0xfd, 0x43, 0x92, 0xbd, 0xa4, 0x3b, 0x0d, 0x82, 0xb9, 0xeb,
+]);
+pub const D3D9_IDIRECT3DTEXTURE9_CLASS_IDENTITY: &str = "d3d9.idirect3dtexture9.v1";
+pub const D3D9_IDIRECT3DTEXTURE9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0x27, 0x12, 0xc3, 0x85, 0xe5, 0x3d, 0x00, 0x4f, 0x9b, 0x3a, 0xf1, 0x1a, 0xc3, 0x8c, 0x18, 0xb5,
 ]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -168,6 +175,19 @@ pub struct D3d9CreateDevicePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9CreateTexturePolicy {
+    pub profile_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub levels: u32,
+    pub usage: u32,
+    pub format: u32,
+    pub pool: u32,
+    pub shared_handle_must_be_null: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -180,14 +200,15 @@ pub struct D3d9CompatibilityPolicy {
     pub check_device_type: Option<D3d9CheckDeviceTypePolicy>,
     pub check_device_format: Option<D3d9CheckDeviceFormatPolicy>,
     pub create_device: Option<D3d9CreateDevicePolicy>,
+    pub create_texture: Option<D3d9CreateTexturePolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v8() -> Self {
+    pub fn controlled_v9() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v8".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v9".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -272,6 +293,16 @@ impl D3d9CompatibilityPolicy {
                 flags: 0,
                 full_screen_refresh_rate_in_hz: 0,
                 presentation_interval: 0,
+            }),
+            create_texture: Some(D3d9CreateTexturePolicy {
+                profile_id: "primary-system-memory-x8r8g8b8-texture-v1".to_owned(),
+                width: 1_024,
+                height: 1_024,
+                levels: 1,
+                usage: 0,
+                format: D3D9_D3DFMT_X8R8G8B8,
+                pool: D3D9_D3DPOOL_SYSTEMMEM,
+                shared_handle_must_be_null: true,
             }),
         }
     }
@@ -422,6 +453,23 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 device-creation profile must describe the reached bounded windowed HAL presentation",
             ));
         }
+        if let Some(create) = self.create_texture.as_ref()
+            && (!valid_policy_id(&create.profile_id)
+                || create.width != 1_024
+                || create.height != 1_024
+                || create.levels != 1
+                || create.usage != 0
+                || create.format != D3D9_D3DFMT_X8R8G8B8
+                || create.pool != D3D9_D3DPOOL_SYSTEMMEM
+                || !create.shared_handle_must_be_null
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-create-texture-profile-invalid",
+                "D3D9 texture-creation profile must describe the reached device-owned system-memory texture",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_count
                 .as_ref()
@@ -471,6 +519,7 @@ impl D3d9CompatibilityPolicy {
             self.create_device
                 .as_ref()
                 .map(|profile| profile.resolved_back_buffer_format),
+            self.create_texture.as_ref().map(|profile| profile.format),
         ];
         let mut coherent_adapter_formats = coherent_adapter_formats.into_iter().flatten();
         if let Some(primary) = coherent_adapter_formats.next()
@@ -717,16 +766,36 @@ fn dispatch_d3d9_frontend_call(
     policy: &D3d9CompatibilityPolicy,
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
-    if call.class_identity() != D3D9_IDIRECT3D9_CLASS_IDENTITY
-        || call.frame().iid != D3D9_IDIRECT3D9_IID
-    {
+    let is_root = call.class_identity() == D3D9_IDIRECT3D9_CLASS_IDENTITY
+        && call.frame().iid == D3D9_IDIRECT3D9_IID;
+    let is_device = call.class_identity() == D3D9_IDIRECT3DDEVICE9_CLASS_IDENTITY
+        && call.frame().iid == D3D9_IDIRECT3DDEVICE9_IID;
+    if !is_root && !is_device {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "d3d9-com-dispatch",
             "d3d9-com-route-mismatch",
-            "D3D9 frontend received a COM method outside its registered IDirect3D9 route",
+            "D3D9 frontend received a COM method outside its registered interface routes",
         );
     }
+    if let Err(fault) = policy.validate() {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            fault.stage,
+            fault.code,
+            fault.message,
+        );
+    }
+    if is_device {
+        return dispatch_d3d9_device_frontend_call(policy, call);
+    }
+    dispatch_d3d9_root_frontend_call(policy, call)
+}
+
+fn dispatch_d3d9_root_frontend_call(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
     let (expected_argument_words, expected_return_kind) =
         match (call.frame().vtable_slot, call.frame().method.as_str()) {
             (4, "GetAdapterCount") => (0, RuntimeComReturnKind::U32),
@@ -757,14 +826,6 @@ fn dispatch_d3d9_frontend_call(
             "registered IDirect3D9 frontend ABI does not match its selected method",
         );
     }
-    if let Err(fault) = policy.validate() {
-        return call.fault(
-            ComFaultClass::RuntimeDefect,
-            fault.stage,
-            fault.code,
-            fault.message,
-        );
-    }
     match call.frame().vtable_slot {
         4 => dispatch_get_adapter_count(policy, call),
         15 => dispatch_get_adapter_monitor(policy, call),
@@ -776,6 +837,26 @@ fn dispatch_d3d9_frontend_call(
         16 => dispatch_create_device(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_d3d9_device_frontend_call(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    if call.frame().vtable_slot != 23
+        || call.frame().method != "CreateTexture"
+        || call.explicit_argument_words() != 8
+        || call.frame().explicit_arguments.len() != 8
+        || call.return_kind() != RuntimeComReturnKind::HResult
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-com-dispatch",
+            "d3d9-com-abi-mismatch",
+            "registered IDirect3DDevice9 frontend ABI does not match CreateTexture",
+        );
+    }
+    dispatch_create_texture(policy, call)
 }
 
 fn dispatch_get_adapter_count(
@@ -999,6 +1080,113 @@ fn dispatch_create_device(
         .commit_graphics_device_creation(graphics_plan, installed.object.id);
     debug_assert_eq!(device.id, planned_device_id);
     debug_assert_eq!(device.presentation, logical_presentation);
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_create_texture(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(create_policy) = policy.create_texture.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-create-texture",
+            "create-texture-policy-disabled",
+            "D3D9 compatibility policy does not enable CreateTexture",
+        );
+    };
+    let width = call.frame().explicit_arguments[0];
+    let height = call.frame().explicit_arguments[1];
+    let levels = call.frame().explicit_arguments[2];
+    let usage = call.frame().explicit_arguments[3];
+    let format = call.frame().explicit_arguments[4];
+    let pool = call.frame().explicit_arguments[5];
+    let output_pointer = call.frame().explicit_arguments[6];
+    let shared_handle_pointer = call.frame().explicit_arguments[7];
+    if width == 0
+        || height == 0
+        || output_pointer == 0
+        || (create_policy.shared_handle_must_be_null && shared_handle_pointer != 0)
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if width != create_policy.width
+        || height != create_policy.height
+        || levels != create_policy.levels
+        || usage != create_policy.usage
+        || format != create_policy.format
+        || pool != create_policy.pool
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+
+    let output_address = GuestAddress(output_pointer);
+    if let Err(error) = call
+        .memory()
+        .validate_access(output_address, 4, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    let graphics_plan =
+        match call
+            .runtime()
+            .plan_graphics_texture_creation(RuntimeGraphicsTextureCreateRequest {
+                device_com_object_id: call.frame().object_id,
+                descriptor: RuntimeGraphicsTextureDescriptor {
+                    width,
+                    height,
+                    levels,
+                    usage: RuntimeGraphicsTextureUsage::None,
+                    color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+                    pool: RuntimeGraphicsTexturePool::SystemMemory,
+                },
+            }) {
+            Ok(plan) => plan,
+            Err(error) => return call.runtime_fault(error),
+        };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_texture_creation(&graphics_plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let planned_texture_id = graphics_plan.id();
+    let planned_device_id = graphics_plan.device_id();
+    let planned_descriptor = graphics_plan.descriptor();
+
+    let mut call = call;
+    let (installed, guest_writes) = match call.install_child_com_object_with_guest_writes(
+        direct3dtexture9_object_spec(),
+        |object| {
+            let interface = object
+                .interfaces
+                .iter()
+                .find(|interface| interface.iid == D3D9_IDIRECT3DTEXTURE9_IID)
+                .ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "d3d9-create-texture",
+                        "idirect3dtexture9-installation-missing",
+                        "installed D3D9 texture object has no IDirect3DTexture9 interface",
+                    )
+                })?;
+            Ok(vec![(
+                output_address,
+                interface.guest_pointer.0.to_le_bytes().to_vec(),
+            )])
+        },
+    ) {
+        Ok(result) => result,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let texture = call
+        .runtime_mut()
+        .commit_graphics_texture_creation(graphics_plan, installed.object.id);
+    debug_assert_eq!(texture.id, planned_texture_id);
+    debug_assert_eq!(texture.device_id, planned_device_id);
+    debug_assert_eq!(texture.descriptor, planned_descriptor);
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
 }
 
@@ -1524,6 +1712,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
+            23 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),
@@ -1537,6 +1726,59 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             ComInterfaceSpec {
                 iid: D3D9_IDIRECT3DDEVICE9_IID,
                 name: "IDirect3DDevice9".to_owned(),
+                methods,
+            },
+        ],
+    }
+}
+
+const D3D9_IDIRECT3DTEXTURE9_ABI: [(&str, u16); 22] = [
+    ("QueryInterface", 2),
+    ("AddRef", 0),
+    ("Release", 0),
+    ("GetDevice", 1),
+    ("SetPrivateData", 4),
+    ("GetPrivateData", 3),
+    ("FreePrivateData", 1),
+    ("SetPriority", 1),
+    ("GetPriority", 0),
+    ("PreLoad", 0),
+    ("GetType", 0),
+    ("SetLOD", 1),
+    ("GetLOD", 0),
+    ("GetLevelCount", 0),
+    ("SetAutoGenFilterType", 1),
+    ("GetAutoGenFilterType", 0),
+    ("GenerateMipSubLevels", 0),
+    ("GetLevelDesc", 2),
+    ("GetSurfaceLevel", 2),
+    ("LockRect", 4),
+    ("UnlockRect", 1),
+    ("AddDirtyRect", 1),
+];
+
+pub fn direct3dtexture9_object_spec() -> ComObjectSpec {
+    let methods = D3D9_IDIRECT3DTEXTURE9_ABI
+        .iter()
+        .enumerate()
+        .map(|(slot, (name, argument_words))| match slot {
+            0 => ComMethodSpec::query_interface(),
+            1 => ComMethodSpec::add_ref(),
+            2 => ComMethodSpec::release(),
+            7 | 8 | 10 | 11 | 12 | 13 | 15 => {
+                ComMethodSpec::unsupported_u32(*name, *argument_words)
+            }
+            9 | 16 => ComMethodSpec::unsupported_void(*name, *argument_words),
+            _ => ComMethodSpec::unsupported_hresult(*name, *argument_words),
+        })
+        .collect();
+    ComObjectSpec {
+        class_identity: D3D9_IDIRECT3DTEXTURE9_CLASS_IDENTITY.to_owned(),
+        interfaces: vec![
+            ComInterfaceSpec::iunknown(),
+            ComInterfaceSpec {
+                iid: D3D9_IDIRECT3DTEXTURE9_IID,
+                name: "IDirect3DTexture9".to_owned(),
                 methods,
             },
         ],

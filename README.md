@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `d3d9-create-device`: 17849 calls across 84 API contracts, memory generation 34733 |
+| Runtime diagnostics | `d3d9-create-texture`: 17850 calls across 84 API contracts, memory generation 34770 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (30 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (45 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::CreateTexture(0x00000400, 0x00000400, 0x00000001, 0x00000000, 0x00000016, 0x00000002, 0x101517cc, 0x00000000)` at instruction 11807772: `com-method-unsupported` |
+| Next structured stop | `IDirect3DTexture9::GetSurfaceLevel(0x00000000, 0x006ffd38)` at instruction 11807783: `com-method-unsupported` |
 
-The active semantic report is 82,645 bytes with SHA-256
-`0ea001699dc1de9669657eef81f3679e78be6b4981e84127d86b5d376f72f7e8`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 56,558 bytes with SHA-256
+`0874e21b79c357eb3544a48171f5056809cf8e2314ac15995538877907dd58c5`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,7 +30,7 @@ The active semantic report is 82,645 bytes with SHA-256
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop; title entry is not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, and activation slices pass; general message flow remains partial |
 | `immutable-source-asset-access` | Immutable source asset access | `bounded-foundation` | One fingerprinted primary asset range is read through the immutable source gateway |
-| `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 CreateDevice and logical device state are reached, while texture, renderer, draw, and Present are not reached |
+| `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device and system-memory texture state are reached, while surface access, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound or WinMM playback is not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Controlled same-session persistent byte passes; writable overlay, restart, and load are not implemented |

@@ -60,6 +60,11 @@ completion、最終memory digest、structured stop、cancel／watchdog teardown�
 workloadはtimer clamp非依存のWorker yieldを使う。どちらのstatusも
 full play、title output、long-idle steady memoryを含めない。
 
+`threshold-blocked`では`browserCheckpoint.bgiBenchmarkBlocker`を必須とする。Blockerはschema／ID、
+exact reproduction、first failure、report identity、試した切り分け、保持するinvariant、新しい権限、
+再開条件を持ち、benchmark evidenceのfailure ID／observed valueと一致しなければならない。外部processを
+停止する権限がない場合はその事実を隠さず、同一fixture／duration／thresholdのisolated rerunを再開条件にする。
+
 `browserCheckpoint.executionEngineProfile`は共通source revision／CPU-context ABIとhost別Wasm
 artifact allowlistの正本を指す。build manifest、browser report、private evidenceはallowlist全体を
 実行identityにせず、実際に一致した単一artifactのbytes／SHA-256を共通identityと組み合わせて記録する。

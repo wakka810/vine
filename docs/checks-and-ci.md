@@ -97,13 +97,20 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-d3d9-create-device-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-create-device-v1.json).
+[`bgi-browser-d3d9-create-texture-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-create-texture-v1.json).
 It repeats the complete current session, checks count／terminal semantics on every
 summary-evidence repetition while the standalone Chrome check retains full ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
 and Wasm-crossing thresholds. Its result and non-claims are recorded in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
 because the private executable is never distributed.
+
+`threshold-blocked` is a required failure outcome, not a soft pass. The current
+manifest must retain the failing threshold ID, exact report identity, attempted
+isolation evidence, protected threshold／retry invariants, and resume condition.
+No downstream primary checkpoint or private-evidence commit proceeds until the
+same 180-second fixture passes unchanged on an isolated host, or a repeated
+isolated failure leads to a profiled bounded optimization.
 
 The canonical commit-bound private target gate is:
 
