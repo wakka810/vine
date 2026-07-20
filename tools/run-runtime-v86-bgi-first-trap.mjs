@@ -5645,6 +5645,7 @@ async function runGenericRuntimeReentry({
       const fault = JSON.parse(response.control.toString("utf8"));
       if (endpoint.kind === "com-method") {
         validateGenericRuntimeComFault(fault, endpoint, generation);
+        continuation = captureGenericComFaultStack(context, continuation, fault);
       } else {
         validateGenericRuntimeFault(fault, endpoint, generation);
       }
@@ -6745,6 +6746,41 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
   assert.equal(fault.memory.dirtyPages, 0);
   assert.equal(fault.memory.pendingInvalidation, undefined);
   assert.match(fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
+function captureGenericComFaultStack(context, continuation, fault) {
+  const maximumExplicitArgumentWords = 64;
+  const explicitArgumentWords = fault.endpoint.target.method.explicitArgumentWords;
+  assert(
+    Number.isSafeInteger(explicitArgumentWords) &&
+      explicitArgumentWords >= 0 &&
+      explicitArgumentWords <= maximumExplicitArgumentWords,
+    `COM evidence argument width ${explicitArgumentWords} exceeds the bounded capture limit`,
+  );
+  const stackWordCount = 2 + explicitArgumentWords;
+  checkedGuestEnd(
+    continuation.finalState.esp,
+    stackWordCount * 4,
+    "COM evidence stack span",
+  );
+  const stackWords = [];
+  for (let index = 0; index < stackWordCount; index += 1) {
+    stackWords.push(
+      context.readVirtualU32(
+        continuation.finalState.esp + index * 4,
+        `COM evidence stack word ${index}`,
+      ),
+    );
+  }
+  assert.equal(stackWords[0], continuation.terminal.returnAddress);
+  assert.equal(stackWords[1], fault.endpoint.target.interface.guestPointer);
+  return {
+    ...continuation,
+    terminal: {
+      ...continuation.terminal,
+      stackWords,
+    },
+  };
 }
 
 function validateGenericCallbackEntry(entry, endpoint, generation, context) {
@@ -12814,7 +12850,8 @@ function validateD3d9CreateDeviceResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 23);
   assert.equal(terminal.returnAddress, 0x1005_a715);
-  assert.deepEqual(terminal.stackWords.slice(1, 8), [
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_a715,
     0x0101_0004,
     1024,
     1024,
@@ -12822,6 +12859,8 @@ function validateD3d9CreateDeviceResult(result) {
     0,
     22,
     2,
+    0x1015_17cc,
+    0,
   ]);
 }
 

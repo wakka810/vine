@@ -3673,8 +3673,8 @@ retirementへcascadeする。Browser renderer resourceは生成しない。
 Node summaryは17,849 calls／11,807,772 instructions、17,904 writebacks／36,055 dirty pages／
 1,807,469 changed bytes、16,564 host deltas、generation 34,733を通す。Semantic SHA-256は
 `d062bba8eef984451f149034d3bb1f27b2d92a81184be5ffcfa4fcddb8f74f14`、final memory SHA-256は
-`5317e97d117c7599c9900bb903c4ab184ab4f97db3cad6d9c6f951ba1941dbd1`、reportは82,615 bytes／
-SHA-256 `84f01520ec438b4919fd8fe39e8bcc86abfef83d09373475847025e8ed333abb`である。
+`5317e97d117c7599c9900bb903c4ab184ab4f97db3cad6d9c6f951ba1941dbd1`、reportは82,645 bytes／
+SHA-256 `0ea001699dc1de9669657eef81f3679e78be6b4981e84127d86b5d376f72f7e8`である。
 
 Chrome Runtime Workerもsame ordered completion／instructions／semantic digestを再現し、29,082 slices、
 11,178 budget yields、29,080 writebacks／61,961 pages、16,564 mapping deltas、17,755 mapping dirty pages、
@@ -3685,6 +3685,6 @@ generation 27→45,911、63,571 Wasm crossings、87,212 success execution transi
 3,420,622 bytes／SHA-256 `6dd86d69ad90ccf2bbe705ad08aaec42fc3555280bda8e721c5b2bf0c7118e5a`である。
 
 次stopはinstruction 11,807,772、`IDirect3DDevice9` slot 23／`CreateTexture`、this `0x01010004`、
-arguments `1024, 1024, 1, 0, 22, 2, 0x101038C8, 0`、endpoint `0x010111A0`、return
+arguments `1024, 1024, 1, 0, 22, 2, 0x101517CC, 0`、endpoint `0x010111A0`、return
 `0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。

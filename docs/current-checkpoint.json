@@ -632,7 +632,7 @@
     "nextFaultCode": "com-method-unsupported",
     "nextApi": "IDirect3DDevice9::CreateTexture",
     "nextEndpointAddress": "0x010111a0",
-    "nextArguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101038c8", "0x00000000"],
+    "nextArguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101517cc", "0x00000000"],
     "initialCurrentDirectoryBytesWithNul": [67, 58, 92, 86, 105, 110, 101, 0],
     "initialCurrentDirectoryGeneration": 0,
     "setCurrentDirectoryGeneration": 1,
@@ -653,8 +653,8 @@
     "sourceReadCompletions": 2,
     "sourceReadPayloadSha256": "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92",
     "sourceReadPendingAfterCleanup": 0,
-    "nodeOracleReportBytes": 82615,
-    "nodeOracleReportSha256": "84f01520ec438b4919fd8fe39e8bcc86abfef83d09373475847025e8ed333abb",
+    "nodeOracleReportBytes": 82645,
+    "nodeOracleReportSha256": "0ea001699dc1de9669657eef81f3679e78be6b4981e84127d86b5d376f72f7e8",
     "browserReportBytes": 116599,
     "browserReportSha256": "94a2bd202dfab3bfab47f0b70f7c75d1195f4efbbde80996c7a4414422a31601"
   },
@@ -4424,7 +4424,7 @@
     "firstStructuredStopMethod": "CreateTexture",
     "firstStructuredStopThisPointer": "0x01010004",
     "firstStructuredStopEndpointAddress": "0x010111a0",
-    "firstStructuredStopArguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101038c8", "0x00000000"],
+    "firstStructuredStopArguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101517cc", "0x00000000"],
     "firstStructuredStopReturnAddress": "0x1005a715",
     "firstStructuredStopFault": "com-method-unsupported",
     "memoryContentSha256": "5317e97d117c7599c9900bb903c4ab184ab4f97db3cad6d9c6f951ba1941dbd1",
@@ -5718,8 +5718,8 @@
     "broadHeapVariantsImplemented": false,
     "apiSpecificReconciliationLists": false,
     "apiSpecificRequestsOrReceipts": false,
-    "reportBytes": 82615,
-    "reportSha256": "84f01520ec438b4919fd8fe39e8bcc86abfef83d09373475847025e8ed333abb"
+    "reportBytes": 82645,
+    "reportSha256": "0ea001699dc1de9669657eef81f3679e78be6b4981e84127d86b5d376f72f7e8"
   },
   "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
   },
@@ -5734,7 +5734,7 @@
     "interface": "IDirect3DDevice9",
     "vtableSlot": 23,
     "method": "CreateTexture",
-    "arguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101038c8", "0x00000000"],
+    "arguments": ["0x00000400", "0x00000400", "0x00000001", "0x00000000", "0x00000016", "0x00000002", "0x101517cc", "0x00000000"],
     "thisPointer": "0x01010004",
     "endpointAddress": "0x010111a0",
     "returnAddress": "0x1005a715"

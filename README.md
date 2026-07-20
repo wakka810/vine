@@ -18,10 +18,10 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (30 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::CreateTexture(0x00000400, 0x00000400, 0x00000001, 0x00000000, 0x00000016, 0x00000002, 0x101038c8, 0x00000000)` at instruction 11807772: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::CreateTexture(0x00000400, 0x00000400, 0x00000001, 0x00000000, 0x00000016, 0x00000002, 0x101517cc, 0x00000000)` at instruction 11807772: `com-method-unsupported` |
 
-The active semantic report is 82,615 bytes with SHA-256
-`84f01520ec438b4919fd8fe39e8bcc86abfef83d09373475847025e8ed333abb`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 82,645 bytes with SHA-256
+`0ea001699dc1de9669657eef81f3679e78be6b4981e84127d86b5d376f72f7e8`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

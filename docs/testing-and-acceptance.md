@@ -330,7 +330,9 @@ HRESULT ABI、56-byte x86 `D3DPRESENT_PARAMETERS`のstrict windowed HAL band、l
 private ownership、capacity／stale plan／failure atomicity、final device releaseによるgraphics retirementと
 optional root cascadeもunit／aggregate fixtureで固定する。Node／Chromeはsame ordered completion、guest
 write、COM identity、logical presentationとslot 23 `CreateTexture` stopを比較し、browser rendererが未生成で
-あることを要求する。Native two-run oracleはzero width／height／formatのresolution、remaining field preserve、
+あることを要求する。COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedな
+capture幅とし、return address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。
+Native two-run oracleはzero width／height／formatのresolution、remaining field preserve、
 non-NULL device、first reached device method、nested AddRef relationを固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
