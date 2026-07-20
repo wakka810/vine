@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-20T11:41:13.061Z",
+  "recordedAt": "2026-07-20T13:36:49.759Z",
   "repository": {
-    "implementationCommit": "e56a035c4527d92779141ce5459df486d55bcbee",
-    "implementationTree": "f399a2a95cdd0dda5437ae16371afdfa7ce48000",
-    "headCommit": "e56a035c4527d92779141ce5459df486d55bcbee",
+    "implementationCommit": "d6afe8b4db298d4dc3dcb13e6967ee4cd48db7b8",
+    "implementationTree": "9c2a54bdb9f29c54e4363e4c5b42d0533374c45e",
+    "headCommit": "d6afe8b4db298d4dc3dcb13e6967ee4cd48db7b8",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,13 +27,13 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 3,
-    "runtimeCheckpoint": "d3d9-create-texture",
-    "runtimeProfile": "d3d9-create-texture",
+    "runtimeCheckpoint": "d3d9-get-surface-level",
+    "runtimeProfile": "d3d9-get-surface-level",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-d3dx-runtime-module-v1",
     "policySource": "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-create-texture",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-get-surface-level",
     "nodeReportSchemaVersion": 2,
     "browserRuntimeProtocol": "vine.browser-runtime-worker.v7",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
@@ -70,28 +70,28 @@
     "node": {
       "outcome": "structured-stop",
       "implementedApiContracts": 84,
-      "supportedCalls": 17850,
-      "callSemanticsSha256": "bfaf1165757018add907c7777315a9c814b2caacef29b5fe06704be542450e58",
-      "instructions": 11807783,
-      "finalGeneration": 34770,
-      "memoryContentSha256": "6d4f6d179c38596d280df1cc940c137b4e16cf1293eced104b2db60ee36ad944",
-      "writebackBatches": 17905,
-      "dirtyPages": 36056,
-      "changedBytes": 1807483,
-      "hostDeltaBatches": 16565
+      "supportedCalls": 17851,
+      "callSemanticsSha256": "7c43c22e49cd62568797ded4382ceacba5659be3c42d4a3460186702247c08bf",
+      "instructions": 11807793,
+      "finalGeneration": 34802,
+      "memoryContentSha256": "d4c3bed5fe4ab0ebd2bacc0c32023a679cc1c6d55f7c0701cb981eeec368f3e2",
+      "writebackBatches": 17906,
+      "dirtyPages": 36057,
+      "changedBytes": 1807491,
+      "hostDeltaBatches": 16566
     },
     "browser": {
       "outcome": "structured-stop",
-      "supportedCalls": 17850,
-      "callSemanticsSha256": "bfaf1165757018add907c7777315a9c814b2caacef29b5fe06704be542450e58",
-      "instructions": 11807783,
-      "finalGeneration": 45948,
-      "memoryContentSha256": "6d4f6d179c38596d280df1cc940c137b4e16cf1293eced104b2db60ee36ad944",
-      "wasmBridgeCalls": 63575,
+      "supportedCalls": 17851,
+      "callSemanticsSha256": "7c43c22e49cd62568797ded4382ceacba5659be3c42d4a3460186702247c08bf",
+      "instructions": 11807793,
+      "finalGeneration": 45980,
+      "memoryContentSha256": "d4c3bed5fe4ab0ebd2bacc0c32023a679cc1c6d55f7c0701cb981eeec368f3e2",
+      "wasmBridgeCalls": 63579,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 87215,
+          "transitionCount": 87218,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -138,22 +138,21 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "com-method",
-      "nextCheckpoint": "d3d9-idirect3dtexture9-method",
+      "nextCheckpoint": "d3d9-idirect3dsurface9-method",
       "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-      "instructionCount": 11807783,
-      "capabilityCluster": "d3d9-idirect3dtexture9-method",
+      "instructionCount": 11807793,
+      "capabilityCluster": "d3d9-idirect3dsurface9-method",
       "reason": "com-method-unsupported",
       "endpointKind": "com-method",
-      "interface": "IDirect3DTexture9",
-      "vtableSlot": 18,
-      "method": "GetSurfaceLevel",
+      "interface": "IDirect3DSurface9",
+      "vtableSlot": 15,
+      "method": "GetDC",
       "arguments": [
-        "0x00000000",
-        "0x006ffd38"
+        "0x006ffd3c"
       ],
-      "thisPointer": "0x01020004",
-      "endpointAddress": "0x01021150",
-      "returnAddress": "0x1005a731"
+      "thisPointer": "0x01030004",
+      "endpointAddress": "0x01031120",
+      "returnAddress": "0x1005a746"
     },
     "cleanup": {
       "pendingHostCalls": 0,
@@ -168,14 +167,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-create-texture/report.json",
-      "bytes": 56558,
-      "sha256": "0874e21b79c357eb3544a48171f5056809cf8e2314ac15995538877907dd58c5"
+      "path": ".work/v86-bgi-d3d9-get-surface-level/report.json",
+      "bytes": 55216,
+      "sha256": "31fac5d5f3884fc6caa88e4c4073e791da1b132052fb3b1255b348999f620045"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 116634,
-      "sha256": "fb868fd80c26e757e5189cb5cc655450dfdfa26898135e4b5d66b0aa2b0b9fdf"
+      "bytes": 116620,
+      "sha256": "97dd514a0925f4ae9dda9f2188d027e6185509d5190b25776f60046a86ab27dc"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -190,12 +189,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "0cc8ea132ec7c3b1a060d7a82aceca9cfc18a380cdfc556fac7092276253c2d9"
+      "sha256": "39bd5c8b8a0195e5715845a15d610de77b3bcfcb0a22982a58ebaf6b9955c929"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 3470838,
-      "sha256": "965baadc4b9be6abb4269d26c448bf68abc86b945579298fbf563a9d1f28b65a"
+      "bytes": 3527856,
+      "sha256": "2498908a70fac8a2404f39346791186803906f79c482f995c8711fa1f10feb12"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -216,16 +215,16 @@
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
     "status": "threshold-passed",
-    "configuration": "fixtures/benchmarks/bgi-browser-d3d9-create-texture-v1.json",
+    "configuration": "fixtures/benchmarks/bgi-browser-d3d9-get-surface-level-v1.json",
     "benchmarkClassification": "repeated-distribution-threshold",
     "decisionStatus": "passed",
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 45,
+    "completedSessions": 46,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "3819bd12367772a3b48f83a85ba48b2272b57a7187723a3bb9a683ff437080d4"
+    "reportSha256": "d563064d738dcf927c167d2d4808420c12ec8d55253c4a658c7a6187f592021b"
   },
-  "payloadSha256": "f9f6e54f9222b3bddaf60bc46acb0ab280a5eb4c81f44213ec914df40037cae4"
+  "payloadSha256": "a48346540207c34184402eb104f8554bc635232838311e6a881dbb856d6fa949"
 }
