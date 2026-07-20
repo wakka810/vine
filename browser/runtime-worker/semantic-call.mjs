@@ -30,7 +30,15 @@ function rotateRight(value, bits) {
 }
 
 function emitCanonicalJson(value, emit) {
-  if (value === null || typeof value !== "object") {
+  if (value === null) {
+    emit("null");
+    return;
+  }
+  if (typeof value === "boolean") {
+    emit(value ? "true" : "false");
+    return;
+  }
+  if (typeof value !== "object") {
     const encoded = JSON.stringify(value);
     if (encoded === undefined) {
       throw new TypeError("semantic call contains a non-serializable scalar");
@@ -62,6 +70,66 @@ function emitCanonicalJson(value, emit) {
     emit(":");
     emitCanonicalJson(value[key], emit);
   }
+  emit("}");
+}
+
+function emitCanonicalField(encodedName, value, emit, first) {
+  if (value === undefined) {
+    return first;
+  }
+  if (!first) {
+    emit(",");
+  }
+  emit(encodedName);
+  emitCanonicalJson(value, emit);
+  return false;
+}
+
+function emitCanonicalSemanticCall(call, emit) {
+  const guestWrites =
+    call.guestWrites.length === 0
+      ? call.guestWrites
+      : call.guestWrites.map(({ address, bytes }) => ({ address, bytes }));
+  let first = true;
+  emit("{");
+  first = emitCanonicalField('"arguments":', call.arguments, emit, first);
+  first = emitCanonicalField(
+    '"currentDirectory":',
+    call.currentDirectory ?? null,
+    emit,
+    first,
+  );
+  first = emitCanonicalField('"cursor":', call.cursor ?? null, emit, first);
+  first = emitCanonicalField('"gdi":', call.gdi ?? null, emit, first);
+  first = emitCanonicalField('"guestWrites":', guestWrites, emit, first);
+  first = emitCanonicalField('"icon":', call.icon ?? null, emit, first);
+  first = emitCanonicalField('"interface":', call.interface ?? null, emit, first);
+  first = emitCanonicalField('"lastError":', call.lastError, emit, first);
+  first = emitCanonicalField('"module":', call.module.toLowerCase(), emit, first);
+  first = emitCanonicalField('"mutex":', call.mutex ?? null, emit, first);
+  first = emitCanonicalField('"objectRetired":', call.objectRetired ?? null, emit, first);
+  first = emitCanonicalField('"referenceCount":', call.referenceCount ?? null, emit, first);
+  first = emitCanonicalField('"result":', call.result, emit, first);
+  first = emitCanonicalField('"returnAddress":', call.returnAddress, emit, first);
+  first = emitCanonicalField('"sequence":', call.sequence, emit, first);
+  first = emitCanonicalField('"sourceRead":', call.sourceRead ?? null, emit, first);
+  first = emitCanonicalField(
+    '"stackPointerAfter":',
+    call.stackPointerAfter,
+    emit,
+    first,
+  );
+  first = emitCanonicalField(
+    '"stackPointerBefore":',
+    call.stackPointerBefore,
+    emit,
+    first,
+  );
+  first = emitCanonicalField('"symbol":', call.symbol, emit, first);
+  first = emitCanonicalField('"vtableSlot":', call.vtableSlot ?? null, emit, first);
+  first = emitCanonicalField('"waitableTimer":', call.waitableTimer ?? null, emit, first);
+  first = emitCanonicalField('"window":', call.window ?? null, emit, first);
+  emitCanonicalField('"windowClass":', call.windowClass ?? null, emit, first);
   emit("}");
 }
 
@@ -102,6 +170,26 @@ class Sha256 {
       this.#block[this.#blockBytes] = bytes[offset];
       this.#blockBytes += 1;
       offset += 1;
+    }
+  }
+
+  updateAscii(text) {
+    if (this.#finished) {
+      throw new Error("SHA-256 digest is already finalized");
+    }
+    this.#bytesHashed += text.length;
+    let offset = 0;
+    while (offset < text.length) {
+      const copied = Math.min(64 - this.#blockBytes, text.length - offset);
+      for (let index = 0; index < copied; index += 1) {
+        this.#block[this.#blockBytes + index] = text.charCodeAt(offset + index);
+      }
+      this.#blockBytes += copied;
+      offset += copied;
+      if (this.#blockBytes === 64) {
+        this.#compress(this.#block, 0);
+        this.#blockBytes = 0;
+      }
     }
   }
 
@@ -151,7 +239,14 @@ class Sha256 {
         (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
     }
 
-    let [a, b, c, d, e, f, g, h] = this.#state;
+    let a = this.#state[0];
+    let b = this.#state[1];
+    let c = this.#state[2];
+    let d = this.#state[3];
+    let e = this.#state[4];
+    let f = this.#state[5];
+    let g = this.#state[6];
+    let h = this.#state[7];
     for (let index = 0; index < 64; index += 1) {
       const sum1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
       const choice = (e & f) ^ (~e & g);
@@ -228,10 +323,9 @@ export class SemanticCallDigest {
     if (call.sequence < this.#nextSequence || this.#pendingCalls.has(call.sequence)) {
       throw new Error(`semantic call sequence ${call.sequence} is duplicated`);
     }
-    const normalized = normalizeSemanticCall(call);
     this.#count += 1;
     if (call.sequence === this.#nextSequence) {
-      this.#updateDigest(normalized);
+      this.#updateDigest(call);
       this.#nextSequence += 1;
       while (this.#pendingCalls.has(this.#nextSequence)) {
         this.#updateFragments(this.#pendingCalls.get(this.#nextSequence));
@@ -240,7 +334,7 @@ export class SemanticCallDigest {
       }
     } else {
       const fragments = [];
-      emitCanonicalJson(normalized, (fragment) => fragments.push(fragment));
+      emitCanonicalSemanticCall(call, (fragment) => fragments.push(fragment));
       fragments.push("\n");
       this.#pendingCalls.set(call.sequence, fragments);
     }
@@ -262,8 +356,8 @@ export class SemanticCallDigest {
     return this.#sha256.digestHex();
   }
 
-  #updateDigest(normalized) {
-    emitCanonicalJson(normalized, this.#emit);
+  #updateDigest(call) {
+    emitCanonicalSemanticCall(call, this.#emit);
     this.#updateText("\n");
   }
 
@@ -274,6 +368,17 @@ export class SemanticCallDigest {
   }
 
   #updateText(fragment) {
+    let ascii = true;
+    for (let index = 0; index < fragment.length; index += 1) {
+      if (fragment.charCodeAt(index) > 0x7f) {
+        ascii = false;
+        break;
+      }
+    }
+    if (ascii) {
+      this.#sha256.updateAscii(fragment);
+      return;
+    }
     let remaining = fragment;
     while (remaining.length > 0) {
       const { read, written } = this.#encoder.encodeInto(remaining, this.#encodedBuffer);

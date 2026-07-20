@@ -190,6 +190,7 @@ enum GenericRuntimeCapability {
     D3d9CreateDevice,
     D3d9CreateTexture,
     D3d9GetSurfaceLevel,
+    D3d9SurfaceGetDc,
 }
 
 struct GenericRuntimeProcess {
@@ -461,6 +462,10 @@ enum GenericRuntimeGdiCompletion {
     SurfaceFilled {
         device_context: vine_core::RuntimeDeviceContext,
         surface: vine_core::RuntimeGdiSurface,
+    },
+    GraphicsSurfaceFilled {
+        device_context: vine_core::RuntimeDeviceContext,
+        surface: vine_core::RuntimeGraphicsSurface,
     },
     DeviceContextReleased {
         handle: u32,
@@ -2313,6 +2318,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9CreateDevice
                     | GenericRuntimeCapability::D3d9CreateTexture
                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                    | GenericRuntimeCapability::D3d9SurfaceGetDc
             )
         ) {
             let loader = kernel32_policy
@@ -2976,6 +2982,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3012,7 +3019,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9GetAdapterMonitor
             | GenericRuntimeCapability::D3d9CreateDevice
             | GenericRuntimeCapability::D3d9CreateTexture
-            | GenericRuntimeCapability::D3d9GetSurfaceLevel,
+            | GenericRuntimeCapability::D3d9GetSurfaceLevel
+            | GenericRuntimeCapability::D3d9SurfaceGetDc,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3084,6 +3092,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3097,6 +3106,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3104,7 +3114,7 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v10();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v11();
     if !matches!(
         requested_capability,
         Some(
@@ -3112,6 +3122,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3122,6 +3133,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3132,16 +3144,28 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         d3d9_policy.create_texture = None;
         d3d9_policy.get_surface_level = None;
+        d3d9_policy.surface_dc = None;
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9GetSurfaceLevel)
+        Some(
+            GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
+        )
     ) {
         d3d9_policy.get_surface_level = None;
+        d3d9_policy.surface_dc = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9SurfaceGetDc)
+    ) {
+        d3d9_policy.surface_dc = None;
     }
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
@@ -3427,6 +3451,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4651,6 +4676,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9CreateDevice
                             | GenericRuntimeCapability::D3d9CreateTexture
                             | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                            | GenericRuntimeCapability::D3d9SurfaceGetDc
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4709,6 +4735,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9CreateDevice
                                     | GenericRuntimeCapability::D3d9CreateTexture
                                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                                    | GenericRuntimeCapability::D3d9SurfaceGetDc
                             )
                         )
                     {
@@ -4759,6 +4786,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4772,6 +4800,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4786,6 +4815,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4801,6 +4831,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let load_library_a_enabled = matches!(
@@ -4817,6 +4848,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4839,6 +4871,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4879,6 +4912,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5387,6 +5421,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9CreateDevice
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
+                | GenericRuntimeCapability::D3d9SurfaceGetDc
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10024,7 +10059,13 @@ fn generic_runtime_gdi_completion(
                 .clone();
             let surface = runtime
                 .gdi_surfaces()
-                .get(&device_context.surface_id)
+                .get(&device_context.window_surface_id().ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "get-dc-target-invalid-after-dispatch",
+                        "completed GetDC resolved to a non-window logical HDC",
+                    )
+                })?)
                 .cloned()
                 .ok_or_else(|| {
                     LoaderError::runtime_defect(
@@ -10074,21 +10115,42 @@ fn generic_runtime_gdi_completion(
                 .gdi_device_context(handle)
                 .map_err(runtime_state_error)?
                 .clone();
-            let surface = runtime
-                .gdi_surfaces()
-                .get(&device_context.surface_id)
-                .cloned()
-                .ok_or_else(|| {
-                    LoaderError::runtime_defect(
-                        "runtime-gdi",
-                        "fill-rect-surface-missing-after-dispatch",
-                        "completed FillRect has no matching logical surface",
-                    )
-                })?;
-            Ok(Some(GenericRuntimeGdiCompletion::SurfaceFilled {
-                device_context,
-                surface,
-            }))
+            match device_context.target {
+                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
+                    let surface = runtime
+                        .gdi_surfaces()
+                        .get(&surface_id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-gdi",
+                                "fill-rect-surface-missing-after-dispatch",
+                                "completed FillRect has no matching logical window surface",
+                            )
+                        })?;
+                    Ok(Some(GenericRuntimeGdiCompletion::SurfaceFilled {
+                        device_context,
+                        surface,
+                    }))
+                }
+                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } => {
+                    let surface = runtime
+                        .graphics_surfaces()
+                        .get(&surface_id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-gdi",
+                                "fill-rect-graphics-surface-missing-after-dispatch",
+                                "completed FillRect has no matching logical graphics surface",
+                            )
+                        })?;
+                    Ok(Some(GenericRuntimeGdiCompletion::GraphicsSurfaceFilled {
+                        device_context,
+                        surface,
+                    }))
+                }
+            }
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion.frame.argument_u32(1).ok_or_else(|| {
@@ -11145,6 +11207,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-create-device" => GenericRuntimeCapability::D3d9CreateDevice,
                 "d3d9-create-texture" => GenericRuntimeCapability::D3d9CreateTexture,
                 "d3d9-get-surface-level" => GenericRuntimeCapability::D3d9GetSurfaceLevel,
+                "d3d9-surface-get-dc" => GenericRuntimeCapability::D3d9SurfaceGetDc,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

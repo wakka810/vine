@@ -18,7 +18,8 @@ Its IUnknown methods and slot 23 `CreateTexture` delegate to implemented
 handlers. `CreateTexture` publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods and slot 18 `GetSurfaceLevel` delegate to
 implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
-`IDirect3DSurface9` interface whose IUnknown methods are implemented. Other
+`IDirect3DSurface9` interface whose IUnknown methods plus slot 15 `GetDC` and
+slot 16 `ReleaseDC` delegate to implemented handlers. Other
 unreached slots return a typed fault with interface, slot, method, endpoint, and
 call site.
 The catalog fixes each x86 method name, explicit stack-word count, and return
@@ -41,7 +42,7 @@ relations for the private workload.
 
 ## Bounded logical adapter count
 
-Version 10 of `D3d9CompatibilityPolicy` retains profile
+Version 11 of `D3d9CompatibilityPolicy` retains profile
 `single-logical-adapter-v1`. `IDirect3D9::GetAdapterCount` returns unsigned
 value `1` after validating that `RuntimeDisplays` still exposes the coherent
 `single-monitor-1920x1080-v1` profile. The count is D3D9 policy authority; the
@@ -59,7 +60,7 @@ enumeration and host or browser GPU topology remain outside this profile.
 
 ## Bounded adapter-to-monitor mapping
 
-The version 10 `primary-adapter-monitor-v1` profile maps adapter `0` to the
+The version 11 `primary-adapter-monitor-v1` profile maps adapter `0` to the
 logical primary HMONITOR owned by `RuntimeDisplays`. The D3D9 policy owns only
 the adapter-to-display-profile mapping; it neither allocates nor copies the
 monitor identity. `GetAdapterMonitor(0)` therefore returns `0x4f010001`, the
@@ -83,7 +84,7 @@ are recorded in the current manifest.
 
 ## Bounded adapter display mode
 
-Version 10 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 11 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -116,7 +117,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 10 policy enables adapter `0`, flags `0`, and profile
+The same version 11 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -150,7 +151,7 @@ fixture. Raw native captures remain ignored under `.work/`.
 
 ## Bounded virtual device capabilities
 
-Version 10 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
+Version 11 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
 `primary-hal-readscanline-dynamic-textures-ps3-v1`. The handler zero-fills one
 304-byte, 4-byte-aligned x86 `D3DCAPS9` and publishes only these nonzero words:
 
@@ -186,7 +187,7 @@ guest-memory transaction.
 
 ## Bounded device-type predicate
 
-Version 10 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
+Version 11 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
 `IDirect3D9::CheckDeviceType`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 `D3DFMT_X8R8G8B8` adapter／back-buffer formats, and both windowed and
 full-screen mode. The x86 `BOOL` follows the Windows convention: zero means
@@ -210,7 +211,7 @@ completion. Every path preserves LastError, COM reference count, guest memory,
 
 ## Bounded device-format predicate
 
-Version 10 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
+Version 11 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
 `IDirect3D9::CheckDeviceFormat`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 adapter／checked format `D3DFMT_X8R8G8B8`, resource type `D3DRTYPE_TEXTURE`,
 and either Usage `0` or `D3DUSAGE_DYNAMIC` (`0x200`). The predicate is
@@ -235,7 +236,7 @@ renderer resources.
 
 ## Bounded logical device creation
 
-Version 10 retains `primary-windowed-hal-device-v1` for the reached
+Version 11 retains `primary-windowed-hal-device-v1` for the reached
 `IDirect3D9::CreateDevice` call. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 behavior flags `D3DCREATE_MULTITHREADED | D3DCREATE_HARDWARE_VERTEXPROCESSING`
 (`0x44`), one live focus／device HWND, and one 56-byte x86
@@ -280,7 +281,7 @@ guest identities.
 
 ## Bounded logical texture creation
 
-Version 10 adds `primary-system-memory-x8r8g8b8-texture-v1` for the first reached
+Version 11 retains `primary-system-memory-x8r8g8b8-texture-v1` for the first reached
 `IDirect3DDevice9::CreateTexture` call. It accepts exactly width and height
 `1024`, one mip level, Usage `0`, `D3DFMT_X8R8G8B8`, `D3DPOOL_SYSTEMMEM`, and a
 NULL shared-handle pointer. Width／height zero, NULL output, or a non-NULL shared
@@ -314,7 +315,7 @@ resource behavior.
 
 ## Bounded level-zero surface retrieval
 
-Version 10 adds `primary-texture-level-zero-surface-v1` for the first reached
+Version 11 retains `primary-texture-level-zero-surface-v1` for the first reached
 `IDirect3DTexture9::GetSurfaceLevel` call. It accepts only level `0` on the
 one-level logical texture and a non-NULL writable output pointer. A missing
 output or any other level returns `D3DERR_INVALIDCALL`; an unwritable output or
@@ -350,6 +351,46 @@ output for an invalid level and raises access violation for a NULL output; Vine
 intentionally keeps the stronger repository-wide failure-atomicity contract and
 leaves the output unchanged while returning `D3DERR_INVALIDCALL`.
 
+## Bounded surface DC and GDI fill bridge
+
+Version 11 adds `primary-surface-gdi-dc-v1` for surface slots 15 and 16.
+`GetDC` accepts one non-NULL writable HDC output on a live logical surface.
+Guest-memory access, the live COM-to-graphics association, the current surface
+descriptor, GDI capacity, identity allocation, and the one-outstanding-HDC rule
+are preflighted before publication. The four-byte guest write is held in a
+memory transaction until `RuntimeGdi` commits the HDC; a stale cross-subsystem
+plan rolls the write back. A NULL output or repeated acquisition returns
+`D3DERR_INVALIDCALL` without changing the output or allocator. Other invalid
+authority or memory conditions fault before mutation.
+
+The HDC uses the monotonic `vine.logical-gdi-dc.v1` namespace and records a
+non-owning relation to the exact logical graphics surface, COM object, current
+guest thread, geometry, and color format. It does not retain a COM reference.
+Instead, `RuntimeGdi` guards COM retirement while that HDC is live. `ReleaseDC`
+requires the same surface object, HDC, and guest thread; an unknown, mismatched,
+or already released HDC returns `D3DERR_INVALIDCALL`. Successful release retires
+only the HDC and allows a later reacquisition. All completion paths preserve
+LastError.
+
+Reached `FillRect` remains the User32 frontend call, but dispatch now branches on
+the typed HDC target. For a graphics-surface HDC the kernel revalidates the GDI
+HDC and stock `BLACK_BRUSH`, then preflights the corresponding
+`RuntimeGraphics` surface, rectangle, fill capacity, sequence, and generations.
+Only after both owners pass does `RuntimeGraphics` append the bounded logical
+fill command and advance surface and content generations. The history is capped
+at 16,384 commands. The primary slice records `[0, 0, 800, 600]` with COLORREF
+`0` on the `1024x1024` B8G8R8X8 surface. This command is authoritative semantic
+state; no texel array, pitch, lock staging, upload, or renderer resource is
+created.
+
+Two focused native traces reproduce the exact ordered chain `GetDC`,
+`GetStockObject(4)`, `FillRect`, `ReleaseDC`, and surface `Release`, with caller
+RVAs `0x5A746`, `0x5A76C`, `0x5A77D`, `0x5A78E`, and `0x5A79A`. A controlled
+COFF-i386 oracle fixes repeated acquisition, wrong and repeated release,
+reacquisition, unchanged surface reference count, and the native
+`LockRect`-while-DC rejection. Native NULL or read-only output raises access
+violation; Vine retains the repository-wide checked-memory fault boundary.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -360,6 +401,8 @@ device／resource／command contracts and coordinates the browser renderer
 adapter. The D3D9 `CreateDevice` gateway now creates the first logical device;
 the `CreateTexture` gateway creates the first device-related logical resource;
 the `GetSurfaceLevel` gateway creates its first logical subresource identity.
+The surface `GetDC` gateway adds a typed GDI acquisition relation, and reached
+`FillRect` appends the first `RuntimeGraphics`-owned surface command.
 Root creation and adapter-query leaves still do not allocate placeholder
 graphics state, and none of these gateways creates a renderer resource.
 
@@ -373,7 +416,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-get-surface-level
+npm run check:runtime:bgi -- --profile d3d9-surface-get-dc
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,
@@ -388,14 +431,15 @@ adapter／flags／device type／format／usage／resource type／NULL／unwritab
 display-authority paths. They also fix the complete device vtable catalog,
 presentation normalization, device／root and texture／device reference relations,
 surface／texture reference and repeat-identity relations, device／texture／surface
+capacity, surface-HDC uniqueness and retirement guard, GDI／graphics fill
 capacity, stale-plan rejection, cross-owner publication, and final cascading
 retirement.
 The fixture also verifies that adapter `0` has a
 non-NULL monitor and the first past-end adapter has none. The private Node and
-Chrome profiles record identical `CreateDevice`, `CreateTexture`, and
-`GetSurfaceLevel` completions, guest writes, COM identities, logical
-device／texture／surface descriptors, and final guest memory, then stop at
-`IDirect3DSurface9::GetDC` slot 15.
+Chrome profiles record identical `CreateDevice`, `CreateTexture`,
+`GetSurfaceLevel`, surface `GetDC`／`ReleaseDC`, stock-brush `FillRect`, and final
+surface `Release` completions; guest writes; COM／HDC identities; logical
+device／texture／surface descriptors and fill command; and final guest memory.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -403,9 +447,9 @@ evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
 `com-method-unsupported` path. The historical `d3d9-create-device` profile
 delegates slot 16 and stops at slot 23, while the historical
 `d3d9-create-texture` profile also delegates device slot 23. The active
-`d3d9-get-surface-level` profile additionally delegates texture slot 18 through
-the version 10 handler. This profile selection does not alter semantic handlers
-or active browser runtime policy.
+`d3d9-surface-get-dc` profile additionally delegates texture slot 18 and surface
+slots 15／16 through the version 11 handler. This profile selection does not
+alter semantic handlers or active browser runtime policy.
 
 ## Non-claims
 
@@ -413,13 +457,14 @@ or active browser runtime policy.
   mapping, current display-mode, virtual adapter-identifier, virtual
   device-capability, exact device-type predicate, and exact texture-format
   predicate queries plus the exact windowed HAL `CreateDevice` and exact
-  system-memory `CreateTexture` and level-zero `GetSurfaceLevel` profiles are
-  implemented. Mode enumeration, general device／format／usage checks, other
-  levels, `GetDC`, surface／texture storage, pitch, Lock／Unlock, other
+  system-memory `CreateTexture`, level-zero `GetSurfaceLevel`, and one exact
+  surface `GetDC`／black `FillRect`／`ReleaseDC` profile are implemented. Mode
+  enumeration, general device／format／usage checks, other levels,
+  surface／texture storage, pitch, Lock／Unlock, other
   device/resource state, draw, Present, Reset, and renderer output remain
   unsupported.
-- `CreateDevice`, `CreateTexture`, and `GetSurfaceLevel` create Rust logical
-  state only. They do not create a browser renderer resource,
+- `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, and the reached surface DC
+  fill create Rust logical state only. They do not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are
   not claimed.

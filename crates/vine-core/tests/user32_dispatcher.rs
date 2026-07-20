@@ -3107,12 +3107,12 @@ fn window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity() {
             .runtime
             .gdi_device_context(first_dc_handle)
             .unwrap()
-            .surface_id,
+            .window_surface_id(),
         fixture
             .runtime
             .gdi_device_context(second_dc_handle)
             .unwrap()
-            .surface_id
+            .window_surface_id()
     );
 
     fixture

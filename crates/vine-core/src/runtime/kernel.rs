@@ -44,17 +44,20 @@ use super::files::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
 use super::gdi::{
-    RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeFillRectResult, RuntimeGdi,
-    RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiSurface, RuntimeGdiSurfaceId,
-    RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetStockObjectResult,
+    RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi,
+    RuntimeGdiComRetirementGuard, RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject,
+    RuntimeGdiObjectId, RuntimeGdiSurface, RuntimeGdiSurfaceId, RuntimeGdiWindowTarget,
+    RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult,
+    RuntimeGetStockObjectResult,
 };
 use super::graphics::{
     RuntimeGraphics, RuntimeGraphicsComRetirementPlan, RuntimeGraphicsDevice,
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
     RuntimeGraphicsDeviceCreationRequest, RuntimeGraphicsDeviceId, RuntimeGraphicsSurface,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsSurfaceCreationPlan,
-    RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsTextureCreationPlan, RuntimeGraphicsTextureId, RuntimeGraphicsWindowTarget,
+    RuntimeGraphicsSurfaceFillRequest, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureCreationPlan,
+    RuntimeGraphicsTextureId, RuntimeGraphicsWindowTarget,
 };
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
@@ -233,11 +236,23 @@ pub(crate) struct RuntimeComReleasePlan {
     com: RuntimeComMutationPlan,
     address_space: Option<ProcessAddressReleasePlan>,
     graphics: Option<RuntimeGraphicsComRetirementPlan>,
+    gdi: Option<RuntimeGdiComRetirementGuard>,
 }
 
 impl RuntimeComReleasePlan {
     pub(crate) fn result(&self) -> RuntimeComReferenceResult {
         self.com.reference_result()
+    }
+}
+
+pub(crate) struct RuntimeGraphicsSurfaceDcAcquisitionPlan {
+    target: RuntimeGdiGraphicsSurfaceTarget,
+    gdi: RuntimeGetGraphicsSurfaceDcPlan,
+}
+
+impl RuntimeGraphicsSurfaceDcAcquisitionPlan {
+    pub(crate) fn result(&self) -> RuntimeGetGraphicsSurfaceDcResult {
+        self.gdi.result()
     }
 }
 
@@ -1047,10 +1062,12 @@ impl RuntimeKernel {
         let graphics = self
             .graphics
             .plan_com_object_retirements(&retired_object_ids)?;
+        let gdi = self.gdi.plan_com_object_retirements(&retired_object_ids)?;
         Ok(RuntimeComReleasePlan {
             com,
             address_space,
             graphics,
+            gdi,
         })
     }
 
@@ -1076,6 +1093,9 @@ impl RuntimeKernel {
         }
         if let Some(graphics) = &plan.graphics {
             self.graphics.preflight_com_object_retirement(graphics)?;
+        }
+        if let Some(gdi) = &plan.gdi {
+            self.gdi.preflight_com_object_retirements(gdi)?;
         }
         Ok(())
     }
@@ -3179,6 +3199,56 @@ impl RuntimeKernel {
         self.gdi.commit_get_dc(plan)
     }
 
+    pub(crate) fn plan_graphics_surface_dc_acquisition(
+        &self,
+        surface_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsSurfaceDcAcquisitionPlan, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.require_graphics_operation_state()?;
+        let target = self.resolve_gdi_graphics_surface_target(surface_com_object_id)?;
+        let gdi = self.gdi.plan_get_graphics_surface_dc(target)?;
+        Ok(RuntimeGraphicsSurfaceDcAcquisitionPlan { target, gdi })
+    }
+
+    pub(crate) fn commit_graphics_surface_dc_acquisition(
+        &mut self,
+        plan: RuntimeGraphicsSurfaceDcAcquisitionPlan,
+    ) -> Result<RuntimeGetGraphicsSurfaceDcResult, RuntimeStateError> {
+        if self.resolve_gdi_graphics_surface_target(plan.target.surface_com_object_id)?
+            != plan.target
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "graphics-surface-get-dc-target-stale",
+                "logical graphics surface changed after GetDC was planned",
+            ));
+        }
+        self.gdi.commit_get_graphics_surface_dc(plan.gdi)
+    }
+
+    pub(crate) fn release_graphics_surface_dc(
+        &mut self,
+        surface_com_object_id: RuntimeComObjectId,
+        device_context_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.require_graphics_operation_state()?;
+        let target = self.resolve_gdi_graphics_surface_target(surface_com_object_id)?;
+        let plan = self.gdi.plan_release_graphics_surface_dc(
+            target,
+            device_context_handle,
+            self.current_thread_id(),
+        )?;
+        if self.resolve_gdi_graphics_surface_target(surface_com_object_id)? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "graphics-surface-release-dc-target-stale",
+                "logical graphics surface changed after ReleaseDC was planned",
+            ));
+        }
+        self.gdi.commit_release_dc(plan)
+    }
+
     pub(crate) fn get_gdi_stock_object(
         &mut self,
         index: i32,
@@ -3193,23 +3263,62 @@ impl RuntimeKernel {
         device_context_handle: u32,
         rect: super::displays::RuntimeRect,
         brush_handle: u32,
-    ) -> Result<RuntimeFillRectResult, RuntimeStateError> {
+    ) -> Result<(), RuntimeStateError> {
         self.require_gdi_operation_state()?;
         let device_context = self
             .gdi
             .device_context_by_handle(device_context_handle)?
             .clone();
-        let target = self.resolve_gdi_window_target(device_context.window_handle)?;
-        validate_device_context_target(&device_context, target)?;
-        let plan = self.gdi.plan_fill_rect(
-            device_context_handle,
-            rect,
-            brush_handle,
-            self.current_thread_id(),
-        )?;
-        let current_target = self.resolve_gdi_window_target(device_context.window_handle)?;
-        validate_device_context_target(&device_context, current_target)?;
-        self.gdi.commit_fill_rect(plan)
+        match device_context.target {
+            RuntimeDeviceContextTarget::Window { window_handle, .. } => {
+                let target = self.resolve_gdi_window_target(window_handle)?;
+                validate_device_context_target(&device_context, target)?;
+                let plan = self.gdi.plan_fill_rect(
+                    device_context_handle,
+                    rect,
+                    brush_handle,
+                    self.current_thread_id(),
+                )?;
+                let current_target = self.resolve_gdi_window_target(window_handle)?;
+                validate_device_context_target(&device_context, current_target)?;
+                self.gdi.commit_fill_rect(plan).map(|_| ())
+            }
+            RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_com_object_id,
+                ..
+            } => {
+                self.require_graphics_operation_state()?;
+                let target = self.resolve_gdi_graphics_surface_target(surface_com_object_id)?;
+                validate_graphics_device_context_target(&device_context, target)?;
+                let gdi_plan = self.gdi.plan_graphics_surface_fill_rect(
+                    device_context_handle,
+                    rect,
+                    brush_handle,
+                    self.current_thread_id(),
+                )?;
+                let graphics_plan =
+                    self.graphics
+                        .plan_surface_fill(RuntimeGraphicsSurfaceFillRequest {
+                            surface_com_object_id: gdi_plan.surface_com_object_id(),
+                            rect: gdi_plan.rect(),
+                            color_ref: gdi_plan.color_ref(),
+                        })?;
+                let current_target =
+                    self.resolve_gdi_graphics_surface_target(surface_com_object_id)?;
+                validate_graphics_device_context_target(&device_context, current_target)?;
+                if gdi_plan.surface_id() != target.surface_id {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-gdi",
+                        "graphics-fill-rect-target-stale",
+                        "logical HDC and graphics surface fill targets disagree",
+                    ));
+                }
+                self.gdi.preflight_graphics_surface_fill_rect(&gdi_plan)?;
+                self.graphics.preflight_surface_fill(&graphics_plan)?;
+                self.graphics.commit_surface_fill(graphics_plan);
+                Ok(())
+            }
+        }
     }
 
     pub(crate) fn release_window_dc(
@@ -3434,6 +3543,23 @@ impl RuntimeKernel {
             owner_thread_id: window.creation.owner_thread_id,
             client_width: window.creation.geometry.client_width,
             client_height: window.creation.geometry.client_height,
+        })
+    }
+
+    fn resolve_gdi_graphics_surface_target(
+        &self,
+        surface_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGdiGraphicsSurfaceTarget, RuntimeStateError> {
+        let surface = self
+            .graphics
+            .surface_for_com_object(surface_com_object_id)?;
+        Ok(RuntimeGdiGraphicsSurfaceTarget {
+            surface_id: surface.id,
+            surface_com_object_id: surface.com_object_id,
+            owner_thread_id: self.current_thread_id(),
+            width: surface.descriptor.width,
+            height: surface.descriptor.height,
+            color_format: surface.descriptor.color_format,
         })
     }
 
@@ -4284,11 +4410,11 @@ impl RuntimeKernel {
             self.user32.preflight_process_teardown(user32_plan)?;
         }
         self.commit_payload_object_teardown(payload_teardown)?;
-        if let Some(graphics_plan) = graphics_teardown {
-            self.graphics.commit_process_teardown(graphics_plan);
-        }
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
+        }
+        if let Some(graphics_plan) = graphics_teardown {
+            self.graphics.commit_process_teardown(graphics_plan);
         }
         if let Some(user32_plan) = user32_teardown {
             self.user32.commit_process_teardown(user32_plan);
@@ -4393,11 +4519,11 @@ impl RuntimeKernel {
             self.scheduler.commit_lane(terminal_scheduler_plan);
         }
         self.commit_payload_object_teardown(payload_teardown)?;
-        if let Some(graphics_plan) = graphics_teardown {
-            self.graphics.commit_process_teardown(graphics_plan);
-        }
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
+        }
+        if let Some(graphics_plan) = graphics_teardown {
+            self.graphics.commit_process_teardown(graphics_plan);
         }
         if let Some(user32_plan) = user32_teardown {
             self.user32.commit_process_teardown(user32_plan);
@@ -4786,14 +4912,42 @@ fn validate_device_context_target(
     device_context: &RuntimeDeviceContext,
     target: RuntimeGdiWindowTarget,
 ) -> Result<(), RuntimeStateError> {
-    if device_context.window_id != target.window_id
-        || device_context.window_handle != target.window_handle
-        || device_context.owner_thread_id != target.owner_thread_id
+    if !matches!(
+        device_context.target,
+        RuntimeDeviceContextTarget::Window {
+            window_id,
+            window_handle,
+            ..
+        } if window_id == target.window_id && window_handle == target.window_handle
+    ) || device_context.owner_thread_id != target.owner_thread_id
     {
         return Err(RuntimeStateError::conflict(
             "runtime-gdi",
             "device-context-window-target-mismatch",
             "logical HDC does not reference the current window identity and owner thread",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_graphics_device_context_target(
+    device_context: &RuntimeDeviceContext,
+    target: RuntimeGdiGraphicsSurfaceTarget,
+) -> Result<(), RuntimeStateError> {
+    if device_context.owner_thread_id != target.owner_thread_id
+        || device_context.target
+            != (RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id: target.surface_id,
+                surface_com_object_id: target.surface_com_object_id,
+                width: target.width,
+                height: target.height,
+                color_format: target.color_format,
+            })
+    {
+        return Err(RuntimeStateError::conflict(
+            "runtime-gdi",
+            "device-context-graphics-target-mismatch",
+            "logical HDC does not reference the current graphics surface and owner thread",
         ));
     }
     Ok(())
@@ -5003,12 +5157,12 @@ mod tests {
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
-        RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
-        RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
-        RuntimeGraphicsColorFormat, RuntimeGraphicsPresentMode, RuntimeGraphicsTexturePool,
-        RuntimeGraphicsTextureUsage, RuntimeWindowClassModule, RuntimeWindowClassNameA,
-        RuntimeWindowClassReference, RuntimeWindowGeometry, RuntimeWindowNameA,
-        RuntimeWindowProcedureCallingConvention,
+        RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE,
+        RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
+        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeGraphicsColorFormat,
+        RuntimeGraphicsPresentMode, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
+        RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
+        RuntimeWindowGeometry, RuntimeWindowNameA, RuntimeWindowProcedureCallingConvention,
     };
     use crate::{ExecutionSession, RuntimeRect, Rva};
 
@@ -5021,6 +5175,7 @@ mod tests {
         GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x904);
     const D3D9_FIXTURE_SURFACE_OUTPUT: GuestAddress =
         GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x908);
+    const D3D9_FIXTURE_DC_OUTPUT: GuestAddress = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x90c);
     const D3D9_FIXTURE_CALL_SITE: GuestAddress = GuestAddress(0x1005_aca5);
 
     #[test]
@@ -5255,7 +5410,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v10(),
+                &D3d9CompatibilityPolicy::controlled_v11(),
                 ComCallTrap {
                     endpoint_address: root_interface.methods[&16].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5399,7 +5554,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v10(),
+                    &D3d9CompatibilityPolicy::controlled_v11(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5439,9 +5594,10 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled = D3d9CompatibilityPolicy::controlled_v10();
+        let mut disabled = D3d9CompatibilityPolicy::controlled_v11();
         disabled.create_texture = None;
         disabled.get_surface_level = None;
+        disabled.surface_dc = None;
         let before_disabled_memory = memory.stats();
         let before_disabled_runtime = runtime.clone();
         let disabled_fault = {
@@ -5485,7 +5641,7 @@ mod tests {
         let texture_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v10(),
+                &D3d9CompatibilityPolicy::controlled_v11(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&23].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5586,7 +5742,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v10(),
+                    &D3d9CompatibilityPolicy::controlled_v11(),
                     ComCallTrap {
                         endpoint_address: texture_interface.methods[&18].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5620,8 +5776,9 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v10();
+        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v11();
         disabled_surface.get_surface_level = None;
+        disabled_surface.surface_dc = None;
         let before_disabled_memory = memory.stats();
         let before_disabled_runtime = runtime.clone();
         let disabled_fault = {
@@ -5660,7 +5817,7 @@ mod tests {
         let surface_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v10(),
+                &D3d9CompatibilityPolicy::controlled_v11(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5738,6 +5895,354 @@ mod tests {
             RuntimeGraphicsColorFormat::B8g8r8x8Unorm
         );
 
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_DC_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, 0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_null_memory = memory.stats();
+        let before_null_runtime = runtime.clone();
+        let null_output = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("NULL surface GetDC did not complete: {other:?}"),
+        };
+        assert_eq!(
+            null_output.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(null_output.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_null_memory);
+        assert_eq!(runtime, before_null_runtime);
+
+        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v11();
+        disabled_surface_dc.surface_dc = None;
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, D3D9_FIXTURE_DC_OUTPUT.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_disabled_memory = memory.stats();
+        let before_disabled_runtime = runtime.clone();
+        let disabled_get_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &disabled_surface_dc,
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Fault(fault) => fault,
+            other => panic!("disabled surface GetDC did not fault: {other:?}"),
+        };
+        assert_eq!(disabled_get_dc.class, ComFaultClass::Unsupported);
+        assert_eq!(disabled_get_dc.code, "surface-dc-policy-disabled");
+        assert_eq!(memory.stats(), before_disabled_memory);
+        assert_eq!(runtime, before_disabled_runtime);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, surface_pointer],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_unwritable_memory = memory.stats();
+        let before_unwritable_runtime = runtime.clone();
+        let unwritable_get_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Fault(fault) => fault,
+            other => panic!("unwritable surface GetDC did not fault: {other:?}"),
+        };
+        assert_eq!(unwritable_get_dc.class, ComFaultClass::InvalidCall);
+        assert_eq!(memory.stats(), before_unwritable_memory);
+        assert_eq!(runtime, before_unwritable_runtime);
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_DC_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, D3D9_FIXTURE_DC_OUTPUT.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let surface_reference_count = runtime
+            .com()
+            .object(surface_object.id)
+            .unwrap()
+            .reference_count;
+        let get_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("surface GetDC did not complete: {other:?}"),
+        };
+        assert_eq!(get_dc.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(
+            get_dc.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 12)
+        );
+        assert_eq!(get_dc.guest_writes.len(), 1);
+        assert_eq!(get_dc.guest_writes[0].address, D3D9_FIXTURE_DC_OUTPUT);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let dc_handle = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_DC_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_ne!(dc_handle, 0);
+        let device_context = runtime.gdi_device_context(dc_handle).unwrap().clone();
+        assert_eq!(device_context.owner_thread_id, RuntimeThreadId(0x2000));
+        assert!(matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id,
+                surface_com_object_id,
+                width: 1_024,
+                height: 1_024,
+                color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+            } if surface_id == surface.id && surface_com_object_id == surface_object.id
+        ));
+        assert_eq!(runtime.gdi_device_contexts().len(), 1);
+        assert_eq!(
+            runtime
+                .com()
+                .object(surface_object.id)
+                .unwrap()
+                .reference_count,
+            surface_reference_count
+        );
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_DC_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, D3D9_FIXTURE_DC_OUTPUT.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_repeat_memory = memory.stats();
+        let before_repeat_runtime = runtime.clone();
+        let repeated_get_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("repeated surface GetDC did not complete: {other:?}"),
+        };
+        assert_eq!(
+            repeated_get_dc.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(repeated_get_dc.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_repeat_memory);
+        assert_eq!(runtime, before_repeat_runtime);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_DC_OUTPUT, 4).unwrap(),
+            0xcccc_cccc_u32.to_le_bytes()
+        );
+
+        let brush = runtime
+            .get_gdi_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap();
+        let fill_rect = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        };
+        runtime
+            .fill_gdi_rect(dc_handle, fill_rect, brush.handle)
+            .unwrap();
+        let filled_surface = runtime.graphics_surfaces().get(&surface.id).unwrap();
+        assert_eq!(filled_surface.fills.len(), 1);
+        assert_eq!(filled_surface.fills[0].rect, fill_rect);
+        assert_eq!(filled_surface.fills[0].color_ref, 0);
+        assert_eq!(filled_surface.content_generation, 1);
+        let before_invalid_fill = runtime.clone();
+        assert_eq!(
+            runtime
+                .fill_gdi_rect(
+                    dc_handle,
+                    RuntimeRect {
+                        left: 0,
+                        top: 0,
+                        right: 1_025,
+                        bottom: 1,
+                    },
+                    brush.handle,
+                )
+                .unwrap_err()
+                .code,
+            "fill-rect-outside-supported-surface"
+        );
+        assert_eq!(runtime, before_invalid_fill);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a79a, surface_pointer],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_guard_memory = memory.stats();
+        let before_guard_runtime = runtime.clone();
+        let guarded_release = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match session.dispatch_com_call(ComCallTrap {
+                endpoint_address: surface_interface.methods[&2].endpoint,
+                stack_pointer: D3D9_FIXTURE_STACK,
+                return_address: GuestAddress(0x1005_a79a),
+                call_site: GuestAddress(0x1005_a79a),
+            }) {
+                ComDispatchOutcome::Fault(fault) => fault,
+                other => panic!("surface Release with a live HDC did not fault: {other:?}"),
+            }
+        };
+        assert_eq!(guarded_release.class, ComFaultClass::InvalidCall);
+        assert_eq!(guarded_release.code, "graphics-surface-dc-still-acquired");
+        assert_eq!(memory.stats(), before_guard_memory);
+        assert_eq!(runtime, before_guard_runtime);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a78e, surface_pointer, dc_handle + 1],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_wrong_release = runtime.clone();
+        let wrong_release = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            16,
+            GuestAddress(0x1005_a78e),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("wrong surface ReleaseDC did not complete: {other:?}"),
+        };
+        assert_eq!(
+            wrong_release.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(wrong_release.guest_writes.is_empty());
+        assert_eq!(runtime, before_wrong_release);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a78e, surface_pointer, dc_handle],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let release_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            16,
+            GuestAddress(0x1005_a78e),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("surface ReleaseDC did not complete: {other:?}"),
+        };
+        assert_eq!(release_dc.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert!(release_dc.guest_writes.is_empty());
+        assert!(runtime.gdi_device_contexts().is_empty());
+        assert_eq!(runtime.graphics_surfaces()[&surface.id].fills.len(), 1);
+
+        let before_repeated_release = runtime.clone();
+        let repeated_release_dc = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            16,
+            GuestAddress(0x1005_a78e),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("repeated surface ReleaseDC did not complete: {other:?}"),
+        };
+        assert_eq!(
+            repeated_release_dc.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert_eq!(runtime, before_repeated_release);
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_DC_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a746, surface_pointer, D3D9_FIXTURE_DC_OUTPUT.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let reacquired = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            15,
+            GuestAddress(0x1005_a746),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("reacquired surface GetDC did not complete: {other:?}"),
+        };
+        assert_eq!(reacquired.return_value, ComReturnValue::HResult(COM_S_OK));
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let reacquired_handle = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_DC_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_ne!(reacquired_handle, dc_handle);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_a78e, surface_pointer, reacquired_handle],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let reacquired_release = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v11(),
+            &surface_interface,
+            16,
+            GuestAddress(0x1005_a78e),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("reacquired surface ReleaseDC did not complete: {other:?}"),
+        };
+        assert_eq!(
+            reacquired_release.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert!(runtime.gdi_device_contexts().is_empty());
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+
         write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
         write_d3d9_fixture_words(
             &mut memory,
@@ -5753,7 +6258,7 @@ mod tests {
         let repeated_surface = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v10(),
+                &D3d9CompatibilityPolicy::controlled_v11(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -6073,5 +6578,26 @@ mod tests {
             ComDispatchOutcome::Completed(completion) => completion,
             other => panic!("COM Release did not complete: {other:?}"),
         }
+    }
+
+    fn dispatch_d3d9_fixture_frontend(
+        memory: &mut GuestMemory,
+        runtime: &mut RuntimeKernel,
+        policy: &D3d9CompatibilityPolicy,
+        interface: &RuntimeComInterfaceRecord,
+        slot: u16,
+        call_site: GuestAddress,
+    ) -> ComDispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatch_d3d9_com_call(
+            policy,
+            ComCallTrap {
+                endpoint_address: interface.methods[&slot].endpoint,
+                stack_pointer: D3D9_FIXTURE_STACK,
+                return_address: call_site,
+                call_site,
+            },
+            &mut session,
+        )
     }
 }

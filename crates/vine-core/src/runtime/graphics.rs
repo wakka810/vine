@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use super::{RuntimeComObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
+use super::{RuntimeComObjectId, RuntimeRect, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
 
 pub const RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE: &str = "vine.logical-graphics-device.v1";
 pub const RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE: &str = "vine.logical-graphics-texture.v1";
@@ -11,6 +11,7 @@ pub const RUNTIME_BROWSER_RENDERER_ID_NAMESPACE: &str = "vine.browser-renderer-r
 pub const RUNTIME_GRAPHICS_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_TEXTURE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_LIMIT: usize = 4_096;
+pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -70,6 +71,14 @@ pub struct RuntimeGraphicsSurfaceDescriptor {
     pub width: u32,
     pub height: u32,
     pub color_format: RuntimeGraphicsColorFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSurfaceFill {
+    pub sequence: u64,
+    pub rect: RuntimeRect,
+    pub color_ref: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -139,6 +148,8 @@ pub struct RuntimeGraphicsSurface {
     pub texture_id: RuntimeGraphicsTextureId,
     pub descriptor: RuntimeGraphicsSurfaceDescriptor,
     pub com_object_id: RuntimeComObjectId,
+    pub fills: Vec<RuntimeGraphicsSurfaceFill>,
+    pub content_generation: u64,
     pub generation: u64,
 }
 
@@ -172,6 +183,13 @@ pub(crate) struct RuntimeGraphicsTextureCreateRequest {
 pub(crate) struct RuntimeGraphicsSurfaceCreateRequest {
     pub texture_com_object_id: RuntimeComObjectId,
     pub level: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSurfaceFillRequest {
+    pub surface_com_object_id: RuntimeComObjectId,
+    pub rect: RuntimeRect,
+    pub color_ref: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,6 +228,29 @@ pub(crate) struct RuntimeGraphicsSurfaceCreationPlan {
     texture_id: RuntimeGraphicsTextureId,
     request: RuntimeGraphicsSurfaceCreateRequest,
     descriptor: RuntimeGraphicsSurfaceDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSurfaceFillPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    surface_id: RuntimeGraphicsSurfaceId,
+    surface_generation: u64,
+    next_surface_generation: u64,
+    surface_content_generation: u64,
+    next_surface_content_generation: u64,
+    fill: Option<RuntimeGraphicsSurfaceFill>,
+    next_fill_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSurfaceFillResult {
+    pub surface_id: RuntimeGraphicsSurfaceId,
+    pub surface_generation: u64,
+    pub content_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fill: Option<RuntimeGraphicsSurfaceFill>,
 }
 
 impl RuntimeGraphicsSurfaceCreationPlan {
@@ -301,6 +342,7 @@ pub(super) struct RuntimeGraphics {
     next_device_id: u64,
     next_texture_id: u64,
     next_surface_id: u64,
+    next_surface_fill_sequence: u64,
     generation: u64,
 }
 
@@ -319,6 +361,7 @@ impl Default for RuntimeGraphics {
             next_device_id: 1,
             next_texture_id: 1,
             next_surface_id: 1,
+            next_surface_fill_sequence: 1,
             generation: 0,
         }
     }
@@ -629,6 +672,8 @@ impl RuntimeGraphics {
             texture_id: plan.texture_id,
             descriptor: plan.descriptor,
             com_object_id,
+            fills: Vec::new(),
+            content_generation: 0,
             generation: plan.next_generation,
         };
         self.surface_com_object_index
@@ -643,6 +688,157 @@ impl RuntimeGraphics {
         self.next_surface_id = next_surface_id;
         self.generation = plan.next_generation;
         surface
+    }
+
+    pub(crate) fn plan_surface_fill(
+        &self,
+        request: RuntimeGraphicsSurfaceFillRequest,
+    ) -> Result<RuntimeGraphicsSurfaceFillPlan, RuntimeStateError> {
+        validate_surface_fill_request(request)?;
+        let surface_id = self
+            .surface_com_object_index
+            .get(&request.surface_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-surface-fill-com-object-unknown",
+                    "logical surface fill requires a live graphics surface COM object",
+                )
+            })?;
+        self.validate_surface_association(request.surface_com_object_id, surface_id)?;
+        let surface = self
+            .surfaces
+            .get(&surface_id)
+            .expect("validated logical surface association disappeared");
+        validate_surface_fill_rect(request.rect, surface.descriptor)?;
+        let empty =
+            request.rect.left == request.rect.right || request.rect.top == request.rect.bottom;
+        if !empty && surface.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-surface-fill-capacity-reached",
+                "logical graphics surface fill history capacity is exhausted",
+            ));
+        }
+        let fill = (!empty).then_some(RuntimeGraphicsSurfaceFill {
+            sequence: self.next_surface_fill_sequence,
+            rect: request.rect,
+            color_ref: request.color_ref,
+        });
+        let (
+            next_generation,
+            next_surface_generation,
+            next_surface_content_generation,
+            next_fill_sequence,
+        ) = if fill.is_some() {
+            (
+                checked_next_generation(self.generation)?,
+                surface.generation.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-surface-generation-exhausted",
+                        "logical graphics surface generation is exhausted",
+                    )
+                })?,
+                surface.content_generation.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-surface-content-generation-exhausted",
+                        "logical graphics surface content generation is exhausted",
+                    )
+                })?,
+                self.next_surface_fill_sequence
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-graphics",
+                            "graphics-surface-fill-sequence-exhausted",
+                            "logical graphics surface fill sequence is exhausted",
+                        )
+                    })?,
+            )
+        } else {
+            (
+                self.generation,
+                surface.generation,
+                surface.content_generation,
+                self.next_surface_fill_sequence,
+            )
+        };
+        Ok(RuntimeGraphicsSurfaceFillPlan {
+            expected_generation: self.generation,
+            next_generation,
+            surface_id,
+            surface_generation: surface.generation,
+            next_surface_generation,
+            surface_content_generation: surface.content_generation,
+            next_surface_content_generation,
+            fill,
+            next_fill_sequence,
+        })
+    }
+
+    pub(crate) fn preflight_surface_fill(
+        &self,
+        plan: &RuntimeGraphicsSurfaceFillPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(stale_plan("graphics-surface-fill-plan-stale"));
+        }
+        let surface = self
+            .surfaces
+            .get(&plan.surface_id)
+            .ok_or_else(|| stale_plan("graphics-surface-fill-plan-stale"))?;
+        if surface.generation != plan.surface_generation
+            || surface.content_generation != plan.surface_content_generation
+        {
+            return Err(stale_plan("graphics-surface-fill-plan-stale"));
+        }
+        if let Some(fill) = plan.fill {
+            if fill.sequence != self.next_surface_fill_sequence
+                || self.next_surface_fill_sequence.checked_add(1) != Some(plan.next_fill_sequence)
+                || surface.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT
+                || surface.generation.checked_add(1) != Some(plan.next_surface_generation)
+                || surface.content_generation.checked_add(1)
+                    != Some(plan.next_surface_content_generation)
+                || self.generation.checked_add(1) != Some(plan.next_generation)
+            {
+                return Err(stale_plan("graphics-surface-fill-plan-stale"));
+            }
+            validate_surface_fill_rect(fill.rect, surface.descriptor)?;
+        } else if plan.next_generation != self.generation
+            || plan.next_surface_generation != surface.generation
+            || plan.next_surface_content_generation != surface.content_generation
+            || plan.next_fill_sequence != self.next_surface_fill_sequence
+        {
+            return Err(stale_plan("graphics-surface-fill-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_surface_fill(
+        &mut self,
+        plan: RuntimeGraphicsSurfaceFillPlan,
+    ) -> RuntimeGraphicsSurfaceFillResult {
+        debug_assert!(self.preflight_surface_fill(&plan).is_ok());
+        let surface = self
+            .surfaces
+            .get_mut(&plan.surface_id)
+            .expect("preflighted graphics surface disappeared");
+        if let Some(fill) = plan.fill {
+            surface.fills.push(fill);
+            surface.content_generation = plan.next_surface_content_generation;
+            surface.generation = plan.next_surface_generation;
+            self.next_surface_fill_sequence = plan.next_fill_sequence;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsSurfaceFillResult {
+            surface_id: surface.id,
+            surface_generation: surface.generation,
+            content_generation: surface.content_generation,
+            fill: plan.fill,
+        }
     }
 
     pub(crate) fn plan_com_object_retirements(
@@ -1024,6 +1220,28 @@ impl RuntimeGraphics {
         &self.surfaces
     }
 
+    pub(super) fn surface_for_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeGraphicsSurface, RuntimeStateError> {
+        let surface_id = self
+            .surface_com_object_index
+            .get(&com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-surface-com-object-unknown",
+                    "logical graphics surface COM object is not live",
+                )
+            })?;
+        self.validate_surface_association(com_object_id, surface_id)?;
+        Ok(self
+            .surfaces
+            .get(&surface_id)
+            .expect("validated logical surface association disappeared"))
+    }
+
     pub(super) fn surface_for_texture_level(
         &self,
         texture_com_object_id: RuntimeComObjectId,
@@ -1120,6 +1338,53 @@ fn validate_surface_creation_request(
     Ok(())
 }
 
+fn validate_surface_fill_request(
+    request: RuntimeGraphicsSurfaceFillRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.surface_com_object_id.0 == 0 || request.color_ref > 0x00ff_ffff {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-surface-fill-request-invalid",
+            "logical graphics surface fill requires a live surface and a Win32 COLORREF",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_surface_fill_rect(
+    rect: RuntimeRect,
+    descriptor: RuntimeGraphicsSurfaceDescriptor,
+) -> Result<(), RuntimeStateError> {
+    let width = i32::try_from(descriptor.width).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-surface-width-invalid",
+            "logical graphics surface width does not fit x86 coordinates",
+        )
+    })?;
+    let height = i32::try_from(descriptor.height).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-surface-height-invalid",
+            "logical graphics surface height does not fit x86 coordinates",
+        )
+    })?;
+    if rect.left < 0
+        || rect.top < 0
+        || rect.right < rect.left
+        || rect.bottom < rect.top
+        || rect.right > width
+        || rect.bottom > height
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-surface-fill-rect-out-of-bounds",
+            "bounded graphics surface fill requires an ordered in-bounds rectangle",
+        ));
+    }
+    Ok(())
+}
+
 fn mip_dimension(base: u32, level: u32) -> u32 {
     base.checked_shr(level).unwrap_or(0).max(1)
 }
@@ -1185,6 +1450,17 @@ mod tests {
         RuntimeGraphicsSurfaceCreateRequest {
             texture_com_object_id: com_object_id,
             level,
+        }
+    }
+
+    fn fill_request(
+        surface_com_object_id: RuntimeComObjectId,
+        rect: RuntimeRect,
+    ) -> RuntimeGraphicsSurfaceFillRequest {
+        RuntimeGraphicsSurfaceFillRequest {
+            surface_com_object_id,
+            rect,
+            color_ref: 0,
         }
     }
 
@@ -1395,5 +1671,78 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "graphics-surface-capacity-reached");
         assert_eq!(graphics, before);
+    }
+
+    #[test]
+    fn surface_fill_owns_content_history_and_rejects_stale_or_invalid_plans() {
+        let mut graphics = RuntimeGraphics::default();
+        let device = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(device, RuntimeComObjectId(1));
+        let texture = graphics
+            .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
+            .unwrap();
+        graphics.commit_texture_creation(texture, RuntimeComObjectId(2));
+        let surface = graphics
+            .plan_surface_creation(surface_request(RuntimeComObjectId(2), 0))
+            .unwrap();
+        let surface = graphics.commit_surface_creation(surface, RuntimeComObjectId(3));
+
+        let rect = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        };
+        let plan = graphics
+            .plan_surface_fill(fill_request(RuntimeComObjectId(3), rect))
+            .unwrap();
+        let stale = plan.clone();
+        graphics.preflight_surface_fill(&plan).unwrap();
+        let result = graphics.commit_surface_fill(plan);
+        assert_eq!(result.surface_id, surface.id);
+        assert_eq!(result.content_generation, 1);
+        assert_eq!(result.fill.unwrap().rect, rect);
+        let filled = graphics.surface(surface.id).unwrap();
+        assert_eq!(filled.fills.len(), 1);
+        assert_eq!(filled.fills[0].color_ref, 0);
+        assert_eq!(filled.content_generation, 1);
+        assert_eq!(
+            graphics.preflight_surface_fill(&stale).unwrap_err().code,
+            "graphics-surface-fill-plan-stale"
+        );
+
+        let before_empty = graphics.clone();
+        let empty = graphics
+            .plan_surface_fill(fill_request(
+                RuntimeComObjectId(3),
+                RuntimeRect {
+                    left: 1,
+                    top: 1,
+                    right: 1,
+                    bottom: 1,
+                },
+            ))
+            .unwrap();
+        let result = graphics.commit_surface_fill(empty);
+        assert!(result.fill.is_none());
+        assert_eq!(graphics, before_empty);
+
+        let before_invalid = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_surface_fill(fill_request(
+                    RuntimeComObjectId(3),
+                    RuntimeRect {
+                        left: 0,
+                        top: 0,
+                        right: 1_025,
+                        bottom: 1,
+                    },
+                ))
+                .unwrap_err()
+                .code,
+            "graphics-surface-fill-rect-out-of-bounds"
+        );
+        assert_eq!(graphics, before_invalid);
     }
 }

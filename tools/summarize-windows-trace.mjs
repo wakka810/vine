@@ -61,6 +61,7 @@ const supportedObservations = new Set([
   "com-initialization",
   "d3d9-create-device",
   "d3d9-get-surface-level",
+  "d3d9-surface-get-dc",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -897,6 +898,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   }
   const requireCallMetadata = traceStart.schema === traceSchema;
   let selectedVtables = [];
+  let selectedObservations = [];
   if (requireCallMetadata) {
     const requestedVtables = traceStart.arguments?.vtables;
     selectedVtables = agentReady.selectedVtables;
@@ -918,7 +920,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       throw new Error("trace-start and agent-ready selected vtables differ");
     }
     const requestedObservations = traceStart.arguments?.observations ?? [];
-    const selectedObservations = agentReady.selectedObservations ?? [];
+    selectedObservations = agentReady.selectedObservations ?? [];
     if (
       !Array.isArray(requestedObservations) ||
       !requestedObservations.every((item) => typeof item === "string") ||
@@ -1826,6 +1828,172 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     idirect3dsurface9Methods,
   );
 
+  const surfaceDcCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-surface-get-dc-complete",
+  );
+  const requiresSurfaceDcCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-surface-get-dc" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-surface-get-dc-complete";
+  if (
+    surfaceDcCompletionEvents.length > 1 ||
+    (requiresSurfaceDcCompletion && surfaceDcCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-surface-get-dc observation requires exactly one structured completion",
+    );
+  }
+  const pairsByEnterSequence = new Map(
+    apiPairing.pairs.map((pair) => [pair.enter.sequence, pair]),
+  );
+  const surfaceDcFlows = surfaceDcCompletionEvents.map((completion) => {
+    const expectedCalls = [
+      { api: "GetDC", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 15 },
+      { api: "GetStockObject", module: "gdi32.dll", interface: null, slot: null },
+      { api: "FillRect", module: "user32.dll", interface: null, slot: null },
+      { api: "ReleaseDC", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 16 },
+      { api: "Release", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 2 },
+    ];
+    if (
+      completion.profile !== "x86-bgi-system-memory-surface-dc-fill-v1" ||
+      typeof completion.surface !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(completion.surface) ||
+      BigInt(completion.surface) === 0n ||
+      !Array.isArray(completion.calls) ||
+      completion.calls.length !== expectedCalls.length ||
+      !Number.isInteger(completion.sequence) ||
+      completion.sequence < expectedCalls.length * 2
+    ) {
+      throw new Error("d3d9-surface-get-dc completion has invalid structure");
+    }
+
+    const firstEnterSequence = completion.sequence - expectedCalls.length * 2;
+    const pairs = expectedCalls.map((expected, index) => {
+      const enterSequence = firstEnterSequence + index * 2;
+      const pair = pairsByEnterSequence.get(enterSequence);
+      const snapshot = completion.calls[index];
+      if (
+        pair === undefined ||
+        pair.leave.sequence !== enterSequence + 1 ||
+        pair.enter.api !== expected.api ||
+        pair.enter.module.toLowerCase() !== expected.module ||
+        (pair.enter.interface ?? null) !== expected.interface ||
+        (pair.enter.vtableSlot ?? null) !== expected.slot ||
+        snapshot === null ||
+        typeof snapshot !== "object" ||
+        snapshot.api !== pair.enter.api ||
+        JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== pair.leave.result ||
+        snapshot.lastError !== pair.leave.lastError ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        (expected.interface !== null &&
+          (snapshot.interface !== expected.interface ||
+            snapshot.vtableSlot !== expected.slot ||
+            snapshot.object !== pair.enter.object)) ||
+        (expected.interface === null &&
+          snapshot.module?.toLowerCase() !== expected.module)
+      ) {
+        throw new Error(
+          `d3d9-surface-get-dc completion call ${index} does not match its paired trace`,
+        );
+      }
+      return pair;
+    });
+    if (pairs.at(-1).leave.sequence + 1 !== completion.sequence) {
+      throw new Error("d3d9-surface-get-dc completion is not adjacent to its call chain");
+    }
+    const threadId = pairs[0].enter.threadId;
+    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
+    if (
+      pairs.some(
+        (pair) =>
+          pair.enter.threadId !== threadId ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule,
+      )
+    ) {
+      throw new Error(
+        "d3d9-surface-get-dc completion does not describe one primary-thread caller chain",
+      );
+    }
+
+    const [getDc, getStockObject, fillRect, releaseDc, release] = pairs;
+    const getDcObservation = getDc.leave.d3d9SurfaceGetDc;
+    const outputBefore = normalizePointerSlotSnapshot(
+      getDcObservation?.output?.before,
+      getDc.leave.sequence,
+      "before",
+    );
+    const outputAfter = normalizePointerSlotSnapshot(
+      getDcObservation?.output?.after,
+      getDc.leave.sequence,
+      "after",
+    );
+    const rect = fillRect.leave.d3d9SurfaceDcGdi?.rect;
+    const expectedRect = { left: 0, top: 0, right: 800, bottom: 600 };
+    if (
+      JSON.stringify(completion.calls[0].d3d9SurfaceGetDc) !==
+        JSON.stringify(getDcObservation) ||
+      outputBefore.pointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+      outputAfter.pointer.toLowerCase() !== getDc.enter.arguments[0].toLowerCase() ||
+      BigInt(outputAfter.value) === 0n ||
+      getDc.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
+      releaseDc.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
+      release.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
+      BigInt(getDc.leave.result) !== 0n ||
+      getStockObject.enter.arguments.length !== 1 ||
+      getStockObject.enter.arguments[0] !== 4 ||
+      BigInt(getStockObject.leave.result) === 0n ||
+      fillRect.enter.arguments.length !== 3 ||
+      BigInt(fillRect.enter.arguments[0]) !== BigInt(outputAfter.value) ||
+      BigInt(fillRect.enter.arguments[2]) !== BigInt(getStockObject.leave.result) ||
+      BigInt(fillRect.leave.result) !== 1n ||
+      rect?.profile !== "x86-rect-v1" ||
+      rect.raw?.pointer?.toLowerCase() !== fillRect.enter.arguments[1].toLowerCase() ||
+      JSON.stringify(rect.fields) !== JSON.stringify(expectedRect) ||
+      JSON.stringify(completion.calls[1].rect) !==
+        JSON.stringify(getStockObject.leave.d3d9SurfaceDcGdi?.rect ?? null) ||
+      JSON.stringify(completion.calls[2].rect) !== JSON.stringify(rect) ||
+      releaseDc.enter.arguments.length !== 1 ||
+      BigInt(releaseDc.enter.arguments[0]) !== BigInt(outputAfter.value) ||
+      BigInt(releaseDc.leave.result) !== 0n ||
+      release.enter.arguments.length !== 0 ||
+      BigInt(release.leave.result) !== 1n
+    ) {
+      throw new Error(
+        "d3d9-surface-get-dc completion violates its surface, HDC, brush, or fill identity contract",
+      );
+    }
+
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      threadId,
+      surface: completion.surface,
+      hdc: outputAfter.value,
+      stockBrush: getStockObject.leave.result,
+      rect: expectedRect,
+      calls: pairs.map((pair) => ({
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId,
+        caller: {
+          module: pair.enter.caller.module,
+          rva: pair.enter.caller.rva,
+        },
+        module: pair.enter.module,
+        interface: pair.enter.interface ?? null,
+        slot: pair.enter.vtableSlot ?? null,
+        method: pair.enter.api,
+        object: pair.enter.object ?? null,
+        arguments: [...pair.enter.arguments],
+        result: pair.leave.result,
+        lastError: pair.leave.lastError,
+      })),
+      getDcOutput: { before: outputBefore, after: outputAfter },
+    };
+  });
+
   return {
     schema: summarySchema,
     source: {
@@ -1884,6 +2052,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       createDevices,
       createTextures,
       getSurfaceLevels,
+      surfaceDcFlows,
       deviceCalls,
       textureCalls,
       surfaceCalls,

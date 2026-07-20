@@ -24,7 +24,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 10;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 11;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -199,6 +199,12 @@ pub struct D3d9GetSurfaceLevelPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9SurfaceDcPolicy {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -213,14 +219,15 @@ pub struct D3d9CompatibilityPolicy {
     pub create_device: Option<D3d9CreateDevicePolicy>,
     pub create_texture: Option<D3d9CreateTexturePolicy>,
     pub get_surface_level: Option<D3d9GetSurfaceLevelPolicy>,
+    pub surface_dc: Option<D3d9SurfaceDcPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v10() -> Self {
+    pub fn controlled_v11() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v10".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v11".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -319,6 +326,9 @@ impl D3d9CompatibilityPolicy {
             get_surface_level: Some(D3d9GetSurfaceLevelPolicy {
                 profile_id: "primary-texture-level-zero-surface-v1".to_owned(),
                 level: 0,
+            }),
+            surface_dc: Some(D3d9SurfaceDcPolicy {
+                profile_id: "primary-surface-gdi-dc-v1".to_owned(),
             }),
         }
     }
@@ -498,6 +508,15 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-get-surface-level-profile-invalid",
                 "D3D9 surface-level profile must select the reached texture level zero",
+            ));
+        }
+        if let Some(surface_dc) = self.surface_dc.as_ref()
+            && (!valid_policy_id(&surface_dc.profile_id) || self.get_surface_level.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-surface-dc-profile-invalid",
+                "D3D9 surface-DC profile requires the reached logical surface capability",
             ));
         }
         let coherent_profiles = [
@@ -802,7 +821,9 @@ fn dispatch_d3d9_frontend_call(
         && call.frame().iid == D3D9_IDIRECT3DDEVICE9_IID;
     let is_texture = call.class_identity() == D3D9_IDIRECT3DTEXTURE9_CLASS_IDENTITY
         && call.frame().iid == D3D9_IDIRECT3DTEXTURE9_IID;
-    if !is_root && !is_device && !is_texture {
+    let is_surface = call.class_identity() == D3D9_IDIRECT3DSURFACE9_CLASS_IDENTITY
+        && call.frame().iid == D3D9_IDIRECT3DSURFACE9_IID;
+    if !is_root && !is_device && !is_texture && !is_surface {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "d3d9-com-dispatch",
@@ -823,6 +844,9 @@ fn dispatch_d3d9_frontend_call(
     }
     if is_texture {
         return dispatch_d3d9_texture_frontend_call(policy, call);
+    }
+    if is_surface {
+        return dispatch_d3d9_surface_frontend_call(policy, call);
     }
     dispatch_d3d9_root_frontend_call(policy, call)
 }
@@ -912,6 +936,41 @@ fn dispatch_d3d9_texture_frontend_call(
         );
     }
     dispatch_get_surface_level(policy, call)
+}
+
+fn dispatch_d3d9_surface_frontend_call(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let expected_method = match call.frame().vtable_slot {
+        15 => "GetDC",
+        16 => "ReleaseDC",
+        _ => {
+            return call.fault(
+                ComFaultClass::RuntimeDefect,
+                "d3d9-com-dispatch",
+                "d3d9-com-route-mismatch",
+                "D3D9 frontend received a COM method outside its registered IDirect3DSurface9 route",
+            );
+        }
+    };
+    if call.frame().method != expected_method
+        || call.explicit_argument_words() != 1
+        || call.frame().explicit_arguments.len() != 1
+        || call.return_kind() != RuntimeComReturnKind::HResult
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-com-dispatch",
+            "d3d9-com-abi-mismatch",
+            "registered IDirect3DSurface9 frontend ABI does not match GetDC or ReleaseDC",
+        );
+    }
+    match call.frame().vtable_slot {
+        15 => dispatch_surface_get_dc(policy, call),
+        16 => dispatch_surface_release_dc(policy, call),
+        _ => unreachable!(),
+    }
 }
 
 fn dispatch_get_adapter_count(
@@ -1351,6 +1410,81 @@ fn dispatch_get_surface_level(
     debug_assert_eq!(surface.texture_id, planned_texture_id);
     debug_assert_eq!(surface.descriptor, planned_descriptor);
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_surface_get_dc(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(_) = policy.surface_dc.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-surface-get-dc",
+            "surface-dc-policy-disabled",
+            "D3D9 compatibility policy does not enable surface GetDC or ReleaseDC",
+        );
+    };
+    let output_pointer = call.frame().explicit_arguments[0];
+    if output_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let output_address = GuestAddress(output_pointer);
+    if let Err(error) = call
+        .memory()
+        .validate_access(output_address, 4, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    let plan = match call
+        .runtime()
+        .plan_graphics_surface_dc_acquisition(call.frame().object_id)
+    {
+        Ok(plan) => plan,
+        Err(error) if error.code == "graphics-surface-dc-already-acquired" => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+
+    let mut call = call;
+    let (_, guest_writes) =
+        match call.acquire_graphics_surface_dc_with_guest_handle_write(plan, output_address) {
+            Ok(result) => result,
+            Err(error) => return call.runtime_fault(error),
+        };
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_surface_release_dc(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(_) = policy.surface_dc.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-surface-release-dc",
+            "surface-dc-policy-disabled",
+            "D3D9 compatibility policy does not enable surface GetDC or ReleaseDC",
+        );
+    };
+    let device_context_handle = call.frame().explicit_arguments[0];
+    let surface_com_object_id = call.frame().object_id;
+    let mut call = call;
+    match call
+        .runtime_mut()
+        .release_graphics_surface_dc(surface_com_object_id, device_context_handle)
+    {
+        Ok(()) => call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new()),
+        Err(error)
+            if matches!(
+                error.code,
+                "device-context-handle-unknown" | "graphics-surface-dc-relation-mismatch"
+            ) =>
+        {
+            call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new())
+        }
+        Err(error) => call.runtime_fault(error),
+    }
 }
 
 fn dispatch_check_device_format(
@@ -1977,6 +2111,7 @@ pub fn direct3dsurface9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
+            15 | 16 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             7 | 8 | 10 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             9 => ComMethodSpec::unsupported_void(*name, *argument_words),
             _ => ComMethodSpec::unsupported_hresult(*name, *argument_words),

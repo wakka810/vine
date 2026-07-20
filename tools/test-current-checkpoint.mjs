@@ -378,6 +378,15 @@ assert.ok(
   ),
 );
 
+const partialSurfaceDcPublication = structuredClone(manifest);
+partialSurfaceDcPublication.activeRuntimeCheckpoint.latestEvidence.d3d9SurfaceDcGuestWriteAndGdiPublicationAtomic =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialSurfaceDcPublication).some((error) =>
+    error.includes("latest D3D9 Surface DC evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;

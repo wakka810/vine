@@ -311,7 +311,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v10();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v11();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -473,7 +473,7 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v10();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v11();
         d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
@@ -2500,7 +2500,9 @@ fn bgi_gdi_completion_metadata(
             let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
             let surface = runtime
                 .gdi_surfaces()
-                .get(&device_context.surface_id)
+                .get(&device_context.window_surface_id().ok_or_else(|| {
+                    "GetDC completion resolved to a non-window logical HDC".to_owned()
+                })?)
                 .ok_or_else(|| "GetDC completion has no matching logical surface".to_owned())?;
             Ok(Some(json!({
                 "action": "device-context-acquired",
@@ -2532,15 +2534,33 @@ fn bgi_gdi_completion_metadata(
                 .argument_u32(0)
                 .ok_or_else(|| "FillRect completion has no logical HDC argument".to_owned())?;
             let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            let surface = runtime
-                .gdi_surfaces()
-                .get(&device_context.surface_id)
-                .ok_or_else(|| "FillRect completion has no matching logical surface".to_owned())?;
-            Ok(Some(json!({
-                "action": "surface-filled",
-                "deviceContext": device_context,
-                "surface": surface,
-            })))
+            match device_context.target {
+                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
+                    let surface = runtime.gdi_surfaces().get(&surface_id).ok_or_else(|| {
+                        "FillRect completion has no matching logical window surface".to_owned()
+                    })?;
+                    Ok(Some(json!({
+                        "action": "surface-filled",
+                        "deviceContext": device_context,
+                        "surface": surface,
+                    })))
+                }
+                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } => {
+                    let surface =
+                        runtime
+                            .graphics_surfaces()
+                            .get(&surface_id)
+                            .ok_or_else(|| {
+                                "FillRect completion has no matching logical graphics surface"
+                                    .to_owned()
+                            })?;
+                    Ok(Some(json!({
+                        "action": "graphics-surface-filled",
+                        "deviceContext": device_context,
+                        "surface": surface,
+                    })))
+                }
+            }
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion

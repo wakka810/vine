@@ -76,6 +76,45 @@ assert.equal(
   forward.digestHex(),
   "completion order changed the guest-visible sequence digest",
 );
+
+const comCall = {
+  ...call,
+  module: "<com>",
+  symbol: "IDirect3DSurface9.GetDC",
+  interface: "IDirect3DSurface9",
+  vtableSlot: 15,
+  guestWrites: [{ address: 0x3000, bytes: [1, 2, 3, 4], internal: "ignored" }],
+};
+delete comCall.lastError;
+const expectedComLine =
+  '{"arguments":[],"currentDirectory":null,"cursor":null,"gdi":null,' +
+  '"guestWrites":[{"address":12288,"bytes":[1,2,3,4]}],"icon":null,' +
+  '"interface":"IDirect3DSurface9","module":"<com>","mutex":null,' +
+  '"objectRetired":null,"referenceCount":null,"result":{"action":"set","value":87},' +
+  '"returnAddress":4096,"sequence":1,"sourceRead":null,"stackPointerAfter":8196,' +
+  '"stackPointerBefore":8192,"symbol":"IDirect3DSurface9.GetDC","vtableSlot":15,' +
+  '"waitableTimer":null,"window":null,"windowClass":null}\n';
+const comDigest = new SemanticCallDigest();
+comDigest.update(comCall);
+assert.equal(
+  comDigest.digestHex(),
+  crypto.createHash("sha256").update(expectedComLine).digest("hex"),
+  "direct semantic-call streaming changed optional-field or guest-write normalization",
+);
+
+const unicodeSymbol = "\u30c6\u30b9\u30c8";
+const unicodeCall = { ...call, symbol: unicodeSymbol };
+const unicodeDigest = new SemanticCallDigest();
+unicodeDigest.update(unicodeCall);
+assert.equal(
+  unicodeDigest.digestHex(),
+  crypto
+    .createHash("sha256")
+    .update(expectedLine.replace('"GetLastError"', JSON.stringify(unicodeSymbol)))
+    .digest("hex"),
+  "non-ASCII semantic-call fragments changed UTF-8 encoding",
+);
+
 const duplicate = new SemanticCallDigest();
 duplicate.update(call);
 assert.throws(() => duplicate.update(call), /sequence 1 is duplicated/u);

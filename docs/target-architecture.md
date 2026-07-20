@@ -61,10 +61,12 @@ policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate comp
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
 
-Version 7はsessionごとに`full`／`summary` evidence levelを明示する。`full`はSetでsequence identityを
-検証し、terminal時に一度だけsortしたordered call payloadを公開する。`summary`はprivate BGI benchmarkに
-限定し、sequence uniquenessとcall countを保持しつつ詳細call objectを生成しない。これはobserver payloadの
-所有境界であり、Rust-owned Windows state、guest memory、API validation、terminal digestを省略・複製しない。
+Version 7はsessionごとに`full`／`summary` evidence levelを明示する。両modeは一つのordered
+semantic digestへ正規化callを流し、next sequenceとbounded out-of-order mapでduplicate／orderingを検証する。
+`full`だけがterminal時にordered call payloadを公開し、`summary`はprivate BGI benchmarkに限定してcall
+countとdigestを保持する。Digestはcanonical top-level fieldを直接streamし、ASCII fragmentをreusable SHA blockへ
+直接入力、non-ASCIIだけをbounded `TextEncoder` fallbackへ渡す。これはobserver payloadの所有境界であり、
+Rust-owned Windows state、guest memory、API validation、terminal digestを省略・複製しない。
 
 Version 6では、同期guest callbackの完了がouter API returnだけでなく、同じdepthで次の
 `guest-callback`へatomic replacementできる。Rustはretireするframe IDと新しいframe ID、thread、
@@ -680,9 +682,21 @@ Surfaceはtexture interfaceを一reference保持し、final releaseはsurface as
 texture／device／root retirementへcascadeする。Logical surface descriptorはpixel storage、pitch、DC、lock
 staging、browser renderer resourceの代用ではなく、到達した後続gatewayで追加する。
 
+Reached surface `GetDC`はguest HDC output、live COM-to-graphics relation、surface descriptor、GDI capacity、
+identity allocator、one-outstanding-HDC invariantをpreflightし、guest writeと`RuntimeGdi` acquisitionを一つの
+failure-atomic transactionでpublishする。HDCはsurface／COM／threadへのnon-owning typed relationであり、COM
+referenceを増やさないがlive中のsurface retirementを拒否させる。`ReleaseDC`は同じsurface／HDC／threadだけを
+retireする。Reached `FillRect`はGDIのHDC／brush planと`RuntimeGraphics`のsurface／capacity／generation planを
+両方preflightし、fill commandとcontent generationはGraphicsだけへcommitする。これはpixel storage、pitch、
+lock staging、upload、browser renderer resourceの代用ではない。
+
 ### 13.2 GDI frontend
 
-DC state、selected object、mapping、clip、ROP、font metric を runtime model に保持する。Canvas text の結果を Windows GDI と同一と仮定せず、glyph rasterization と font substitution の選択を ADR にする。
+`RuntimeGdi`はHDC／GDI object／window surface identityとwindow fill historyを所有する。Window targetは
+`RuntimeUser32`、graphics-surface targetは`RuntimeGraphics`へのnon-owning relationとしてkernelが毎回再検証し、
+frontend間でsurface authorityを複製しない。DC state、selected object、mapping、clip、ROP、font metricは必要な
+到達caseごとにruntime modelへ追加する。Canvas textの結果をWindows GDIと同一と仮定せず、glyph
+rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend
 

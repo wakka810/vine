@@ -148,6 +148,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-create-device",
         "d3d9-create-texture",
         "d3d9-get-surface-level",
+        "d3d9-surface-get-dc",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -215,6 +216,7 @@ assert(
       "d3d9-create-device",
       "d3d9-create-texture",
       "d3d9-get-surface-level",
+      "d3d9-surface-get-dc",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -246,6 +248,7 @@ if (
     "d3d9-create-device",
     "d3d9-create-texture",
     "d3d9-get-surface-level",
+    "d3d9-surface-get-dc",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -270,7 +273,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-get-adapter-monitor" ||
     genericRuntimeCapability === "d3d9-create-device" ||
     genericRuntimeCapability === "d3d9-create-texture" ||
-    genericRuntimeCapability === "d3d9-get-surface-level"
+    genericRuntimeCapability === "d3d9-get-surface-level" ||
+    genericRuntimeCapability === "d3d9-surface-get-dc"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -405,8 +409,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9SurfaceGetDcEnabled =
+  genericRuntimeCapability === "d3d9-surface-get-dc";
 const d3d9GetSurfaceLevelEnabled =
-  genericRuntimeCapability === "d3d9-get-surface-level";
+  d3d9SurfaceGetDcEnabled || genericRuntimeCapability === "d3d9-get-surface-level";
 const d3d9CreateTextureEnabled =
   d3d9GetSurfaceLevelEnabled || genericRuntimeCapability === "d3d9-create-texture";
 const d3d9CreateDeviceEnabled =
@@ -624,7 +630,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9GetSurfaceLevelEnabled
+      ? d3d9SurfaceGetDcEnabled
+        ? "v86-bgi-d3d9-surface-get-dc"
+      : d3d9GetSurfaceLevelEnabled
         ? "v86-bgi-d3d9-get-surface-level"
       : d3d9CreateTextureEnabled
         ? "v86-bgi-d3d9-create-texture"
@@ -4586,6 +4594,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9SurfaceGetDcEnabled) {
+        validateD3d9SurfaceGetDcResult(genericResult);
       } else if (d3d9GetSurfaceLevelEnabled) {
         validateD3d9GetSurfaceLevelResult(genericResult);
       } else if (d3d9CreateTextureEnabled) {
@@ -4753,6 +4763,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9SurfaceGetDcEnabled
+            ? "bgi D3D9 surface GetDC fill and ReleaseDC"
           : d3d9GetSurfaceLevelEnabled
             ? "bgi D3D9 GetSurfaceLevel"
           : d3d9CreateTextureEnabled
@@ -13084,6 +13096,221 @@ function validateD3d9GetSurfaceLevelResult(result) {
   ]);
 }
 
+function validateD3d9SurfaceGetDcResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_857);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_912);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_064,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_607,
+  );
+  assert.equal(result.hostDeltas.length, 16_568);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_810);
+
+  const start = result.supportedCalls.findIndex(
+    (call) => call.symbol === "IDirect3DSurface9.GetDC",
+  );
+  assert.notEqual(start, -1, "surface GetDC completion is missing");
+  const flow = result.supportedCalls.slice(start, start + 5);
+  assert.deepEqual(
+    flow.map((call) => [
+      call.sequence,
+      call.module,
+      call.symbol,
+      call.occurrence,
+      call.trapInstructionCount,
+    ]),
+    [
+      [17_852, "<com>", "IDirect3DSurface9.GetDC", 3, 11_807_793],
+      [17_853, "GDI32.dll", "GetStockObject", 2, 11_807_805],
+      [17_854, "USER32.dll", "FillRect", 2, 11_807_812],
+      [17_855, "<com>", "IDirect3DSurface9.ReleaseDC", 2, 11_807_820],
+      [17_856, "<com>", "IDirect3DSurface9.Release", 2, 11_807_826],
+    ],
+  );
+  assert.deepEqual(
+    flow.map((call) => call.returnAddress),
+    [0x1005_a746, 0x1005_a76c, 0x1005_a77d, 0x1005_a78e, 0x1005_a79a],
+  );
+  assert.deepEqual(
+    flow.map((call) => call.stackPointerAfter - call.stackPointerBefore),
+    [12, 8, 16, 12, 8],
+  );
+
+  assert.equal(flow[0].interface, "IDirect3DSurface9");
+  assert.equal(flow[0].vtableSlot, 15);
+  assert.deepEqual(flow[0].arguments, [0x0103_0004, 0x006f_fd3c]);
+  assert.deepEqual(flow[0].result, { kind: "h-result", value: 0 });
+  assert.equal(flow[0].referenceCount, 1);
+  assert.equal(flow[0].objectRetired, false);
+  assert.equal(flow[0].guestWrites.length, 1);
+  assert.equal(flow[0].guestWrites[0].address, 0x006f_fd3c);
+  assert.deepEqual(flow[0].guestWrites[0].bytes, [2, 0, 1, 0x47]);
+  const deviceContextHandle = 0x4701_0002;
+
+  assert.deepEqual(flow[1].arguments, [4]);
+  assert.deepEqual(flow[1].result, { action: "set", value: 0x4702_0001 });
+  assert.equal(flow[1].implementationId, "gdi32.get-stock-object.black-brush.v1");
+  assert.equal(flow[1].lastError, 0);
+  assert.deepEqual(flow[1].guestWrites, []);
+  assert.deepEqual(flow[1].gdi, {
+    action: "stock-object-resolved",
+    object: {
+      id: 1,
+      handle: 0x4702_0001,
+      namespace: "vine.logical-gdi-object.v1",
+      shared: true,
+      object: { kind: "stock-brush", index: 4, colorRef: 0 },
+    },
+    liveObjects: 1,
+  });
+
+  assert.deepEqual(flow[2].arguments, [deviceContextHandle, 0x006f_fd4c, 0x4702_0001]);
+  assert.deepEqual(flow[2].result, { action: "set", value: 1 });
+  assert.equal(flow[2].implementationId, "user32.fill-rect.logical-surface.v1");
+  assert.equal(flow[2].lastError, 0);
+  assert.deepEqual(flow[2].guestWrites, []);
+  assert.deepEqual(flow[2].gdi, {
+    action: "graphics-surface-filled",
+    deviceContext: {
+      id: 2,
+      handle: deviceContextHandle,
+      namespace: "vine.logical-gdi-dc.v1",
+      ownerThreadId: 8192,
+      targetKind: "graphics-surface",
+      surfaceId: 1,
+      surfaceComObjectId: "5",
+      width: 1024,
+      height: 1024,
+      colorFormat: "b8g8r8x8-unorm",
+    },
+    surface: {
+      id: 1,
+      namespace: "vine.logical-graphics-surface.v1",
+      textureId: 1,
+      descriptor: {
+        level: 0,
+        width: 1024,
+        height: 1024,
+        colorFormat: "b8g8r8x8-unorm",
+      },
+      comObjectId: "5",
+      fills: [
+        {
+          sequence: 1,
+          rect: { left: 0, top: 0, right: 800, bottom: 600 },
+          colorRef: 0,
+        },
+      ],
+      contentGeneration: 1,
+      generation: 4,
+    },
+  });
+
+  assert.equal(flow[3].interface, "IDirect3DSurface9");
+  assert.equal(flow[3].vtableSlot, 16);
+  assert.deepEqual(flow[3].arguments, [0x0103_0004, deviceContextHandle]);
+  assert.deepEqual(flow[3].result, { kind: "h-result", value: 0 });
+  assert.equal(flow[3].referenceCount, 1);
+  assert.equal(flow[3].objectRetired, false);
+  assert.deepEqual(flow[3].guestWrites, []);
+
+  assert.equal(flow[4].interface, "IDirect3DSurface9");
+  assert.equal(flow[4].vtableSlot, 2);
+  assert.deepEqual(flow[4].arguments, [0x0103_0004]);
+  assert.deepEqual(flow[4].result, { kind: "u32", value: 0 });
+  assert.equal(flow[4].referenceCount, 0);
+  assert.equal(flow[4].objectRetired, true);
+  assert.deepEqual(flow[4].guestWrites, []);
+
+  const secondTexture = result.supportedCalls[start + 5];
+  assert.deepEqual(
+    {
+      sequence: secondTexture.sequence,
+      module: secondTexture.module,
+      symbol: secondTexture.symbol,
+      occurrence: secondTexture.occurrence,
+      instruction: secondTexture.trapInstructionCount,
+      interface: secondTexture.interface,
+      slot: secondTexture.vtableSlot,
+      arguments: secondTexture.arguments,
+      result: secondTexture.result,
+      returnAddress: secondTexture.returnAddress,
+      stackPointerDelta: secondTexture.stackPointerAfter - secondTexture.stackPointerBefore,
+      referenceCount: secondTexture.referenceCount,
+      objectRetired: secondTexture.objectRetired,
+      guestWrites: secondTexture.guestWrites,
+    },
+    {
+      sequence: 17_857,
+      module: "<com>",
+      symbol: "IDirect3DDevice9.CreateTexture",
+      occurrence: 2,
+      instruction: 11_807_840,
+      interface: "IDirect3DDevice9",
+      slot: 23,
+      arguments: [0x0101_0004, 1024, 1024, 1, 0, 22, 0, 0x1015_17d0, 0],
+      result: { kind: "h-result", value: -2_005_530_518 },
+      returnAddress: 0x1005_a7b7,
+      stackPointerDelta: 40,
+      referenceCount: 2,
+      objectRetired: false,
+      guestWrites: [],
+    },
+  );
+
+  const unsupported = result.fault;
+  assert.equal(unsupported.capabilityCluster, "winmm-api-contract");
+  assert.equal(unsupported.endpoint.kind, "runtime-system-export");
+  assert.equal(unsupported.endpoint.endpoint.id, 8);
+  assert.equal(unsupported.endpoint.endpoint.address, 0x7f00_0070);
+  assert.equal(unsupported.endpoint.endpoint.module, "winmm.dll");
+  assert.deepEqual(unsupported.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "timeGetTime",
+  });
+  assert.equal(unsupported.endpoint.endpoint.iatAddress, 0x100d_14e4);
+  assert.equal(unsupported.fault.class, "unsupported");
+  assert.equal(unsupported.fault.stage, "api-dispatch");
+  assert.equal(unsupported.fault.code, "endpoint-contract-missing");
+  assert.equal(unsupported.memory.physicalPages, 723);
+  assert.equal(unsupported.memory.generation, result.finalGeneration);
+  assert.equal(
+    unsupported.memoryContentSha256,
+    "070d7ec3e62b64ec3076a5fa9cde8311f6937aa022594c8dbae690a626d42135",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_807_928);
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 8);
+  assert.equal(terminal.thunk.address, 0x7f00_0070);
+  assert.equal(terminal.thunk.iatAddress, 0x100d_14e4);
+  assert.equal(terminal.thunk.module, "WINMM.dll");
+  assert.equal(terminal.thunk.name, "timeGetTime");
+  assert.equal(terminal.returnAddress, 0x1009_1ebf);
+  assert.deepEqual(terminal.stackWords.slice(1, 4), [
+    0x1009_1f30,
+    0x006f_fd70,
+    0x1006_6ad5,
+  ]);
+}
+
 function validateMonitorFromWindowResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -14985,6 +15212,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9SurfaceGetDcEnabled
+          ? "vine.v86-bgi-d3d9-surface-get-dc"
         : d3d9GetSurfaceLevelEnabled
           ? "vine.v86-bgi-d3d9-get-surface-level"
         : d3d9CreateTextureEnabled

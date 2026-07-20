@@ -12,7 +12,8 @@ use crate::runtime::{
     RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeComBacking, RuntimeComIid,
     RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration,
     RuntimeComMethodImplementation, RuntimeComMethodRegistration, RuntimeComMethodTarget,
-    RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind, RuntimeKernel,
+    RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
+    RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan, RuntimeKernel,
     RuntimeStateError, RuntimeStateErrorClass,
 };
 
@@ -349,6 +350,34 @@ impl ComFrontendCall<'_> {
         transaction.commit_transaction();
         Ok((
             reference_count,
+            vec![ComGuestWriteReceipt {
+                address: output_address,
+                bytes,
+                result: write_result,
+            }],
+        ))
+    }
+
+    pub(crate) fn acquire_graphics_surface_dc_with_guest_handle_write(
+        &mut self,
+        plan: RuntimeGraphicsSurfaceDcAcquisitionPlan,
+        output_address: GuestAddress,
+    ) -> Result<(RuntimeGetGraphicsSurfaceDcResult, Vec<ComGuestWriteReceipt>), RuntimeStateError>
+    {
+        self.memory
+            .validate_access(output_address, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let planned_result = plan.result();
+        let bytes = planned_result.handle.to_le_bytes().to_vec();
+        let mut transaction = self.memory.begin_transaction();
+        let write_result = transaction
+            .write(output_address, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        let result = self.runtime.commit_graphics_surface_dc_acquisition(plan)?;
+        transaction.commit_transaction();
+        debug_assert_eq!(result, planned_result);
+        Ok((
+            result,
             vec![ComGuestWriteReceipt {
                 address: output_address,
                 bytes,

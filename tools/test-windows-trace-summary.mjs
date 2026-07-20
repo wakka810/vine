@@ -1397,6 +1397,275 @@ assert.throws(
   /changed its GetSurfaceLevel output pointer/,
 );
 
+const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);
+d3d9SurfaceDcEvents[0].arguments.stopOnEvent = "d3d9-surface-get-dc-complete";
+d3d9SurfaceDcEvents[0].arguments.observations = ["d3d9-surface-get-dc"];
+d3d9SurfaceDcEvents.find((event) => event.kind === "agent-ready").selectedObservations = [
+  "d3d9-surface-get-dc",
+];
+const getDcLeave = d3d9SurfaceDcEvents.find(
+  (event) => event.kind === "api-leave" && event.api === "GetDC",
+);
+const getDcObservation = {
+  output: {
+    before: pointerSlot("0x6ffd3c", "0x400", [0, 4, 0, 0]),
+    after: pointerSlot("0x6ffd3c", "0x52010a1e", [0x1e, 0x0a, 0x01, 0x52]),
+  },
+  immediateConsumer: null,
+};
+getDcLeave.d3d9SurfaceGetDc = getDcObservation;
+const fillRectSnapshot = {
+  profile: "x86-rect-v1",
+  raw: {
+    pointer: "0x6ffd50",
+    requestedBytes: 16,
+    maximumBytes: 64,
+    bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0x20, 3, 0, 0, 0x58, 2, 0, 0],
+  },
+  fields: { left: 0, top: 0, right: 800, bottom: 600 },
+};
+const surfaceDcContinuation = [
+  {
+    schema,
+    sequence: 12,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 4,
+    parentCallId: null,
+    caller: { address: "0x0045a76c", module: "BGI.exe", rva: 0x5a76c },
+    module: "GDI32.dll",
+    api: "GetStockObject",
+    arguments: [4],
+    d3d9SurfaceDcGdi: { rect: null, immediateConsumer: null },
+  },
+  {
+    schema,
+    sequence: 13,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 4,
+    parentCallId: null,
+    caller: { address: "0x0045a76c", module: "BGI.exe", rva: 0x5a76c },
+    durationMs: 0,
+    lastError: 0,
+    module: "GDI32.dll",
+    api: "GetStockObject",
+    result: "0x900011",
+    d3d9SurfaceDcGdi: { rect: null },
+  },
+  {
+    schema,
+    sequence: 14,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 5,
+    parentCallId: null,
+    caller: { address: "0x0045a77d", module: "BGI.exe", rva: 0x5a77d },
+    module: "USER32.dll",
+    api: "FillRect",
+    arguments: ["0x52010a1e", "0x6ffd50", "0x900011"],
+    d3d9SurfaceDcGdi: { rect: fillRectSnapshot, immediateConsumer: null },
+  },
+  {
+    schema,
+    sequence: 15,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 5,
+    parentCallId: null,
+    caller: { address: "0x0045a77d", module: "BGI.exe", rva: 0x5a77d },
+    durationMs: 1,
+    lastError: 0,
+    module: "USER32.dll",
+    api: "FillRect",
+    result: "0x1",
+    d3d9SurfaceDcGdi: { rect: fillRectSnapshot },
+  },
+  {
+    schema,
+    sequence: 16,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 6,
+    parentCallId: null,
+    caller: { address: "0x0045a78e", module: "BGI.exe", rva: 0x5a78e },
+    module: "d3d9.dll",
+    api: "ReleaseDC",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 16,
+    object: "0x510000",
+    arguments: ["0x52010a1e"],
+  },
+  {
+    schema,
+    sequence: 17,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 6,
+    parentCallId: null,
+    caller: { address: "0x0045a78e", module: "BGI.exe", rva: 0x5a78e },
+    durationMs: 0,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "ReleaseDC",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 16,
+    object: "0x510000",
+    result: "0x0",
+  },
+  {
+    schema,
+    sequence: 18,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 7,
+    parentCallId: null,
+    caller: { address: "0x0045a79a", module: "BGI.exe", rva: 0x5a79a },
+    module: "d3d9.dll",
+    api: "Release",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 2,
+    object: "0x510000",
+    arguments: [],
+  },
+  {
+    schema,
+    sequence: 19,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 7,
+    parentCallId: null,
+    caller: { address: "0x0045a79a", module: "BGI.exe", rva: 0x5a79a },
+    durationMs: 0,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "Release",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 2,
+    object: "0x510000",
+    result: "0x1",
+  },
+];
+const surfaceDcCompletion = {
+  schema,
+  sequence: 20,
+  kind: "d3d9-surface-get-dc-complete",
+  profile: "x86-bgi-system-memory-surface-dc-fill-v1",
+  surface: "0x510000",
+  calls: [
+    {
+      api: "GetDC",
+      interface: "IDirect3DSurface9",
+      vtableSlot: 15,
+      object: "0x510000",
+      arguments: ["0x6ffd3c"],
+      result: "0x0",
+      lastError: 0,
+      d3d9SurfaceGetDc: getDcObservation,
+      caller: { address: "0x0045a746", module: "BGI.exe", rva: 0x5a746 },
+    },
+    {
+      api: "GetStockObject",
+      module: "GDI32.dll",
+      arguments: [4],
+      result: "0x900011",
+      lastError: 0,
+      rect: null,
+      caller: { address: "0x0045a76c", module: "BGI.exe", rva: 0x5a76c },
+    },
+    {
+      api: "FillRect",
+      module: "USER32.dll",
+      arguments: ["0x52010a1e", "0x6ffd50", "0x900011"],
+      result: "0x1",
+      lastError: 0,
+      rect: fillRectSnapshot,
+      caller: { address: "0x0045a77d", module: "BGI.exe", rva: 0x5a77d },
+    },
+    {
+      api: "ReleaseDC",
+      interface: "IDirect3DSurface9",
+      vtableSlot: 16,
+      object: "0x510000",
+      arguments: ["0x52010a1e"],
+      result: "0x0",
+      lastError: 0,
+      caller: { address: "0x0045a78e", module: "BGI.exe", rva: 0x5a78e },
+    },
+    {
+      api: "Release",
+      interface: "IDirect3DSurface9",
+      vtableSlot: 2,
+      object: "0x510000",
+      arguments: [],
+      result: "0x1",
+      lastError: 0,
+      caller: { address: "0x0045a79a", module: "BGI.exe", rva: 0x5a79a },
+    },
+  ],
+};
+const oldResourceCompletionIndex = d3d9SurfaceDcEvents.findIndex(
+  (event) => event.kind === "d3d9-get-surface-level-complete",
+);
+d3d9SurfaceDcEvents.splice(
+  oldResourceCompletionIndex,
+  1,
+  ...surfaceDcContinuation,
+  surfaceDcCompletion,
+);
+d3d9SurfaceDcEvents.at(-1).reason = "event-d3d9-surface-get-dc-complete-kill";
+const d3d9SurfaceDcSummary = summarizeTrace(
+  encode(d3d9SurfaceDcEvents),
+  "d3d9-surface-get-dc-fixture.jsonl",
+);
+assert.equal(d3d9SurfaceDcSummary.d3d9.surfaceDcFlows.length, 1);
+const surfaceDcFlow = d3d9SurfaceDcSummary.d3d9.surfaceDcFlows[0];
+assert.equal(surfaceDcFlow.sequence, 20);
+assert.equal(surfaceDcFlow.surface, "0x510000");
+assert.equal(surfaceDcFlow.hdc, "0x52010a1e");
+assert.equal(surfaceDcFlow.stockBrush, "0x900011");
+assert.deepEqual(surfaceDcFlow.rect, { left: 0, top: 0, right: 800, bottom: 600 });
+assert.deepEqual(
+  surfaceDcFlow.calls.map((call) => [call.method, call.caller.rva, call.result]),
+  [
+    ["GetDC", 0x5a746, "0x0"],
+    ["GetStockObject", 0x5a76c, "0x900011"],
+    ["FillRect", 0x5a77d, "0x1"],
+    ["ReleaseDC", 0x5a78e, "0x0"],
+    ["Release", 0x5a79a, "0x1"],
+  ],
+);
+assert.deepEqual(surfaceDcFlow.getDcOutput.after, getDcObservation.output.after);
+
+const mismatchedSurfaceDcCompletion = structuredClone(d3d9SurfaceDcEvents);
+mismatchedSurfaceDcCompletion.find(
+  (event) => event.kind === "d3d9-surface-get-dc-complete",
+).calls[3].arguments[0] = "0x52010a1f";
+assert.throws(
+  () => summarizeTrace(encode(mismatchedSurfaceDcCompletion)),
+  /completion call 3 does not match its paired trace/,
+);
+
+const mismatchedSurfaceDcIdentity = structuredClone(d3d9SurfaceDcEvents);
+mismatchedSurfaceDcIdentity.find(
+  (event) => event.kind === "api-enter" && event.api === "ReleaseDC",
+).arguments[0] = "0x52010a1f";
+mismatchedSurfaceDcIdentity.find(
+  (event) => event.kind === "d3d9-surface-get-dc-complete",
+).calls[3].arguments[0] = "0x52010a1f";
+assert.throws(
+  () => summarizeTrace(encode(mismatchedSurfaceDcIdentity)),
+  /surface, HDC, brush, or fill identity contract/,
+);
+
+const missingSurfaceDcCompletion = d3d9SurfaceDcEvents.filter(
+  (event) => event.kind !== "d3d9-surface-get-dc-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingSurfaceDcCompletion)),
+  /requires exactly one structured completion/,
+);
+
 const duplicateSequence = events.map((event) => ({ ...event }));
 duplicateSequence[5].sequence = 3;
 assert.throws(

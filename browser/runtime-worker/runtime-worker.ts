@@ -419,7 +419,6 @@ class BrowserRuntimeSession {
   #sourceManifest: SourceManifest | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
-  readonly #completedBgiCallSequences = new Set<number>();
   readonly #semanticCallDigest = new SemanticCallDigest();
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -1190,12 +1189,6 @@ class BrowserRuntimeSession {
     const completion = metadata.call;
     const frame = completion.frame;
     const sequence = ++this.#nextBgiCallSequence;
-    invariant(
-      !this.#completedBgiCallSequences.has(sequence),
-      "BGI COM call sequence was completed more than once",
-    );
-    this.#completedBgiCallSequences.add(sequence);
-    this.#report.supportedCallCount += 1;
     const call = {
       sequence,
       module: "<com>",
@@ -1215,6 +1208,7 @@ class BrowserRuntimeSession {
       })),
     };
     this.#semanticCallDigest.update(call);
+    this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
     }
@@ -1297,12 +1291,6 @@ class BrowserRuntimeSession {
       "BGI GDI completion metadata mismatch",
     );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
-    invariant(
-      !this.#completedBgiCallSequences.has(sequence),
-      "BGI call sequence was completed more than once",
-    );
-    this.#completedBgiCallSequences.add(sequence);
-    this.#report.supportedCallCount += 1;
     const call = {
       sequence,
       module: endpoint.module,
@@ -1338,6 +1326,7 @@ class BrowserRuntimeSession {
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
     };
     this.#semanticCallDigest.update(call);
+    this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
     }
@@ -2194,10 +2183,6 @@ class BrowserRuntimeSession {
       requestId: this.#pendingHostRequests.first()?.requestId ?? null,
     });
     const execution = this.#execution.snapshot();
-    invariant(
-      this.#report.supportedCallCount === this.#completedBgiCallSequences.size,
-      "BGI supported-call evidence count diverged from completed sequence identity",
-    );
     invariant(
       this.#report.supportedCallCount === this.#semanticCallDigest.count(),
       "BGI semantic call digest count diverged from completed sequence identity",

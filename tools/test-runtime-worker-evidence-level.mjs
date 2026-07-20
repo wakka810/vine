@@ -15,7 +15,11 @@ assert.match(protocol, /protocolVersion = 7 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /supportedCallCount: number/u);
 
-assert.match(worker, /readonly #completedBgiCallSequences = new Set<number>\(\)/u);
+assert.match(worker, /readonly #semanticCallDigest = new SemanticCallDigest\(\)/u);
+assert.doesNotMatch(worker, /completedBgiCallSequences/u);
+assert.match(worker, /this\.#semanticCallDigest\.update\(call\)/u);
+assert.match(worker, /this\.#report\.supportedCallCount === this\.#semanticCallDigest\.count\(\)/u);
+assert.match(worker, /this\.#semanticCallDigest\.digestHex\(\)/u);
 assert.doesNotMatch(worker, /supportedCalls\.some\(/u);
 assert.equal(worker.match(/supportedCalls\.sort\(/gu)?.length, 1);
 assert.match(worker, /summary runtime evidence is only supported for the private BGI workload/u);
@@ -27,5 +31,13 @@ assert.match(benchmark, /evidenceLevel: "summary"/u);
 assert.match(benchmark, /instructionBudget: 1024/u);
 assert.match(benchmark, /report\.supportedCallCount === expected\.supportedCalls/u);
 assert.match(benchmark, /report\.supportedCalls\.length === 0/u);
+assert.match(
+  benchmark,
+  /report\.supportedCallSemanticsAlgorithm === expected\.callSemanticsAlgorithm/u,
+);
+assert.match(
+  benchmark,
+  /report\.supportedCallSemanticsSha256 === expected\.callSemanticsSha256/u,
+);
 
 console.log("Runtime Worker evidence-level contract passed");

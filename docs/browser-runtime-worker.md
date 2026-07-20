@@ -180,12 +180,15 @@ before termination. Pending host calls and callback stacks are keyed by owner
 thread; neither is represented by a global single slot.
 
 Protocol v7 also makes diagnostic retention explicit. Every private BGI session
-validates sequence identity with a Set and hashes the normalized observable call
-stream after sorting reserved sequence IDs. Normal semantic gates and repeated
-benchmarks select summary evidence: they retain the exact call count and digest,
-source completions, memory digest, structured stop, and teardown checks without
-publishing detailed call objects. Full evidence remains an explicit diagnostic
-mode. Summary evidence is rejected for other workloads.
+feeds normalized observable calls to one ordered digest. Its next-sequence and
+bounded pending map reject duplicate or conflicting sequence identity without a
+second completed-sequence collection. Canonical top-level fields stream directly
+into reusable SHA-256 state; ASCII fragments bypass `TextEncoder`, while
+non-ASCII uses the bounded UTF-8 fallback. Normal semantic gates and repeated
+benchmarks select summary evidence: they retain the exact call count, algorithm,
+digest, source completions, memory digest, structured stop, and teardown checks
+without publishing detailed call objects. Full evidence remains an explicit
+diagnostic mode. Summary evidence is rejected for other workloads.
 
 ## Fixture contract
 
@@ -236,8 +239,9 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
 same structured stop. The reached D3D9 path now includes Rust-owned logical device, texture, and
-level-zero surface descriptors plus their COM lifetime; the Worker observes completions but
-owns neither identity nor resource state. A separate repeated-session benchmark evaluates the versioned latency,
+level-zero surface descriptors; a typed surface HDC; one bounded graphics fill command; and their
+COM／GDI lifetime relations. The Worker observes completions but owns neither identity nor resource
+state. No pixel or renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 
 A benchmark threshold failure does not invalidate a passing semantic-equivalence run, but it

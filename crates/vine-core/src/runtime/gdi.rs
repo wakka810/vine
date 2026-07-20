@@ -1,7 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Serialize;
+use serde::{Serialize, Serializer, ser::SerializeStruct};
 
+use super::com::RuntimeComObjectId;
+use super::graphics::{RuntimeGraphicsColorFormat, RuntimeGraphicsSurfaceId};
 use super::{RuntimeRect, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
 
 pub const LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE: &str = "vine.logical-gdi-dc.v1";
@@ -36,16 +38,98 @@ pub(super) struct RuntimeGdiWindowTarget {
     pub client_height: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeGdiGraphicsSurfaceTarget {
+    pub surface_id: RuntimeGraphicsSurfaceId,
+    pub surface_com_object_id: RuntimeComObjectId,
+    pub owner_thread_id: RuntimeThreadId,
+    pub width: u32,
+    pub height: u32,
+    pub color_format: RuntimeGraphicsColorFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum RuntimeDeviceContextTarget {
+    Window {
+        window_id: RuntimeWindowId,
+        window_handle: u32,
+        surface_id: RuntimeGdiSurfaceId,
+    },
+    GraphicsSurface {
+        surface_id: RuntimeGraphicsSurfaceId,
+        surface_com_object_id: RuntimeComObjectId,
+        width: u32,
+        height: u32,
+        color_format: RuntimeGraphicsColorFormat,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeDeviceContext {
     pub id: RuntimeDeviceContextId,
     pub handle: u32,
     pub namespace: String,
-    pub window_id: RuntimeWindowId,
-    pub window_handle: u32,
     pub owner_thread_id: RuntimeThreadId,
-    pub surface_id: RuntimeGdiSurfaceId,
+    pub target: RuntimeDeviceContextTarget,
+}
+
+impl RuntimeDeviceContext {
+    pub fn window_surface_id(&self) -> Option<RuntimeGdiSurfaceId> {
+        match self.target {
+            RuntimeDeviceContextTarget::Window { surface_id, .. } => Some(surface_id),
+            RuntimeDeviceContextTarget::GraphicsSurface { .. } => None,
+        }
+    }
+}
+
+impl Serialize for RuntimeDeviceContext {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.target {
+            RuntimeDeviceContextTarget::Window {
+                window_id,
+                window_handle,
+                surface_id,
+            } => {
+                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 7)?;
+                state.serialize_field("id", &self.id)?;
+                state.serialize_field("handle", &self.handle)?;
+                state.serialize_field("namespace", &self.namespace)?;
+                state.serialize_field("windowId", &window_id)?;
+                state.serialize_field("windowHandle", &window_handle)?;
+                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
+                state.serialize_field("surfaceId", &surface_id)?;
+                state.end()
+            }
+            RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id,
+                surface_com_object_id,
+                width,
+                height,
+                color_format,
+            } => {
+                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 10)?;
+                state.serialize_field("id", &self.id)?;
+                state.serialize_field("handle", &self.handle)?;
+                state.serialize_field("namespace", &self.namespace)?;
+                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
+                state.serialize_field("targetKind", "graphics-surface")?;
+                state.serialize_field("surfaceId", &surface_id)?;
+                state.serialize_field("surfaceComObjectId", &surface_com_object_id)?;
+                state.serialize_field("width", &width)?;
+                state.serialize_field("height", &height)?;
+                state.serialize_field("colorFormat", &color_format)?;
+                state.end()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -99,6 +183,14 @@ pub struct RuntimeGetDcResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGetGraphicsSurfaceDcResult {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub handle: u32,
+    pub surface_id: RuntimeGraphicsSurfaceId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGetStockObjectResult {
     pub object_id: RuntimeGdiObjectId,
     pub handle: u32,
@@ -131,6 +223,8 @@ pub(super) struct RuntimeGdi {
     surfaces: BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface>,
     #[serde(skip)]
     window_surface_index: BTreeMap<RuntimeWindowId, RuntimeGdiSurfaceId>,
+    #[serde(skip)]
+    graphics_surface_dc_index: BTreeMap<RuntimeGraphicsSurfaceId, RuntimeDeviceContextId>,
     next_device_context_id: u64,
     next_device_context_handle: u32,
     next_object_id: u64,
@@ -150,6 +244,7 @@ impl Default for RuntimeGdi {
             stock_object_index: BTreeMap::new(),
             surfaces: BTreeMap::new(),
             window_surface_index: BTreeMap::new(),
+            graphics_surface_dc_index: BTreeMap::new(),
             next_device_context_id: 1,
             next_device_context_handle: RUNTIME_DEVICE_CONTEXT_HANDLE_BASE,
             next_object_id: 1,
@@ -170,6 +265,30 @@ pub(super) struct RuntimeGetDcPlan {
     next_device_context_id: u64,
     next_device_context_handle: u32,
     next_surface_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGetGraphicsSurfaceDcPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_context: RuntimeDeviceContext,
+    next_device_context_id: u64,
+    next_device_context_handle: u32,
+}
+
+impl RuntimeGetGraphicsSurfaceDcPlan {
+    pub(crate) fn result(&self) -> RuntimeGetGraphicsSurfaceDcResult {
+        let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
+            self.device_context.target
+        else {
+            unreachable!("graphics surface DC plan must target a graphics surface")
+        };
+        RuntimeGetGraphicsSurfaceDcResult {
+            device_context_id: self.device_context.id,
+            handle: self.device_context.handle,
+            surface_id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +318,51 @@ pub(super) struct RuntimeFillRectPlan {
     next_surface_generation: u64,
     fill: Option<RuntimeGdiSurfaceFill>,
     next_fill_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeGraphicsSurfaceFillRectPlan {
+    expected_generation: u64,
+    device_context: RuntimeDeviceContext,
+    brush_id: RuntimeGdiObjectId,
+    rect: RuntimeRect,
+    color_ref: u32,
+}
+
+impl RuntimeGraphicsSurfaceFillRectPlan {
+    pub(super) fn surface_id(&self) -> RuntimeGraphicsSurfaceId {
+        let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
+            self.device_context.target
+        else {
+            unreachable!("graphics fill plan must target a graphics surface")
+        };
+        surface_id
+    }
+
+    pub(super) fn surface_com_object_id(&self) -> RuntimeComObjectId {
+        let RuntimeDeviceContextTarget::GraphicsSurface {
+            surface_com_object_id,
+            ..
+        } = self.device_context.target
+        else {
+            unreachable!("graphics fill plan must target a graphics surface")
+        };
+        surface_com_object_id
+    }
+
+    pub(super) fn rect(&self) -> RuntimeRect {
+        self.rect
+    }
+
+    pub(super) fn color_ref(&self) -> u32 {
+        self.color_ref
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGdiComRetirementGuard {
+    expected_generation: u64,
+    retired_graphics_surface_objects: BTreeSet<RuntimeComObjectId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,10 +462,12 @@ impl RuntimeGdi {
                 id: device_context_id,
                 handle,
                 namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
-                window_id: target.window_id,
-                window_handle: target.window_handle,
                 owner_thread_id: target.owner_thread_id,
-                surface_id,
+                target: RuntimeDeviceContextTarget::Window {
+                    window_id: target.window_id,
+                    window_handle: target.window_handle,
+                    surface_id,
+                },
             },
             new_surface,
             next_device_context_id,
@@ -338,7 +504,11 @@ impl RuntimeGdi {
             self.window_surface_index
                 .insert(surface.window_id, surface.id);
             self.surfaces.insert(surface.id, surface);
-        } else if !self.surfaces.contains_key(&plan.device_context.surface_id) {
+        } else if !matches!(
+            plan.device_context.target,
+            RuntimeDeviceContextTarget::Window { surface_id, .. }
+                if self.surfaces.contains_key(&surface_id)
+        ) {
             return Err(stale_plan("get-dc-plan-stale"));
         }
         self.device_context_handle_index
@@ -349,12 +519,111 @@ impl RuntimeGdi {
         self.next_device_context_handle = plan.next_device_context_handle;
         self.next_surface_id = plan.next_surface_id;
         self.generation = plan.next_generation;
+        let RuntimeDeviceContextTarget::Window { surface_id, .. } = plan.device_context.target
+        else {
+            unreachable!("window GetDC plan must publish a window target")
+        };
         Ok(RuntimeGetDcResult {
             device_context_id: plan.device_context.id,
             handle: plan.device_context.handle,
-            surface_id: plan.device_context.surface_id,
+            surface_id,
             surface_created,
         })
+    }
+
+    pub(crate) fn plan_get_graphics_surface_dc(
+        &self,
+        target: RuntimeGdiGraphicsSurfaceTarget,
+    ) -> Result<RuntimeGetGraphicsSurfaceDcPlan, RuntimeStateError> {
+        validate_graphics_surface_target(target)?;
+        if self
+            .graphics_surface_dc_index
+            .contains_key(&target.surface_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "graphics-surface-dc-already-acquired",
+                "logical graphics surface already has an outstanding HDC",
+            ));
+        }
+        if self.device_contexts.len() >= RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "device-context-capacity-exhausted",
+                "logical device-context capacity is exhausted",
+            ));
+        }
+        let device_context_id = RuntimeDeviceContextId(self.next_device_context_id);
+        let next_device_context_id = checked_next_identity(
+            self.next_device_context_id,
+            "device-context-identity-exhausted",
+        )?;
+        let handle = self.next_device_context_handle;
+        if handle < RUNTIME_DEVICE_CONTEXT_HANDLE_BASE
+            || self.device_context_handle_index.contains_key(&handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "device-context-handle-allocator-invalid",
+                "logical device-context handle allocator is not at a free namespace value",
+            ));
+        }
+        let next_device_context_handle = handle.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "device-context-handle-exhausted",
+                "logical device-context handle namespace is exhausted",
+            )
+        })?;
+        Ok(RuntimeGetGraphicsSurfaceDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context: RuntimeDeviceContext {
+                id: device_context_id,
+                handle,
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                owner_thread_id: target.owner_thread_id,
+                target: RuntimeDeviceContextTarget::GraphicsSurface {
+                    surface_id: target.surface_id,
+                    surface_com_object_id: target.surface_com_object_id,
+                    width: target.width,
+                    height: target.height,
+                    color_format: target.color_format,
+                },
+            },
+            next_device_context_id,
+            next_device_context_handle,
+        })
+    }
+
+    pub(crate) fn commit_get_graphics_surface_dc(
+        &mut self,
+        plan: RuntimeGetGraphicsSurfaceDcPlan,
+    ) -> Result<RuntimeGetGraphicsSurfaceDcResult, RuntimeStateError> {
+        let result = plan.result();
+        if self.generation != plan.expected_generation
+            || self.next_device_context_id != plan.device_context.id.0
+            || self.next_device_context_handle != plan.device_context.handle
+            || self
+                .device_context_handle_index
+                .contains_key(&plan.device_context.handle)
+            || self.device_contexts.contains_key(&plan.device_context.id)
+            || self
+                .graphics_surface_dc_index
+                .contains_key(&result.surface_id)
+        {
+            return Err(stale_plan("graphics-surface-get-dc-plan-stale"));
+        }
+        self.graphics_surface_dc_index
+            .insert(result.surface_id, plan.device_context.id);
+        self.device_context_handle_index
+            .insert(plan.device_context.handle, plan.device_context.id);
+        self.device_contexts
+            .insert(plan.device_context.id, plan.device_context);
+        self.next_device_context_id = plan.next_device_context_id;
+        self.next_device_context_handle = plan.next_device_context_handle;
+        self.generation = plan.next_generation;
+        Ok(result)
     }
 
     pub(super) fn plan_get_stock_object(
@@ -482,13 +751,52 @@ impl RuntimeGdi {
         let device_context = self
             .device_context_by_handle(device_context_handle)?
             .clone();
-        if device_context.window_handle != window_handle
-            || device_context.owner_thread_id != thread_id
+        if !matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::Window {
+                window_handle: acquired_window_handle,
+                ..
+            } if acquired_window_handle == window_handle
+        ) || device_context.owner_thread_id != thread_id
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-gdi",
                 "device-context-relation-mismatch",
                 "ReleaseDC requires the exact HWND, HDC, and acquiring guest thread relation",
+            ));
+        }
+        Ok(RuntimeReleaseDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context,
+        })
+    }
+
+    pub(super) fn plan_release_graphics_surface_dc(
+        &self,
+        target: RuntimeGdiGraphicsSurfaceTarget,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
+        validate_graphics_surface_target(target)?;
+        let device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if device_context.owner_thread_id != thread_id
+            || device_context.target
+                != (RuntimeDeviceContextTarget::GraphicsSurface {
+                    surface_id: target.surface_id,
+                    surface_com_object_id: target.surface_com_object_id,
+                    width: target.width,
+                    height: target.height,
+                    color_format: target.color_format,
+                })
+            || self.graphics_surface_dc_index.get(&target.surface_id) != Some(&device_context.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "graphics-surface-dc-relation-mismatch",
+                "ReleaseDC requires the exact graphics surface, HDC, and acquiring guest thread relation",
             ));
         }
         Ok(RuntimeReleaseDcPlan {
@@ -510,6 +818,14 @@ impl RuntimeGdi {
                 != Some(&plan.device_context.id)
         {
             return Err(stale_plan("release-dc-plan-stale"));
+        }
+        if let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
+            plan.device_context.target
+        {
+            if self.graphics_surface_dc_index.get(&surface_id) != Some(&plan.device_context.id) {
+                return Err(stale_plan("release-dc-plan-stale"));
+            }
+            self.graphics_surface_dc_index.remove(&surface_id);
         }
         self.device_contexts.remove(&plan.device_context.id);
         self.device_context_handle_index
@@ -535,6 +851,13 @@ impl RuntimeGdi {
                 "FillRect requires the guest thread that acquired the logical HDC",
             ));
         }
+        let RuntimeDeviceContextTarget::Window { surface_id, .. } = device_context.target else {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "fill-rect-target-mismatch",
+                "window FillRect planning received a graphics-surface HDC",
+            ));
+        };
         let brush_id = self
             .object_handle_index
             .get(&brush_handle)
@@ -554,16 +877,13 @@ impl RuntimeGdi {
             )
         })?;
         let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = brush.object;
-        let surface = self
-            .surfaces
-            .get(&device_context.surface_id)
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-gdi",
-                    "device-context-surface-dangling",
-                    "logical HDC does not resolve to its window surface",
-                )
-            })?;
+        let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "device-context-surface-dangling",
+                "logical HDC does not resolve to its window surface",
+            )
+        })?;
         validate_fill_rect(rect, surface)?;
         let empty = rect.left == rect.right || rect.top == rect.bottom;
         if !empty && surface.fills.len() >= RUNTIME_GDI_SURFACE_FILL_LIMIT {
@@ -618,7 +938,12 @@ impl RuntimeGdi {
         }
         let surface = self
             .surfaces
-            .get_mut(&plan.device_context.surface_id)
+            .get_mut(&match plan.device_context.target {
+                RuntimeDeviceContextTarget::Window { surface_id, .. } => surface_id,
+                RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
+                    return Err(stale_plan("fill-rect-plan-stale"));
+                }
+            })
             .ok_or_else(|| stale_plan("fill-rect-plan-stale"))?;
         if surface.generation != plan.surface_generation {
             return Err(stale_plan("fill-rect-plan-stale"));
@@ -640,6 +965,83 @@ impl RuntimeGdi {
             surface_generation: surface.generation,
             fill: plan.fill,
         })
+    }
+
+    pub(super) fn plan_graphics_surface_fill_rect(
+        &self,
+        device_context_handle: u32,
+        rect: RuntimeRect,
+        brush_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeGraphicsSurfaceFillRectPlan, RuntimeStateError> {
+        let device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if device_context.owner_thread_id != thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "device-context-thread-mismatch",
+                "FillRect requires the guest thread that acquired the logical HDC",
+            ));
+        }
+        let RuntimeDeviceContextTarget::GraphicsSurface { width, height, .. } =
+            device_context.target
+        else {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "fill-rect-target-mismatch",
+                "graphics FillRect planning received a window HDC",
+            ));
+        };
+        let brush_id = self
+            .object_handle_index
+            .get(&brush_handle)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-gdi",
+                    "gdi-object-handle-unknown",
+                    format!("logical GDI object {brush_handle:#010x} is not live"),
+                )
+            })?;
+        let brush = self.objects.get(&brush_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "gdi-object-handle-index-dangling",
+                "logical GDI object handle index does not resolve to a live object",
+            )
+        })?;
+        let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = brush.object;
+        validate_fill_rect_bounds(rect, width, height)?;
+        Ok(RuntimeGraphicsSurfaceFillRectPlan {
+            expected_generation: self.generation,
+            device_context,
+            brush_id,
+            rect,
+            color_ref,
+        })
+    }
+
+    pub(super) fn preflight_graphics_surface_fill_rect(
+        &self,
+        plan: &RuntimeGraphicsSurfaceFillRectPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
+            || self
+                .device_context_handle_index
+                .get(&plan.device_context.handle)
+                != Some(&plan.device_context.id)
+            || !self.objects.contains_key(&plan.brush_id)
+        {
+            return Err(stale_plan("graphics-fill-rect-plan-stale"));
+        }
+        let RuntimeDeviceContextTarget::GraphicsSurface { width, height, .. } =
+            plan.device_context.target
+        else {
+            return Err(stale_plan("graphics-fill-rect-plan-stale"));
+        };
+        validate_fill_rect_bounds(plan.rect, width, height)
     }
 
     pub fn device_context_by_handle(
@@ -676,6 +1078,52 @@ impl RuntimeGdi {
 
     pub fn surfaces(&self) -> &BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface> {
         &self.surfaces
+    }
+
+    pub(crate) fn plan_com_object_retirements(
+        &self,
+        com_object_ids: &BTreeSet<RuntimeComObjectId>,
+    ) -> Result<Option<RuntimeGdiComRetirementGuard>, RuntimeStateError> {
+        if com_object_ids.is_empty() {
+            return Ok(None);
+        }
+        self.reject_live_graphics_surface_dc_retirements(com_object_ids)?;
+        Ok(Some(RuntimeGdiComRetirementGuard {
+            expected_generation: self.generation,
+            retired_graphics_surface_objects: com_object_ids.clone(),
+        }))
+    }
+
+    pub(crate) fn preflight_com_object_retirements(
+        &self,
+        guard: &RuntimeGdiComRetirementGuard,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != guard.expected_generation {
+            return Err(stale_plan("gdi-com-retirement-guard-stale"));
+        }
+        self.reject_live_graphics_surface_dc_retirements(&guard.retired_graphics_surface_objects)
+    }
+
+    fn reject_live_graphics_surface_dc_retirements(
+        &self,
+        com_object_ids: &BTreeSet<RuntimeComObjectId>,
+    ) -> Result<(), RuntimeStateError> {
+        if self.device_contexts.values().any(|device_context| {
+            matches!(
+                device_context.target,
+                RuntimeDeviceContextTarget::GraphicsSurface {
+                    surface_com_object_id,
+                    ..
+                } if com_object_ids.contains(&surface_com_object_id)
+            )
+        }) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "graphics-surface-dc-still-acquired",
+                "logical graphics surface cannot retire while its HDC is outstanding",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn plan_process_teardown(
@@ -715,6 +1163,7 @@ impl RuntimeGdi {
         self.stock_object_index.clear();
         self.surfaces.clear();
         self.window_surface_index.clear();
+        self.graphics_surface_dc_index.clear();
         self.generation = plan.next_generation;
     }
 
@@ -740,18 +1189,47 @@ fn validate_window_target(target: RuntimeGdiWindowTarget) -> Result<(), RuntimeS
     Ok(())
 }
 
+fn validate_graphics_surface_target(
+    target: RuntimeGdiGraphicsSurfaceTarget,
+) -> Result<(), RuntimeStateError> {
+    if target.surface_id.0 == 0
+        || target.surface_com_object_id.0 == 0
+        || target.owner_thread_id.0 == 0
+        || target.width == 0
+        || target.height == 0
+        || i32::try_from(target.width).is_err()
+        || i32::try_from(target.height).is_err()
+        || target.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "graphics-surface-dc-target-invalid",
+            "logical graphics surface DC target requires live identity and supported x86 geometry and color format",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_fill_rect(
     rect: RuntimeRect,
     surface: &RuntimeGdiSurface,
 ) -> Result<(), RuntimeStateError> {
-    let width = i32::try_from(surface.width).map_err(|_| {
+    validate_fill_rect_bounds(rect, surface.width, surface.height)
+}
+
+fn validate_fill_rect_bounds(
+    rect: RuntimeRect,
+    surface_width: u32,
+    surface_height: u32,
+) -> Result<(), RuntimeStateError> {
+    let width = i32::try_from(surface_width).map_err(|_| {
         RuntimeStateError::runtime_defect(
             "runtime-gdi",
             "surface-width-invalid",
             "logical GDI surface width does not fit x86 coordinates",
         )
     })?;
-    let height = i32::try_from(surface.height).map_err(|_| {
+    let height = i32::try_from(surface_height).map_err(|_| {
         RuntimeStateError::runtime_defect(
             "runtime-gdi",
             "surface-height-invalid",
@@ -814,6 +1292,62 @@ mod tests {
             client_width: 800,
             client_height: 600,
         }
+    }
+
+    fn graphics_target(
+        surface_id: u64,
+        surface_com_object_id: u64,
+    ) -> RuntimeGdiGraphicsSurfaceTarget {
+        RuntimeGdiGraphicsSurfaceTarget {
+            surface_id: RuntimeGraphicsSurfaceId(surface_id),
+            surface_com_object_id: RuntimeComObjectId(surface_com_object_id),
+            owner_thread_id: RuntimeThreadId(8192),
+            width: 1_024,
+            height: 1_024,
+            color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+        }
+    }
+
+    #[test]
+    fn device_context_serialization_preserves_window_shape_and_types_graphics_targets() {
+        let mut gdi = RuntimeGdi::default();
+        let window = gdi
+            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(gdi.device_context_by_handle(window.handle).unwrap()).unwrap(),
+            serde_json::json!({
+                "id": 1,
+                "handle": 0x4701_0001_u32,
+                "namespace": "vine.logical-gdi-dc.v1",
+                "windowId": 1,
+                "windowHandle": 0x4801_0001_u32,
+                "ownerThreadId": 8192,
+                "surfaceId": 1,
+            })
+        );
+
+        let graphics = gdi
+            .commit_get_graphics_surface_dc(
+                gdi.plan_get_graphics_surface_dc(graphics_target(7, 5))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(gdi.device_context_by_handle(graphics.handle).unwrap()).unwrap(),
+            serde_json::json!({
+                "id": 2,
+                "handle": 0x4701_0002_u32,
+                "namespace": "vine.logical-gdi-dc.v1",
+                "ownerThreadId": 8192,
+                "targetKind": "graphics-surface",
+                "surfaceId": 7,
+                "surfaceComObjectId": "5",
+                "width": 1024,
+                "height": 1024,
+                "colorFormat": "b8g8r8x8-unorm",
+            })
+        );
     }
 
     #[test]
@@ -972,5 +1506,100 @@ mod tests {
             "surface-generation-exhausted"
         );
         assert_eq!(gdi, before_generation_exhaustion);
+    }
+
+    #[test]
+    fn graphics_surface_dc_is_single_outstanding_and_guards_com_retirement() {
+        let mut gdi = RuntimeGdi::default();
+        let target = graphics_target(1, 9);
+        let plan = gdi.plan_get_graphics_surface_dc(target).unwrap();
+        let stale_acquire = plan.clone();
+        let acquired = gdi.commit_get_graphics_surface_dc(plan).unwrap();
+        assert_eq!(acquired.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        assert_eq!(acquired.surface_id, target.surface_id);
+        assert_eq!(gdi.device_contexts.len(), 1);
+
+        let before_repeat = gdi.clone();
+        assert_eq!(
+            gdi.plan_get_graphics_surface_dc(target).unwrap_err().code,
+            "graphics-surface-dc-already-acquired"
+        );
+        assert_eq!(gdi, before_repeat);
+        assert_eq!(
+            gdi.commit_get_graphics_surface_dc(stale_acquire)
+                .unwrap_err()
+                .code,
+            "graphics-surface-get-dc-plan-stale"
+        );
+
+        let before_retirement = gdi.clone();
+        assert_eq!(
+            gdi.plan_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
+                .unwrap_err()
+                .code,
+            "graphics-surface-dc-still-acquired"
+        );
+        assert_eq!(gdi, before_retirement);
+
+        let before_wrong_release = gdi.clone();
+        assert_eq!(
+            gdi.plan_release_graphics_surface_dc(
+                graphics_target(1, 10),
+                acquired.handle,
+                target.owner_thread_id,
+            )
+            .unwrap_err()
+            .code,
+            "graphics-surface-dc-relation-mismatch"
+        );
+        assert_eq!(gdi, before_wrong_release);
+
+        let release = gdi
+            .plan_release_graphics_surface_dc(target, acquired.handle, target.owner_thread_id)
+            .unwrap();
+        let stale_release = release.clone();
+        gdi.commit_release_dc(release).unwrap();
+        assert!(gdi.device_contexts.is_empty());
+        assert_eq!(
+            gdi.commit_release_dc(stale_release).unwrap_err().code,
+            "release-dc-plan-stale"
+        );
+
+        let guard = gdi
+            .plan_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
+            .unwrap()
+            .unwrap();
+        gdi.preflight_com_object_retirements(&guard).unwrap();
+        let second = gdi
+            .plan_get_graphics_surface_dc(graphics_target(2, 10))
+            .unwrap();
+        gdi.commit_get_graphics_surface_dc(second).unwrap();
+        assert_eq!(
+            gdi.preflight_com_object_retirements(&guard)
+                .unwrap_err()
+                .code,
+            "gdi-com-retirement-guard-stale"
+        );
+    }
+
+    #[test]
+    fn graphics_surface_dc_capacity_failure_preserves_allocator_state() {
+        let mut gdi = RuntimeGdi::default();
+        for index in 0..RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
+            let target = graphics_target(index as u64 + 1, index as u64 + 1);
+            let plan = gdi.plan_get_graphics_surface_dc(target).unwrap();
+            gdi.commit_get_graphics_surface_dc(plan).unwrap();
+        }
+        let before = gdi.clone();
+        assert_eq!(
+            gdi.plan_get_graphics_surface_dc(graphics_target(
+                RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
+                RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
+            ))
+            .unwrap_err()
+            .code,
+            "device-context-capacity-exhausted"
+        );
+        assert_eq!(gdi, before);
     }
 }

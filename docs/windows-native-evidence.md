@@ -3689,6 +3689,66 @@ arguments `1024, 1024, 1, 0, 22, 2, 0x101517CC, 0`、endpoint `0x010111A0`、ret
 `0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
 
+## 120. BGI D3D9 surface DC and logical fill
+
+Focused `d3d9-surface-get-dc` observationを独立に2回取得した。Primary raw traceは259,841 bytes／
+519 records／225 balanced API pairs／SHA-256
+`3d0010cace0f0e13e3f0c6918b57d3aaac46afb8b2fb399d16ec2197de41acef`、summaryは235,461 bytes／
+SHA-256 `0a08225c4a15cd82f15d5401a8247b2b301bad1e787551fcb1f34e34c26b4192`である。Confirmation raw
+traceは258,887 bytes／518 records／224 balanced pairs／SHA-256
+`8e5109f42a539e04421bf2ac33fa85a98b27a084b52e2b2f2738f1861393c03c`、summaryは235,576 bytes／
+SHA-256 `2b8e16261cdc17afc3b8779b94ecae3de9a4265277105aba0dad82277872010c`で、両summaryともdiagnosticsは
+0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceはBGI caller RVA `0x0005A746／0x0005A76C／0x0005A77D／0x0005A78E／0x0005A79A`から
+`IDirect3DSurface9::GetDC -> GetStockObject(4) -> FillRect([0,0,800,600]) ->
+IDirect3DSurface9::ReleaseDC -> IDirect3DSurface9::Release`をこの順で一回ずつ完了する。GetDC／
+ReleaseDCは`S_OK`、FillRectは`1`、surface Releaseは`1`、HDC／BLACK_BRUSHはnon-NULL、全observed
+LastErrorは0である。Native HDC／brush／COM pointer値はartifact identityであり、Vine guest identityへimportしない。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Controlled COFF-i386 oracleはsource 16,434 bytes／SHA-256
+`33d79e003ff050f8e22787629b375d60c1650a331148d7e7ef40ed68654ad685`、executable 8,704 bytes／
+SHA-256 `056d6fd36e5cfc14840b63137219e8e3fa36bcfb396104d1d1cba6faf7e6bd00`である。一つのsurfaceで最初の
+GetDCは`S_OK`、repeatは`D3DERR_INVALIDCALL`かつoutput preserve、正しいReleaseDC後のreacquireは`S_OK`で、
+surface reference countは`2`のままである。Wrong／repeated ReleaseDCは`D3DERR_INVALIDCALL`、正しいreleaseは
+`S_OK`となる。Native `LockRect`はlive DC中に`D3DERR_INVALIDCALL`、release後に`S_OK`となる。NULL／read-only
+outputはaccess violation `0xC0000005`で、各fixture SHA-256は
+`f533018f6f7619ce6d67b27ebee5e0b2f9ca8401f7e4c5abf1a7585e70d68e6f`／
+`ad7b34ea2ddd5206d050cd8550b0fb8074f9ceafacbc9819d330590c0759f6eb`である。SuccessはLastErrorを保存する。
+Oracle source／binaryは`.work/`に保持しGitへ追加しない。
+
+Runtimeはversion-11 `primary-surface-gdi-dc-v1`を実装した。Sequence 17,852から17,856、instruction
+11,807,793／805／812／820／826でsurface `0x01030004`からHDC `0x47010002`／logical DC ID 2を取得し、
+shared brush `0x47020001`でlogical graphics surface ID 1へCOLORREF 0のfill commandを一件記録し、HDCと
+surfaceをretireする。`RuntimeGdi`はsurface／COM／threadへのnon-owning HDC relationを所有し、
+`RuntimeGraphics`は`1024x1024` B8G8R8X8 surface、bounded fill history、content generation 1を所有する。
+Guest HDC writeとGDI publicationは一transactionであり、repeat／wrong-owner／capacity／stale／unwritable pathは
+guest bytes、identity allocator、GDI／graphics generationをpartial mutationしない。HDCはCOM refを増やさないが、
+live中のsurface retirementを拒否する。ReleaseDC後のsurface Releaseはreference count 0となり、logical surfaceも
+retireする。Pixel storageとbrowser renderer resourceは生成しない。
+
+Node summaryは17,857 calls／11,807,928 terminal instructions、17,912 writebacks／36,064 dirty pages／
+1,807,607 changed bytes、16,568 host deltas、generation 34,810を通す。Semantic SHA-256は
+`7ae02cafb6169f8c2fab4ef007a8a6feaa98321d2b8334c37cb7bc7f687ac65a`、final memory SHA-256は
+`070d7ec3e62b64ec3076a5fa9cde8311f6937aa022594c8dbae690a626d42135`、reportは49,961 bytes／
+SHA-256 `13662b82392008a417a44457e1fd83abb88673c64527cac0a00ce4a791e9f104`である。
+
+Chrome Runtime Workerもsame ordered semantics／instructions／digestを再現し、29,088 writebacks／61,970 pages、
+16,568 mapping deltas、generation 27→45,988、63,596 Wasm crossings、87,236 success transitions、terminal
+pending work zeroを通す。Elapsedは3,149.935 ms、maximum sliceは2.515 ms、632 heartbeat samplesのmaximum
+gapは18.015 msである。Browser reportは115,926 bytes／SHA-256
+`b0d86b3f844f2d035798adbada78129d1b5d3538aa1b3a1678637d3457d1e9dd`、Wasm artifactは3,568,357 bytes／
+SHA-256 `ada8b39eaf1535d92c2c5a6552b8c5d2fafec3f48d2894196f0a72e46207630b`である。同じ180-second
+fixtureは63 sessions、semantic failure 0、17／17 unchanged thresholdsを通した。Benchmark reportは956,407
+bytes／SHA-256 `8382db48a785f6d36dce74d6e68fd16d0696efeeb5b157177548ff3b2aefa685`である。
+
+次stopはinstruction 11,807,928、runtime-system endpoint ID 8、`WINMM.dll!timeGetTime`、endpoint
+`0x7F000070`、IAT `0x100D14E4`、return `0x10091EBF`の`endpoint-contract-missing`である。Logical fillは
+pixel outputではなく、surface storage、pitch、Lock／Unlock、renderer、draw、Present、Reset、device loss、
+first visible frameはこのcheckpointで実装済みとしない。
+
 ## 118. BGI D3D9 logical texture creation
 
 Section 117のfocused `d3d9-create-device` observationをtexture oracleとして再利用する。Primary raw traceは

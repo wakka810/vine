@@ -254,6 +254,14 @@ function validateSession(report: SessionReport, expected: any): void {
   invariant(report.supportedCallCount === expected.supportedCalls, "BGI call count changed");
   invariant(report.supportedCalls.length === 0, "BGI benchmark retained detailed call evidence");
   invariant(
+    report.supportedCallSemanticsAlgorithm === expected.callSemanticsAlgorithm,
+    "BGI semantic-call digest algorithm changed",
+  );
+  invariant(
+    report.supportedCallSemanticsSha256 === expected.callSemanticsSha256,
+    "BGI semantic-call digest changed",
+  );
+  invariant(
     report.sourceReads.length === expected.sourceReadCompletions,
     "BGI source-read completion count changed",
   );

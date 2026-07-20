@@ -338,15 +338,21 @@ Slot 18は2-word／HRESULT ABI、level zero、4-byte surface pointer publication
 `IDirect3DSurface9` catalog、child-held texture reference、private logical descriptor／indexを検証する。
 Repeat取得は同じsurface／IUnknown identityへAddRefし、invalid level／NULL／unwritable／capacity／stale pathは
 guest、COM、graphics stateをpartial mutationしない。Final surface releaseはlogical surfaceをretireして
-必要ならtexture／device／rootへcascadeする。Node／Chromeはsame ordered surface completionとslot 15
-`GetDC` stopを比較し、browser renderer、texture／surface storage、pitch、DCが未生成であることを要求する。
+必要ならtexture／device／rootへcascadeする。Surface slot 15／16は1-word／HRESULT ABI、4-byte HDC writeと
+exact surface／HDC／thread release relationを検証する。Repeat acquisition、wrong／repeated releaseは
+`D3DERR_INVALIDCALL`かつfailure-atomicで、live HDC中のsurface COM retirementを拒否する。Reached
+`GetStockObject(4)`／`FillRect`はtyped graphics-surface HDCを通り、GDI ownerとGraphics ownerのplanを両方
+preflightして`1024x1024` surfaceへ`[0,0,800,600]`／COLORREF 0のbounded commandを一件だけcommitする。
+Node／Chromeはsame ordered surface DC／fill／release semanticsと次のowned endpointを比較し、browser renderer、
+texture／surface pixel storage、pitch、Lock stagingが未生成であることを要求する。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
 method、nested AddRef relationに加え、focused surface callと直後の`GetDC` orderingを固定する。Controlled
 i386 oracleはrepeat surface／IUnknown identity、textureとは別のIUnknown、`GetContainer` relation、native
 invalid-level output zero化とNULL access violationを固定する。Vineは共通failure-atomicity contractを優先し、
-invalid inputでoutputを変更しない。詳細は
+invalid inputでoutputを変更しない。Surface DC oracleはrepeat／reacquire、surface reference-count不変、
+wrong／repeated `ReleaseDC`、live DC中の`LockRect`拒否、NULL／read-only output exceptionを固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module
@@ -855,7 +861,7 @@ window snapshot、8 callback completions、active／focus／foreground relation�
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
-後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureはRust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeをguest自身とrunnerの両方で検証する。protocol version 7は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、Rust-owned logical window completion metadataに加え、summary／full evidence levelを明示する。通常のprivate gateはsummaryを使うが、全callを外部可観測fieldへ正規化し、予約sequence順の`sha256-canonical-json-v1`をNode／Chromeで独立計算して一致させる。handler ID等の内部fieldはdigest対象外で、詳細call／writeback／host-delta列は明示的なfull診断だけに残す。Summaryでもsequence identity、call count、source completion、memory digest、terminal stopを検査し、Windows stateをTypeScriptへ複製しない。initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰すること、replacement時にretired frame identityを照合することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-03`～`AC-P1-05`、`AC-P1-07`、`AC-P1-10`とimmutable-source／logical-window ingressへのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、writable persistence、full-play title behaviorを代用しない。
+後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureはRust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeをguest自身とrunnerの両方で検証する。protocol version 7は`thread-switch`／`thread-exit`を含むclosed execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、Rust-owned logical window completion metadataに加え、summary／full evidence levelを明示する。通常のprivate gateはsummaryを使うが、全callを外部可観測fieldへ正規化し、予約sequence順の`sha256-canonical-json-v1`をNode／Chromeで独立計算して一致させる。Digest自身がnext sequenceとbounded pending mapでduplicateを拒否し、別のcompleted-sequence collectionをauthorityにしない。ASCII canonical fragmentのdirect SHA入力とnon-ASCII UTF-8 fallbackは同じalgorithm hashをUnicode／optional-field／guest-write projection testで固定する。Handler ID等の内部fieldはdigest対象外で、詳細call／writeback／host-delta列は明示的なfull診断だけに残す。Summaryでもsequence identity、call count、source completion、memory digest、terminal stopを検査し、Windows stateをTypeScriptへ複製しない。initial threadのhost wait中にsecond guest threadがmarker write／exitし、その後initial contextへ復帰すること、replacement時にretired frame identityを照合することを要求する。State contractはillegal transitionのmutation前拒否、wrong-thread／duplicate／cancelled-late completion、nested sync APIとcallback-resuming async policy、全terminal pathの`stopped`／pending request record zero、watchdogのthread／request／last-transition contextを検査する。Engine contractはactual WasmでCPU contextのmutation-free生成／保存／復元、structured stop、mapping operation、owner-tagged changed batch、cache effect、pinned revision／ABI／artifact mismatchを検査し、Runtime Worker sourceにPTE／private offset／v86 reasonがないことを固定する。Current measurementは[current-checkpoint.json](current-checkpoint.json)だけを正とする。これは`AC-P1-03`～`AC-P1-05`、`AC-P1-07`、`AC-P1-10`とimmutable-source／logical-window ingressへのpartial evidenceであり、general Win32 thread creation、wait-any／wait-all、timeout／fairness、writable persistence、full-play title behaviorを代用しない。
 
 private BGI Worker contractはactive generic profileをChrome内Rust/Wasm authorityで実行する。Nodeは
 oracle reportだけを生成し、Chrome側のprocess／module／heap／dispatcher／memory stateを所有しない。
@@ -863,7 +869,8 @@ Ordered completion、source-read request／cursor／payload identity、final mem
 module detach、pending work zeroを要求する。別のversioned workload gateは同じWorkerでsessionを反復し、
 latency／slice／heartbeat distribution、main／Worker heap、backing storage、Rust／execution-engine linear
 memory、Wasm crossingをthreshold判定する。必要sampleが取得不能ならfailし、current resultはmanifestだけへ
-保存する。Threshold failureはretryやlimit変更で合格化せず、exact failure、artifact、試した切り分け、
+保存する。各sessionはcall countだけでなくdigest algorithmとsemantic SHAもmanifestへ照合する。Threshold
+failureはretryやlimit変更で合格化せず、exact failure、artifact、試した切り分け、
 保持するinvariant、必要権限、再開条件をstructured blockerとして同じmanifestへ残す。Host負荷を利用者の
 許可なく停止せず、同じfixtureをisolated hostで再測定しても失敗する場合だけWorker profileとbounded
 optimizationへ進む。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および

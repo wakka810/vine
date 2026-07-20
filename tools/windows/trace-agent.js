@@ -21,14 +21,22 @@ const focusedD3d9CreateDeviceObservation =
 const focusedD3d9GetSurfaceLevelObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-get-surface-level");
+const focusedD3d9SurfaceGetDcObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-surface-get-dc");
+const focusedD3d9ResourceObservation =
+  focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
-  focusedD3d9CreateDeviceObservation || focusedD3d9GetSurfaceLevelObservation;
+  focusedD3d9CreateDeviceObservation || focusedD3d9ResourceObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
 let focusedD3d9DeviceMethodCaptured = false;
 let focusedD3d9TextureMethodCaptured = false;
 let focusedD3d9SurfaceMethodCaptured = false;
+let focusedD3d9SurfaceObject = null;
+let focusedD3d9SurfaceDcComplete = false;
+const focusedD3d9SurfaceDcCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -3062,10 +3070,46 @@ function attachIdirect3dsurface9(object) {
             return;
           }
           const objectAddress = args[0].toString();
+          if (focusedD3d9SurfaceGetDcObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const expectedMethod =
+              focusedD3d9SurfaceDcCalls.length === 0
+                ? "GetDC"
+                : focusedD3d9SurfaceDcCalls.length === 3
+                  ? "ReleaseDC"
+                  : focusedD3d9SurfaceDcCalls.length === 4
+                    ? "Release"
+                    : null;
+            if (
+              focusedD3d9SurfaceDcComplete ||
+              objectAddress.toLowerCase() !== focusedD3d9SurfaceObject ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              name !== expectedMethod
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+          }
           const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
             args[index + 1].toString(),
           );
           this.traceObject = objectAddress;
+          this.traceArguments = arguments_;
+          this.traceSurfaceDcOutput =
+            focusedD3d9SurfaceGetDcObservation && slot === 15 ? args[1] : null;
+          this.traceSurfaceGetDc =
+            this.traceSurfaceDcOutput === null
+              ? null
+              : {
+                  output: {
+                    before: snapshotPointerSlot(this.traceSurfaceDcOutput),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -3085,6 +3129,17 @@ function attachIdirect3dsurface9(object) {
           if (this.traceFrame === null) {
             return;
           }
+          const d3d9SurfaceGetDc =
+            this.traceSurfaceGetDc === null
+              ? null
+              : {
+                  ...this.traceSurfaceGetDc,
+                  output: {
+                    ...this.traceSurfaceGetDc.output,
+                    after: snapshotPointerSlot(this.traceSurfaceDcOutput),
+                  },
+                };
+          const lastError = Number(this.lastError) >>> 0;
           finishCall(
             this.traceFrame,
             {
@@ -3094,6 +3149,7 @@ function attachIdirect3dsurface9(object) {
               vtableSlot: slot,
               object: this.traceObject,
               result: result.toString(),
+              ...(d3d9SurfaceGetDc === null ? {} : { d3d9SurfaceGetDc }),
             },
             this.lastError,
           );
@@ -3104,6 +3160,20 @@ function attachIdirect3dsurface9(object) {
               method: name,
               result: result.toString(),
             });
+          }
+          if (focusedD3d9SurfaceGetDcObservation) {
+            focusedD3d9SurfaceDcCalls.push({
+              api: name,
+              interface: "IDirect3DSurface9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              ...(d3d9SurfaceGetDc === null ? {} : { d3d9SurfaceGetDc }),
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9SurfaceDcObservation();
           }
         },
       });
@@ -3120,6 +3190,112 @@ function attachIdirect3dsurface9(object) {
       object: object.toString(),
       error: error.message,
     });
+  }
+}
+
+function attachD3d9SurfaceDcGdiHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = `d3d9-surface-dc:${name}:${address}`;
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const expectedApi =
+        focusedD3d9SurfaceDcCalls.length === 1
+          ? "GetStockObject"
+          : focusedD3d9SurfaceDcCalls.length === 2
+            ? "FillRect"
+            : null;
+      if (
+        !focusedD3d9SurfaceGetDcObservation ||
+        focusedD3d9SurfaceDcComplete ||
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        name !== expectedApi
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      this.traceArguments =
+        name === "GetStockObject"
+          ? [signed32(args[0])]
+          : [args[0].toString(), args[1].toString(), args[2].toString()];
+      this.traceRect = name === "FillRect" ? snapshotRect(args[1]) : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.traceArguments,
+          d3d9SurfaceDcGdi: {
+            rect: this.traceRect,
+            immediateConsumer: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              64,
+            ),
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          d3d9SurfaceDcGdi: { rect: this.traceRect },
+        },
+        this.lastError,
+      );
+      focusedD3d9SurfaceDcCalls.push({
+        api: name,
+        module: module.name,
+        arguments: this.traceArguments,
+        result: result.toString(),
+        lastError,
+        rect: this.traceRect,
+        caller: this.traceFrame.caller,
+      });
+      maybeCompleteFocusedD3d9SurfaceDcObservation();
+    },
+  });
+}
+
+function maybeCompleteFocusedD3d9SurfaceDcObservation() {
+  if (focusedD3d9SurfaceDcComplete) {
+    return;
+  }
+  const expected = ["GetDC", "GetStockObject", "FillRect", "ReleaseDC", "Release"];
+  if (
+    focusedD3d9SurfaceDcCalls.length !== expected.length ||
+    !expected.every(
+      (api, index) => focusedD3d9SurfaceDcCalls[index]?.api === api,
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9SurfaceDcObservation, 10);
+    return;
+  }
+  focusedD3d9SurfaceDcComplete = true;
+  emit("d3d9-surface-get-dc-complete", {
+    profile: "x86-bgi-system-memory-surface-dc-fill-v1",
+    surface: focusedD3d9SurfaceObject,
+    calls: focusedD3d9SurfaceDcCalls,
+  });
+  if (stopOnEvent === "d3d9-surface-get-dc-complete") {
+    recv("vine-trace-stop", () => {}).wait();
   }
 }
 
@@ -3146,10 +3322,7 @@ function attachIdirect3dtexture9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (
-            focusedD3d9GetSurfaceLevelObservation &&
-            focusedD3d9TextureMethodCaptured
-          ) {
+          if (focusedD3d9ResourceObservation && focusedD3d9TextureMethodCaptured) {
             this.traceFrame = null;
             return;
           }
@@ -3217,11 +3390,15 @@ function attachIdirect3dtexture9(object) {
             typeof d3d9GetSurfaceLevel.surfaceOutput.after.value === "string" &&
             d3d9GetSurfaceLevel.surfaceOutput.after.value !== "0x0"
           ) {
+            if (focusedD3d9SurfaceGetDcObservation) {
+              focusedD3d9SurfaceObject =
+                d3d9GetSurfaceLevel.surfaceOutput.after.value.toLowerCase();
+            }
             attachIdirect3dsurface9(
               ptr(d3d9GetSurfaceLevel.surfaceOutput.after.value),
             );
           }
-          if (focusedD3d9GetSurfaceLevelObservation) {
+          if (focusedD3d9ResourceObservation) {
             focusedD3d9TextureMethodCaptured = true;
           }
         },
@@ -3277,7 +3454,7 @@ function attachIdirect3ddevice9(object) {
             args[index + 1].toString(),
           );
           this.traceD3d9CreateTextureOutput =
-            focusedD3d9GetSurfaceLevelObservation && slot === 23
+            focusedD3d9ResourceObservation && slot === 23
               ? args[7]
               : null;
           this.traceD3d9CreateTexture =
@@ -14037,6 +14214,20 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("d3d9-surface-get-dc")
+    ) {
+      try {
+        attachD3d9SurfaceDcGdiHook(module, "FillRect");
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "FillRect",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
       selectedObservations.has("set-window-long-a")
     ) {
       try {
@@ -14055,6 +14246,20 @@ Process.attachModuleObserver({
     ) {
       try {
         attachWindowDcHook(module, "GetStockObject");
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetStockObject",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "gdi32.dll" &&
+      selectedObservations.has("d3d9-surface-get-dc")
+    ) {
+      try {
+        attachD3d9SurfaceDcGdiHook(module, "GetStockObject");
       } catch (error) {
         emit("hook-error", {
           module: module.name,
