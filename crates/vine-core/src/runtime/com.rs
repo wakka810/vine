@@ -392,6 +392,29 @@ impl RuntimeCom {
         self.interface(id)
     }
 
+    pub fn interface_for_object_iid(
+        &self,
+        object_id: RuntimeComObjectId,
+        iid: RuntimeComIid,
+    ) -> Result<&RuntimeComInterfaceRecord, RuntimeStateError> {
+        self.object(object_id)?;
+        let id = self
+            .iid_index
+            .get(&(object_id, iid))
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-com",
+                    "com-object-interface-iid-unknown",
+                    format!(
+                        "logical COM object ID {} does not expose IID {:?}",
+                        object_id.0, iid
+                    ),
+                )
+            })?;
+        self.interface(id)
+    }
+
     pub fn resolve_method(
         &self,
         endpoint: GuestAddress,

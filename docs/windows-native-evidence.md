@@ -3735,3 +3735,66 @@ pending work zeroを通す。Browser reportは116,634 bytes／SHA-256
 arguments `0, 0x006FFD38`、endpoint `0x01021150`、return `0x1005A731`の`com-method-unsupported`である。
 Surface identity／storage／pitch／Lock、renderer、draw、Present、Reset、device loss、first visible frameはこの
 checkpointで実装済みとしない。
+
+## 119. BGI D3D9 level-zero surface retrieval
+
+Focused `d3d9-get-surface-level` observationを独立に2回取得した。Primary raw traceは228,637 bytes／
+514 records／222 balanced API pairs／SHA-256
+`54aa56bade26d675f864162bb7a7a2f8b4fc30f8df8dbd0835681cc09f9eced2`、summaryは230,104 bytes／
+SHA-256 `c68ef403d864c89ad466ed3bda3cef750065d7555b815fb23f3ad99a43697c8e`である。Confirmation
+raw traceは229,203 bytes／514 records／222 balanced pairs／SHA-256
+`e3f6d853293cfa8f395695c2de21cb4675cc71f27efa4b3715f2171575ad1422`、summaryは230,131 bytes／
+SHA-256 `1ed3b5f247a8b6dd82efd2cdaa7cb0393e68d7db9639d07eaa1afa2244b4a81f`で、両summaryとも
+diagnosticsは0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceにはBGI caller RVA `0x0005A731`からsuccessful `IDirect3DTexture9::GetSurfaceLevel`が一callあり、
+level `0`、result `S_OK`、observed LastError `0`、surface output non-NULLである。CallerはHRESULT signを
+消費し、直後にsurface slot 15 `GetDC`をRVA `0x0005A746`から呼ぶ。Native pointer値、vtable bytes、
+reference countはartifact identityであり、Vine guest identityへimportしない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+別のcontrolled COFF i386 oracleはsource 13,977 bytes／SHA-256
+`1ec0c191bb9783abcbfae7b92ba6d7136018111c4b1da7c860d7dd343daca562`、executable 12,288 bytes／
+SHA-256 `7ca28333d06b7352b032b0af9ceb22a016e03d5830f17a74231569ef2b2fee9e`である。Repeat level-zero
+取得は同じsurface pointerとIUnknown identityを返し、surface IUnknownはtexture IUnknownと異なる。
+Surface `GetContainer(IID_IDirect3DTexture9)`は元textureを返す。Native invalid levelは
+`D3DERR_INVALIDCALL`とoutput NULLを書き、NULL outputは`0xC0000005` access violationとなる。Success時は
+LastErrorを保存する。Oracle source／binaryは`.work/`に保持しGitへ追加しない。
+
+Runtimeはversion-10 `primary-texture-level-zero-surface-v1`だけを実装した。Sequence 17,851／instruction
+11,807,783でtexture `0x01020004`からarguments `0, 0x006FFD38`で呼ばれ、outputへsurface pointer
+`0x01030004`を書いて`S_OK`を返す。`RuntimeCom`はobject ID 5／interface ID 10の17-slot childをreference
+count 1でpublishし、texture countはretained referenceにより2となる。`RuntimeGraphics`はlogical surface
+ID 1、texture ID 1とのrelation、descriptor `level 0／1024x1024／format 22`を所有する。Guest 4 bytes、
+COM identity、graphics associationは全owner preflight後にpublishされる。Repeat取得は同じsurface identityへ
+AddRefし、final surface releaseはassociationをretireして必要ならtexture／device／root retirementへcascadeする。
+Vineはrepository共通のfailure atomicityを優先し、invalid level／NULL outputへ
+`D3DERR_INVALIDCALL`を返してoutputを変更しない。Unwritable output、capacity、stale planもguest bytes、
+COM count、graphics index、allocator、generationを変更しない。Pixel storage、pitch、DC、lock staging、
+browser renderer resourceは生成しない。
+
+Node summaryは17,851 calls／11,807,793 terminal instructions、17,906 writebacks／36,057 dirty pages／
+1,807,491 changed bytes、16,566 host deltas、generation 34,802を通す。Semantic SHA-256は
+`7c43c22e49cd62568797ded4382ceacba5659be3c42d4a3460186702247c08bf`、final memory SHA-256は
+`d4c3bed5fe4ab0ebd2bacc0c32023a679cc1c6d55f7c0701cb981eeec368f3e2`、reportは55,216 bytes／
+SHA-256 `31fac5d5f3884fc6caa88e4c4073e791da1b132052fb3b1255b348999f620045`である。
+
+Chrome Runtime Workerもsame ordered completion／instructions／semantic digestを再現し、29,084 slices、
+29,082 writebacks／61,963 pages、16,566 mapping deltas／17,761 dirty pages、generation 27→45,980、
+63,579 Wasm crossings、87,218 success execution transitions、terminal pending work zeroを通す。Elapsedは
+4,426.825 ms、maximum sliceは2.845 ms、888 heartbeat samplesのmaximum gapは24.055 msである。
+Browser reportは116,622 bytes／SHA-256
+`c51183ef250d39ab79929a39d58965c54b33e6bf93b530708899bd459c696fb7`である。Wasm artifactは
+3,527,856 bytes／SHA-256 `2498908a70fac8a2404f39346791186803906f79c482f995c8711fa1f10feb12`である。
+
+同じ180-second fixtureと既存17 thresholdsのbenchmarkは46 sessions、semantic failure 0、session P95
+4,037.135 ms、slice P99 2.535 ms、heartbeat P99／maximum 6.005／34.145 msで17／17を通した。
+Reportは947,266 bytes／SHA-256
+`d563064d738dcf927c167d2d4808420c12ec8d55253c4a658c7a6187f592021b`であり、threshold変更やretry acceptanceは
+行っていない。
+
+次stopはinstruction 11,807,793、`IDirect3DSurface9` slot 15／`GetDC`、this `0x01030004`、argument
+`0x006FFD3C`、endpoint `0x01031120`、return `0x1005A746`の`com-method-unsupported`である。Logical
+surface identityは実装済みだが、HDC identity／lifetime、pixel storage、pitch、Lock、renderer、draw、Present、
+Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。

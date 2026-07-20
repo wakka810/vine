@@ -334,11 +334,19 @@ write、COM identity、logical presentationを比較する。Slot 23は8-word／
 complete 22-slot `IDirect3DTexture9` catalog、child-held device reference、private logical descriptor／indexを
 検証する。Invalid／unsupported／unwritable／capacity／stale pathsはguest、COM、graphics stateをpartial
 mutationせず、final texture releaseはlogical textureをretireして必要ならdevice／rootへcascadeする。
-Node／Chromeはsame ordered texture completionとslot 18 `GetSurfaceLevel` stopを比較し、browser rendererと
-texture storageが未生成であることを要求する。COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedな
-capture幅とし、return address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。
-Native two-run oracleはzero width／height／formatのresolution、remaining field preserve、
-non-NULL device、first reached device method、nested AddRef relationを固定する。詳細は
+Slot 18は2-word／HRESULT ABI、level zero、4-byte surface pointer publication、complete 17-slot
+`IDirect3DSurface9` catalog、child-held texture reference、private logical descriptor／indexを検証する。
+Repeat取得は同じsurface／IUnknown identityへAddRefし、invalid level／NULL／unwritable／capacity／stale pathは
+guest、COM、graphics stateをpartial mutationしない。Final surface releaseはlogical surfaceをretireして
+必要ならtexture／device／rootへcascadeする。Node／Chromeはsame ordered surface completionとslot 15
+`GetDC` stopを比較し、browser renderer、texture／surface storage、pitch、DCが未生成であることを要求する。
+COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
+address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
+zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
+method、nested AddRef relationに加え、focused surface callと直後の`GetDC` orderingを固定する。Controlled
+i386 oracleはrepeat surface／IUnknown identity、textureとは別のIUnknown、`GetContainer` relation、native
+invalid-level output zero化とNULL access violationを固定する。Vineは共通failure-atomicity contractを優先し、
+invalid inputでoutputを変更しない。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

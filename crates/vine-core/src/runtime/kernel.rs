@@ -32,8 +32,8 @@ use super::address_space::{
     ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::com::{
-    RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
-    RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectId,
+    RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
+    RuntimeComInterfaceRecord, RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectId,
     RuntimeComObjectRegistration, RuntimeComReferenceResult, RuntimeComRegistrationResult,
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
@@ -51,9 +51,10 @@ use super::gdi::{
 use super::graphics::{
     RuntimeGraphics, RuntimeGraphicsComRetirementPlan, RuntimeGraphicsDevice,
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
-    RuntimeGraphicsDeviceCreationRequest, RuntimeGraphicsDeviceId, RuntimeGraphicsTexture,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureCreationPlan,
-    RuntimeGraphicsTextureId, RuntimeGraphicsWindowTarget,
+    RuntimeGraphicsDeviceCreationRequest, RuntimeGraphicsDeviceId, RuntimeGraphicsSurface,
+    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsSurfaceCreationPlan,
+    RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureCreationPlan, RuntimeGraphicsTextureId, RuntimeGraphicsWindowTarget,
 };
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
@@ -910,6 +911,14 @@ impl RuntimeKernel {
         pointer: GuestAddress,
     ) -> Result<&RuntimeComInterfaceRecord, RuntimeStateError> {
         self.com.interface_for_pointer(pointer)
+    }
+
+    pub fn com_interface_for_object_iid(
+        &self,
+        object_id: RuntimeComObjectId,
+        iid: RuntimeComIid,
+    ) -> Result<&RuntimeComInterfaceRecord, RuntimeStateError> {
+        self.com.interface_for_object_iid(object_id, iid)
     }
 
     pub(crate) fn plan_com_address_reservation(
@@ -3322,6 +3331,50 @@ impl RuntimeKernel {
         self.graphics.textures()
     }
 
+    pub(crate) fn plan_graphics_surface_creation(
+        &self,
+        request: RuntimeGraphicsSurfaceCreateRequest,
+    ) -> Result<RuntimeGraphicsSurfaceCreationPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.plan_surface_creation(request)
+    }
+
+    pub(crate) fn preflight_graphics_surface_creation(
+        &self,
+        plan: &RuntimeGraphicsSurfaceCreationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.graphics.preflight_surface_creation(plan)
+    }
+
+    pub(crate) fn commit_graphics_surface_creation(
+        &mut self,
+        plan: RuntimeGraphicsSurfaceCreationPlan,
+        com_object_id: RuntimeComObjectId,
+    ) -> RuntimeGraphicsSurface {
+        self.graphics.commit_surface_creation(plan, com_object_id)
+    }
+
+    pub(crate) fn graphics_surface_for_texture_level(
+        &self,
+        texture_com_object_id: RuntimeComObjectId,
+        level: u32,
+    ) -> Result<Option<&RuntimeGraphicsSurface>, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics
+            .surface_for_texture_level(texture_com_object_id, level)
+    }
+
+    pub fn graphics_surface(
+        &self,
+        id: RuntimeGraphicsSurfaceId,
+    ) -> Result<&RuntimeGraphicsSurface, RuntimeStateError> {
+        self.graphics.surface(id)
+    }
+
+    pub fn graphics_surfaces(&self) -> &BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface> {
+        self.graphics.surfaces()
+    }
+
     fn resolve_graphics_window_target(
         &self,
         window_handle: u32,
@@ -4945,16 +4998,17 @@ mod tests {
         D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16, D3D9_D3DFMT_UNKNOWN,
         D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_SYSTEMMEM,
         D3D9_D3DSWAPEFFECT_DISCARD, D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID,
-        D3D9_IDIRECT3DTEXTURE9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
-        dispatch_d3d9_com_call,
+        D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID, D3d9CompatibilityPolicy,
+        direct3d9_object_spec, dispatch_d3d9_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
-        RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
-        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeGraphicsColorFormat,
-        RuntimeGraphicsPresentMode, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
-        RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
-        RuntimeWindowGeometry, RuntimeWindowNameA, RuntimeWindowProcedureCallingConvention,
+        RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+        RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+        RuntimeGraphicsColorFormat, RuntimeGraphicsPresentMode, RuntimeGraphicsTexturePool,
+        RuntimeGraphicsTextureUsage, RuntimeWindowClassModule, RuntimeWindowClassNameA,
+        RuntimeWindowClassReference, RuntimeWindowGeometry, RuntimeWindowNameA,
+        RuntimeWindowProcedureCallingConvention,
     };
     use crate::{ExecutionSession, RuntimeRect, Rva};
 
@@ -4965,6 +5019,8 @@ mod tests {
     const D3D9_FIXTURE_OUTPUT: GuestAddress = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x900);
     const D3D9_FIXTURE_TEXTURE_OUTPUT: GuestAddress =
         GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x904);
+    const D3D9_FIXTURE_SURFACE_OUTPUT: GuestAddress =
+        GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x908);
     const D3D9_FIXTURE_CALL_SITE: GuestAddress = GuestAddress(0x1005_aca5);
 
     #[test]
@@ -5199,7 +5255,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v9(),
+                &D3d9CompatibilityPolicy::controlled_v10(),
                 ComCallTrap {
                     endpoint_address: root_interface.methods[&16].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5343,7 +5399,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v9(),
+                    &D3d9CompatibilityPolicy::controlled_v10(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5383,8 +5439,9 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled = D3d9CompatibilityPolicy::controlled_v9();
+        let mut disabled = D3d9CompatibilityPolicy::controlled_v10();
         disabled.create_texture = None;
+        disabled.get_surface_level = None;
         let before_disabled_memory = memory.stats();
         let before_disabled_runtime = runtime.clone();
         let disabled_fault = {
@@ -5428,7 +5485,7 @@ mod tests {
         let texture_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v9(),
+                &D3d9CompatibilityPolicy::controlled_v10(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&23].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5508,6 +5565,242 @@ mod tests {
             RuntimeGraphicsTexturePool::SystemMemory
         );
 
+        for (level, output, expected) in [
+            (1, D3D9_FIXTURE_SURFACE_OUTPUT.0, D3D9_D3DERR_INVALIDCALL),
+            (0, 0, D3D9_D3DERR_INVALIDCALL),
+        ] {
+            write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+            write_d3d9_fixture_words(
+                &mut memory,
+                D3D9_FIXTURE_STACK,
+                &[
+                    0x1005_a731,
+                    texture_interface.guest_pointer.0,
+                    level,
+                    output,
+                ],
+            );
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let before_memory = memory.stats();
+            let before_runtime = runtime.clone();
+            let completion = {
+                let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+                match dispatch_d3d9_com_call(
+                    &D3d9CompatibilityPolicy::controlled_v10(),
+                    ComCallTrap {
+                        endpoint_address: texture_interface.methods[&18].endpoint,
+                        stack_pointer: D3D9_FIXTURE_STACK,
+                        return_address: GuestAddress(0x1005_a731),
+                        call_site: GuestAddress(0x1005_a731),
+                    },
+                    &mut session,
+                ) {
+                    ComDispatchOutcome::Completed(completion) => completion,
+                    other => panic!("invalid GetSurfaceLevel did not complete: {other:?}"),
+                }
+            };
+            assert_eq!(completion.return_value, ComReturnValue::HResult(expected));
+            assert!(completion.guest_writes.is_empty());
+            assert_eq!(memory.stats(), before_memory);
+            assert_eq!(runtime, before_runtime);
+            assert_eq!(
+                memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+                0xcccc_cccc_u32.to_le_bytes()
+            );
+        }
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a731,
+                texture_interface.guest_pointer.0,
+                0,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v10();
+        disabled_surface.get_surface_level = None;
+        let before_disabled_memory = memory.stats();
+        let before_disabled_runtime = runtime.clone();
+        let disabled_fault = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &disabled_surface,
+                ComCallTrap {
+                    endpoint_address: texture_interface.methods[&18].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_a731),
+                    call_site: GuestAddress(0x1005_a731),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Fault(fault) => fault,
+                other => panic!("disabled GetSurfaceLevel did not fault: {other:?}"),
+            }
+        };
+        assert_eq!(disabled_fault.class, ComFaultClass::Unsupported);
+        assert_eq!(disabled_fault.code, "get-surface-level-policy-disabled");
+        assert_eq!(memory.stats(), before_disabled_memory);
+        assert_eq!(runtime, before_disabled_runtime);
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a731,
+                texture_interface.guest_pointer.0,
+                0,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let surface_completion = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v10(),
+                ComCallTrap {
+                    endpoint_address: texture_interface.methods[&18].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_a731),
+                    call_site: GuestAddress(0x1005_a731),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("GetSurfaceLevel did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            surface_completion.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(
+            surface_completion.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 16)
+        );
+        assert_eq!(surface_completion.guest_writes.len(), 1);
+        assert_eq!(
+            surface_completion.guest_writes[0].address,
+            D3D9_FIXTURE_SURFACE_OUTPUT
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let surface_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_SURFACE_OUTPUT, 4)
+                .expect("GetSurfaceLevel output pointer")
+                .try_into()
+                .unwrap(),
+        );
+        let surface_interface = runtime
+            .com_interface_for_pointer(GuestAddress(surface_pointer))
+            .expect("IDirect3DSurface9 output")
+            .clone();
+        assert_eq!(surface_interface.iid, D3D9_IDIRECT3DSURFACE9_IID);
+        assert_eq!(surface_interface.methods.len(), 17);
+        assert_eq!(surface_interface.methods[&15].name, "GetDC");
+        let surface_object = runtime
+            .com()
+            .object(surface_interface.object_id)
+            .expect("surface COM object")
+            .clone();
+        assert_eq!(surface_object.reference_count, 1);
+        assert_eq!(
+            surface_object.parent_interface_id,
+            Some(texture_interface.id)
+        );
+        assert_eq!(
+            runtime
+                .com()
+                .object(texture_object.id)
+                .unwrap()
+                .reference_count,
+            2
+        );
+        let surface = runtime
+            .graphics_surfaces()
+            .values()
+            .next()
+            .expect("logical graphics surface")
+            .clone();
+        assert_eq!(runtime.graphics_surfaces().len(), 1);
+        assert_eq!(surface.namespace, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE);
+        assert_eq!(surface.texture_id, texture.id);
+        assert_eq!(surface.com_object_id, surface_object.id);
+        assert_eq!(surface.descriptor.level, 0);
+        assert_eq!(surface.descriptor.width, 1_024);
+        assert_eq!(surface.descriptor.height, 1_024);
+        assert_eq!(
+            surface.descriptor.color_format,
+            RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+        );
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a731,
+                texture_interface.guest_pointer.0,
+                0,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let repeated_surface = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v10(),
+                ComCallTrap {
+                    endpoint_address: texture_interface.methods[&18].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_a731),
+                    call_site: GuestAddress(0x1005_a731),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("repeated GetSurfaceLevel did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            repeated_surface.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+            surface_pointer.to_le_bytes()
+        );
+        assert_eq!(runtime.graphics_surfaces().len(), 1);
+        assert_eq!(
+            runtime
+                .com()
+                .object(surface_object.id)
+                .unwrap()
+                .reference_count,
+            2
+        );
+        assert_eq!(
+            runtime
+                .com()
+                .object(texture_object.id)
+                .unwrap()
+                .reference_count,
+            2
+        );
+        let repeated_release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &surface_interface,
+            surface_interface.guest_pointer,
+        );
+        assert_eq!(repeated_release.return_value, ComReturnValue::U32(1));
+        assert!(!repeated_release.object_retired);
+
         let root_release = dispatch_d3d9_fixture_release(
             &mut memory,
             &mut runtime,
@@ -5543,14 +5836,26 @@ mod tests {
             &texture_interface,
             texture_interface.guest_pointer,
         );
-        assert_eq!(texture_release.return_value, ComReturnValue::U32(0));
-        assert!(texture_release.object_retired);
+        assert_eq!(texture_release.return_value, ComReturnValue::U32(1));
+        assert!(!texture_release.object_retired);
+        assert_eq!(runtime.graphics_surfaces().len(), 1);
+
+        let surface_release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &surface_interface,
+            surface_interface.guest_pointer,
+        );
+        assert_eq!(surface_release.return_value, ComReturnValue::U32(0));
+        assert!(surface_release.object_retired);
         assert!(runtime.com().is_empty());
         assert!(runtime.graphics_devices().is_empty());
         assert!(runtime.graphics_textures().is_empty());
+        assert!(runtime.graphics_surfaces().is_empty());
         assert!(memory.read(root_interface.guest_pointer, 4).is_err());
         assert!(memory.read(device_interface.guest_pointer, 4).is_err());
         assert!(memory.read(texture_interface.guest_pointer, 4).is_err());
+        assert!(memory.read(surface_interface.guest_pointer, 4).is_err());
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
     }
 

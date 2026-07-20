@@ -86,8 +86,9 @@ releaseとRust refcountの分離を固定する。このgateは`check:fast`に�
 
 Windows traceではselected `IDirect3D9` rootと`IDirect3DDevice9` childのlifetime relationが記録される。
 Controlled Rust／private runtime evidenceはさらに`IDirect3DTexture9` childがdevice referenceを保持し、
-texture final releaseからdevice／rootへcascadeできることを固定する。Bounded D3D9 frontendはこの共通
-foundationへ接続済みである。Surface／buffer等の追加resource COM object、DirectInput、DirectSound、DirectDraw、
+`IDirect3DSurface9` childがtexture referenceを保持すること、repeat surface取得が同じcanonical identityへ
+AddRefすること、surface final releaseからtexture／device／rootへcascadeできることを固定する。Bounded D3D9
+frontendはこの共通foundationへ接続済みである。Buffer等の追加resource COM object、DirectInput、DirectSound、DirectDraw、
 graphics／audio backend、guest `CoInitializeEx`／`CoUninitialize`、cross-thread marshaling、class factory、
 BSTR／VARIANT／automationは実装しない。
 具体的interfaceはcorpus traceから別taskとしてこのfoundationへ接続する。

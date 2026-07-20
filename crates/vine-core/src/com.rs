@@ -329,6 +329,34 @@ impl ComFrontendCall<'_> {
         )
     }
 
+    pub(crate) fn add_ref_interface_with_guest_pointer_write(
+        &mut self,
+        interface_id: RuntimeComInterfaceId,
+        output_address: GuestAddress,
+    ) -> Result<(u32, Vec<ComGuestWriteReceipt>), RuntimeStateError> {
+        self.memory
+            .validate_access(output_address, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let interface = self.runtime.com().interface(interface_id)?.clone();
+        let bytes = interface.guest_pointer.0.to_le_bytes().to_vec();
+        let plan = self.runtime.plan_com_add_ref(interface_id)?;
+        let reference_count = plan.reference_result().reference_count;
+        let mut transaction = self.memory.begin_transaction();
+        let write_result = transaction
+            .write(output_address, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime.commit_com_mutation(plan)?;
+        transaction.commit_transaction();
+        Ok((
+            reference_count,
+            vec![ComGuestWriteReceipt {
+                address: output_address,
+                bytes,
+                result: write_result,
+            }],
+        ))
+    }
+
     pub(crate) fn fault(
         self,
         class: ComFaultClass,

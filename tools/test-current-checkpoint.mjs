@@ -351,6 +351,33 @@ assert.ok(
   ),
 );
 
+const duplicatedSurfaceAuthority = structuredClone(manifest);
+duplicatedSurfaceAuthority.activeRuntimeCheckpoint.d3d9Frontend.runtimeGraphics.surfaceTextureRelation =
+  "browser-owned-texture-relation";
+assert.ok(
+  validateCurrentCheckpoint(duplicatedSurfaceAuthority).some((error) =>
+    error.includes("active D3D9 frontend boundary"),
+  ),
+);
+
+const unstableSurfaceIdentity = structuredClone(manifest);
+unstableSurfaceIdentity.activeRuntimeCheckpoint.d3d9Frontend.getSurfaceLevel.repeatReturnsSameIdentityAndAddsReference =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(unstableSurfaceIdentity).some((error) =>
+    error.includes("active D3D9 frontend boundary"),
+  ),
+);
+
+const partialGetSurfaceLevelPublication = structuredClone(manifest);
+partialGetSurfaceLevelPublication.activeRuntimeCheckpoint.latestEvidence.d3d9GetSurfaceLevelGuestComGraphicsAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialGetSurfaceLevelPublication).some((error) =>
+    error.includes("latest D3D9 GetSurfaceLevel evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;

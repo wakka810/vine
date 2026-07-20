@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import {
   idirect3d9MethodNames,
   idirect3ddevice9MethodNames,
+  idirect3dsurface9MethodNames,
+  idirect3dtexture9MethodNames,
   summarizeTrace,
 } from "./summarize-windows-trace.mjs";
 
@@ -1083,6 +1085,10 @@ assert.deepEqual(summary.d3d9.deviceCalls, [
     lastError: 0,
   },
 ]);
+assert.deepEqual(summary.d3d9.createTextures, []);
+assert.deepEqual(summary.d3d9.getSurfaceLevels, []);
+assert.deepEqual(summary.d3d9.textureCalls, []);
+assert.deepEqual(summary.d3d9.surfaceCalls, []);
 assert.equal(summary.categories.file.calls, 3);
 assert.equal(summary.categories.window.first.api, "CreateWindowExA");
 assert.equal(summary.categories.graphics.first.api, "Direct3DCreate9");
@@ -1106,6 +1112,290 @@ assert.deepEqual(summary.diagnostics, {
   "agent-message": [],
   "cleanup-error": [],
 });
+
+const pointerSlot = (pointer, value, bytes) => ({
+  pointer,
+  size: 4,
+  bytes,
+  value,
+});
+const vtableSlots = (names, base) =>
+  names.map((name, slot) => ({
+    slot,
+    name,
+    address: `0x${(base + slot * 0x10).toString(16)}`,
+  }));
+const d3d9ResourceEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-20T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "b".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-get-surface-level-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-get-surface-level"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-get-surface-level"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a715",
+      module: "BGI.exe",
+      rva: 0x5a715,
+    },
+    module: "d3d9.dll",
+    api: "CreateTexture",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 23,
+    object: "0x490000",
+    arguments: [
+      "0x400",
+      "0x400",
+      "0x1",
+      "0x0",
+      "0x16",
+      "0x2",
+      "0x6ffd40",
+      "0x0",
+    ],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a715",
+      module: "BGI.exe",
+      rva: 0x5a715,
+    },
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "CreateTexture",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 23,
+    object: "0x490000",
+    result: "0x0",
+    d3d9CreateTexture: {
+      textureOutput: {
+        before: pointerSlot("0x6ffd40", "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
+        after: pointerSlot("0x6ffd40", "0x500000", [0, 0, 0x50, 0]),
+      },
+      immediateConsumer: null,
+    },
+  },
+  {
+    schema,
+    sequence: 6,
+    kind: "vtable-observed",
+    interface: "IDirect3DTexture9",
+    object: "0x500000",
+    vtable: "0x76030000",
+    slots: vtableSlots(idirect3dtexture9MethodNames, 0x7603_0000),
+  },
+  {
+    schema,
+    sequence: 7,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 2,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a731",
+      module: "BGI.exe",
+      rva: 0x5a731,
+    },
+    module: "d3d9.dll",
+    api: "GetSurfaceLevel",
+    interface: "IDirect3DTexture9",
+    vtableSlot: 18,
+    object: "0x500000",
+    arguments: ["0x0", "0x6ffd38"],
+  },
+  {
+    schema,
+    sequence: 8,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 2,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a731",
+      module: "BGI.exe",
+      rva: 0x5a731,
+    },
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "GetSurfaceLevel",
+    interface: "IDirect3DTexture9",
+    vtableSlot: 18,
+    object: "0x500000",
+    result: "0x0",
+    d3d9GetSurfaceLevel: {
+      level: 0,
+      surfaceOutput: {
+        before: pointerSlot("0x6ffd38", "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
+        after: pointerSlot("0x6ffd38", "0x510000", [0, 0, 0x51, 0]),
+      },
+      immediateConsumer: null,
+    },
+  },
+  {
+    schema,
+    sequence: 9,
+    kind: "vtable-observed",
+    interface: "IDirect3DSurface9",
+    object: "0x510000",
+    vtable: "0x76040000",
+    slots: vtableSlots(idirect3dsurface9MethodNames, 0x7604_0000),
+  },
+  {
+    schema,
+    sequence: 10,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 3,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a746",
+      module: "BGI.exe",
+      rva: 0x5a746,
+    },
+    module: "d3d9.dll",
+    api: "GetDC",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 15,
+    object: "0x510000",
+    arguments: ["0x6ffd3c"],
+  },
+  {
+    schema,
+    sequence: 11,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 3,
+    parentCallId: null,
+    caller: {
+      address: "0x0045a746",
+      module: "BGI.exe",
+      rva: 0x5a746,
+    },
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "GetDC",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 15,
+    object: "0x510000",
+    result: "0x0",
+  },
+  {
+    schema,
+    sequence: 12,
+    kind: "d3d9-get-surface-level-complete",
+    interface: "IDirect3DSurface9",
+    vtableSlot: 15,
+    method: "GetDC",
+    result: "0x0",
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-20T00:00:01.000Z",
+    reason: "event-d3d9-get-surface-level-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9ResourceSummary = summarizeTrace(
+  encode(d3d9ResourceEvents),
+  "d3d9-resource-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9ResourceSummary.vtables.map((vtable) => vtable.interface),
+  ["IDirect3DDevice9", "IDirect3DTexture9", "IDirect3DSurface9"],
+);
+assert.equal(d3d9ResourceSummary.d3d9.createTextures.length, 1);
+assert.equal(d3d9ResourceSummary.d3d9.createTextures[0].returnedTexture, "0x500000");
+assert.equal(d3d9ResourceSummary.d3d9.getSurfaceLevels.length, 1);
+assert.deepEqual(d3d9ResourceSummary.d3d9.getSurfaceLevels[0], {
+  sequence: 7,
+  callId: 2,
+  parentCallId: null,
+  caller: { module: "BGI.exe", rva: 0x5a731 },
+  object: "0x500000",
+  level: 0,
+  result: "0x0",
+  lastError: 0,
+  outputChangedBytes: 4,
+  surfaceOutput: {
+    before: pointerSlot("0x6ffd38", "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
+    after: pointerSlot("0x6ffd38", "0x510000", [0, 0, 0x51, 0]),
+  },
+  returnedSurface: "0x510000",
+  immediateConsumer: null,
+});
+assert.equal(d3d9ResourceSummary.d3d9.textureCalls[0].method, "GetSurfaceLevel");
+assert.equal(d3d9ResourceSummary.d3d9.surfaceCalls[0].method, "GetDC");
+
+const mismatchedSurfaceOutput = structuredClone(d3d9ResourceEvents);
+mismatchedSurfaceOutput.find(
+  (event) => event.kind === "api-enter" && event.api === "GetSurfaceLevel",
+).arguments[1] = "0x6ffd34";
+assert.throws(
+  () => summarizeTrace(encode(mismatchedSurfaceOutput)),
+  /changed its GetSurfaceLevel output pointer/,
+);
 
 const duplicateSequence = events.map((event) => ({ ...event }));
 duplicateSequence[5].sequence = 3;

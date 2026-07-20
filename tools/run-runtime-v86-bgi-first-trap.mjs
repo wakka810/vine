@@ -147,6 +147,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-get-adapter-monitor",
         "d3d9-create-device",
         "d3d9-create-texture",
+        "d3d9-get-surface-level",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -213,6 +214,7 @@ assert(
       "d3d9-get-adapter-monitor",
       "d3d9-create-device",
       "d3d9-create-texture",
+      "d3d9-get-surface-level",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -243,6 +245,7 @@ if (
     "d3d9-get-adapter-monitor",
     "d3d9-create-device",
     "d3d9-create-texture",
+    "d3d9-get-surface-level",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -266,7 +269,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-get-adapter-count" ||
     genericRuntimeCapability === "d3d9-get-adapter-monitor" ||
     genericRuntimeCapability === "d3d9-create-device" ||
-    genericRuntimeCapability === "d3d9-create-texture"
+    genericRuntimeCapability === "d3d9-create-texture" ||
+    genericRuntimeCapability === "d3d9-get-surface-level"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -401,7 +405,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const d3d9CreateTextureEnabled = genericRuntimeCapability === "d3d9-create-texture";
+const d3d9GetSurfaceLevelEnabled =
+  genericRuntimeCapability === "d3d9-get-surface-level";
+const d3d9CreateTextureEnabled =
+  d3d9GetSurfaceLevelEnabled || genericRuntimeCapability === "d3d9-create-texture";
 const d3d9CreateDeviceEnabled =
   d3d9CreateTextureEnabled || genericRuntimeCapability === "d3d9-create-device";
 const d3d9GetAdapterMonitorEnabled =
@@ -617,7 +624,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9CreateTextureEnabled
+      ? d3d9GetSurfaceLevelEnabled
+        ? "v86-bgi-d3d9-get-surface-level"
+      : d3d9CreateTextureEnabled
         ? "v86-bgi-d3d9-create-texture"
       : d3d9CreateDeviceEnabled
         ? "v86-bgi-d3d9-create-device"
@@ -4577,6 +4586,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9GetSurfaceLevelEnabled) {
+        validateD3d9GetSurfaceLevelResult(genericResult);
       } else if (d3d9CreateTextureEnabled) {
         validateD3d9CreateTextureResult(genericResult);
       } else if (d3d9CreateDeviceEnabled) {
@@ -4742,6 +4753,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9GetSurfaceLevelEnabled
+            ? "bgi D3D9 GetSurfaceLevel"
           : d3d9CreateTextureEnabled
             ? "bgi D3D9 CreateTexture"
           : d3d9CreateDeviceEnabled
@@ -6676,6 +6689,8 @@ function validateGenericComEndpoint(actual, endpoint) {
         ? "d3d9.idirect3ddevice9.v1"
       : target.interface.name === "IDirect3DTexture9"
         ? "d3d9.idirect3dtexture9.v1"
+      : target.interface.name === "IDirect3DSurface9"
+        ? "d3d9.idirect3dsurface9.v1"
         : null;
   assert(expectedClassIdentity, `unexpected generic COM interface ${target.interface.name}`);
   assert.equal(target.method.slot, endpoint.vtableSlot);
@@ -6745,7 +6760,9 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
       ? "d3d9-idirect3d9-method"
       : interfaceName === "IDirect3DDevice9"
         ? "d3d9-idirect3ddevice9-method"
-        : "d3d9-idirect3dtexture9-method",
+      : interfaceName === "IDirect3DTexture9"
+        ? "d3d9-idirect3dtexture9-method"
+        : "d3d9-idirect3dsurface9-method",
   );
   assert.equal(
     fault.fault.class,
@@ -12979,6 +12996,94 @@ function validateD3d9CreateTextureResult(result) {
   ]);
 }
 
+function validateD3d9GetSurfaceLevelResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_851);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_906);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_057,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_491,
+  );
+  assert.equal(result.hostDeltas.length, 16_566);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_802);
+
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3DTexture9.GetSurfaceLevel",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, 17_851);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_807_783);
+  assert.equal(call.module, "<com>");
+  assert.equal(call.interface, "IDirect3DTexture9");
+  assert.equal(call.vtableSlot, 18);
+  assert.deepEqual(call.arguments, [0x0102_0004, 0, 0x006f_fd38]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_a731);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 16);
+  assert.equal(call.referenceCount, 1);
+  assert.equal(call.objectRetired, false);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006f_fd38);
+  assert.deepEqual(call.guestWrites[0].bytes, [0x04, 0x00, 0x03, 0x01]);
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3dsurface9.v1");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.object.parentInterfaceId, "8");
+  assert.equal(endpoint.target.interface.name, "IDirect3DSurface9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0103_0004);
+  assert.equal(endpoint.target.method.slot, 15);
+  assert.equal(endpoint.target.method.name, "GetDC");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 1);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3dsurface9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_a746);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3DSurface9");
+  assert.equal(result.fault.fault.target.vtableSlot, 15);
+  assert.equal(result.fault.fault.target.method, "GetDC");
+  assert.equal(result.fault.memory.physicalPages, 725);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "d4c3bed5fe4ab0ebd2bacc0c32023a679cc1c6d55f7c0701cb981eeec368f3e2",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_807_793);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 15);
+  assert.equal(terminal.returnAddress, 0x1005_a746);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_a746,
+    0x0103_0004,
+    0x006f_fd3c,
+  ]);
+}
+
 function validateMonitorFromWindowResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -14880,6 +14985,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9GetSurfaceLevelEnabled
+          ? "vine.v86-bgi-d3d9-get-surface-level"
         : d3d9CreateTextureEnabled
           ? "vine.v86-bgi-d3d9-create-texture"
         : d3d9CreateDeviceEnabled

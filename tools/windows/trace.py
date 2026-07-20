@@ -71,6 +71,7 @@ SUPPORTED_OBSERVATIONS = (
     "enum-display-monitors",
     "com-initialization",
     "d3d9-create-device",
+    "d3d9-get-surface-level",
 )
 
 

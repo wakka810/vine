@@ -652,10 +652,11 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 共通事実を抽出する場所であり、COM pointer、vtable slot、D3D version固有enumをauthorityとして保持しない。
 
 `RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contract、
-`CreateTexture` gatewayで最初のdevice-related logical texture descriptorを所有するprivate Rust subsystemである。
-Window relation、normalized presentation、COM-object association、device-to-texture index、monotonic device／
-texture IDとgenerationをowner-local plan／commitで管理し、各4,096-object capacity、stale plan、process teardownを
-mutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
+`CreateTexture` gatewayで最初のdevice-related logical texture descriptor、`GetSurfaceLevel` gatewayで
+最初のlogical texture subresource descriptorを所有するprivate Rust subsystemである。Window relation、
+normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
+device／texture／surface IDとgenerationをowner-local plan／commitで管理し、各4,096-object capacity、stale
+plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
 graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
 関連は別namespaceのnon-owning associationにする。この順序により、未到達D3D8／10／11 frameworkを先行実装せず、
 後からfrontendを追加できるtranslation seamを今のauthority境界で確保する。
@@ -671,6 +672,13 @@ graphics texture capacityを全てpreflightする。Guest texture pointer、chil
 外部観測可能transactionとしてpublishする。Textureはdevice interfaceを一reference保持し、final releaseは
 texture associationを退役して必要ならdevice／root retirementへcascadeする。Logical descriptorはtexture bytes、
 lock staging、browser renderer resourceの代用ではなく、それらは到達methodごとの後続gatewayで追加する。
+
+`GetSurfaceLevel`はlive texture association、bounded level、guest output span、既存surface identityまたは新規
+COM child registration、graphics surface capacityを全てpreflightする。初回はguest surface pointer、child COM
+identity、logical surfaceを一transactionでpublishし、repeat取得は同じsurface identityへAddRefするだけである。
+Surfaceはtexture interfaceを一reference保持し、final releaseはsurface associationを退役して必要なら
+texture／device／root retirementへcascadeする。Logical surface descriptorはpixel storage、pitch、DC、lock
+staging、browser renderer resourceの代用ではなく、到達した後続gatewayで追加する。
 
 ### 13.2 GDI frontend
 

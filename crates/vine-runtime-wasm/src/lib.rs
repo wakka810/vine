@@ -311,7 +311,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v9();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v10();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -473,7 +473,7 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v9();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v10();
         d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
@@ -1388,6 +1388,9 @@ impl BrowserRuntime {
                     }
                     Some(target) if target.interface == "IDirect3DTexture9" => {
                         "d3d9-idirect3dtexture9-method"
+                    }
+                    Some(target) if target.interface == "IDirect3DSurface9" => {
+                        "d3d9-idirect3dsurface9-method"
                     }
                     _ => "com-method-dispatch",
                 };

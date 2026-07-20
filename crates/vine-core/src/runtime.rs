@@ -64,15 +64,18 @@ pub use gdi::{
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,
-    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE,
+    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE,
+    RUNTIME_GRAPHICS_SURFACE_LIMIT, RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE,
     RUNTIME_GRAPHICS_TEXTURE_LIMIT, RuntimeBrowserRendererResourceId, RuntimeGraphicsColorFormat,
     RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsFrontend,
     RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation, RuntimeGraphicsRendererAssociation,
-    RuntimeGraphicsRendererOwnership, RuntimeGraphicsTexture, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsRendererOwnership, RuntimeGraphicsSurface, RuntimeGraphicsSurfaceDescriptor,
+    RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture, RuntimeGraphicsTextureDescriptor,
     RuntimeGraphicsTextureId, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
 };
 pub(crate) use graphics::{
-    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsSurfaceCreateRequest,
+    RuntimeGraphicsTextureCreateRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

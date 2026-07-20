@@ -18,10 +18,17 @@ const focusedSetWindowPosSizeObservation =
 const focusedD3d9CreateDeviceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-create-device");
+const focusedD3d9GetSurfaceLevelObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-get-surface-level");
+const focusedD3d9DeviceObservation =
+  focusedD3d9CreateDeviceObservation || focusedD3d9GetSurfaceLevelObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
 let focusedD3d9DeviceMethodCaptured = false;
+let focusedD3d9TextureMethodCaptured = false;
+let focusedD3d9SurfaceMethodCaptured = false;
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2870,6 +2877,51 @@ const idirect3ddevice9Methods = [
   [118, "CreateQuery", 2],
 ];
 
+const idirect3dtexture9Methods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "GetDevice", 1],
+  [4, "SetPrivateData", 4],
+  [5, "GetPrivateData", 3],
+  [6, "FreePrivateData", 1],
+  [7, "SetPriority", 1],
+  [8, "GetPriority", 0],
+  [9, "PreLoad", 0],
+  [10, "GetType", 0],
+  [11, "SetLOD", 1],
+  [12, "GetLOD", 0],
+  [13, "GetLevelCount", 0],
+  [14, "SetAutoGenFilterType", 1],
+  [15, "GetAutoGenFilterType", 0],
+  [16, "GenerateMipSubLevels", 0],
+  [17, "GetLevelDesc", 2],
+  [18, "GetSurfaceLevel", 2],
+  [19, "LockRect", 4],
+  [20, "UnlockRect", 1],
+  [21, "AddDirtyRect", 1],
+];
+
+const idirect3dsurface9Methods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "GetDevice", 1],
+  [4, "SetPrivateData", 4],
+  [5, "GetPrivateData", 3],
+  [6, "FreePrivateData", 1],
+  [7, "SetPriority", 1],
+  [8, "GetPriority", 0],
+  [9, "PreLoad", 0],
+  [10, "GetType", 0],
+  [11, "GetContainer", 2],
+  [12, "GetDesc", 1],
+  [13, "LockRect", 3],
+  [14, "UnlockRect", 0],
+  [15, "GetDC", 1],
+  [16, "ReleaseDC", 1],
+];
+
 function findExport(module, name) {
   if (typeof module.findExportByName === "function") {
     return module.findExportByName(name);
@@ -2979,6 +3031,217 @@ function attachThreadAffinityTickCountObserver(module) {
   });
 }
 
+function attachIdirect3dsurface9(object) {
+  if (object.isNull()) {
+    return;
+  }
+  try {
+    const vtable = object.readPointer();
+    const vtableKey = `IDirect3DSurface9:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      return;
+    }
+    observedVtables.add(vtableKey);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirect3dsurface9Methods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirect3DSurface9:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          if (
+            focusedD3d9GetSurfaceLevelObservation &&
+            focusedD3d9SurfaceMethodCaptured
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          const objectAddress = args[0].toString();
+          const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
+            args[index + 1].toString(),
+          );
+          this.traceObject = objectAddress;
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DSurface9",
+              vtableSlot: slot,
+              object: objectAddress,
+              arguments: arguments_,
+            },
+            this.returnAddress,
+          );
+          if (focusedD3d9GetSurfaceLevelObservation) {
+            focusedD3d9SurfaceMethodCaptured = true;
+          }
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DSurface9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+            },
+            this.lastError,
+          );
+          if (focusedD3d9GetSurfaceLevelObservation) {
+            emit("d3d9-get-surface-level-complete", {
+              interface: "IDirect3DSurface9",
+              vtableSlot: slot,
+              method: name,
+              result: result.toString(),
+            });
+          }
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirect3DSurface9",
+      object: object.toString(),
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirect3DSurface9",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
+function attachIdirect3dtexture9(object) {
+  if (object.isNull()) {
+    return;
+  }
+  try {
+    const vtable = object.readPointer();
+    const vtableKey = `IDirect3DTexture9:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      return;
+    }
+    observedVtables.add(vtableKey);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirect3dtexture9Methods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirect3DTexture9:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          if (
+            focusedD3d9GetSurfaceLevelObservation &&
+            focusedD3d9TextureMethodCaptured
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          const objectAddress = args[0].toString();
+          const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
+            args[index + 1].toString(),
+          );
+          this.traceObject = objectAddress;
+          this.traceD3d9SurfaceLevelOutput = slot === 18 ? args[2] : null;
+          this.traceD3d9GetSurfaceLevel =
+            this.traceD3d9SurfaceLevelOutput === null
+              ? null
+              : {
+                  level: args[1].toUInt32(),
+                  surfaceOutput: {
+                    before: snapshotPointerSlot(this.traceD3d9SurfaceLevelOutput),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DTexture9",
+              vtableSlot: slot,
+              object: objectAddress,
+              arguments: arguments_,
+            },
+            this.returnAddress,
+          );
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          const d3d9GetSurfaceLevel =
+            this.traceD3d9GetSurfaceLevel === null
+              ? null
+              : {
+                  ...this.traceD3d9GetSurfaceLevel,
+                  surfaceOutput: {
+                    ...this.traceD3d9GetSurfaceLevel.surfaceOutput,
+                    after: snapshotPointerSlot(this.traceD3d9SurfaceLevelOutput),
+                  },
+                };
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DTexture9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+              ...(d3d9GetSurfaceLevel === null ? {} : { d3d9GetSurfaceLevel }),
+            },
+            this.lastError,
+          );
+          if (
+            d3d9GetSurfaceLevel !== null &&
+            result.toInt32() >= 0 &&
+            typeof d3d9GetSurfaceLevel.surfaceOutput.after.value === "string" &&
+            d3d9GetSurfaceLevel.surfaceOutput.after.value !== "0x0"
+          ) {
+            attachIdirect3dsurface9(
+              ptr(d3d9GetSurfaceLevel.surfaceOutput.after.value),
+            );
+          }
+          if (focusedD3d9GetSurfaceLevelObservation) {
+            focusedD3d9TextureMethodCaptured = true;
+          }
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirect3DTexture9",
+      object: object.toString(),
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirect3DTexture9",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
 function attachIdirect3ddevice9(object) {
   if (object.isNull()) {
     return;
@@ -3003,7 +3266,7 @@ function attachIdirect3ddevice9(object) {
       Interceptor.attach(address, {
         onEnter(args) {
           if (
-            focusedD3d9CreateDeviceObservation &&
+            focusedD3d9DeviceObservation &&
             focusedD3d9DeviceMethodCaptured
           ) {
             this.traceFrame = null;
@@ -3013,6 +3276,22 @@ function attachIdirect3ddevice9(object) {
           const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
             args[index + 1].toString(),
           );
+          this.traceD3d9CreateTextureOutput =
+            focusedD3d9GetSurfaceLevelObservation && slot === 23
+              ? args[7]
+              : null;
+          this.traceD3d9CreateTexture =
+            this.traceD3d9CreateTextureOutput === null
+              ? null
+              : {
+                  textureOutput: {
+                    before: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -3030,6 +3309,16 @@ function attachIdirect3ddevice9(object) {
           if (this.traceFrame === null) {
             return;
           }
+          const d3d9CreateTexture =
+            this.traceD3d9CreateTexture === null
+              ? null
+              : {
+                  ...this.traceD3d9CreateTexture,
+                  textureOutput: {
+                    ...this.traceD3d9CreateTexture.textureOutput,
+                    after: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
+                  },
+                };
           finishCall(
             this.traceFrame,
             {
@@ -3039,10 +3328,21 @@ function attachIdirect3ddevice9(object) {
               vtableSlot: slot,
               object: this.traceObject,
               result: result.toString(),
+              ...(d3d9CreateTexture === null ? {} : { d3d9CreateTexture }),
             },
             this.lastError,
           );
-          if (focusedD3d9CreateDeviceObservation) {
+          if (
+            d3d9CreateTexture !== null &&
+            result.toInt32() >= 0 &&
+            typeof d3d9CreateTexture.textureOutput.after.value === "string" &&
+            d3d9CreateTexture.textureOutput.after.value !== "0x0"
+          ) {
+            attachIdirect3dtexture9(
+              ptr(d3d9CreateTexture.textureOutput.after.value),
+            );
+          }
+          if (focusedD3d9DeviceObservation) {
             focusedD3d9DeviceMethodCaptured = true;
           }
         },

@@ -235,9 +235,9 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. The reached D3D9 path now includes Rust-owned logical device and texture
-descriptors plus their COM lifetime; the Worker observes completions but owns neither identity nor
-resource state. A separate repeated-session benchmark evaluates the versioned latency,
+same structured stop. The reached D3D9 path now includes Rust-owned logical device, texture, and
+level-zero surface descriptors plus their COM lifetime; the Worker observes completions but
+owns neither identity nor resource state. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 
 A benchmark threshold failure does not invalidate a passing semantic-equivalence run, but it

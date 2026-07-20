@@ -60,6 +60,7 @@ const supportedObservations = new Set([
   "unhandled-exception-filter",
   "com-initialization",
   "d3d9-create-device",
+  "d3d9-get-surface-level",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -202,6 +203,55 @@ const idirect3ddevice9Methods = [
   ["CreateQuery", 2],
 ];
 export const idirect3ddevice9MethodNames = idirect3ddevice9Methods.map(
+  ([name]) => name,
+);
+const idirect3dtexture9Methods = [
+  ["QueryInterface", 2],
+  ["AddRef", 0],
+  ["Release", 0],
+  ["GetDevice", 1],
+  ["SetPrivateData", 4],
+  ["GetPrivateData", 3],
+  ["FreePrivateData", 1],
+  ["SetPriority", 1],
+  ["GetPriority", 0],
+  ["PreLoad", 0],
+  ["GetType", 0],
+  ["SetLOD", 1],
+  ["GetLOD", 0],
+  ["GetLevelCount", 0],
+  ["SetAutoGenFilterType", 1],
+  ["GetAutoGenFilterType", 0],
+  ["GenerateMipSubLevels", 0],
+  ["GetLevelDesc", 2],
+  ["GetSurfaceLevel", 2],
+  ["LockRect", 4],
+  ["UnlockRect", 1],
+  ["AddDirtyRect", 1],
+];
+export const idirect3dtexture9MethodNames = idirect3dtexture9Methods.map(
+  ([name]) => name,
+);
+const idirect3dsurface9Methods = [
+  ["QueryInterface", 2],
+  ["AddRef", 0],
+  ["Release", 0],
+  ["GetDevice", 1],
+  ["SetPrivateData", 4],
+  ["GetPrivateData", 3],
+  ["FreePrivateData", 1],
+  ["SetPriority", 1],
+  ["GetPriority", 0],
+  ["PreLoad", 0],
+  ["GetType", 0],
+  ["GetContainer", 2],
+  ["GetDesc", 1],
+  ["LockRect", 3],
+  ["UnlockRect", 0],
+  ["GetDC", 1],
+  ["ReleaseDC", 1],
+];
+export const idirect3dsurface9MethodNames = idirect3dsurface9Methods.map(
   ([name]) => name,
 );
 const d3d9PresentParameterFields = [
@@ -403,7 +453,11 @@ const validateCallTarget = (event, selectedVtables) => {
       ? idirect3d9MethodNames
       : event.interface === "IDirect3DDevice9"
         ? idirect3ddevice9MethodNames
-        : null;
+        : event.interface === "IDirect3DTexture9"
+          ? idirect3dtexture9MethodNames
+          : event.interface === "IDirect3DSurface9"
+            ? idirect3dsurface9MethodNames
+            : null;
   if (methodNames === null) {
     throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
   }
@@ -1099,7 +1153,11 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
             ? idirect3d9MethodNames
             : event.interface === "IDirect3DDevice9"
               ? idirect3ddevice9MethodNames
-              : null;
+              : event.interface === "IDirect3DTexture9"
+                ? idirect3dtexture9MethodNames
+                : event.interface === "IDirect3DSurface9"
+                  ? idirect3dsurface9MethodNames
+                  : null;
         if (methodNames === null) {
           throw new Error(`unsupported observed vtable: ${event.interface}`);
         }
@@ -1568,26 +1626,51 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
-  const deviceCalls = apiPairing.pairs
-    .filter((pair) => pair.enter.interface === "IDirect3DDevice9")
+  const createTextures = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3DDevice9" &&
+        pair.enter.vtableSlot === 23 &&
+        pair.enter.api === "CreateTexture" &&
+        pair.leave.d3d9CreateTexture !== undefined,
+    )
     .map((pair) => {
-      const method = idirect3ddevice9Methods[pair.enter.vtableSlot];
-      if (
-        method === undefined ||
-        method[0] !== pair.enter.api ||
-        !Array.isArray(pair.enter.arguments) ||
-        pair.enter.arguments.length !== method[1] ||
-        !pair.enter.arguments.every(
-          (argument) =>
-            typeof argument === "string" && /^0x[0-9a-f]+$/iu.test(argument),
-        ) ||
-        typeof pair.leave.result !== "string" ||
-        !/^0x[0-9a-f]+$/iu.test(pair.leave.result)
-      ) {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 8) {
         throw new Error(
-          `IDirect3DDevice9 api pair at sequence ${pair.enter.sequence} is invalid`,
+          `api-enter sequence ${pair.enter.sequence} has invalid CreateTexture arguments`,
         );
       }
+      const observation = pair.leave.d3d9CreateTexture;
+      if (observation === null || typeof observation !== "object") {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid CreateTexture observation`,
+        );
+      }
+      const textureOutputBefore = normalizePointerSlotSnapshot(
+        observation.textureOutput?.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const textureOutputAfter = normalizePointerSlotSnapshot(
+        observation.textureOutput?.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        textureOutputBefore.pointer.toLowerCase() !==
+          textureOutputAfter.pointer.toLowerCase() ||
+        textureOutputAfter.pointer.toLowerCase() !==
+          pair.enter.arguments[6].toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its CreateTexture output pointer`,
+        );
+      }
+      const outputChangedBytes = textureOutputBefore.bytes.reduce(
+        (count, byte, index) =>
+          count + (byte === textureOutputAfter.bytes[index] ? 0 : 1),
+        0,
+      );
       return {
         sequence: pair.enter.sequence,
         callId: pair.enter.callId ?? null,
@@ -1596,14 +1679,152 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           pair.enter.caller === undefined
             ? null
             : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
-        slot: pair.enter.vtableSlot,
-        method: pair.enter.api,
         object: pair.enter.object,
         arguments: [...pair.enter.arguments],
         result: pair.leave.result,
         lastError: pair.leave.lastError ?? null,
+        outputChangedBytes,
+        textureOutput: {
+          before: textureOutputBefore,
+          after: textureOutputAfter,
+        },
+        returnedTexture: textureOutputAfter.value,
+        immediateConsumer: observation.immediateConsumer ?? null,
       };
     });
+
+  const getSurfaceLevels = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3DTexture9" &&
+        pair.enter.vtableSlot === 18 &&
+        pair.enter.api === "GetSurfaceLevel" &&
+        pair.leave.d3d9GetSurfaceLevel !== undefined,
+    )
+    .map((pair) => {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 2) {
+        throw new Error(
+          `api-enter sequence ${pair.enter.sequence} has invalid GetSurfaceLevel arguments`,
+        );
+      }
+      const level = normalizeD3d9U32Argument(
+        pair.enter.arguments[0],
+        pair.enter.sequence,
+        0,
+        "GetSurfaceLevel",
+      );
+      normalizeD3d9U32Argument(
+        pair.enter.arguments[1],
+        pair.enter.sequence,
+        1,
+        "GetSurfaceLevel",
+      );
+      const observation = pair.leave.d3d9GetSurfaceLevel;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        observation.level !== level
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid GetSurfaceLevel observation`,
+        );
+      }
+      const surfaceOutputBefore = normalizePointerSlotSnapshot(
+        observation.surfaceOutput?.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const surfaceOutputAfter = normalizePointerSlotSnapshot(
+        observation.surfaceOutput?.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        surfaceOutputBefore.pointer.toLowerCase() !==
+          surfaceOutputAfter.pointer.toLowerCase() ||
+        surfaceOutputAfter.pointer.toLowerCase() !==
+          pair.enter.arguments[1].toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its GetSurfaceLevel output pointer`,
+        );
+      }
+      const outputChangedBytes = surfaceOutputBefore.bytes.reduce(
+        (count, byte, index) =>
+          count + (byte === surfaceOutputAfter.bytes[index] ? 0 : 1),
+        0,
+      );
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        object: pair.enter.object,
+        level,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        outputChangedBytes,
+        surfaceOutput: {
+          before: surfaceOutputBefore,
+          after: surfaceOutputAfter,
+        },
+        returnedSurface: surfaceOutputAfter.value,
+        immediateConsumer: observation.immediateConsumer ?? null,
+      };
+    });
+
+  const summarizeD3d9InterfaceCalls = (interfaceName, methods) =>
+    apiPairing.pairs
+      .filter((pair) => pair.enter.interface === interfaceName)
+      .map((pair) => {
+        const method = methods[pair.enter.vtableSlot];
+        if (
+          method === undefined ||
+          method[0] !== pair.enter.api ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== method[1] ||
+          !pair.enter.arguments.every(
+            (argument) =>
+              typeof argument === "string" && /^0x[0-9a-f]+$/iu.test(argument),
+          ) ||
+          typeof pair.leave.result !== "string" ||
+          !/^0x[0-9a-f]+$/iu.test(pair.leave.result)
+        ) {
+          throw new Error(
+            `${interfaceName} api pair at sequence ${pair.enter.sequence} is invalid`,
+          );
+        }
+        return {
+          sequence: pair.enter.sequence,
+          callId: pair.enter.callId ?? null,
+          parentCallId: pair.enter.parentCallId ?? null,
+          caller:
+            pair.enter.caller === undefined
+              ? null
+              : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+          slot: pair.enter.vtableSlot,
+          method: pair.enter.api,
+          object: pair.enter.object,
+          arguments: [...pair.enter.arguments],
+          result: pair.leave.result,
+          lastError: pair.leave.lastError ?? null,
+        };
+      });
+  const deviceCalls = summarizeD3d9InterfaceCalls(
+    "IDirect3DDevice9",
+    idirect3ddevice9Methods,
+  );
+  const textureCalls = summarizeD3d9InterfaceCalls(
+    "IDirect3DTexture9",
+    idirect3dtexture9Methods,
+  );
+  const surfaceCalls = summarizeD3d9InterfaceCalls(
+    "IDirect3DSurface9",
+    idirect3dsurface9Methods,
+  );
 
   return {
     schema: summarySchema,
@@ -1661,7 +1882,11 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       deviceFormatChecks,
       deviceCaps,
       createDevices,
+      createTextures,
+      getSurfaceLevels,
       deviceCalls,
+      textureCalls,
+      surfaceCalls,
     },
     categories,
     files: {

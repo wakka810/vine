@@ -6,9 +6,11 @@ use super::{RuntimeComObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWindo
 
 pub const RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE: &str = "vine.logical-graphics-device.v1";
 pub const RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE: &str = "vine.logical-graphics-texture.v1";
+pub const RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE: &str = "vine.logical-graphics-surface.v1";
 pub const RUNTIME_BROWSER_RENDERER_ID_NAMESPACE: &str = "vine.browser-renderer-resource.v1";
 pub const RUNTIME_GRAPHICS_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_TEXTURE_LIMIT: usize = 4_096;
+pub const RUNTIME_GRAPHICS_SURFACE_LIMIT: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -17,6 +19,10 @@ pub struct RuntimeGraphicsDeviceId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeGraphicsTextureId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeGraphicsSurfaceId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -55,6 +61,15 @@ pub struct RuntimeGraphicsTextureDescriptor {
     pub usage: RuntimeGraphicsTextureUsage,
     pub color_format: RuntimeGraphicsColorFormat,
     pub pool: RuntimeGraphicsTexturePool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSurfaceDescriptor {
+    pub level: u32,
+    pub width: u32,
+    pub height: u32,
+    pub color_format: RuntimeGraphicsColorFormat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -116,6 +131,17 @@ pub struct RuntimeGraphicsTexture {
     pub generation: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSurface {
+    pub id: RuntimeGraphicsSurfaceId,
+    pub namespace: String,
+    pub texture_id: RuntimeGraphicsTextureId,
+    pub descriptor: RuntimeGraphicsSurfaceDescriptor,
+    pub com_object_id: RuntimeComObjectId,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeGraphicsWindowTarget {
     pub window_id: RuntimeWindowId,
@@ -140,6 +166,12 @@ pub(crate) struct RuntimeGraphicsDeviceCreateRequest {
 pub(crate) struct RuntimeGraphicsTextureCreateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSurfaceCreateRequest {
+    pub texture_com_object_id: RuntimeComObjectId,
+    pub level: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +200,30 @@ pub(crate) struct RuntimeGraphicsTextureCreationPlan {
     id: RuntimeGraphicsTextureId,
     device_id: RuntimeGraphicsDeviceId,
     request: RuntimeGraphicsTextureCreateRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSurfaceCreationPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    id: RuntimeGraphicsSurfaceId,
+    texture_id: RuntimeGraphicsTextureId,
+    request: RuntimeGraphicsSurfaceCreateRequest,
+    descriptor: RuntimeGraphicsSurfaceDescriptor,
+}
+
+impl RuntimeGraphicsSurfaceCreationPlan {
+    pub(crate) fn id(&self) -> RuntimeGraphicsSurfaceId {
+        self.id
+    }
+
+    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
+        self.texture_id
+    }
+
+    pub(crate) fn descriptor(&self) -> RuntimeGraphicsSurfaceDescriptor {
+        self.descriptor
+    }
 }
 
 impl RuntimeGraphicsTextureCreationPlan {
@@ -208,6 +264,7 @@ pub(crate) struct RuntimeGraphicsComRetirementPlan {
     next_generation: u64,
     device_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsDeviceId)>,
     texture_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsTextureId)>,
+    surface_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsSurfaceId)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,6 +273,7 @@ pub(super) struct RuntimeGraphicsTeardownPlan {
     next_generation: u64,
     devices: usize,
     textures: usize,
+    surfaces: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -231,8 +289,18 @@ pub(super) struct RuntimeGraphics {
     texture_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsTextureId>,
     #[serde(skip)]
     device_texture_index: BTreeMap<RuntimeGraphicsDeviceId, BTreeSet<RuntimeGraphicsTextureId>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    surfaces: BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface>,
+    #[serde(skip)]
+    surface_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsSurfaceId>,
+    #[serde(skip)]
+    texture_surface_index: BTreeMap<RuntimeGraphicsTextureId, BTreeSet<RuntimeGraphicsSurfaceId>>,
+    #[serde(skip)]
+    texture_level_surface_index:
+        BTreeMap<(RuntimeGraphicsTextureId, u32), RuntimeGraphicsSurfaceId>,
     next_device_id: u64,
     next_texture_id: u64,
+    next_surface_id: u64,
     generation: u64,
 }
 
@@ -244,8 +312,13 @@ impl Default for RuntimeGraphics {
             textures: BTreeMap::new(),
             texture_com_object_index: BTreeMap::new(),
             device_texture_index: BTreeMap::new(),
+            surfaces: BTreeMap::new(),
+            surface_com_object_index: BTreeMap::new(),
+            texture_surface_index: BTreeMap::new(),
+            texture_level_surface_index: BTreeMap::new(),
             next_device_id: 1,
             next_texture_id: 1,
+            next_surface_id: 1,
             generation: 0,
         }
     }
@@ -303,6 +376,7 @@ impl RuntimeGraphics {
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
         let next_device_id = plan
             .id
             .0
@@ -399,6 +473,7 @@ impl RuntimeGraphics {
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
         let next_texture_id = plan
             .id
             .0
@@ -418,10 +493,156 @@ impl RuntimeGraphics {
             .get_mut(&texture.device_id)
             .expect("preflighted graphics texture device disappeared")
             .insert(texture.id);
+        self.texture_surface_index
+            .insert(texture.id, BTreeSet::new());
         self.textures.insert(texture.id, texture.clone());
         self.next_texture_id = next_texture_id;
         self.generation = plan.next_generation;
         texture
+    }
+
+    pub(super) fn plan_surface_creation(
+        &self,
+        request: RuntimeGraphicsSurfaceCreateRequest,
+    ) -> Result<RuntimeGraphicsSurfaceCreationPlan, RuntimeStateError> {
+        validate_surface_creation_request(request)?;
+        let texture_id = self
+            .texture_com_object_index
+            .get(&request.texture_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-surface-texture-com-object-unknown",
+                    "logical surface creation requires a live graphics texture COM object",
+                )
+            })?;
+        self.validate_texture_association(request.texture_com_object_id, texture_id)?;
+        let texture = self
+            .textures
+            .get(&texture_id)
+            .expect("validated logical texture association disappeared");
+        if request.level >= texture.descriptor.levels {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-surface-level-out-of-range",
+                "logical surface level is outside the texture descriptor",
+            ));
+        }
+        if self
+            .texture_level_surface_index
+            .contains_key(&(texture_id, request.level))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-surface-level-already-published",
+                "logical texture level already has a live surface identity",
+            ));
+        }
+        if self.surfaces.len() >= RUNTIME_GRAPHICS_SURFACE_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-surface-capacity-reached",
+                "logical graphics surface capacity is exhausted",
+            ));
+        }
+        let id = RuntimeGraphicsSurfaceId(self.next_surface_id);
+        if id.0 == 0 || self.surfaces.contains_key(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-surface-id-collision",
+                "logical graphics surface allocator selected a live identity",
+            ));
+        }
+        let descriptor = RuntimeGraphicsSurfaceDescriptor {
+            level: request.level,
+            width: mip_dimension(texture.descriptor.width, request.level),
+            height: mip_dimension(texture.descriptor.height, request.level),
+            color_format: texture.descriptor.color_format,
+        };
+        Ok(RuntimeGraphicsSurfaceCreationPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            id,
+            texture_id,
+            request,
+            descriptor,
+        })
+    }
+
+    pub(super) fn preflight_surface_creation(
+        &self,
+        plan: &RuntimeGraphicsSurfaceCreationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.next_surface_id != plan.id.0
+            || self.surfaces.len() >= RUNTIME_GRAPHICS_SURFACE_LIMIT
+            || self.surfaces.contains_key(&plan.id)
+            || self
+                .texture_com_object_index
+                .get(&plan.request.texture_com_object_id)
+                != Some(&plan.texture_id)
+            || self
+                .texture_level_surface_index
+                .contains_key(&(plan.texture_id, plan.request.level))
+        {
+            return Err(stale_plan("graphics-surface-creation-plan-stale"));
+        }
+        validate_surface_creation_request(plan.request)?;
+        self.validate_texture_association(plan.request.texture_com_object_id, plan.texture_id)?;
+        let texture = self
+            .textures
+            .get(&plan.texture_id)
+            .expect("validated logical texture association disappeared");
+        if plan.request.level >= texture.descriptor.levels
+            || plan.descriptor
+                != (RuntimeGraphicsSurfaceDescriptor {
+                    level: plan.request.level,
+                    width: mip_dimension(texture.descriptor.width, plan.request.level),
+                    height: mip_dimension(texture.descriptor.height, plan.request.level),
+                    color_format: texture.descriptor.color_format,
+                })
+        {
+            return Err(stale_plan("graphics-surface-creation-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_surface_creation(
+        &mut self,
+        plan: RuntimeGraphicsSurfaceCreationPlan,
+        com_object_id: RuntimeComObjectId,
+    ) -> RuntimeGraphicsSurface {
+        debug_assert!(self.preflight_surface_creation(&plan).is_ok());
+        debug_assert_ne!(com_object_id.0, 0);
+        debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
+        let next_surface_id = plan
+            .id
+            .0
+            .checked_add(1)
+            .expect("preflighted graphics surface ID must advance");
+        let surface = RuntimeGraphicsSurface {
+            id: plan.id,
+            namespace: RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE.to_owned(),
+            texture_id: plan.texture_id,
+            descriptor: plan.descriptor,
+            com_object_id,
+            generation: plan.next_generation,
+        };
+        self.surface_com_object_index
+            .insert(com_object_id, surface.id);
+        self.texture_surface_index
+            .get_mut(&surface.texture_id)
+            .expect("preflighted graphics surface texture disappeared")
+            .insert(surface.id);
+        self.texture_level_surface_index
+            .insert((surface.texture_id, surface.descriptor.level), surface.id);
+        self.surfaces.insert(surface.id, surface.clone());
+        self.next_surface_id = next_surface_id;
+        self.generation = plan.next_generation;
+        surface
     }
 
     pub(crate) fn plan_com_object_retirements(
@@ -446,15 +667,32 @@ impl RuntimeGraphics {
                     .map(|texture_id| (*com_object_id, texture_id))
             })
             .collect::<Vec<_>>();
-        if device_associations.is_empty() && texture_associations.is_empty() {
+        let surface_associations = com_object_ids
+            .iter()
+            .filter_map(|com_object_id| {
+                self.surface_com_object_index
+                    .get(com_object_id)
+                    .copied()
+                    .map(|surface_id| (*com_object_id, surface_id))
+            })
+            .collect::<Vec<_>>();
+        if device_associations.is_empty()
+            && texture_associations.is_empty()
+            && surface_associations.is_empty()
+        {
             return Ok(None);
         }
-        self.validate_retirement_associations(&device_associations, &texture_associations)?;
+        self.validate_retirement_associations(
+            &device_associations,
+            &texture_associations,
+            &surface_associations,
+        )?;
         Ok(Some(RuntimeGraphicsComRetirementPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
             device_associations,
             texture_associations,
+            surface_associations,
         }))
     }
 
@@ -467,6 +705,7 @@ impl RuntimeGraphics {
                 .validate_retirement_associations(
                     &plan.device_associations,
                     &plan.texture_associations,
+                    &plan.surface_associations,
                 )
                 .is_err()
         {
@@ -477,6 +716,19 @@ impl RuntimeGraphics {
 
     pub(crate) fn commit_com_object_retirement(&mut self, plan: RuntimeGraphicsComRetirementPlan) {
         debug_assert!(self.preflight_com_object_retirement(&plan).is_ok());
+        for (com_object_id, surface_id) in plan.surface_associations {
+            self.surface_com_object_index.remove(&com_object_id);
+            let surface = self
+                .surfaces
+                .remove(&surface_id)
+                .expect("preflighted logical surface disappeared during retirement");
+            self.texture_surface_index
+                .get_mut(&surface.texture_id)
+                .expect("preflighted logical surface texture disappeared during retirement")
+                .remove(&surface_id);
+            self.texture_level_surface_index
+                .remove(&(surface.texture_id, surface.descriptor.level));
+        }
         for (com_object_id, texture_id) in plan.texture_associations {
             self.texture_com_object_index.remove(&com_object_id);
             let texture = self
@@ -487,6 +739,7 @@ impl RuntimeGraphics {
                 .get_mut(&texture.device_id)
                 .expect("preflighted logical texture device disappeared during retirement")
                 .remove(&texture_id);
+            self.texture_surface_index.remove(&texture_id);
         }
         for (com_object_id, device_id) in plan.device_associations {
             self.device_com_object_index.remove(&com_object_id);
@@ -500,8 +753,12 @@ impl RuntimeGraphics {
         &self,
         device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
         texture_associations: &[(RuntimeComObjectId, RuntimeGraphicsTextureId)],
+        surface_associations: &[(RuntimeComObjectId, RuntimeGraphicsSurfaceId)],
     ) -> Result<(), RuntimeStateError> {
-        if device_associations.is_empty() && texture_associations.is_empty() {
+        if device_associations.is_empty()
+            && texture_associations.is_empty()
+            && surface_associations.is_empty()
+        {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-graphics",
                 "graphics-retirement-set-empty",
@@ -513,6 +770,29 @@ impl RuntimeGraphics {
         }
         for (com_object_id, texture_id) in texture_associations {
             self.validate_texture_association(*com_object_id, *texture_id)?;
+        }
+        for (com_object_id, surface_id) in surface_associations {
+            self.validate_surface_association(*com_object_id, *surface_id)?;
+        }
+        let retiring_surfaces = surface_associations
+            .iter()
+            .map(|(_, surface_id)| *surface_id)
+            .collect::<BTreeSet<_>>();
+        for (_, texture_id) in texture_associations {
+            let children = self.texture_surface_index.get(texture_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-surface-index-missing",
+                    "logical graphics texture has no surface relation index",
+                )
+            })?;
+            if !children.is_subset(&retiring_surfaces) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-retirement-has-live-surfaces",
+                    "logical graphics texture cannot retire while a child surface remains live",
+                ));
+            }
         }
         let retiring_textures = texture_associations
             .iter()
@@ -595,11 +875,50 @@ impl RuntimeGraphics {
                 .device_texture_index
                 .get(&texture.device_id)
                 .is_some_and(|textures| textures.contains(&texture_id))
+            || !self.texture_surface_index.contains_key(&texture_id)
         {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-graphics",
                 "graphics-texture-com-association-mismatch",
                 "logical graphics texture, device relation, and COM index disagree",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_surface_association(
+        &self,
+        com_object_id: RuntimeComObjectId,
+        surface_id: RuntimeGraphicsSurfaceId,
+    ) -> Result<(), RuntimeStateError> {
+        if self.surface_com_object_index.get(&com_object_id) != Some(&surface_id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-surface-com-index-dangling",
+                "graphics surface COM association does not resolve to a live logical surface",
+            ));
+        }
+        let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-surface-com-association-mismatch",
+                "logical graphics surface and COM index disagree",
+            )
+        })?;
+        if surface.com_object_id != com_object_id
+            || !self
+                .texture_surface_index
+                .get(&surface.texture_id)
+                .is_some_and(|surfaces| surfaces.contains(&surface_id))
+            || self
+                .texture_level_surface_index
+                .get(&(surface.texture_id, surface.descriptor.level))
+                != Some(&surface_id)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-surface-com-association-mismatch",
+                "logical graphics surface, texture relation, and COM indexes disagree",
             ));
         }
         Ok(())
@@ -616,6 +935,7 @@ impl RuntimeGraphics {
             next_generation: checked_next_generation(self.generation)?,
             devices: self.devices.len(),
             textures: self.textures.len(),
+            surfaces: self.surfaces.len(),
         }))
     }
 
@@ -629,6 +949,10 @@ impl RuntimeGraphics {
             || self.device_texture_index.len() != plan.devices
             || self.textures.len() != plan.textures
             || self.texture_com_object_index.len() != plan.textures
+            || self.texture_surface_index.len() != plan.textures
+            || self.surfaces.len() != plan.surfaces
+            || self.surface_com_object_index.len() != plan.surfaces
+            || self.texture_level_surface_index.len() != plan.surfaces
         {
             return Err(stale_plan("graphics-teardown-plan-stale"));
         }
@@ -637,6 +961,10 @@ impl RuntimeGraphics {
 
     pub(super) fn commit_process_teardown(&mut self, plan: RuntimeGraphicsTeardownPlan) {
         debug_assert!(self.preflight_process_teardown(&plan).is_ok());
+        self.surfaces.clear();
+        self.surface_com_object_index.clear();
+        self.texture_level_surface_index.clear();
+        self.texture_surface_index.clear();
         self.textures.clear();
         self.texture_com_object_index.clear();
         self.device_texture_index.clear();
@@ -679,8 +1007,65 @@ impl RuntimeGraphics {
         &self.textures
     }
 
+    pub fn surface(
+        &self,
+        id: RuntimeGraphicsSurfaceId,
+    ) -> Result<&RuntimeGraphicsSurface, RuntimeStateError> {
+        self.surfaces.get(&id).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-graphics",
+                "graphics-surface-id-unknown",
+                format!("logical graphics surface {} is not live", id.0),
+            )
+        })
+    }
+
+    pub fn surfaces(&self) -> &BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface> {
+        &self.surfaces
+    }
+
+    pub(super) fn surface_for_texture_level(
+        &self,
+        texture_com_object_id: RuntimeComObjectId,
+        level: u32,
+    ) -> Result<Option<&RuntimeGraphicsSurface>, RuntimeStateError> {
+        let texture_id = self
+            .texture_com_object_index
+            .get(&texture_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-surface-texture-com-object-unknown",
+                    "logical surface lookup requires a live graphics texture COM object",
+                )
+            })?;
+        self.validate_texture_association(texture_com_object_id, texture_id)?;
+        let texture = self
+            .textures
+            .get(&texture_id)
+            .expect("validated logical texture association disappeared");
+        if level >= texture.descriptor.levels {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-surface-level-out-of-range",
+                "logical surface level is outside the texture descriptor",
+            ));
+        }
+        let Some(surface_id) = self
+            .texture_level_surface_index
+            .get(&(texture_id, level))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let surface = self.surface(surface_id)?;
+        self.validate_surface_association(surface.com_object_id, surface.id)?;
+        Ok(Some(surface))
+    }
+
     pub(super) fn is_empty(&self) -> bool {
-        self.devices.is_empty() && self.textures.is_empty()
+        self.devices.is_empty() && self.textures.is_empty() && self.surfaces.is_empty()
     }
 }
 
@@ -720,6 +1105,23 @@ fn validate_texture_creation_request(
         ));
     }
     Ok(())
+}
+
+fn validate_surface_creation_request(
+    request: RuntimeGraphicsSurfaceCreateRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.texture_com_object_id.0 == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-surface-creation-request-invalid",
+            "logical graphics surface creation requires a live texture",
+        ));
+    }
+    Ok(())
+}
+
+fn mip_dimension(base: u32, level: u32) -> u32 {
+    base.checked_shr(level).unwrap_or(0).max(1)
 }
 
 fn checked_next_generation(generation: u64) -> Result<u64, RuntimeStateError> {
@@ -773,6 +1175,16 @@ mod tests {
                 color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
                 pool: RuntimeGraphicsTexturePool::SystemMemory,
             },
+        }
+    }
+
+    fn surface_request(
+        com_object_id: RuntimeComObjectId,
+        level: u32,
+    ) -> RuntimeGraphicsSurfaceCreateRequest {
+        RuntimeGraphicsSurfaceCreateRequest {
+            texture_com_object_id: com_object_id,
+            level,
         }
     }
 
@@ -836,6 +1248,33 @@ mod tests {
             "graphics-texture-creation-plan-stale"
         );
 
+        let surface_plan = graphics
+            .plan_surface_creation(surface_request(RuntimeComObjectId(8), 0))
+            .unwrap();
+        let stale_surface = surface_plan.clone();
+        assert_eq!(surface_plan.id(), RuntimeGraphicsSurfaceId(1));
+        assert_eq!(surface_plan.texture_id(), texture.id);
+        assert_eq!(surface_plan.descriptor().width, 1_024);
+        let surface = graphics.commit_surface_creation(surface_plan, RuntimeComObjectId(9));
+        assert_eq!(surface.namespace, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE);
+        assert_eq!(surface.texture_id, texture.id);
+        assert_eq!(surface.descriptor.level, 0);
+        assert_eq!(surface.com_object_id, RuntimeComObjectId(9));
+        assert_eq!(
+            graphics
+                .preflight_surface_creation(&stale_surface)
+                .unwrap_err()
+                .code,
+            "graphics-surface-creation-plan-stale"
+        );
+        assert_eq!(
+            graphics
+                .surface_for_texture_level(RuntimeComObjectId(8), 0)
+                .unwrap()
+                .map(|surface| surface.id),
+            Some(surface.id)
+        );
+
         let incomplete = graphics
             .plan_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
             .unwrap_err();
@@ -844,11 +1283,23 @@ mod tests {
             "graphics-device-retirement-has-live-textures"
         );
 
+        let incomplete = graphics
+            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .unwrap_err();
+        assert_eq!(
+            incomplete.code,
+            "graphics-texture-retirement-has-live-surfaces"
+        );
+
         let retirement = graphics
             .plan_com_object_retirements(
-                &[RuntimeComObjectId(7), RuntimeComObjectId(8)]
-                    .into_iter()
-                    .collect(),
+                &[
+                    RuntimeComObjectId(7),
+                    RuntimeComObjectId(8),
+                    RuntimeComObjectId(9),
+                ]
+                .into_iter()
+                .collect(),
             )
             .unwrap()
             .unwrap();
@@ -910,6 +1361,39 @@ mod tests {
             .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
             .unwrap_err();
         assert_eq!(error.code, "graphics-texture-capacity-reached");
+        assert_eq!(graphics, before);
+    }
+
+    #[test]
+    fn surface_capacity_and_duplicate_level_failures_preserve_owner_state() {
+        let mut graphics = RuntimeGraphics::default();
+        let device = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(device, RuntimeComObjectId(1));
+        let mut request = texture_request(RuntimeComObjectId(1));
+        request.descriptor.levels = RUNTIME_GRAPHICS_SURFACE_LIMIT as u32 + 1;
+        let texture = graphics.plan_texture_creation(request).unwrap();
+        graphics.commit_texture_creation(texture, RuntimeComObjectId(2));
+        for index in 0..RUNTIME_GRAPHICS_SURFACE_LIMIT {
+            let surface = graphics
+                .plan_surface_creation(surface_request(RuntimeComObjectId(2), index as u32))
+                .unwrap();
+            graphics.commit_surface_creation(surface, RuntimeComObjectId(index as u64 + 3));
+        }
+        let duplicate_before = graphics.clone();
+        let duplicate = graphics
+            .plan_surface_creation(surface_request(RuntimeComObjectId(2), 0))
+            .unwrap_err();
+        assert_eq!(duplicate.code, "graphics-surface-level-already-published");
+        assert_eq!(graphics, duplicate_before);
+
+        let before = graphics.clone();
+        let error = graphics
+            .plan_surface_creation(surface_request(
+                RuntimeComObjectId(2),
+                RUNTIME_GRAPHICS_SURFACE_LIMIT as u32,
+            ))
+            .unwrap_err();
+        assert_eq!(error.code, "graphics-surface-capacity-reached");
         assert_eq!(graphics, before);
     }
 }

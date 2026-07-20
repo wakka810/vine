@@ -4,25 +4,25 @@
 
 - Status: threshold passed
 - Date: 2026-07-20
-- Workload: 17,850-call `d3d9-create-texture` private BGI generic session
-- Observation status: `current-d3d9-create-texture-observation`
+- Workload: 17,851-call `d3d9-get-surface-level` private BGI generic session
+- Observation status: `current-d3d9-get-surface-level-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-create-texture-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-create-texture-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-get-surface-level-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-get-surface-level-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `d3d9-create-texture` BGI
+This observation repeats the complete `d3d9-get-surface-level` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,850 calls before the 11,807,783-instruction
-terminal stop, performs 63,575 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,851 calls before the 11,807,793-instruction
+terminal stop, performs 63,579 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
 creation, small-icon send, initial show／hide callbacks, client-rect query,
 window-long update, and same-geometry activation, then creates one Rust-owned
 logical D3D9 device with an 800x600 format-22 presentation and one Rust-owned
-1024x1024／one-level／format-22 system-memory logical texture descriptor. It
-reaches `IDirect3DTexture9::GetSurfaceLevel` at slot 18 without allocating
-texture bytes or creating a browser renderer.
+1024x1024／one-level／format-22 system-memory logical texture descriptor and its
+level-zero logical surface identity. It reaches `IDirect3DSurface9::GetDC` at
+slot 15 without allocating texture／surface bytes, a DC, or a browser renderer.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, WinMM, icon／cursor, window-class, logical-window, system-metric, large-heap,
@@ -33,7 +33,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-17,850 detailed call objects or canonical strings on every repetition. Completed report payloads,
+17,851 detailed call objects or canonical strings on every repetition. Completed report payloads,
 including source-read records, are released after scalar capture. The capacity,
 COM／graphics lifetime boundary, and Wasm artifact changed in this checkpoint,
 so the workload was rerun against the exact current Rust/Wasm and Worker
@@ -63,33 +63,33 @@ reason, the exact evaluation count, and failure IDs. The current decision is
 
 ## Result
 
-The isolated clean-profile Chrome run completed 45 sessions with no semantic failure.
-The CreateTexture version 1 configuration retained all 17 existing threshold
+The isolated clean-profile Chrome run completed 46 sessions with no semantic failure.
+The GetSurfaceLevel version 1 configuration retained all 17 existing threshold
 values unchanged before this 180-second run. All 17 thresholds passed. Previous workload configurations remain
 unchanged as historical evidence; their identities are not applied to this
 current workload.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 45 |
+| Completed sessions | >= 24 | 46 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 4,131.915 ms |
-| Maximum slice p99 | <= 10 ms | 3.255 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.000 ms |
-| Main heartbeat gap maximum | <= 250 ms | 32.660 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 2,958,744 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 90,757.54 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 21,475,504 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,212,974.02 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 65,798,144 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 13,746,034 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 971,686.91 bytes/min |
+| Session latency p95 | <= 8,000 ms | 4,037.135 ms |
+| Maximum slice p99 | <= 10 ms | 2.535 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.005 ms |
+| Main heartbeat gap maximum | <= 250 ms | 34.145 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 2,944,786 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 166,711.52 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 20,397,464 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 1,233,280.26 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 66,322,432 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 17,525,138 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 82,048.40 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 946,295 bytes with SHA-256
-`3819bd12367772a3b48f83a85ba48b2272b57a7187723a3bb9a683ff437080d4`.
+The exact report is 947,266 bytes with SHA-256
+`d563064d738dcf927c167d2d4808420c12ec8d55253c4a658c7a6187f592021b`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -122,8 +122,10 @@ why ambient host load cannot be accepted as a clean performance oracle.
 
 The retained benchmark configuration still described the earlier
 `user32-set-window-pos-activation` stop after the active runtime had advanced to
-`d3d9-create-device`. The old fixture remains historical; the current manifest
-selects the new exact 17,849-call／11,807,772-instruction／`CreateTexture` fixture.
+`d3d9-create-device`. That old fixture remains historical; the replacement at
+this stage selected the exact 17,849-call／11,807,772-instruction／`CreateTexture`
+fixture. Later checkpoint fixtures preserve both identities rather than
+rewriting either historical workload.
 
 The first current run completed 14 sessions and had 14,831.200 ms P95, failing
 minimum sessions and latency. The second completed 24 sessions but still had
@@ -216,7 +218,7 @@ any threshold.
 | Chrome | `150.0.7871.127` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `0c354c818cffad7fb7e70c922982aa9338068921`
+The report records base implementation commit `8472dfb1cb13b241c9148b20978bd59350bc64db`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -225,12 +227,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,470,838 | `965baadc4b9be6abb4269d26c448bf68abc86b945579298fbf563a9d1f28b65a` |
+| Rust runtime core Wasm | 3,527,856 | `2498908a70fac8a2404f39346791186803906f79c482f995c8711fa1f10feb12` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 154,859 | `98c860aadd3d0ecb1c8b81beed1e817331348c6c44ee4ae34de14f72b351024b` |
 | BGI benchmark bundle | 10,076 | `e29175046e7f46e3ac057a4870cdb8a2ef42c0a992717ba3d096b8e90d9018d9` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| CreateTexture version 1 configuration | 1,177 | `50985ce5ca76372f314c4f367551b8d24f423ab1396a8f90381f1ca705d8fb7d` |
+| GetSurfaceLevel version 1 configuration | 1,173 | `3891c1580141db29ab33f9b46cfab721d2b98738e8a09ce3788259928a6fc3b7` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -260,8 +262,9 @@ profile plus a loopback-only server and DevTools endpoint.
   two full reads of one immutable object; it does not cover large-corpus streaming,
   replacement recovery, directory enumeration, writes, restart, or durability.
   COM coverage is limited to per-thread initialization plus the reached D3D9
-  root／device／texture identity and lifetime. The logical texture has no texel
-  storage, surface, Lock／Unlock, upload, draw, or renderer resource. General
+  root／device／texture／level-zero surface identity and lifetime. The logical
+  texture and surface have no pixel storage, pitch, DC, Lock／Unlock, upload,
+  draw, or renderer resource. General
   COM and D3D9 resource behavior remain unmeasured. Likewise,
   input coverage is limited to the logical mouse-button mapping transaction.
   Waitable-timer coverage is limited to creation and initial nonsignaled
