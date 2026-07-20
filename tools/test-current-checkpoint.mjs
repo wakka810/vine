@@ -235,6 +235,14 @@ assert.ok(
   ),
 );
 
+const mismatchedRuntimeCoreArtifact = structuredClone(manifest);
+mismatchedRuntimeCoreArtifact.browserCheckpoint.bgiBenchmarkEvidence.runtimeCoreWasmBytes += 1;
+assert.ok(
+  validateCurrentCheckpoint(mismatchedRuntimeCoreArtifact).some((error) =>
+    error.includes("benchmark evidence"),
+  ),
+);
+
 const staleRetainedBenchmark = structuredClone(manifest);
 staleRetainedBenchmark.browserCheckpoint.bgiBenchmarkEvidence.observationStatus =
   "retained-semantic-leaf-not-rerun";

@@ -411,12 +411,7 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint.browserRuntimeCoreWasm.sha256",
     errors,
   );
-  if (
-    browserRuntimeCoreWasm.imports !== 0 ||
-    browserRuntimeCoreWasm.bytes !== 3_420_622 ||
-    browserRuntimeCoreWasm.sha256 !==
-      "6dd86d69ad90ccf2bbe705ad08aaec42fc3555280bda8e721c5b2bf0c7118e5a"
-  ) {
+  if (browserRuntimeCoreWasm.imports !== 0) {
     errors.push("browser runtime core Wasm must remain import-free");
   }
   const browserRuntimeFixture = requireRecord(
@@ -1135,6 +1130,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.thresholdFailures !== benchmarkFailureIds.length ||
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
+    bgiBenchmarkEvidence.runtimeCoreWasmBytes !== browserRuntimeCoreWasm.bytes ||
+    bgiBenchmarkEvidence.runtimeCoreWasmSha256 !== browserRuntimeCoreWasm.sha256 ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
       bgiBrowserEvidence.executionEngineLinearMemoryBytes
   ) {
