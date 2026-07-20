@@ -201,6 +201,24 @@ assert.ok(
   ),
 );
 
+const duplicatedAdapterMonitorIdentity = structuredClone(manifest);
+duplicatedAdapterMonitorIdentity.activeRuntimeCheckpoint.d3d9Frontend.getAdapterMonitor.monitorIdentityAuthority =
+  "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy";
+assert.ok(
+  validateCurrentCheckpoint(duplicatedAdapterMonitorIdentity).some((error) =>
+    error.includes("active D3D9 frontend boundary"),
+  ),
+);
+
+const browserOwnedAdapterMonitor = structuredClone(manifest);
+browserOwnedAdapterMonitor.activeRuntimeCheckpoint.latestEvidence.d3d9GetAdapterMonitorBrowserTopologyImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedAdapterMonitor).some((error) =>
+    error.includes("latest D3D9 adapter-monitor evidence"),
+  ),
+);
+
 const aggregateMutatesSubsystemCollection = structuredClone(manifest);
 aggregateMutatesSubsystemCollection.activeRuntimeCheckpoint.runtimeKernelBoundary.directSubsystemCollectionMutation =
   true;

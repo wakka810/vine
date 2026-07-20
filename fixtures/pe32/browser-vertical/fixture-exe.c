@@ -67,6 +67,8 @@ typedef struct fixture_idirect3d9_vtable {
                                   unsigned int adapter,
                                   unsigned int device_type,
                                   fixture_d3d_device_caps *caps);
+  void *(__stdcall *get_adapter_monitor)(fixture_idirect3d9 *self,
+                                         unsigned int adapter);
 } fixture_idirect3d9_vtable;
 
 struct fixture_idirect3d9 {
@@ -163,6 +165,12 @@ int __cdecl fixture_entry(void) {
       direct3d->vtable->get_adapter_count(direct3d);
   if (adapter_count == 0) {
     return fixture_d3d9_failure(direct3d, 18);
+  }
+  if (direct3d->vtable->get_adapter_monitor(direct3d, 0) == 0) {
+    return fixture_d3d9_failure(direct3d, 19);
+  }
+  if (direct3d->vtable->get_adapter_monitor(direct3d, adapter_count) != 0) {
+    return fixture_d3d9_failure(direct3d, 20);
   }
   fixture_d3d_display_mode mode = {0xccccccccu, 0xccccccccu, 0xccccccccu,
                                    0xccccccccu};

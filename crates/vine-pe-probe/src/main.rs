@@ -186,6 +186,7 @@ enum GenericRuntimeCapability {
     SetWindowPosActivation,
     MonitorFromWindow,
     D3d9GetAdapterCount,
+    D3d9GetAdapterMonitor,
 }
 
 struct GenericRuntimeProcess {
@@ -2305,6 +2306,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SetWindowPosActivation
                     | GenericRuntimeCapability::MonitorFromWindow
                     | GenericRuntimeCapability::D3d9GetAdapterCount
+                    | GenericRuntimeCapability::D3d9GetAdapterMonitor
             )
         ) {
             let loader = kernel32_policy
@@ -2964,6 +2966,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -2996,7 +2999,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetWindowLongA
             | GenericRuntimeCapability::SetWindowPosActivation
             | GenericRuntimeCapability::MonitorFromWindow
-            | GenericRuntimeCapability::D3d9GetAdapterCount,
+            | GenericRuntimeCapability::D3d9GetAdapterCount
+            | GenericRuntimeCapability::D3d9GetAdapterMonitor,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3064,6 +3068,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3073,6 +3078,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3080,7 +3086,13 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let d3d9_policy = D3d9CompatibilityPolicy::controlled_v6();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v7();
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9GetAdapterMonitor)
+    ) {
+        d3d9_policy.get_adapter_monitor = None;
+    }
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
@@ -3361,6 +3373,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4581,6 +4594,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::SetWindowPosActivation
                             | GenericRuntimeCapability::MonitorFromWindow
                             | GenericRuntimeCapability::D3d9GetAdapterCount
+                            | GenericRuntimeCapability::D3d9GetAdapterMonitor
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4621,6 +4635,7 @@ fn run_v86_generic_runtime_session(
                                 | GenericRuntimeCapability::SetWindowPosActivation
                                 | GenericRuntimeCapability::MonitorFromWindow
                                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                                | GenericRuntimeCapability::D3d9GetAdapterMonitor
                         )
                     ) {
                         dispatch_d3d9_com_call(&d3d9_policy, trap, &mut session)
@@ -4666,6 +4681,7 @@ fn runtime_capability_enables_endpoint(
         Some(
             GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4675,6 +4691,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4685,6 +4702,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4696,6 +4714,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let load_library_a_enabled = matches!(
@@ -4708,6 +4727,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4726,6 +4746,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4762,6 +4783,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5266,6 +5288,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::SetWindowPosActivation
                 | GenericRuntimeCapability::MonitorFromWindow
                 | GenericRuntimeCapability::D3d9GetAdapterCount
+                | GenericRuntimeCapability::D3d9GetAdapterMonitor
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -11005,6 +11028,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-monitor-from-window" => GenericRuntimeCapability::MonitorFromWindow,
                 "d3d9-get-adapter-count" => GenericRuntimeCapability::D3d9GetAdapterCount,
+                "d3d9-get-adapter-monitor" => GenericRuntimeCapability::D3d9GetAdapterMonitor,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

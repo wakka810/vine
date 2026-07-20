@@ -144,6 +144,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-window-pos-activation",
         "user32-monitor-from-window",
         "d3d9-get-adapter-count",
+        "d3d9-get-adapter-monitor",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -207,6 +208,7 @@ assert(
       "user32-set-window-pos-activation",
       "user32-monitor-from-window",
       "d3d9-get-adapter-count",
+      "d3d9-get-adapter-monitor",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -234,6 +236,7 @@ if (
     "user32-set-window-pos-activation",
     "user32-monitor-from-window",
     "d3d9-get-adapter-count",
+    "d3d9-get-adapter-monitor",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -254,7 +257,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-set-window-long-a" ||
     genericRuntimeCapability === "user32-set-window-pos-activation" ||
     genericRuntimeCapability === "user32-monitor-from-window" ||
-    genericRuntimeCapability === "d3d9-get-adapter-count"
+    genericRuntimeCapability === "d3d9-get-adapter-count" ||
+    genericRuntimeCapability === "d3d9-get-adapter-monitor"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -389,7 +393,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9GetAdapterMonitorEnabled =
+  genericRuntimeCapability === "d3d9-get-adapter-monitor";
 const d3d9GetAdapterCountEnabled =
+  d3d9GetAdapterMonitorEnabled ||
   genericRuntimeCapability === "d3d9-get-adapter-count";
 const monitorFromWindowEnabled =
   d3d9GetAdapterCountEnabled ||
@@ -599,7 +606,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9GetAdapterCountEnabled
+      ? d3d9GetAdapterMonitorEnabled
+        ? "v86-bgi-d3d9-get-adapter-monitor"
+      : d3d9GetAdapterCountEnabled
         ? "v86-bgi-d3d9-get-adapter-count"
       : monitorFromWindowEnabled
         ? "v86-bgi-monitor-from-window"
@@ -4553,6 +4562,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9GetAdapterMonitorEnabled) {
+        validateD3d9GetAdapterMonitorResult(genericResult);
       } else if (d3d9GetAdapterCountEnabled) {
         validateD3d9GetAdapterCountResult(genericResult);
       } else if (monitorFromWindowEnabled) {
@@ -4712,6 +4723,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9GetAdapterMonitorEnabled
+            ? "bgi D3D9 GetAdapterMonitor"
           : d3d9GetAdapterCountEnabled
             ? "bgi D3D9 GetAdapterCount"
           : monitorFromWindowEnabled
@@ -12500,8 +12513,8 @@ function validateD3d9GetAdapterCountResult(result) {
   assert.equal(endpoint.target.method.explicitArgumentWords, 1);
   assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
   assert.equal(result.fault.fault.class, "unsupported");
-  assert.equal(result.fault.fault.stage, "com-dispatch");
-  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.stage, "d3d9-adapter-monitor");
+  assert.equal(result.fault.fault.code, "get-adapter-monitor-policy-disabled");
   assert.equal(result.fault.fault.callSite, 0x1005_9d5e);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
   assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
@@ -12523,6 +12536,167 @@ function validateD3d9GetAdapterCountResult(result) {
   assert.equal(terminal.vtableSlot, 15);
   assert.equal(terminal.returnAddress, 0x1005_9d5e);
   assert.deepEqual(terminal.stackWords.slice(1, 3), [0x0100_0004, 0]);
+}
+
+function validateD3d9GetAdapterMonitorResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_848);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_903);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_054,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_411,
+  );
+  assert.equal(result.hostDeltas.length, 16_563);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_598);
+  const countCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3D9.GetAdapterCount",
+  );
+  assert.equal(countCalls.length, 2);
+  assert.deepEqual(
+    countCalls.map((call) => ({
+      sequence: call.sequence,
+      occurrence: call.occurrence,
+      instruction: call.trapInstructionCount,
+      arguments: call.arguments,
+      result: call.result,
+      returnAddress: call.returnAddress,
+      stackPointerDelta: call.stackPointerAfter - call.stackPointerBefore,
+      referenceCount: call.referenceCount,
+      objectRetired: call.objectRetired,
+      guestWrites: call.guestWrites,
+    })),
+    [
+      {
+        sequence: 17_843,
+        occurrence: 1,
+        instruction: 11_807_197,
+        arguments: [0x0100_0004],
+        result: { kind: "u32", value: 1 },
+        returnAddress: 0x1005_9d36,
+        stackPointerDelta: 8,
+        referenceCount: 1,
+        objectRetired: false,
+        guestWrites: [],
+      },
+      {
+        sequence: 17_847,
+        occurrence: 2,
+        instruction: 11_807_355,
+        arguments: [0x0100_0004],
+        result: { kind: "u32", value: 1 },
+        returnAddress: 0x1005_9d36,
+        stackPointerDelta: 8,
+        referenceCount: 1,
+        objectRetired: false,
+        guestWrites: [],
+      },
+    ],
+  );
+
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3D9.GetAdapterMonitor",
+  );
+  assert.equal(calls.length, 2);
+  assert.deepEqual(
+    calls.map((call) => ({
+      sequence: call.sequence,
+      occurrence: call.occurrence,
+      instruction: call.trapInstructionCount,
+      module: call.module,
+      interface: call.interface,
+      vtableSlot: call.vtableSlot,
+      arguments: call.arguments,
+      result: call.result,
+      returnAddress: call.returnAddress,
+      stackPointerDelta: call.stackPointerAfter - call.stackPointerBefore,
+      referenceCount: call.referenceCount,
+      objectRetired: call.objectRetired,
+      guestWrites: call.guestWrites,
+    })),
+    [17_844, 17_848].map((sequence, index) => ({
+      sequence,
+      occurrence: index + 1,
+      instruction: [11_807_216, 11_807_374][index],
+      module: "<com>",
+      interface: "IDirect3D9",
+      vtableSlot: 15,
+      arguments: [0x0100_0004, 0],
+      result: { kind: "u32", value: 0x4f01_0001 },
+      returnAddress: 0x1005_9d5e,
+      stackPointerDelta: 12,
+      referenceCount: 1,
+      objectRetired: false,
+      guestWrites: [],
+    })),
+  );
+  assert.deepEqual(
+    result.supportedCalls.slice(-5).map((call) => call.symbol),
+    [
+      "IDirect3D9.GetAdapterMonitor",
+      "IDirect3D9.GetAdapterDisplayMode",
+      "MonitorFromWindow",
+      "IDirect3D9.GetAdapterCount",
+      "IDirect3D9.GetAdapterMonitor",
+    ],
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3d9-root.v1");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.interface.name, "IDirect3D9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0100_0004);
+  assert.equal(endpoint.target.method.slot, 16);
+  assert.equal(endpoint.target.method.name, "CreateDevice");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 6);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3d9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_aca5);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3D9");
+  assert.equal(result.fault.fault.target.vtableSlot, 16);
+  assert.equal(result.fault.fault.target.method, "CreateDevice");
+  assert.equal(result.fault.memory.physicalPages, 719);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b09f1911d1718c3a0e8400e7499f5e86bcc223ba9d790f54b17c8d933427fd05",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_807_387);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, 0x0100_1130);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 16);
+  assert.equal(terminal.returnAddress, 0x1005_aca5);
+  assert.deepEqual(terminal.stackWords.slice(1, 8), [
+    0x0100_0004,
+    0,
+    1,
+    0x4801_0001,
+    0x44,
+    0x1010_38f0,
+    0x1015_17c4,
+  ]);
 }
 
 function validateMonitorFromWindowResult(result) {
@@ -14426,6 +14600,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9GetAdapterMonitorEnabled
+          ? "vine.v86-bgi-d3d9-get-adapter-monitor"
         : d3d9GetAdapterCountEnabled
           ? "vine.v86-bgi-d3d9-get-adapter-count"
         : monitorFromWindowEnabled

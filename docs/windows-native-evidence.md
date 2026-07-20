@@ -3590,3 +3590,51 @@ translation pathを変更しないため、直前のpassing 32-session observati
 Multi-adapter、mode enumeration、host／browser GPU topology、`RuntimeGraphics` device、rendererは未実装である。
 次stopはinstruction 11,807,216、`IDirect3D9` slot 15／`GetAdapterMonitor(0)`、this
 `0x01000004`、endpoint `0x01001120`、return `0x10059D5E`の`com-method-unsupported`である。
+
+## 116. BGI D3D9 logical adapter monitor
+
+Section 115と同じselected-`IDirect3D9` trace v2をadapter-monitor oracleとして再利用する。Raw traceは
+2,267,972 bytes／7,133 records／SHA-256
+`cfefd83bc32f2de6e8b7feda96a09240b2ac7aedb3bc76ded41064a0d224c898`、summaryは
+58,021 bytes／SHA-256
+`3e8f8b52e23131b8efea737e3dfa94bdb10d9f14526fe2bf44bdb56715959aa9`、diagnosticsは0である。
+BGI direct caller RVA `0x00059D5E`からslot 15 `GetAdapterMonitor(0)`へ6 calls到達し、すべてnative
+opaque non-NULL result、observed LastError `0`である。Native numeric HMONITOR `0x00010001`はartifact
+identityであり、guest semantic valueにはしない。
+
+Boundary caseは新しいCOFF-i386 oracleで固定した。Sourceは5,089 bytes／SHA-256
+`337ddf83ec68ba80a25d70f1f9a9d0361a83833657ca7c852075043d16b57c67`、executableは3,584 bytes／
+SHA-256 `1d2681032fad258d9930c1a4a88ac6d4cf67d53b7d26ff447a17d5129bb436d5`である。独立した2 runsは
+同じ結果となり、adapter count `1`、adapter `0`はprimary identityと一致するnon-NULL、adapter `1`と
+`UINT_MAX`はNULL、三callすべてsentinel LastError `0x5A5A`を保存した。Oracle source／binaryとraw
+outputは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-7 D3D9 policyの`primary-adapter-monitor-v1`でadapter `0`だけを
+`single-monitor-1920x1080-v1`へ対応付ける。Mappingは`D3d9CompatibilityPolicy`、HMONITOR identityは
+`RuntimeDisplays`がauthorityを持つ。Valid adapterはlogical primary handle `0x4F010001`、invalid adapterは
+NULLを通常完了として返す。いずれもLastError、guest memory、COM reference count、object lifetime、
+runtime generationを変更しない。Disabled／malformed policy、missing monitor、display-profile mismatchは
+mutation前のtyped faultとなる。Host monitor identity、browser topology、`RuntimeGraphics`、renderer resourceは
+import／生成しない。
+
+Nodeはsequence 17,844／instruction 11,807,216とsequence 17,848／instruction 11,807,374の二callで
+同じ`0x4F010001`を返す。間には既存`GetAdapterDisplayMode`、二回目の`MonitorFromWindow`、二回目の
+`GetAdapterCount`が順序どおり到達する。Summaryは17,848 calls／17,903 writebacks／36,054 dirty pages／
+1,807,411 changed bytes、16,563 host deltas、generation 34,598を通す。Reportは55,347 bytes／SHA-256
+`8525d1e2a8ca0f0435754d54904cb5cd0b05c6f49b6c636b8cb787d2a7e6c252`、semantic digestは
+`72aaa892443446bb565b11908c6f01697bcd58110f1f15e281934eaf1eca2460`、final memory SHA-256は
+`b09f1911d1718c3a0e8400e7499f5e86bcc223ba9d790f54b17c8d933427fd05`である。
+
+Chrome Runtime Workerもsame ordered calls／instructions／digestを再現し、40,302 slices、40,296
+writebacks／87,911 pages、16,563 mapping deltas、generation 56,992、74,784 Wasm crossings、terminal
+pending work zeroを通す。Browser reportは193,686 bytes／SHA-256
+`e2a46cc75fa1e043a0a69bf6164a84feabe9caf368f4c44a77a96b0794bc6aef`である。Controlled PE fixtureも
+adapter `0` non-NULL／past-end NULLを含めて1,966 instructions、exit `0`を通し、Canvas pixel、audio、
+storage、cancel／watchdog regressionを維持する。
+
+次stopはinstruction 11,807,387、`IDirect3D9` slot 16／`CreateDevice`、this `0x01000004`、adapter `0`、
+device type `1`、focus window `0x48010001`、behavior flags `0x44`、presentation parameters
+`0x101038F0`、output pointer `0x101517C4`、endpoint `0x01001130`、return `0x1005ACA5`の
+`com-method-unsupported`である。これは最初のlogical device、presentation state、graphics resource owner、
+browser renderer transaction boundaryを必要とするsubsystem gatewayであり、API単体leafとして実装しない。
