@@ -3749,6 +3749,57 @@ return `0x1005A890`の`com-method-unsupported`である。Vertex-buffer identity
 storage、Lock／Unlock、renderer、draw、Present、Reset、device loss、first visible frameはこのcheckpointで
 実装済みとしない。
 
+## 123. BGI D3D9 initial vertex buffer
+
+Focused `x86-bgi-initial-vertex-buffer-v1` observationを独立に2回取得した。Primary raw traceは
+286,932 bytes／512 records／222 balanced API pairs／SHA-256
+`0a1719739f86eaa42353e0c762e802119225e30975a318a29669e9aea2ea5c30`、summaryは282,623 bytes／
+SHA-256 `68133eb819c3055d58580f2bc63dff5b56c116aff6d5ff9762c4428108e1c849`である。Confirmation raw
+traceは285,889 bytes／509 records／220 balanced pairs／SHA-256
+`e2f7c1cc1d9c073d9325bf05d7f46a44e80bbbce54b0f8ffe08684f6bf393ed8`、summaryは282,874 bytes／
+SHA-256 `7835288860d359c695d98bb7cbc19ecbc004f1d05ec6f54d384eaa7356ec3700`で、diagnosticsは両runとも
+0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceは同じnative device／vertex bufferに対し、BGI caller RVA
+`0x0005A890／0x0005AA96／0x0005AAB2`からslot 26 `CreateVertexBuffer`、slot 11 `Lock`、slot 12
+`Unlock`を順に完了する。Create argumentsは`112, 8, 0x144, 1`、shared handleはNULL、Lock argumentsは
+offset／size／flagsすべて0で、三resultは`S_OK`、observed LastErrorは0である。Create後の112 bytesは全て
+zeroでSHA-256 `b5fdab78d8947eacc864bfeecb4d2100780e5afe1cd8efafb124887913ac49fa`、callerがcopyした112-byte
+payloadはSHA-256 `d432a6ed2623c7617983f6e92a6ea25431ad6703229be2248d60bcd1d0846c07`である。Native pointerは
+opaque artifact identityとして扱う。直後はdevice slot 57 `SetRenderState(22, 1)`へ進む。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-13 `primary-initial-xyzw-diffuse-tex1-quad-v1`を実装した。Sequence
+17,859／17,860／17,861、instruction 11,807,897／11,808,429／11,808,439でlogical device
+`0x01010004`からvertex buffer `0x01050004`を作り、Lock output `0x006FFD54`へRust-owned backing
+`0x44000000`をpublishし、Unlock後はread-onlyへ戻す。`RuntimeGraphics`はlogical vertex-buffer ID 1、
+device relation、112-byte descriptor、single active lock、content generation 1を所有し、byte authorityは
+`GuestMemory`に置く。Terminal device reference countは5、vertex-buffer reference countは1である。
+CreateはCOM／address-space／graphics／memoryを全てpreflightしてからpublishし、Lock／Unlockもguest write、
+protection、graphics stateをfailure-atomicにcommitする。Final ReleaseはCOM backing、resource backing／owner、
+address records、graphics associationをまとめてretireする。Browser renderer／GPU resourceは作らない。
+
+Node summaryは17,861 calls／11,808,458 terminal instructions、17,916 writebacks／36,070 dirty pages／
+1,807,769 changed bytes、16,573 host deltas、generation 34,920を通す。Semantic SHA-256は
+`6d4e217e8f8737c41c279ed3da18ea4b079f7bec1a5a6cf09ec420513c5f0ff9`、final memory SHA-256は
+`c25cc143829b020bdfb3cfebc393046a1f5ae77f6b3e5197c3697aad37d13fa5`、reportは82,585 bytes／
+SHA-256 `7c943a93c7d58c7b12854aa3cdc4e42eceacfbec6fb0c93953c03717ef61ac6b`である。
+
+Chrome Runtime Workerもsame ordered semantics／instructions／digestを再現し、29,092 writebacks／61,976
+pages、16,573 mapping deltas／17,773 dirty pages、generation 27→46,098、63,614 Wasm crossings、87,248
+success transitions、terminal pending work zeroを通す。Browser reportは116,641 bytes／SHA-256
+`9eb47d12e8a8a47cabd5bcfde05a940bae07b362fb7e2cb9b254ad6f6d627b8c`、Rust core Wasmは3,654,703
+bytes／SHA-256 `b37c6f49d0954d49c73a6ca0a76a75913384a797b0749b17f9a96118a5f5bc4d`である。
+
+同じ180-second fixtureと変更しない17 thresholdsのbenchmarkは64 sessions、semantic failure 0、session P95
+2,914.615 ms、slice P99 2.585 ms、heartbeat P99／maximum 5.995／20.855 msで17／17を通した。Reportは
+955,155 bytes／SHA-256 `c80155da249b02dc5aab121732bcb96a0853577cbcffe63b68f1acd5f7ce50d0`であり、threshold変更、
+retry acceptanceは行っていない。
+
+次stopはinstruction 11,808,458、`IDirect3DDevice9` slot 57／`SetRenderState`、this `0x01010004`、
+arguments `22, 1`、endpoint `0x010113C0`、return `0x1005AD13`の`com-method-unsupported`である。
+Render-state authority、draw、Present、Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

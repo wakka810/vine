@@ -664,9 +664,11 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 
 `RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contract、
 `CreateTexture` gatewayで最初のdevice-related logical texture descriptor、`GetSurfaceLevel` gatewayで
-最初のlogical texture subresource descriptorを所有するprivate Rust subsystemである。Window relation、
+最初のlogical texture subresource descriptor、`CreateVertexBuffer` gatewayで最初のguest-backed logical
+geometry resourceを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
-device／texture／surface IDとgenerationをowner-local plan／commitで管理し、各4,096-object capacity、stale
+device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lockを
+owner-local plan／commitで管理し、各4,096-object capacity、stale
 plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
 graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
 関連は別namespaceのnon-owning associationにする。この順序により、未到達D3D8／10／11 frameworkを先行実装せず、
@@ -679,12 +681,22 @@ identity、logical graphics deviceは一つの外部観測可能transactionと�
 必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
 
 `CreateTexture`はlive device association、policy-bounded descriptor、guest output span、COM child registration、
-graphics texture capacityを全てpreflightする。Version 12のactive bandは1024×1024／one-level／X8R8G8B8に対し、
+graphics texture capacityを全てpreflightする。Version 13のactive bandは1024×1024／one-level／X8R8G8B8に対し、
 static SYSTEMMEM、static DEFAULT、dynamic DEFAULTの三variantだけを許可する。各completionはdistinct guest
 texture pointer、child COM identity、logical textureを一つの外部観測可能transactionとしてpublishし、各Textureは
 device interfaceを一reference保持する。Final releaseはtexture associationを退役して必要ならdevice／root
 retirementへcascadeする。Logical usage／pool descriptor、特にDEFAULT poolはtexture bytes、GPU allocation、
 lock staging、browser renderer resourceの代用ではなく、それらは到達methodごとの後続gatewayで追加する。
+
+`CreateVertexBuffer`はlive device association、versioned descriptor、guest output、COM child registration、
+graphics capacity、graphics-resource arena内のprocess allocation、owner-tagged guest memoryを全てpreflightする。
+成功時はdistinct interface pointer、logical descriptor／backing relation、zero-filled read-only guest rangeを
+一transactionでpublishし、VertexBufferはdevice interfaceを一reference保持する。Reached full-range
+`Lock(0,0,...,0)`はoutput writeとbackingのread／write protectionをatomicにcommitし、`Unlock`はactive lockを
+検証してread-onlyへ戻しcontent generationを進める。Byte authorityは`GuestMemory`だけに置き、
+`RuntimeGraphics`はdescriptor、backing identity、lock、generationを所有する。Final releaseはCOM backing、
+resource allocation、memory owner、logical associationをまとめてretireしてからdevice／rootへcascadeする。
+Browser renderer resource、GPU vertex buffer、format translationはこのgatewayでは作らない。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

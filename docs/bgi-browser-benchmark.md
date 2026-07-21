@@ -4,16 +4,16 @@
 
 - Status: threshold passed
 - Date: 2026-07-22
-- Workload: 17,858-call `d3d9-initial-textures` private BGI generic session
-- Observation status: `current-d3d9-initial-textures-observation`
+- Workload: 17,861-call `d3d9-initial-vertex-buffer` private BGI generic session
+- Observation status: `current-d3d9-initial-vertex-buffer-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-textures-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-textures-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-vertex-buffer-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-vertex-buffer-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `d3d9-initial-textures` BGI
+This observation repeats the complete `d3d9-initial-vertex-buffer` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,858 calls before the 11,807,897-instruction
-terminal stop, performs 63,602 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,861 calls before the 11,808,458-instruction
+terminal stop, performs 63,614 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -25,10 +25,13 @@ surface, acquires one typed surface HDC, records one `[0,0,800,600]` black fill,
 releases the HDC, and retires the surface. It then creates two more logical
 textures with the same dimensions and format: one static default-pool variant
 and one dynamic default-pool variant. All three texture identities remain live,
-the device reference count is four, and execution reaches
-`IDirect3DDevice9::CreateVertexBuffer` at slot 26. The successful resource path
+then the device creates one 112-byte write-only, managed vertex buffer. Its
+full-range Lock publishes Rust-owned guest backing, the caller writes the exact
+112-byte quad payload, and Unlock returns the range to read-only. The device
+reference count is five, and execution reaches `IDirect3DDevice9::SetRenderState`
+at slot 57. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
-texture／surface pixel bytes, lock staging, or browser renderer is allocated.
+texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, icon／cursor, window-class, logical-window, system-metric, large-heap,
@@ -39,7 +42,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-17,858 detailed call objects or canonical strings on every repetition. Each
+17,861 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The D3D9 compatibility profile and Rust/Wasm
@@ -71,33 +74,33 @@ reason, the exact evaluation count, and failure IDs. The current decision is
 
 ## Result
 
-The isolated clean-profile Chrome run completed 63 sessions with no semantic failure.
-The D3D9 Initial Textures version 1 configuration retained all 17 existing threshold
+The isolated clean-profile Chrome run completed 64 sessions with no semantic failure.
+The D3D9 Initial Vertex Buffer version 1 configuration retained all 17 existing threshold
 values unchanged before this 180-second run. All 17 thresholds passed. Previous workload configurations remain
 unchanged as historical evidence; their identities are not applied to this
 current workload.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 63 |
+| Completed sessions | >= 24 | 64 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 2,950.410 ms |
-| Maximum slice p99 | <= 10 ms | 2.900 ms |
+| Session latency p95 | <= 8,000 ms | 2,914.615 ms |
+| Maximum slice p99 | <= 10 ms | 2.585 ms |
 | Main heartbeat gap p99 | <= 25 ms | 5.995 ms |
-| Main heartbeat gap maximum | <= 250 ms | 18.655 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,674,379 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 32,127.09 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 28,682,796 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 1,530,528.40 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 58,679,296 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 23,802,012 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 1,626,797.44 bytes/min |
+| Main heartbeat gap maximum | <= 250 ms | 20.855 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,503,991 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 52,745.45 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 27,492,896 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,161,225.38 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 58,941,440 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 27,572,578 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 1,440,798.06 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 946,980 bytes with SHA-256
-`ce4884b30af587bda891ed611022980620f64be802f9c1172be67620140069a0`.
+The exact report is 955,155 bytes with SHA-256
+`c80155da249b02dc5aab121732bcb96a0853577cbcffe63b68f1acd5f7ce50d0`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -258,7 +261,7 @@ any threshold.
 | Chrome | `150.0.7871.129` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `f8168eddd738118dfac1f99763266763756774b8`
+The report records base implementation commit `ed5f0967032854372ff792c5ba1ac534a247bdbe`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -267,12 +270,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,578,969 | `ad905bca78caf37d78f1feecc43bd34b6af7440a44c8260f8e0aa5343cf25f01` |
+| Rust runtime core Wasm | 3,654,703 | `b37c6f49d0954d49c73a6ca0a76a75913384a797b0749b17f9a96118a5f5bc4d` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
-| Runtime Worker bundle | 156,776 | `4a777c1c7d611805086bbbf68ae5b914f2b6bf248f83740fa969955d7476ab49` |
+| Runtime Worker bundle | 156,801 | `658f211b67e1473158eaeaec0f8622a735224c08b7cd4594046f0b482819894b` |
 | BGI benchmark bundle | 10,354 | `fb23aa94ae00e63ecefc12decc48a6c7560bf8b4e1574cfcebec90c4315b514d` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| D3D9 Initial Textures version 1 configuration | 1,183 | `95becbb095602f2843924d249a4faf0fe246232f8dc6e7395e25b0a19c464bbe` |
+| D3D9 Initial Vertex Buffer version 1 configuration | 1,189 | `297d6ffd9833a98ef379aee0207643329bf205fb2800bf2a268a9a4c39bdfc0b` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -302,10 +305,12 @@ profile plus a loopback-only server and DevTools endpoint.
   two full reads of one immutable object; it does not cover large-corpus streaming,
   replacement recovery, directory enumeration, writes, restart, or durability.
   COM coverage is limited to per-thread initialization plus the reached D3D9
-  root／device／three texture／first level-zero surface identities and lifetime. DC coverage is
+  root／device／three texture／first level-zero surface／one vertex-buffer identities and lifetime. DC coverage is
   one surface HDC acquisition, black-brush fill command, exact release, and COM
-  retirement relation. The logical textures and surface have no pixel storage,
-  pitch, Lock／Unlock, upload, draw, or renderer resource. General
+  retirement relation. The logical textures and surface have no pixel storage or
+  pitch. Vertex-buffer coverage is one exact 112-byte zeroed backing, full-range
+  Lock, caller write, and Unlock; arbitrary descriptors, partial／flagged locks,
+  GPU upload, draw, and renderer resources remain unmeasured. General
   COM and D3D9 resource behavior remain unmeasured. Likewise,
   input coverage is limited to the logical mouse-button mapping transaction.
   Waitable-timer coverage is limited to creation and initial nonsignaled

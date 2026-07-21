@@ -17,7 +17,8 @@ export type MemoryRegionKind =
   | "heap"
   | "anonymous"
   | "runtime"
-  | "surface";
+  | "surface"
+  | "graphics-resource";
 
 export interface MemoryRange {
   base: number;
@@ -145,6 +146,7 @@ function regionKind(code: number): MemoryRegionKind {
     "anonymous",
     "runtime",
     "surface",
+    "graphics-resource",
   ];
   const kind = kinds[code - 1];
   invariant(kind !== undefined, `unknown memory region kind ${code}`);

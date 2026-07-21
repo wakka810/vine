@@ -28,8 +28,8 @@ use super::address_space::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     ProcessAddressAllocationReleasePolicy, ProcessAddressAllocationRequest,
-    ProcessAddressReleasePlan, ProcessAddressReservationPlan, ProcessAddressSpaceAllocator,
-    ProcessAddressSpaceLayout, RuntimeAddressRange,
+    ProcessAddressReleasePlan, ProcessAddressReservationBatchPlan, ProcessAddressReservationPlan,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
@@ -51,13 +51,18 @@ use super::gdi::{
     RuntimeGetStockObjectResult,
 };
 use super::graphics::{
-    RuntimeGraphics, RuntimeGraphicsComRetirementPlan, RuntimeGraphicsDevice,
-    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
+    RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
+    RuntimeGraphicsDevice, RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
     RuntimeGraphicsDeviceCreationRequest, RuntimeGraphicsDeviceId, RuntimeGraphicsSurface,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsSurfaceCreationPlan,
     RuntimeGraphicsSurfaceFillRequest, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
     RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureCreationPlan,
-    RuntimeGraphicsTextureId, RuntimeGraphicsWindowTarget,
+    RuntimeGraphicsTextureId, RuntimeGraphicsVertexBuffer,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferCreationPlan,
+    RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBufferLock,
+    RuntimeGraphicsVertexBufferLockPlan, RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsVertexBufferUnlockPlan, RuntimeGraphicsVertexBufferUnlockResult,
+    RuntimeGraphicsWindowTarget,
 };
 use super::heaps::{
     RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationPlan, RuntimeHeapBacking,
@@ -237,11 +242,31 @@ pub(crate) struct RuntimeComReleasePlan {
     address_space: Option<ProcessAddressReleasePlan>,
     graphics: Option<RuntimeGraphicsComRetirementPlan>,
     gdi: Option<RuntimeGdiComRetirementGuard>,
+    memory_retirements: Vec<(MemoryOwnerId, GuestRange)>,
 }
 
 impl RuntimeComReleasePlan {
     pub(crate) fn result(&self) -> RuntimeComReferenceResult {
         self.com.reference_result()
+    }
+
+    pub(crate) fn memory_retirements(&self) -> Vec<(MemoryOwnerId, GuestRange)> {
+        self.memory_retirements.clone()
+    }
+}
+
+pub(crate) struct RuntimeGraphicsVertexBufferInstallationPlan {
+    address_space: ProcessAddressReservationBatchPlan,
+    graphics: RuntimeGraphicsVertexBufferCreationPlan,
+}
+
+impl RuntimeGraphicsVertexBufferInstallationPlan {
+    pub(crate) fn com_allocation(&self) -> &ProcessAddressAllocationRecord {
+        &self.address_space.allocations()[0]
+    }
+
+    pub(crate) fn resource_allocation(&self) -> &ProcessAddressAllocationRecord {
+        &self.address_space.allocations()[1]
     }
 }
 
@@ -940,19 +965,7 @@ impl RuntimeKernel {
         &self,
         request: ProcessAddressAllocationRequest,
     ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
-        if request.purpose != ProcessAddressAllocationPurpose::ComEndpoint
-            || request.owner != RUNTIME_COM_ADDRESS_OWNER
-            || request.classification != ProcessAddressAllocationClassification::Com
-            || request.lifetime != ProcessAddressAllocationLifetime::Object
-            || request.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
-            || !request.executable
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-com",
-                "com-address-allocation-request-invalid",
-                "COM backing requires an executable, explicit-release, object-lifetime COM allocation",
-            ));
-        }
+        validate_com_address_allocation_request(&request)?;
         self.address_space_allocator.plan_reservation(request)
     }
 
@@ -972,23 +985,7 @@ impl RuntimeKernel {
             .preflight_reservation_commit(&reservation)?;
         self.com.preflight(&com)?;
         let result = com.registration_result();
-        let object = &result.object;
-        let allocation = &reservation.allocation;
-        if object.backing.address_allocation_id != allocation.id
-            || object.backing.range != allocation.range
-            || allocation.purpose != ProcessAddressAllocationPurpose::ComEndpoint
-            || allocation.owner != RUNTIME_COM_ADDRESS_OWNER
-            || allocation.classification != ProcessAddressAllocationClassification::Com
-            || allocation.lifetime != ProcessAddressAllocationLifetime::Object
-            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
-            || !allocation.executable
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com",
-                "com-backing-allocation-mismatch",
-                "logical COM object backing does not match its planned process allocation",
-            ));
-        }
+        validate_com_installation_allocation(&reservation.allocation, &result)?;
         self.address_space_allocator.commit_reservation(reservation);
         self.com.commit(com);
         Ok(result)
@@ -1024,18 +1021,38 @@ impl RuntimeKernel {
     ) -> Result<RuntimeComReleasePlan, RuntimeStateError> {
         let com = self.com.plan_release(interface_id)?;
         let result = com.reference_result();
-        let address_space = if result.retirements.is_empty() {
+        let retired_object_ids = result
+            .retirements
+            .iter()
+            .map(|retirement| retirement.object_id)
+            .collect::<BTreeSet<_>>();
+        let graphics = self
+            .graphics
+            .plan_com_object_retirements(&retired_object_ids)?;
+        let vertex_buffer_backings = graphics
+            .as_ref()
+            .map(|plan| self.graphics.vertex_buffer_backings_for_retirement(plan))
+            .transpose()?
+            .unwrap_or_default();
+        let mut allocation_ids = result
+            .retirements
+            .iter()
+            .map(|retirement| retirement.backing.address_allocation_id)
+            .collect::<Vec<_>>();
+        allocation_ids.extend(
+            vertex_buffer_backings
+                .iter()
+                .map(|(backing, _)| backing.address_allocation_id),
+        );
+        let address_space = if allocation_ids.is_empty() {
             None
         } else {
-            let allocation_ids = result
-                .retirements
-                .iter()
-                .map(|retirement| retirement.backing.address_allocation_id)
-                .collect::<Vec<_>>();
             let plan = self
                 .address_space_allocator
                 .plan_releases(&allocation_ids)?;
-            for (retirement, released) in result.retirements.iter().zip(plan.allocations()) {
+            let (com_allocations, graphics_allocations) =
+                plan.allocations().split_at(result.retirements.len());
+            for (retirement, released) in result.retirements.iter().zip(com_allocations) {
                 let backing = &retirement.backing;
                 if released.range != backing.range
                     || released.purpose != ProcessAddressAllocationPurpose::ComEndpoint
@@ -1052,22 +1069,56 @@ impl RuntimeKernel {
                     ));
                 }
             }
+            let graphics_arena = self
+                .address_space_allocator
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)?;
+            for ((backing, usable_byte_length), released) in
+                vertex_buffer_backings.iter().zip(graphics_allocations)
+            {
+                if released.parent_id != Some(graphics_arena.id)
+                    || released.range.base != backing.range.start()
+                    || released.range.byte_length != backing.range.byte_length()
+                    || released.usable_byte_length != u64::from(*usable_byte_length)
+                    || released.purpose != ProcessAddressAllocationPurpose::GraphicsResource
+                    || released.owner != RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER
+                    || released.classification != ProcessAddressAllocationClassification::Graphics
+                    || released.lifetime != ProcessAddressAllocationLifetime::Object
+                    || released.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+                    || released.executable
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-graphics",
+                        "graphics-vertex-buffer-retirement-allocation-mismatch",
+                        "retiring graphics vertex buffer does not own its planned guest backing",
+                    ));
+                }
+            }
             Some(plan)
         };
-        let retired_object_ids = result
+        let mut memory_retirements = result
             .retirements
             .iter()
-            .map(|retirement| retirement.object_id)
-            .collect::<BTreeSet<_>>();
-        let graphics = self
-            .graphics
-            .plan_com_object_retirements(&retired_object_ids)?;
+            .map(|retirement| {
+                GuestRange::new(
+                    retirement.backing.range.base,
+                    retirement.backing.range.byte_length,
+                )
+                .map(|range| (retirement.backing.memory_owner, range))
+                .map_err(RuntimeStateError::from_memory)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        memory_retirements.extend(
+            vertex_buffer_backings
+                .iter()
+                .map(|(backing, _)| (backing.memory_owner, backing.range)),
+        );
         let gdi = self.gdi.plan_com_object_retirements(&retired_object_ids)?;
         Ok(RuntimeComReleasePlan {
             com,
             address_space,
             graphics,
             gdi,
+            memory_retirements,
         })
     }
 
@@ -3448,6 +3499,194 @@ impl RuntimeKernel {
         self.graphics.texture_for_com_object(com_object_id)
     }
 
+    pub(crate) fn plan_graphics_vertex_buffer_installation(
+        &self,
+        com_address_request: ProcessAddressAllocationRequest,
+        request: RuntimeGraphicsVertexBufferCreateRequest,
+    ) -> Result<RuntimeGraphicsVertexBufferInstallationPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        validate_com_address_allocation_request(&com_address_request)?;
+        let arena = self
+            .address_space_allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)?;
+        if arena.range.base != super::RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE
+            || arena.range.byte_length != super::RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE
+            || arena.classification != ProcessAddressAllocationClassification::Graphics
+            || arena.lifetime != ProcessAddressAllocationLifetime::Process
+            || arena.release_policy != ProcessAddressAllocationReleasePolicy::Permanent
+            || arena.executable
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-resource-arena-invalid",
+                "graphics resource arena does not match the controlled process layout",
+            ));
+        }
+        let address_space = self.address_space_allocator.plan_reservations(vec![
+            (None, com_address_request),
+            (
+                Some(arena.id),
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::GraphicsResource,
+                    owner: RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER.to_owned(),
+                    preferred_address: None,
+                    search_range: arena.range,
+                    reserve_size: u64::from(request.descriptor.byte_length),
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages: 0,
+                    classification: ProcessAddressAllocationClassification::Graphics,
+                    lifetime: ProcessAddressAllocationLifetime::Object,
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            ),
+        ])?;
+        let allocations = address_space.allocations();
+        if allocations.len() != 2 {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-installation-allocation-count-invalid",
+                "vertex-buffer installation did not plan exactly two address allocations",
+            ));
+        }
+        let resource_allocation = &allocations[1];
+        let backing_range = GuestRange::new(
+            resource_allocation.range.base,
+            resource_allocation.range.byte_length,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+        let graphics = self.graphics.plan_vertex_buffer_creation(
+            request,
+            resource_allocation.id,
+            backing_range,
+        )?;
+        Ok(RuntimeGraphicsVertexBufferInstallationPlan {
+            address_space,
+            graphics,
+        })
+    }
+
+    pub(crate) fn preflight_graphics_vertex_buffer_installation(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferInstallationPlan,
+        com: &RuntimeComMutationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.address_space_allocator
+            .preflight_reservations_commit(&plan.address_space)?;
+        self.com.preflight(com)?;
+        let result = com.registration_result();
+        validate_com_installation_allocation(plan.com_allocation(), &result)?;
+        self.graphics
+            .preflight_vertex_buffer_creation(&plan.graphics)?;
+        let allocation = plan.resource_allocation();
+        let arena = self
+            .address_space_allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)?;
+        if allocation.parent_id != Some(arena.id)
+            || allocation.id != plan.graphics.address_allocation_id()
+            || allocation.range.base != plan.graphics.backing_range().start()
+            || allocation.range.byte_length != plan.graphics.backing_range().byte_length()
+            || allocation.usable_byte_length != u64::from(plan.graphics.descriptor().byte_length)
+            || allocation.purpose != ProcessAddressAllocationPurpose::GraphicsResource
+            || allocation.owner != RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::Graphics
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-vertex-buffer-backing-allocation-mismatch",
+                "logical vertex-buffer backing does not match its planned process allocation",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_graphics_vertex_buffer_installation(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferInstallationPlan,
+        com: RuntimeComMutationPlan,
+        memory_owner: MemoryOwnerId,
+    ) -> Result<(RuntimeComRegistrationResult, RuntimeGraphicsVertexBuffer), RuntimeStateError>
+    {
+        self.preflight_graphics_vertex_buffer_installation(&plan, &com)?;
+        if memory_owner.0 == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-vertex-buffer-memory-owner-invalid",
+                "logical vertex-buffer installation requires a nonzero guest-memory owner",
+            ));
+        }
+        let result = com.registration_result();
+        let com_object_id = result.object.id;
+        self.address_space_allocator
+            .commit_reservations(plan.address_space);
+        self.com.commit(com);
+        let vertex_buffer =
+            self.graphics
+                .commit_vertex_buffer_creation(plan.graphics, com_object_id, memory_owner);
+        Ok((result, vertex_buffer))
+    }
+
+    pub(crate) fn plan_graphics_vertex_buffer_lock(
+        &self,
+        request: RuntimeGraphicsVertexBufferLockRequest,
+    ) -> Result<RuntimeGraphicsVertexBufferLockPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.plan_vertex_buffer_lock(request)
+    }
+
+    pub(crate) fn preflight_graphics_vertex_buffer_lock(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferLockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.graphics.preflight_vertex_buffer_lock(plan)
+    }
+
+    pub(crate) fn commit_graphics_vertex_buffer_lock(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferLockPlan,
+    ) -> RuntimeGraphicsVertexBufferLock {
+        self.graphics.commit_vertex_buffer_lock(plan)
+    }
+
+    pub(crate) fn plan_graphics_vertex_buffer_unlock(
+        &self,
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsVertexBufferUnlockPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics
+            .plan_vertex_buffer_unlock(vertex_buffer_com_object_id)
+    }
+
+    pub(crate) fn preflight_graphics_vertex_buffer_unlock(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferUnlockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.graphics.preflight_vertex_buffer_unlock(plan)
+    }
+
+    pub(crate) fn commit_graphics_vertex_buffer_unlock(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferUnlockPlan,
+    ) -> RuntimeGraphicsVertexBufferUnlockResult {
+        self.graphics.commit_vertex_buffer_unlock(plan)
+    }
+
+    pub fn graphics_vertex_buffer(
+        &self,
+        id: RuntimeGraphicsVertexBufferId,
+    ) -> Result<&RuntimeGraphicsVertexBuffer, RuntimeStateError> {
+        self.graphics.vertex_buffer(id)
+    }
+
+    pub fn graphics_vertex_buffers(
+        &self,
+    ) -> &BTreeMap<RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBuffer> {
+        self.graphics.vertex_buffers()
+    }
+
     pub(crate) fn plan_graphics_surface_creation(
         &self,
         request: RuntimeGraphicsSurfaceCreateRequest,
@@ -5021,6 +5260,48 @@ fn validate_initial_thread_stack(stack: &InitialThreadStack) -> Result<(), Runti
     Ok(())
 }
 
+fn validate_com_address_allocation_request(
+    request: &ProcessAddressAllocationRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.purpose != ProcessAddressAllocationPurpose::ComEndpoint
+        || request.owner != RUNTIME_COM_ADDRESS_OWNER
+        || request.classification != ProcessAddressAllocationClassification::Com
+        || request.lifetime != ProcessAddressAllocationLifetime::Object
+        || request.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+        || !request.executable
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-com",
+            "com-address-allocation-request-invalid",
+            "COM backing requires an executable, explicit-release, object-lifetime COM allocation",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_com_installation_allocation(
+    allocation: &ProcessAddressAllocationRecord,
+    result: &RuntimeComRegistrationResult,
+) -> Result<(), RuntimeStateError> {
+    let object = &result.object;
+    if object.backing.address_allocation_id != allocation.id
+        || object.backing.range != allocation.range
+        || allocation.purpose != ProcessAddressAllocationPurpose::ComEndpoint
+        || allocation.owner != RUNTIME_COM_ADDRESS_OWNER
+        || allocation.classification != ProcessAddressAllocationClassification::Com
+        || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+        || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+        || !allocation.executable
+    {
+        return Err(RuntimeStateError::conflict(
+            "runtime-com",
+            "com-backing-allocation-mismatch",
+            "logical COM object backing does not match its planned process allocation",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_runtime_thread_stack_allocation(
     allocator: &ProcessAddressSpaceAllocator,
     stack: &RuntimeThreadStack,
@@ -5158,11 +5439,11 @@ mod tests {
     use crate::d3d9::{
         D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DDEVTYPE_HAL,
         D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16, D3D9_D3DFMT_UNKNOWN,
-        D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_DEFAULT,
+        D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_DEFAULT, D3D9_D3DPOOL_MANAGED,
         D3D9_D3DPOOL_SYSTEMMEM, D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DUSAGE_DYNAMIC,
-        D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID,
-        D3D9_IDIRECT3DTEXTURE9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
-        dispatch_d3d9_com_call,
+        D3D9_D3DUSAGE_WRITEONLY, D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID,
+        D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID, D3D9_IDIRECT3DVERTEXBUFFER9_IID,
+        D3d9CompatibilityPolicy, direct3d9_object_spec, dispatch_d3d9_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
@@ -5170,6 +5451,7 @@ mod tests {
         RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
         RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeGraphicsColorFormat,
         RuntimeGraphicsPresentMode, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
+        RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUsage,
         RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
         RuntimeWindowGeometry, RuntimeWindowNameA, RuntimeWindowProcedureCallingConvention,
     };
@@ -5419,7 +5701,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v12(),
+                &D3d9CompatibilityPolicy::controlled_v13(),
                 ComCallTrap {
                     endpoint_address: root_interface.methods[&16].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5597,7 +5879,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v12(),
+                    &D3d9CompatibilityPolicy::controlled_v13(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5637,7 +5919,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled = D3d9CompatibilityPolicy::controlled_v12();
+        let mut disabled = D3d9CompatibilityPolicy::controlled_v13();
         disabled.create_texture = None;
         disabled.get_surface_level = None;
         disabled.surface_dc = None;
@@ -5684,7 +5966,7 @@ mod tests {
         let texture_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v12(),
+                &D3d9CompatibilityPolicy::controlled_v13(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&23].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5801,7 +6083,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v12(),
+                    &D3d9CompatibilityPolicy::controlled_v13(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5850,6 +6132,375 @@ mod tests {
             4
         );
 
+        for (byte_length, output_pointer, expected_result) in [
+            (0, D3D9_FIXTURE_SURFACE_OUTPUT.0, D3D9_D3DERR_INVALIDCALL),
+            (116, D3D9_FIXTURE_SURFACE_OUTPUT.0, D3D9_D3DERR_NOTAVAILABLE),
+            (112, 0, D3D9_D3DERR_INVALIDCALL),
+        ] {
+            write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+            write_d3d9_fixture_words(
+                &mut memory,
+                D3D9_FIXTURE_STACK,
+                &[
+                    0x1005_a890,
+                    device_interface.guest_pointer.0,
+                    byte_length,
+                    D3D9_D3DUSAGE_WRITEONLY,
+                    0x144,
+                    D3D9_D3DPOOL_MANAGED,
+                    output_pointer,
+                    0,
+                ],
+            );
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let before_memory = memory.stats();
+            let before_runtime = runtime.clone();
+            let completion = {
+                let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+                match dispatch_d3d9_com_call(
+                    &D3d9CompatibilityPolicy::controlled_v13(),
+                    ComCallTrap {
+                        endpoint_address: device_interface.methods[&26].endpoint,
+                        stack_pointer: D3D9_FIXTURE_STACK,
+                        return_address: GuestAddress(0x1005_a890),
+                        call_site: GuestAddress(0x1005_a890),
+                    },
+                    &mut session,
+                ) {
+                    ComDispatchOutcome::Completed(completion) => completion,
+                    other => panic!("negative CreateVertexBuffer did not complete: {other:?}"),
+                }
+            };
+            assert_eq!(
+                completion.return_value,
+                ComReturnValue::HResult(expected_result)
+            );
+            assert!(completion.guest_writes.is_empty());
+            assert_eq!(memory.stats(), before_memory);
+            assert_eq!(runtime, before_runtime);
+            assert_eq!(
+                memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+                0xcccc_cccc_u32.to_le_bytes()
+            );
+        }
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a890,
+                device_interface.guest_pointer.0,
+                112,
+                D3D9_D3DUSAGE_WRITEONLY,
+                0x144,
+                D3D9_D3DPOOL_MANAGED,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let create_vertex_buffer = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: device_interface.methods[&26].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_a890),
+                    call_site: GuestAddress(0x1005_a890),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("CreateVertexBuffer did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            create_vertex_buffer.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(create_vertex_buffer.guest_writes.len(), 1);
+        assert_eq!(
+            create_vertex_buffer.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 32)
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let vertex_buffer_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_SURFACE_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let vertex_buffer_interface = runtime
+            .com_interface_for_pointer(GuestAddress(vertex_buffer_pointer))
+            .expect("IDirect3DVertexBuffer9 output")
+            .clone();
+        assert_eq!(vertex_buffer_interface.iid, D3D9_IDIRECT3DVERTEXBUFFER9_IID);
+        assert_eq!(vertex_buffer_interface.methods.len(), 14);
+        assert_eq!(vertex_buffer_interface.methods[&11].name, "Lock");
+        assert_eq!(vertex_buffer_interface.methods[&12].name, "Unlock");
+        let vertex_buffer = runtime
+            .graphics_vertex_buffers()
+            .values()
+            .next()
+            .expect("logical graphics vertex buffer")
+            .clone();
+        assert_eq!(vertex_buffer.device_id, graphics.id);
+        assert_eq!(vertex_buffer.descriptor.byte_length, 112);
+        assert_eq!(
+            vertex_buffer.descriptor.usage,
+            RuntimeGraphicsVertexBufferUsage::WriteOnly
+        );
+        assert_eq!(vertex_buffer.descriptor.flexible_vertex_format, 0x144);
+        assert_eq!(
+            vertex_buffer.descriptor.pool,
+            RuntimeGraphicsVertexBufferPool::Managed
+        );
+        assert_eq!(vertex_buffer.content_generation, 0);
+        assert!(vertex_buffer.active_lock.is_none());
+        assert_eq!(
+            memory
+                .read(vertex_buffer.backing.range.start(), 112)
+                .unwrap(),
+            vec![0; 112]
+        );
+        assert_eq!(
+            runtime
+                .com()
+                .object(device_object.id)
+                .unwrap()
+                .reference_count,
+            5
+        );
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_aa96,
+                vertex_buffer_interface.guest_pointer.0,
+                4,
+                0,
+                D3D9_FIXTURE_DC_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let invalid_lock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_aa96),
+                    call_site: GuestAddress(0x1005_aa96),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("invalid IDirect3DVertexBuffer9::Lock did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            invalid_lock.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(invalid_lock.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_DC_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_aa96,
+                vertex_buffer_interface.guest_pointer.0,
+                0,
+                0,
+                D3D9_FIXTURE_DC_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let lock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_aa96),
+                    call_site: GuestAddress(0x1005_aa96),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("IDirect3DVertexBuffer9::Lock did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(lock.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(lock.guest_writes.len(), 1);
+        assert_eq!(lock.stack_pointer, GuestAddress(D3D9_FIXTURE_STACK.0 + 24));
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let vertex_data_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_DC_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(
+            GuestAddress(vertex_data_pointer),
+            vertex_buffer.backing.range.start()
+        );
+
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let duplicate_lock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_aa96),
+                    call_site: GuestAddress(0x1005_aa96),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => {
+                    panic!("duplicate IDirect3DVertexBuffer9::Lock did not complete: {other:?}")
+                }
+            }
+        };
+        assert_eq!(
+            duplicate_lock.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(duplicate_lock.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        let vertex_bytes = (0_u8..112).collect::<Vec<_>>();
+        memory
+            .write(GuestAddress(vertex_data_pointer), &vertex_bytes)
+            .expect("write locked vertex-buffer bytes");
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_aab2, vertex_buffer_interface.guest_pointer.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let unlock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: vertex_buffer_interface.methods[&12].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_aab2),
+                    call_site: GuestAddress(0x1005_aab2),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("IDirect3DVertexBuffer9::Unlock did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(unlock.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert!(unlock.guest_writes.is_empty());
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let committed_vertex_buffer = runtime
+            .graphics_vertex_buffer(vertex_buffer.id)
+            .expect("committed logical graphics vertex buffer");
+        assert!(committed_vertex_buffer.active_lock.is_none());
+        assert_eq!(committed_vertex_buffer.content_generation, 1);
+        assert_eq!(
+            memory.read(GuestAddress(vertex_data_pointer), 112).unwrap(),
+            vertex_bytes
+        );
+        assert!(
+            memory
+                .write(GuestAddress(vertex_data_pointer), &[0xff])
+                .is_err()
+        );
+
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let repeated_unlock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v13(),
+                ComCallTrap {
+                    endpoint_address: vertex_buffer_interface.methods[&12].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_aab2),
+                    call_site: GuestAddress(0x1005_aab2),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => {
+                    panic!("repeated IDirect3DVertexBuffer9::Unlock did not complete: {other:?}")
+                }
+            }
+        };
+        assert_eq!(
+            repeated_unlock.return_value,
+            ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+        );
+        assert!(repeated_unlock.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        let vertex_buffer_address_allocation = vertex_buffer.backing.address_allocation_id;
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[0x1005_aaea, vertex_buffer_interface.guest_pointer.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let release_vertex_buffer = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            session.dispatch_com_call(ComCallTrap {
+                endpoint_address: vertex_buffer_interface.methods[&2].endpoint,
+                stack_pointer: D3D9_FIXTURE_STACK,
+                return_address: GuestAddress(0x1005_aaea),
+                call_site: GuestAddress(0x1005_aaea),
+            })
+        };
+        let ComDispatchOutcome::Completed(release_vertex_buffer) = release_vertex_buffer else {
+            panic!("IDirect3DVertexBuffer9::Release did not complete")
+        };
+        assert_eq!(release_vertex_buffer.return_value, ComReturnValue::U32(0));
+        assert!(release_vertex_buffer.object_retired);
+        assert!(runtime.graphics_vertex_buffers().is_empty());
+        assert!(
+            runtime
+                .process_address_space_allocator()
+                .allocation(vertex_buffer_address_allocation)
+                .is_err()
+        );
+        assert!(memory.read(GuestAddress(vertex_data_pointer), 1).is_err());
+        assert_eq!(
+            runtime
+                .com()
+                .object(device_object.id)
+                .unwrap()
+                .reference_count,
+            4
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
         write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
         write_d3d9_fixture_words(
             &mut memory,
@@ -5867,7 +6518,7 @@ mod tests {
         let default_surface_fault = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v12(),
+                &D3d9CompatibilityPolicy::controlled_v13(),
                 ComCallTrap {
                     endpoint_address: additional_texture_interfaces[0].methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5913,7 +6564,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v12(),
+                    &D3d9CompatibilityPolicy::controlled_v13(),
                     ComCallTrap {
                         endpoint_address: texture_interface.methods[&18].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5947,7 +6598,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v12();
+        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v13();
         disabled_surface.get_surface_level = None;
         disabled_surface.surface_dc = None;
         let before_disabled_memory = memory.stats();
@@ -5988,7 +6639,7 @@ mod tests {
         let surface_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v12(),
+                &D3d9CompatibilityPolicy::controlled_v13(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -6078,7 +6729,7 @@ mod tests {
         let null_output = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6094,7 +6745,7 @@ mod tests {
         assert_eq!(memory.stats(), before_null_memory);
         assert_eq!(runtime, before_null_runtime);
 
-        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v12();
+        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v13();
         disabled_surface_dc.surface_dc = None;
         write_d3d9_fixture_words(
             &mut memory,
@@ -6131,7 +6782,7 @@ mod tests {
         let unwritable_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6158,7 +6809,7 @@ mod tests {
         let get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6216,7 +6867,7 @@ mod tests {
         let repeated_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6307,7 +6958,7 @@ mod tests {
         let wrong_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6331,7 +6982,7 @@ mod tests {
         let release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6348,7 +6999,7 @@ mod tests {
         let repeated_release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6372,7 +7023,7 @@ mod tests {
         let reacquired = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6399,7 +7050,7 @@ mod tests {
         let reacquired_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v12(),
+            &D3d9CompatibilityPolicy::controlled_v13(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6429,7 +7080,7 @@ mod tests {
         let repeated_surface = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v12(),
+                &D3d9CompatibilityPolicy::controlled_v13(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -6554,6 +7205,127 @@ mod tests {
         assert!(memory.read(texture_interface.guest_pointer, 4).is_err());
         assert!(memory.read(surface_interface.guest_pointer, 4).is_err());
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+    }
+
+    #[test]
+    fn d3d9_vertex_buffer_resource_owner_exhaustion_rolls_back_all_authorities() {
+        let mut runtime = d3d9_fixture_runtime();
+        let window = seed_created_d3d9_window(&mut runtime);
+        let mut memory = d3d9_fixture_memory_with_limits(MemoryLimits {
+            max_owners: 4,
+            ..MemoryLimits::default()
+        });
+        let root = install_com_object(&mut memory, &mut runtime, direct3d9_object_spec())
+            .expect("install D3D9 root COM object");
+        let root_interface = root
+            .interfaces
+            .iter()
+            .find(|interface| interface.iid == D3D9_IDIRECT3D9_IID)
+            .expect("IDirect3D9 interface")
+            .clone();
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_PRESENTATION,
+            &[
+                0,
+                0,
+                D3D9_D3DFMT_UNKNOWN,
+                1,
+                D3D9_D3DMULTISAMPLE_NONE,
+                0,
+                D3D9_D3DSWAPEFFECT_DISCARD,
+                window.handle,
+                1,
+                0,
+                D3D9_D3DFMT_D16,
+                0,
+                0,
+                0,
+            ],
+        );
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                root_interface.guest_pointer.0,
+                0,
+                D3D9_D3DDEVTYPE_HAL,
+                window.handle,
+                D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED,
+                D3D9_FIXTURE_PRESENTATION.0,
+                D3D9_FIXTURE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let create_device = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v13(),
+            &root_interface,
+            16,
+            D3D9_FIXTURE_CALL_SITE,
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("CreateDevice did not complete: {other:?}"),
+        };
+        assert_eq!(
+            create_device.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let device_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let device_interface = runtime
+            .com_interface_for_pointer(GuestAddress(device_pointer))
+            .expect("IDirect3DDevice9 output")
+            .clone();
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a890,
+                device_interface.guest_pointer.0,
+                112,
+                D3D9_D3DUSAGE_WRITEONLY,
+                0x144,
+                D3D9_D3DPOOL_MANAGED,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let fault = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v13(),
+            &device_interface,
+            26,
+            GuestAddress(0x1005_a890),
+        ) {
+            ComDispatchOutcome::Fault(fault) => fault,
+            other => panic!("resource exhaustion unexpectedly completed: {other:?}"),
+        };
+        assert_eq!(fault.class, ComFaultClass::ResourceLimit);
+        assert_eq!(fault.code, "memory-owner-limit-exceeded");
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+            0xcccc_cccc_u32.to_le_bytes()
+        );
     }
 
     fn d3d9_fixture_runtime() -> RuntimeKernel {
@@ -6698,7 +7470,11 @@ mod tests {
     }
 
     fn d3d9_fixture_memory() -> GuestMemory {
-        let mut memory = GuestMemory::new(MemoryLimits::default()).expect("fixture guest memory");
+        d3d9_fixture_memory_with_limits(MemoryLimits::default())
+    }
+
+    fn d3d9_fixture_memory_with_limits(limits: MemoryLimits) -> GuestMemory {
+        let mut memory = GuestMemory::new(limits).expect("fixture guest memory");
         let owner = memory
             .create_owner(MemoryOwnerKind::Runtime)
             .expect("fixture memory owner");

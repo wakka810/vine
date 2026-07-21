@@ -121,6 +121,7 @@ pub enum MemoryRegionKind {
     Anonymous,
     Runtime,
     Surface,
+    GraphicsResource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -3424,6 +3425,7 @@ fn memory_region_kind_code(kind: MemoryRegionKind) -> u32 {
         MemoryRegionKind::Anonymous => 8,
         MemoryRegionKind::Runtime => 9,
         MemoryRegionKind::Surface => 10,
+        MemoryRegionKind::GraphicsResource => 11,
     }
 }
 

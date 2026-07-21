@@ -12,9 +12,12 @@ use crate::runtime::{
     RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeComBacking, RuntimeComIid,
     RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration,
     RuntimeComMethodImplementation, RuntimeComMethodRegistration, RuntimeComMethodTarget,
-    RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
-    RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan, RuntimeKernel,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
+    RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan,
+    RuntimeGraphicsVertexBuffer, RuntimeGraphicsVertexBufferCreateRequest,
+    RuntimeGraphicsVertexBufferLock, RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsVertexBufferUnlockResult, RuntimeKernel, RuntimeStateError,
+    RuntimeStateErrorClass,
 };
 
 pub const COM_S_OK: ComHResult = ComHResult(0);
@@ -330,6 +333,106 @@ impl ComFrontendCall<'_> {
         )
     }
 
+    pub(crate) fn install_graphics_vertex_buffer_with_guest_pointer_write(
+        &mut self,
+        spec: ComObjectSpec,
+        output_iid: RuntimeComIid,
+        request: RuntimeGraphicsVertexBufferCreateRequest,
+        output_address: GuestAddress,
+    ) -> Result<
+        (
+            InstalledComObject,
+            RuntimeGraphicsVertexBuffer,
+            Vec<ComGuestWriteReceipt>,
+        ),
+        RuntimeStateError,
+    > {
+        install_graphics_vertex_buffer_object(
+            self.memory,
+            self.runtime,
+            self.frame.interface_id,
+            spec,
+            output_iid,
+            request,
+            output_address,
+        )
+    }
+
+    pub(crate) fn lock_graphics_vertex_buffer_with_guest_pointer_write(
+        &mut self,
+        request: RuntimeGraphicsVertexBufferLockRequest,
+        output_address: GuestAddress,
+    ) -> Result<(RuntimeGraphicsVertexBufferLock, Vec<ComGuestWriteReceipt>), RuntimeStateError>
+    {
+        self.memory
+            .validate_access(output_address, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let plan = self.runtime.plan_graphics_vertex_buffer_lock(request)?;
+        let lock = plan.lock();
+        let backing = self
+            .runtime
+            .graphics_vertex_buffer(plan.vertex_buffer_id())?
+            .backing;
+        let bytes = lock.guest_address.0.to_le_bytes().to_vec();
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .protect(
+                backing.memory_owner,
+                backing.range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let write_result = transaction
+            .write(output_address, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime.preflight_graphics_vertex_buffer_lock(&plan)?;
+        let committed = self.runtime.commit_graphics_vertex_buffer_lock(plan);
+        transaction.commit_transaction();
+        debug_assert_eq!(committed, lock);
+        Ok((
+            committed,
+            vec![ComGuestWriteReceipt {
+                address: output_address,
+                bytes,
+                result: write_result,
+            }],
+        ))
+    }
+
+    pub(crate) fn unlock_graphics_vertex_buffer(
+        &mut self,
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsVertexBufferUnlockResult, RuntimeStateError> {
+        let plan = self
+            .runtime
+            .plan_graphics_vertex_buffer_unlock(vertex_buffer_com_object_id)?;
+        let backing = self
+            .runtime
+            .graphics_vertex_buffer(plan.vertex_buffer_id())?
+            .backing;
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .protect(
+                backing.memory_owner,
+                backing.range,
+                PageProtection {
+                    read: true,
+                    write: false,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime
+            .preflight_graphics_vertex_buffer_unlock(&plan)?;
+        let result = self.runtime.commit_graphics_vertex_buffer_unlock(plan);
+        transaction.commit_transaction();
+        Ok(result)
+    }
+
     pub(crate) fn add_ref_interface_with_guest_pointer_write(
         &mut self,
         interface_id: RuntimeComInterfaceId,
@@ -462,22 +565,7 @@ where
     F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
 {
     validate_object_spec(&spec)?;
-    let reservation = runtime.plan_com_address_reservation(ProcessAddressAllocationRequest {
-        purpose: ProcessAddressAllocationPurpose::ComEndpoint,
-        owner: RUNTIME_COM_ADDRESS_OWNER.to_owned(),
-        preferred_address: None,
-        search_range: RuntimeAddressRange {
-            base: RUNTIME_COM_SEARCH_BASE,
-            byte_length: RUNTIME_COM_SEARCH_BYTES,
-        },
-        reserve_size: u64::from(RUNTIME_COM_BACKING_BYTES),
-        alignment: RUNTIME_COM_ALLOCATION_ALIGNMENT,
-        guard_pages: 0,
-        classification: ProcessAddressAllocationClassification::Com,
-        lifetime: ProcessAddressAllocationLifetime::Object,
-        release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
-        executable: true,
-    })?;
+    let reservation = runtime.plan_com_address_reservation(com_address_allocation_request())?;
     let allocation = reservation.allocation.clone();
     if allocation.range.byte_length != u64::from(RUNTIME_COM_BACKING_BYTES)
         || allocation.usable_byte_length != u64::from(RUNTIME_COM_BACKING_BYTES)
@@ -586,6 +674,206 @@ where
     };
     debug_assert_eq!(installed, planned_installation);
     Ok((installed, guest_writes))
+}
+
+fn com_address_allocation_request() -> ProcessAddressAllocationRequest {
+    ProcessAddressAllocationRequest {
+        purpose: ProcessAddressAllocationPurpose::ComEndpoint,
+        owner: RUNTIME_COM_ADDRESS_OWNER.to_owned(),
+        preferred_address: None,
+        search_range: RuntimeAddressRange {
+            base: RUNTIME_COM_SEARCH_BASE,
+            byte_length: RUNTIME_COM_SEARCH_BYTES,
+        },
+        reserve_size: u64::from(RUNTIME_COM_BACKING_BYTES),
+        alignment: RUNTIME_COM_ALLOCATION_ALIGNMENT,
+        guard_pages: 0,
+        classification: ProcessAddressAllocationClassification::Com,
+        lifetime: ProcessAddressAllocationLifetime::Object,
+        release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+        executable: true,
+    }
+}
+
+fn install_graphics_vertex_buffer_object(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    parent_interface_id: RuntimeComInterfaceId,
+    spec: ComObjectSpec,
+    output_iid: RuntimeComIid,
+    request: RuntimeGraphicsVertexBufferCreateRequest,
+    output_address: GuestAddress,
+) -> Result<
+    (
+        InstalledComObject,
+        RuntimeGraphicsVertexBuffer,
+        Vec<ComGuestWriteReceipt>,
+    ),
+    RuntimeStateError,
+> {
+    validate_object_spec(&spec)?;
+    memory
+        .validate_access(output_address, 4, MemoryAccess::Write)
+        .map_err(RuntimeStateError::from_memory)?;
+    let installation = runtime
+        .plan_graphics_vertex_buffer_installation(com_address_allocation_request(), request)?;
+    let com_allocation = installation.com_allocation().clone();
+    let resource_allocation = installation.resource_allocation().clone();
+    if com_allocation.range.byte_length != u64::from(RUNTIME_COM_BACKING_BYTES)
+        || com_allocation.usable_byte_length != u64::from(RUNTIME_COM_BACKING_BYTES)
+    {
+        return Err(RuntimeStateError::runtime_defect(
+            "runtime-com",
+            "com-backing-allocation-size-invalid",
+            "COM backing allocation did not preserve its two-page layout",
+        ));
+    }
+    let layout = plan_layout(com_allocation.range.base, &spec)?;
+    let data_range = GuestRange::new(com_allocation.range.base, GUEST_PAGE_SIZE)
+        .map_err(RuntimeStateError::from_memory)?;
+    let endpoint_base = add_address(com_allocation.range.base, GUEST_PAGE_SIZE as u32)?;
+    let endpoint_range =
+        GuestRange::new(endpoint_base, GUEST_PAGE_SIZE).map_err(RuntimeStateError::from_memory)?;
+    let resource_range = GuestRange::new(
+        resource_allocation.range.base,
+        resource_allocation.range.byte_length,
+    )
+    .map_err(RuntimeStateError::from_memory)?;
+
+    let mut transaction = memory.begin_transaction();
+    let com_memory_owner = transaction
+        .create_owner(MemoryOwnerKind::Runtime)
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .reserve_fixed_for_address_allocation(
+            com_allocation.id.0,
+            com_memory_owner,
+            MemoryRegionKind::Runtime,
+            com_allocation.range.base,
+            com_allocation.range.byte_length,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+    let writable = PageProtection {
+        read: true,
+        write: true,
+        execute: false,
+    };
+    transaction
+        .commit(com_memory_owner, data_range, writable)
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .commit(com_memory_owner, endpoint_range, writable)
+        .map_err(RuntimeStateError::from_memory)?;
+    for (address, bytes) in layout.data_writes.iter().chain(&layout.endpoint_writes) {
+        transaction
+            .write(*address, bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+    }
+    transaction
+        .protect(
+            com_memory_owner,
+            data_range,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .protect(
+            com_memory_owner,
+            endpoint_range,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: true,
+            },
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .seal_owner(com_memory_owner)
+        .map_err(RuntimeStateError::from_memory)?;
+
+    let resource_memory_owner = transaction
+        .create_owner(MemoryOwnerKind::Runtime)
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .reserve_fixed_for_address_allocation(
+            resource_allocation.id.0,
+            resource_memory_owner,
+            MemoryRegionKind::GraphicsResource,
+            resource_allocation.range.base,
+            resource_allocation.range.byte_length,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .commit(resource_memory_owner, resource_range, writable)
+        .map_err(RuntimeStateError::from_memory)?;
+    transaction
+        .protect(
+            resource_memory_owner,
+            resource_range,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+
+    let registration = runtime.plan_com_registration(RuntimeComObjectRegistration {
+        class_identity: spec.class_identity,
+        initial_reference_count: 1,
+        parent_interface_id: Some(parent_interface_id),
+        backing: RuntimeComBacking {
+            address_allocation_id: com_allocation.id,
+            memory_owner: com_memory_owner,
+            range: com_allocation.range,
+        },
+        interfaces: layout.interfaces,
+    })?;
+    let planned_result = registration.registration_result();
+    let planned_installation = InstalledComObject {
+        object: planned_result.object,
+        interfaces: planned_result.interfaces,
+    };
+    let output_interface = planned_installation
+        .interfaces
+        .iter()
+        .find(|interface| interface.iid == output_iid)
+        .ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-installation-interface-missing",
+                "installed graphics vertex-buffer object omitted its requested interface",
+            )
+        })?;
+    let bytes = output_interface.guest_pointer.0.to_le_bytes().to_vec();
+    let write_result = transaction
+        .write(output_address, &bytes)
+        .map_err(RuntimeStateError::from_memory)?;
+    runtime.preflight_graphics_vertex_buffer_installation(&installation, &registration)?;
+    let (result, vertex_buffer) = runtime.commit_graphics_vertex_buffer_installation(
+        installation,
+        registration,
+        resource_memory_owner,
+    )?;
+    transaction.commit_transaction();
+    let installed = InstalledComObject {
+        object: result.object,
+        interfaces: result.interfaces,
+    };
+    debug_assert_eq!(installed, planned_installation);
+    Ok((
+        installed,
+        vertex_buffer,
+        vec![ComGuestWriteReceipt {
+            address: output_address,
+            bytes,
+            result: write_result,
+        }],
+    ))
 }
 
 pub fn dispatch_com_call(
@@ -800,15 +1088,14 @@ fn dispatch_release(
         .retirements
         .iter()
         .any(|retirement| retirement.object_id == result.interface.object_id);
-    if !result.retirements.is_empty() {
+    let memory_retirements = plan.memory_retirements();
+    if !memory_retirements.is_empty() {
         let mut transaction = memory.begin_transaction();
-        for retirement in &result.retirements {
-            let backing = &retirement.backing;
-            if let Err(error) = transaction.release_region(backing.memory_owner, backing.range.base)
-            {
+        for (memory_owner, range) in memory_retirements {
+            if let Err(error) = transaction.release_region(memory_owner, range.start()) {
                 return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
             }
-            if let Err(error) = transaction.destroy_owner(backing.memory_owner) {
+            if let Err(error) = transaction.destroy_owner(memory_owner) {
                 return ComDispatchOutcome::Fault(fault_from_memory(error, trap, Some(&target)));
             }
         }

@@ -17,14 +17,16 @@ use crate::runtime::{
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
+    RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferPool,
+    RuntimeGraphicsVertexBufferUsage, RuntimeStateError, RuntimeStateErrorClass,
 };
 
 pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 12;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 13;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -36,6 +38,7 @@ pub const D3D9_D3DPS_VERSION_3_0: u32 = 0xffff_0300;
 pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
+pub const D3D9_D3DUSAGE_WRITEONLY: u32 = 0x0000_0008;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
 pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
@@ -43,6 +46,7 @@ pub const D3D9_D3DFMT_D16: u32 = 80;
 pub const D3D9_D3DMULTISAMPLE_NONE: u32 = 0;
 pub const D3D9_D3DSWAPEFFECT_DISCARD: u32 = 3;
 pub const D3D9_D3DPOOL_DEFAULT: u32 = 0;
+pub const D3D9_D3DPOOL_MANAGED: u32 = 1;
 pub const D3D9_D3DPOOL_SYSTEMMEM: u32 = 2;
 pub const D3D9_D3DERR_NOTAVAILABLE: ComHResult = ComHResult(0x8876_086a_u32 as i32);
 pub const D3D9_D3DERR_INVALIDCALL: ComHResult = ComHResult(0x8876_086c_u32 as i32);
@@ -67,6 +71,10 @@ pub const D3D9_IDIRECT3DTEXTURE9_IID: RuntimeComIid = RuntimeComIid::from_window
 pub const D3D9_IDIRECT3DSURFACE9_CLASS_IDENTITY: &str = "d3d9.idirect3dsurface9.v1";
 pub const D3D9_IDIRECT3DSURFACE9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0x3a, 0xaf, 0xfb, 0x0c, 0xf6, 0x9f, 0x9a, 0x42, 0x99, 0xb3, 0xa2, 0x79, 0x6a, 0xf8, 0xb8, 0x9b,
+]);
+pub const D3D9_IDIRECT3DVERTEXBUFFER9_CLASS_IDENTITY: &str = "d3d9.idirect3dvertexbuffer9.v1";
+pub const D3D9_IDIRECT3DVERTEXBUFFER9_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0xb5, 0xb1, 0x4b, 0xb6, 0x70, 0xfd, 0xf6, 0x4d, 0xbf, 0x91, 0x19, 0xd0, 0xa1, 0x24, 0x55, 0xe3,
 ]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -220,6 +228,20 @@ pub struct D3d9SurfaceDcPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9InitialVertexBufferPolicy {
+    pub profile_id: String,
+    pub byte_length: u32,
+    pub usage: u32,
+    pub flexible_vertex_format: u32,
+    pub pool: u32,
+    pub shared_handle_must_be_null: bool,
+    pub lock_offset: u32,
+    pub lock_byte_length: u32,
+    pub lock_flags: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -235,14 +257,15 @@ pub struct D3d9CompatibilityPolicy {
     pub create_texture: Option<D3d9CreateTexturePolicy>,
     pub get_surface_level: Option<D3d9GetSurfaceLevelPolicy>,
     pub surface_dc: Option<D3d9SurfaceDcPolicy>,
+    pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v12() -> Self {
+    pub fn controlled_v13() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v12".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v13".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -340,6 +363,17 @@ impl D3d9CompatibilityPolicy {
             }),
             surface_dc: Some(D3d9SurfaceDcPolicy {
                 profile_id: "primary-surface-gdi-dc-v1".to_owned(),
+            }),
+            initial_vertex_buffer: Some(D3d9InitialVertexBufferPolicy {
+                profile_id: "primary-initial-xyzw-diffuse-tex1-quad-v1".to_owned(),
+                byte_length: 112,
+                usage: D3D9_D3DUSAGE_WRITEONLY,
+                flexible_vertex_format: 0x144,
+                pool: D3D9_D3DPOOL_MANAGED,
+                shared_handle_must_be_null: true,
+                lock_offset: 0,
+                lock_byte_length: 0,
+                lock_flags: 0,
             }),
         }
     }
@@ -523,6 +557,24 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-surface-dc-profile-invalid",
                 "D3D9 surface-DC profile requires the reached logical surface capability",
+            ));
+        }
+        if let Some(vertex_buffer) = self.initial_vertex_buffer.as_ref()
+            && (!valid_policy_id(&vertex_buffer.profile_id)
+                || vertex_buffer.byte_length != 112
+                || vertex_buffer.usage != D3D9_D3DUSAGE_WRITEONLY
+                || vertex_buffer.flexible_vertex_format != 0x144
+                || vertex_buffer.pool != D3D9_D3DPOOL_MANAGED
+                || !vertex_buffer.shared_handle_must_be_null
+                || vertex_buffer.lock_offset != 0
+                || vertex_buffer.lock_byte_length != 0
+                || vertex_buffer.lock_flags != 0
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-initial-vertex-buffer-profile-invalid",
+                "D3D9 initial vertex-buffer profile must describe the reached managed write-only quad and full lock",
             ));
         }
         let coherent_profiles = [
@@ -882,7 +934,9 @@ fn dispatch_d3d9_frontend_call(
         && call.frame().iid == D3D9_IDIRECT3DTEXTURE9_IID;
     let is_surface = call.class_identity() == D3D9_IDIRECT3DSURFACE9_CLASS_IDENTITY
         && call.frame().iid == D3D9_IDIRECT3DSURFACE9_IID;
-    if !is_root && !is_device && !is_texture && !is_surface {
+    let is_vertex_buffer = call.class_identity() == D3D9_IDIRECT3DVERTEXBUFFER9_CLASS_IDENTITY
+        && call.frame().iid == D3D9_IDIRECT3DVERTEXBUFFER9_IID;
+    if !is_root && !is_device && !is_texture && !is_surface && !is_vertex_buffer {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "d3d9-com-dispatch",
@@ -906,6 +960,9 @@ fn dispatch_d3d9_frontend_call(
     }
     if is_surface {
         return dispatch_d3d9_surface_frontend_call(policy, call);
+    }
+    if is_vertex_buffer {
+        return dispatch_d3d9_vertex_buffer_frontend_call(policy, call);
     }
     dispatch_d3d9_root_frontend_call(policy, call)
 }
@@ -961,20 +1018,35 @@ fn dispatch_d3d9_device_frontend_call(
     policy: &D3d9CompatibilityPolicy,
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
-    if call.frame().vtable_slot != 23
-        || call.frame().method != "CreateTexture"
-        || call.explicit_argument_words() != 8
-        || call.frame().explicit_arguments.len() != 8
+    let expected = match call.frame().vtable_slot {
+        23 => ("CreateTexture", 8),
+        26 => ("CreateVertexBuffer", 6),
+        _ => {
+            return call.fault(
+                ComFaultClass::RuntimeDefect,
+                "d3d9-com-dispatch",
+                "d3d9-com-route-mismatch",
+                "D3D9 frontend received a COM method outside its registered IDirect3DDevice9 route",
+            );
+        }
+    };
+    if call.frame().method != expected.0
+        || call.explicit_argument_words() != expected.1
+        || call.frame().explicit_arguments.len() != usize::from(expected.1)
         || call.return_kind() != RuntimeComReturnKind::HResult
     {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "d3d9-com-dispatch",
             "d3d9-com-abi-mismatch",
-            "registered IDirect3DDevice9 frontend ABI does not match CreateTexture",
+            "registered IDirect3DDevice9 frontend ABI does not match its selected method",
         );
     }
-    dispatch_create_texture(policy, call)
+    match call.frame().vtable_slot {
+        23 => dispatch_create_texture(policy, call),
+        26 => dispatch_create_vertex_buffer(policy, call),
+        _ => unreachable!(),
+    }
 }
 
 fn dispatch_d3d9_texture_frontend_call(
@@ -1028,6 +1100,41 @@ fn dispatch_d3d9_surface_frontend_call(
     match call.frame().vtable_slot {
         15 => dispatch_surface_get_dc(policy, call),
         16 => dispatch_surface_release_dc(policy, call),
+        _ => unreachable!(),
+    }
+}
+
+fn dispatch_d3d9_vertex_buffer_frontend_call(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let expected = match call.frame().vtable_slot {
+        11 => ("Lock", 4),
+        12 => ("Unlock", 0),
+        _ => {
+            return call.fault(
+                ComFaultClass::RuntimeDefect,
+                "d3d9-com-dispatch",
+                "d3d9-com-route-mismatch",
+                "D3D9 frontend received a COM method outside its registered IDirect3DVertexBuffer9 route",
+            );
+        }
+    };
+    if call.frame().method != expected.0
+        || call.explicit_argument_words() != expected.1
+        || call.frame().explicit_arguments.len() != usize::from(expected.1)
+        || call.return_kind() != RuntimeComReturnKind::HResult
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-com-dispatch",
+            "d3d9-com-abi-mismatch",
+            "registered IDirect3DVertexBuffer9 frontend ABI does not match its selected method",
+        );
+    }
+    match call.frame().vtable_slot {
+        11 => dispatch_vertex_buffer_lock(policy, call),
+        12 => dispatch_vertex_buffer_unlock(policy, call),
         _ => unreachable!(),
     }
 }
@@ -1372,6 +1479,142 @@ fn dispatch_create_texture(
     debug_assert_eq!(texture.device_id, planned_device_id);
     debug_assert_eq!(texture.descriptor, planned_descriptor);
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_create_vertex_buffer(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(vertex_buffer_policy) = policy.initial_vertex_buffer.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-create-vertex-buffer",
+            "create-vertex-buffer-policy-disabled",
+            "D3D9 compatibility policy does not enable CreateVertexBuffer",
+        );
+    };
+    let byte_length = call.frame().explicit_arguments[0];
+    let usage = call.frame().explicit_arguments[1];
+    let flexible_vertex_format = call.frame().explicit_arguments[2];
+    let pool = call.frame().explicit_arguments[3];
+    let output_pointer = call.frame().explicit_arguments[4];
+    let shared_handle_pointer = call.frame().explicit_arguments[5];
+    if byte_length == 0
+        || output_pointer == 0
+        || (vertex_buffer_policy.shared_handle_must_be_null && shared_handle_pointer != 0)
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if byte_length != vertex_buffer_policy.byte_length
+        || usage != vertex_buffer_policy.usage
+        || flexible_vertex_format != vertex_buffer_policy.flexible_vertex_format
+        || pool != vertex_buffer_policy.pool
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+
+    let mut call = call;
+    let result = call.install_graphics_vertex_buffer_with_guest_pointer_write(
+        direct3dvertexbuffer9_object_spec(),
+        D3D9_IDIRECT3DVERTEXBUFFER9_IID,
+        RuntimeGraphicsVertexBufferCreateRequest {
+            device_com_object_id: call.frame().object_id,
+            descriptor: RuntimeGraphicsVertexBufferDescriptor {
+                byte_length,
+                usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                flexible_vertex_format,
+                pool: RuntimeGraphicsVertexBufferPool::Managed,
+            },
+        },
+        GuestAddress(output_pointer),
+    );
+    let (installed, vertex_buffer, guest_writes) = match result {
+        Ok(result) => result,
+        Err(error) => return call.runtime_fault(error),
+    };
+    debug_assert_eq!(vertex_buffer.com_object_id, installed.object.id);
+    debug_assert_eq!(vertex_buffer.descriptor.byte_length, byte_length);
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_vertex_buffer_lock(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(vertex_buffer_policy) = policy.initial_vertex_buffer.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-vertex-buffer-lock",
+            "vertex-buffer-lock-policy-disabled",
+            "D3D9 compatibility policy does not enable vertex-buffer Lock",
+        );
+    };
+    let offset = call.frame().explicit_arguments[0];
+    let byte_length = call.frame().explicit_arguments[1];
+    let output_pointer = call.frame().explicit_arguments[2];
+    let flags = call.frame().explicit_arguments[3];
+    if output_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if offset != vertex_buffer_policy.lock_offset
+        || byte_length != vertex_buffer_policy.lock_byte_length
+        || flags != vertex_buffer_policy.lock_flags
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let mut call = call;
+    let result = call.lock_graphics_vertex_buffer_with_guest_pointer_write(
+        RuntimeGraphicsVertexBufferLockRequest {
+            vertex_buffer_com_object_id: call.frame().object_id,
+            offset,
+            byte_length,
+            flags,
+        },
+        GuestAddress(output_pointer),
+    );
+    match result {
+        Ok((lock, guest_writes)) => {
+            debug_assert_eq!(lock.byte_length, vertex_buffer_policy.byte_length);
+            call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "graphics-vertex-buffer-already-locked"
+                    | "graphics-vertex-buffer-lock-variant-unsupported"
+            ) =>
+        {
+            call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new())
+        }
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
+fn dispatch_vertex_buffer_unlock(
+    policy: &D3d9CompatibilityPolicy,
+    mut call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    if policy.initial_vertex_buffer.is_none() {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-vertex-buffer-unlock",
+            "vertex-buffer-unlock-policy-disabled",
+            "D3D9 compatibility policy does not enable vertex-buffer Unlock",
+        );
+    }
+    match call.unlock_graphics_vertex_buffer(call.frame().object_id) {
+        Ok(result) => {
+            debug_assert_ne!(result.content_generation, 0);
+            call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+        }
+        Err(error) if error.code == "graphics-vertex-buffer-not-locked" => {
+            call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new())
+        }
+        Err(error) => call.runtime_fault(error),
+    }
 }
 
 fn dispatch_get_surface_level(
@@ -2128,7 +2371,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            23 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            23 | 26 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),
@@ -2196,6 +2439,50 @@ pub fn direct3dtexture9_object_spec() -> ComObjectSpec {
             ComInterfaceSpec {
                 iid: D3D9_IDIRECT3DTEXTURE9_IID,
                 name: "IDirect3DTexture9".to_owned(),
+                methods,
+            },
+        ],
+    }
+}
+
+const D3D9_IDIRECT3DVERTEXBUFFER9_ABI: [(&str, u16); 14] = [
+    ("QueryInterface", 2),
+    ("AddRef", 0),
+    ("Release", 0),
+    ("GetDevice", 1),
+    ("SetPrivateData", 4),
+    ("GetPrivateData", 3),
+    ("FreePrivateData", 1),
+    ("SetPriority", 1),
+    ("GetPriority", 0),
+    ("PreLoad", 0),
+    ("GetType", 0),
+    ("Lock", 4),
+    ("Unlock", 0),
+    ("GetDesc", 1),
+];
+
+pub fn direct3dvertexbuffer9_object_spec() -> ComObjectSpec {
+    let methods = D3D9_IDIRECT3DVERTEXBUFFER9_ABI
+        .iter()
+        .enumerate()
+        .map(|(slot, (name, argument_words))| match slot {
+            0 => ComMethodSpec::query_interface(),
+            1 => ComMethodSpec::add_ref(),
+            2 => ComMethodSpec::release(),
+            11 | 12 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            7 | 8 | 10 => ComMethodSpec::unsupported_u32(*name, *argument_words),
+            9 => ComMethodSpec::unsupported_void(*name, *argument_words),
+            _ => ComMethodSpec::unsupported_hresult(*name, *argument_words),
+        })
+        .collect();
+    ComObjectSpec {
+        class_identity: D3D9_IDIRECT3DVERTEXBUFFER9_CLASS_IDENTITY.to_owned(),
+        interfaces: vec![
+            ComInterfaceSpec::iunknown(),
+            ComInterfaceSpec {
+                iid: D3D9_IDIRECT3DVERTEXBUFFER9_IID,
+                name: "IDirect3DVertexBuffer9".to_owned(),
                 methods,
             },
         ],

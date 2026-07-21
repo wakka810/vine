@@ -151,6 +151,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-surface-get-dc",
         "winmm-time-get-time",
         "d3d9-initial-textures",
+        "d3d9-initial-vertex-buffer",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -221,6 +222,7 @@ assert(
       "d3d9-surface-get-dc",
       "winmm-time-get-time",
       "d3d9-initial-textures",
+      "d3d9-initial-vertex-buffer",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -255,6 +257,7 @@ if (
     "d3d9-surface-get-dc",
     "winmm-time-get-time",
     "d3d9-initial-textures",
+    "d3d9-initial-vertex-buffer",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -282,7 +285,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-get-surface-level" ||
     genericRuntimeCapability === "d3d9-surface-get-dc" ||
     genericRuntimeCapability === "winmm-time-get-time" ||
-    genericRuntimeCapability === "d3d9-initial-textures"
+    genericRuntimeCapability === "d3d9-initial-textures" ||
+    genericRuntimeCapability === "d3d9-initial-vertex-buffer"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -417,7 +421,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9InitialVertexBufferEnabled =
+  genericRuntimeCapability === "d3d9-initial-vertex-buffer";
 const d3d9InitialTexturesEnabled =
+  d3d9InitialVertexBufferEnabled ||
   genericRuntimeCapability === "d3d9-initial-textures";
 const timeGetTimeEnabled =
   d3d9InitialTexturesEnabled || genericRuntimeCapability === "winmm-time-get-time";
@@ -642,7 +649,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9InitialTexturesEnabled
+      ? d3d9InitialVertexBufferEnabled
+        ? "v86-bgi-d3d9-initial-vertex-buffer"
+      : d3d9InitialTexturesEnabled
         ? "v86-bgi-d3d9-initial-textures"
       : timeGetTimeEnabled
         ? "v86-bgi-time-get-time"
@@ -4610,6 +4619,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9InitialVertexBufferEnabled) {
+        validateD3d9InitialVertexBufferResult(genericResult);
       } else if (d3d9InitialTexturesEnabled) {
         validateD3d9InitialTexturesResult(genericResult);
       } else if (timeGetTimeEnabled) {
@@ -4783,6 +4794,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9InitialVertexBufferEnabled
+            ? "bgi D3D9 initial vertex-buffer sequence"
           : d3d9InitialTexturesEnabled
             ? "bgi D3D9 initial texture sequence"
           : timeGetTimeEnabled
@@ -6503,6 +6516,7 @@ function applyRuntimeHostDelta(context, delta) {
       end <= 0x0051_1000;
     const comBackingOperation =
       operation.regionKind === 9 && !callbackScratchOperation;
+    const graphicsResourceOperation = operation.regionKind === 11;
     if (operation.regionKind === 9) {
       assert(
         (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
@@ -6522,6 +6536,16 @@ function applyRuntimeHostDelta(context, delta) {
         }
       }
     }
+    if (graphicsResourceOperation) {
+      assert(
+        d3d9InitialVertexBufferEnabled,
+        "graphics-resource mapping requires the D3D9 initial vertex-buffer capability",
+      );
+      assert.equal(operation.address % page.size, 0);
+      assert.equal(operation.byteLength % page.size, 0);
+      assert(0x4400_0000 <= operation.address && end <= 0x4500_0000);
+      assert.equal(operation.byteLength, page.size);
+    }
     if (operation.operation === 1) {
       const callbackScratchReserve =
         operation.regionKind === 9 &&
@@ -6530,8 +6554,9 @@ function applyRuntimeHostDelta(context, delta) {
       assert(
         operation.regionKind === 7 ||
           (enumDisplayMonitorsEnabled && callbackScratchReserve) ||
-          (d3d9RootFactoryEnabled && comBackingOperation),
-        "runtime host reserve is neither a heap, callback scratch, nor D3D9 COM backing",
+          (d3d9RootFactoryEnabled && comBackingOperation) ||
+          graphicsResourceOperation,
+        "runtime host reserve is neither a heap, callback scratch, D3D9 COM backing, nor graphics resource",
       );
       assert.deepEqual(operation.protection, {
         read: false,
@@ -6729,6 +6754,8 @@ function validateGenericComEndpoint(actual, endpoint) {
         ? "d3d9.idirect3dtexture9.v1"
       : target.interface.name === "IDirect3DSurface9"
         ? "d3d9.idirect3dsurface9.v1"
+      : target.interface.name === "IDirect3DVertexBuffer9"
+        ? "d3d9.idirect3dvertexbuffer9.v1"
         : null;
   assert(expectedClassIdentity, `unexpected generic COM interface ${target.interface.name}`);
   assert.equal(target.method.slot, endpoint.vtableSlot);
@@ -6800,7 +6827,9 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
         ? "d3d9-idirect3ddevice9-method"
       : interfaceName === "IDirect3DTexture9"
         ? "d3d9-idirect3dtexture9-method"
-        : "d3d9-idirect3dsurface9-method",
+      : interfaceName === "IDirect3DSurface9"
+        ? "d3d9-idirect3dsurface9-method"
+        : "d3d9-idirect3dvertexbuffer9-method",
   );
   assert.equal(
     fault.fault.class,
@@ -13343,6 +13372,147 @@ function validateD3d9InitialTexturesResult(result) {
   ]);
 }
 
+function validateD3d9InitialVertexBufferResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_861);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_916);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_070,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_769,
+  );
+  assert.equal(result.hostDeltas.length, 16_573);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_920);
+
+  const vertexBufferCalls = result.supportedCalls.filter(
+    (call) =>
+      call.symbol === "IDirect3DDevice9.CreateVertexBuffer" ||
+      call.symbol === "IDirect3DVertexBuffer9.Lock" ||
+      call.symbol === "IDirect3DVertexBuffer9.Unlock",
+  );
+  assert.deepEqual(
+    vertexBufferCalls.map((call) => [
+      call.sequence,
+      call.symbol,
+      call.occurrence,
+      call.trapInstructionCount,
+      call.arguments,
+      call.result,
+      call.returnAddress,
+      call.stackPointerAfter - call.stackPointerBefore,
+      call.referenceCount,
+      call.objectRetired,
+      call.guestWrites.length,
+    ]),
+    [
+      [
+        17_859,
+        "IDirect3DDevice9.CreateVertexBuffer",
+        1,
+        11_807_897,
+        [0x0101_0004, 112, 8, 0x144, 1, 0x1015_17dc, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a890,
+        32,
+        4,
+        false,
+        1,
+      ],
+      [
+        17_860,
+        "IDirect3DVertexBuffer9.Lock",
+        1,
+        11_808_429,
+        [0x0105_0004, 0, 0, 0x006f_fd54, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_aa96,
+        24,
+        1,
+        false,
+        1,
+      ],
+      [
+        17_861,
+        "IDirect3DVertexBuffer9.Unlock",
+        1,
+        11_808_439,
+        [0x0105_0004],
+        { kind: "h-result", value: 0 },
+        0x1005_aab2,
+        8,
+        1,
+        false,
+        0,
+      ],
+    ],
+  );
+  assert.deepEqual(
+    vertexBufferCalls.map((call) =>
+      call.guestWrites.map((write) => [write.address, write.bytes]),
+    ),
+    [
+      [[0x1015_17dc, [0x04, 0x00, 0x05, 0x01]]],
+      [[0x006f_fd54, [0x00, 0x00, 0x00, 0x44]]],
+      [],
+    ],
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(endpoint.target.object.referenceCount, 5);
+  assert.equal(endpoint.target.object.parentInterfaceId, "4");
+  assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(endpoint.target.method.slot, 57);
+  assert.equal(endpoint.target.method.name, "SetRenderState");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 2);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_ad13);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
+  assert.equal(result.fault.fault.target.vtableSlot, 57);
+  assert.equal(result.fault.fault.target.method, "SetRenderState");
+  assert.equal(result.fault.memory.physicalPages, 730);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c25cc143829b020bdfb3cfebc393046a1f5ae77f6b3e5197c3697aad37d13fa5",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_808_458);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 57);
+  assert.equal(terminal.returnAddress, 0x1005_ad13);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_ad13,
+    0x0101_0004,
+    22,
+    1,
+  ]);
+}
+
 function validateD3d9SurfaceGetDcResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15459,6 +15629,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9InitialVertexBufferEnabled
+          ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
         : d3d9InitialTexturesEnabled
           ? "vine.v86-bgi-d3d9-initial-textures"
         : timeGetTimeEnabled

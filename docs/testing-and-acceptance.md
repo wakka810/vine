@@ -330,14 +330,14 @@ HRESULT ABI、56-byte x86 `D3DPRESENT_PARAMETERS`のstrict windowed HAL band、l
 private ownership、capacity／stale plan／failure atomicity、final device releaseによるgraphics retirementと
 optional root cascadeもunit／aggregate fixtureで固定する。Node／Chromeはsame ordered completion、guest
 write、COM identity、logical presentationを比較する。Slot 23は8-word／HRESULT ABI、exact
-1024x1024／one-level／format 22に対するusage／pool `0／2`、`0／0`、`0x200／0`のversion-12 allow-list、
+1024x1024／one-level／format 22に対するusage／pool `0／2`、`0／0`、`0x200／0`のversion-13 allow-list、
 three distinct 4-byte texture pointer publications、complete 22-slot `IDirect3DTexture9` catalog、各child-held
 device reference、private logical descriptor／indexを検証する。Invalid／unsupported／unwritable／capacity／
 stale pathsはguest、COM、graphics stateをpartial mutationせず、failureはidentity allocatorやdevice refcountを
 消費しない。Final texture releaseはlogical textureをretireして必要ならdevice／rootへcascadeする。
 Slot 18は2-word／HRESULT ABI、level zero、4-byte surface pointer publication、complete 17-slot
 `IDirect3DSurface9` catalog、child-held texture reference、private logical descriptor／indexを検証する。
-Source textureはversion-12 variant index 0のstatic SYSTEMMEM descriptorに限定し、二DEFAULT variantは
+Source textureはversion-13 variant index 0のstatic SYSTEMMEM descriptorに限定し、二DEFAULT variantは
 guest／COM／graphics mutation前のtyped unsupportedを検証する。
 Repeat取得は同じsurface／IUnknown identityへAddRefし、invalid level／NULL／unwritable／capacity／stale pathは
 guest、COM、graphics stateをpartial mutationしない。Final surface releaseはlogical surfaceをretireして
@@ -346,9 +346,19 @@ exact surface／HDC／thread release relationを検証する。Repeat acquisitio
 `D3DERR_INVALIDCALL`かつfailure-atomicで、live HDC中のsurface COM retirementを拒否する。Reached
 `GetStockObject(4)`／`FillRect`はtyped graphics-surface HDCを通り、GDI ownerとGraphics ownerのplanを両方
 preflightして`1024x1024` surfaceへ`[0,0,800,600]`／COLORREF 0のbounded commandを一件だけcommitする。
-Node／Chromeはsame ordered surface DC／fill／release、続く二texture creation、device refcount 4のsemanticsと
-device slot 26 `CreateVertexBuffer` stopを比較し、browser renderer、texture／surface pixel storage、pitch、
-Lock stagingが未生成であることを要求する。
+Node／Chromeはsame ordered surface DC／fill／releaseと続く二texture creationを比較する。Device slot 26は
+6-word／HRESULT ABI、exact 112-byte／`D3DUSAGE_WRITEONLY`／FVF `0x144`／`D3DPOOL_MANAGED`／NULL shared
+handle、complete 14-slot `IDirect3DVertexBuffer9`、child-held device reference、private logical descriptor／
+backing relationを検証する。Createのguest pointer、COM identity、graphics ID、address allocation、zero-filled
+read-only memoryは全ownerのcapacity／identity／spanをpreflightして一transactionでpublishする。Slot 11は
+4-word／HRESULT ABIとfull-range `Lock(0,0,...,0)`だけを許可し、4-byte backing pointer writeとread／write
+protectionをatomicにcommitする。Slot 12はzero-word／HRESULT ABIでactive lockを要求し、read-only protection、
+lock clear、content generation incrementをatomicにcommitする。Duplicate／unsupported lock、unlock without
+lock、unwritable output、COM／graphics／address／memory exhaustion、stale planは全authorityをpartial mutationせず、
+final Releaseはresource mapping／owner／allocation／graphics associationをCOM backingと共にretireする。
+Node／Chromeは三completion、112-byte content、device refcount 5、backing protection、device slot 57
+`SetRenderState` stopを比較し、browser renderer、texture／surface pixel storage、GPU vertex bufferが未生成で
+あることを要求する。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
@@ -358,7 +368,9 @@ invalid-level output zero化とNULL access violationを固定する。Vineは共
 invalid inputでoutputを変更しない。Surface DC oracleはrepeat／reacquire、surface reference-count不変、
 wrong／repeated `ReleaseDC`、live DC中の`LockRect`拒否、NULL／read-only output exceptionを固定する。
 Focused initial-texture traceは三callのexact caller RVA／arguments／S_OK、same device、distinct non-NULL output、
-直後の`CreateVertexBuffer`をtwo-runで固定する。詳細は
+直後の`CreateVertexBuffer`をtwo-runで固定する。Focused vertex-buffer traceはCreate／Lock／112-byte caller
+write／Unlockのexact caller RVA、arguments、initial zero content、written content、S_OK／LastError preserve、
+直後の`SetRenderState(22,1)`をtwo-runで固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

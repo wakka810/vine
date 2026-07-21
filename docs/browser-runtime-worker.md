@@ -241,8 +241,11 @@ oracle; Chrome must match ordered completions, caller-visible results, final gue
 same structured stop. The reached D3D9 path now includes one Rust-owned logical device; three
 logical textures covering the exact system-memory／default／dynamic-default initial band; the first
 texture's level-zero surface; a typed surface HDC; one bounded graphics fill command; and their
-COM／GDI lifetime relations. The Worker observes completions but owns neither identity nor resource
-state. No pixel or renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
+COM／GDI lifetime relations. It also creates one Rust-owned 112-byte logical vertex buffer, exposes
+its guest backing through the exact full-range Lock, consumes the guest write, and returns the backing
+to read-only on Unlock. The Worker observes completions and mirrors checked guest bytes, but owns
+neither identity, lock state, protection, nor resource content. No texture／surface pixel or browser
+renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 
 A benchmark threshold failure does not invalidate a passing semantic-equivalence run, but it

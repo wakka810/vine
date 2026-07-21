@@ -2,15 +2,26 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
-use super::{RuntimeComObjectId, RuntimeRect, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
+use super::{
+    ProcessAddressAllocationId, RuntimeComObjectId, RuntimeRect, RuntimeStateError,
+    RuntimeThreadId, RuntimeWindowId,
+};
+use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
 
 pub const RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE: &str = "vine.logical-graphics-device.v1";
 pub const RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE: &str = "vine.logical-graphics-texture.v1";
 pub const RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE: &str = "vine.logical-graphics-surface.v1";
+pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE: &str =
+    "vine.logical-graphics-vertex-buffer.v1";
 pub const RUNTIME_BROWSER_RENDERER_ID_NAMESPACE: &str = "vine.browser-renderer-resource.v1";
+pub const RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE: crate::memory::GuestAddress =
+    crate::memory::GuestAddress(0x4400_0000);
+pub const RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE: u64 = 0x0100_0000;
+pub(crate) const RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER: &str = "runtime-graphics-resource";
 pub const RUNTIME_GRAPHICS_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_TEXTURE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_LIMIT: usize = 4_096;
+pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -24,6 +35,10 @@ pub struct RuntimeGraphicsTextureId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeGraphicsSurfaceId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeGraphicsVertexBufferId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -56,6 +71,18 @@ pub enum RuntimeGraphicsTexturePool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsVertexBufferUsage {
+    WriteOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsVertexBufferPool {
+    Managed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsTextureDescriptor {
     pub width: u32,
@@ -73,6 +100,32 @@ pub struct RuntimeGraphicsSurfaceDescriptor {
     pub width: u32,
     pub height: u32,
     pub color_format: RuntimeGraphicsColorFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsVertexBufferDescriptor {
+    pub byte_length: u32,
+    pub usage: RuntimeGraphicsVertexBufferUsage,
+    pub flexible_vertex_format: u32,
+    pub pool: RuntimeGraphicsVertexBufferPool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsVertexBufferBacking {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: GuestRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsVertexBufferLock {
+    pub offset: u32,
+    pub byte_length: u32,
+    pub flags: u32,
+    pub guest_address: GuestAddress,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -155,6 +208,21 @@ pub struct RuntimeGraphicsSurface {
     pub generation: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsVertexBuffer {
+    pub id: RuntimeGraphicsVertexBufferId,
+    pub namespace: String,
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub descriptor: RuntimeGraphicsVertexBufferDescriptor,
+    pub backing: RuntimeGraphicsVertexBufferBacking,
+    pub com_object_id: RuntimeComObjectId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_lock: Option<RuntimeGraphicsVertexBufferLock>,
+    pub content_generation: u64,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeGraphicsWindowTarget {
     pub window_id: RuntimeWindowId,
@@ -192,6 +260,20 @@ pub(crate) struct RuntimeGraphicsSurfaceFillRequest {
     pub surface_com_object_id: RuntimeComObjectId,
     pub rect: RuntimeRect,
     pub color_ref: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsVertexBufferCreateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub descriptor: RuntimeGraphicsVertexBufferDescriptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsVertexBufferLockRequest {
+    pub vertex_buffer_com_object_id: RuntimeComObjectId,
+    pub offset: u32,
+    pub byte_length: u32,
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +327,47 @@ pub(crate) struct RuntimeGraphicsSurfaceFillPlan {
     next_fill_sequence: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsVertexBufferCreationPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    id: RuntimeGraphicsVertexBufferId,
+    device_id: RuntimeGraphicsDeviceId,
+    request: RuntimeGraphicsVertexBufferCreateRequest,
+    address_allocation_id: ProcessAddressAllocationId,
+    backing_range: GuestRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsVertexBufferLockPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    vertex_buffer_generation: u64,
+    next_vertex_buffer_generation: u64,
+    lock: RuntimeGraphicsVertexBufferLock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsVertexBufferUnlockPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    vertex_buffer_generation: u64,
+    next_vertex_buffer_generation: u64,
+    content_generation: u64,
+    next_content_generation: u64,
+    lock: RuntimeGraphicsVertexBufferLock,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsVertexBufferUnlockResult {
+    pub vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    pub generation: u64,
+    pub content_generation: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSurfaceFillResult {
@@ -283,6 +406,36 @@ impl RuntimeGraphicsTextureCreationPlan {
     }
 }
 
+impl RuntimeGraphicsVertexBufferCreationPlan {
+    pub(crate) fn descriptor(&self) -> RuntimeGraphicsVertexBufferDescriptor {
+        self.request.descriptor
+    }
+
+    pub(crate) fn address_allocation_id(&self) -> ProcessAddressAllocationId {
+        self.address_allocation_id
+    }
+
+    pub(crate) fn backing_range(&self) -> GuestRange {
+        self.backing_range
+    }
+}
+
+impl RuntimeGraphicsVertexBufferLockPlan {
+    pub(crate) fn vertex_buffer_id(&self) -> RuntimeGraphicsVertexBufferId {
+        self.vertex_buffer_id
+    }
+
+    pub(crate) fn lock(&self) -> RuntimeGraphicsVertexBufferLock {
+        self.lock
+    }
+}
+
+impl RuntimeGraphicsVertexBufferUnlockPlan {
+    pub(crate) fn vertex_buffer_id(&self) -> RuntimeGraphicsVertexBufferId {
+        self.vertex_buffer_id
+    }
+}
+
 impl RuntimeGraphicsDeviceCreationPlan {
     pub(crate) fn id(&self) -> RuntimeGraphicsDeviceId {
         self.id
@@ -308,6 +461,7 @@ pub(crate) struct RuntimeGraphicsComRetirementPlan {
     device_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsDeviceId)>,
     texture_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsTextureId)>,
     surface_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsSurfaceId)>,
+    vertex_buffer_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,6 +471,7 @@ pub(super) struct RuntimeGraphicsTeardownPlan {
     devices: usize,
     textures: usize,
     surfaces: usize,
+    vertex_buffers: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -341,9 +496,17 @@ pub(super) struct RuntimeGraphics {
     #[serde(skip)]
     texture_level_surface_index:
         BTreeMap<(RuntimeGraphicsTextureId, u32), RuntimeGraphicsSurfaceId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    vertex_buffers: BTreeMap<RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBuffer>,
+    #[serde(skip)]
+    vertex_buffer_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsVertexBufferId>,
+    #[serde(skip)]
+    device_vertex_buffer_index:
+        BTreeMap<RuntimeGraphicsDeviceId, BTreeSet<RuntimeGraphicsVertexBufferId>>,
     next_device_id: u64,
     next_texture_id: u64,
     next_surface_id: u64,
+    next_vertex_buffer_id: u64,
     next_surface_fill_sequence: u64,
     generation: u64,
 }
@@ -360,9 +523,13 @@ impl Default for RuntimeGraphics {
             surface_com_object_index: BTreeMap::new(),
             texture_surface_index: BTreeMap::new(),
             texture_level_surface_index: BTreeMap::new(),
+            vertex_buffers: BTreeMap::new(),
+            vertex_buffer_com_object_index: BTreeMap::new(),
+            device_vertex_buffer_index: BTreeMap::new(),
             next_device_id: 1,
             next_texture_id: 1,
             next_surface_id: 1,
+            next_vertex_buffer_id: 1,
             next_surface_fill_sequence: 1,
             generation: 0,
         }
@@ -422,6 +589,11 @@ impl RuntimeGraphics {
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
+        debug_assert!(
+            !self
+                .vertex_buffer_com_object_index
+                .contains_key(&com_object_id)
+        );
         let next_device_id = plan
             .id
             .0
@@ -443,6 +615,8 @@ impl RuntimeGraphics {
         self.device_com_object_index
             .insert(com_object_id, device.id);
         self.device_texture_index.insert(device.id, BTreeSet::new());
+        self.device_vertex_buffer_index
+            .insert(device.id, BTreeSet::new());
         self.devices.insert(device.id, device.clone());
         self.next_device_id = next_device_id;
         self.generation = plan.next_generation;
@@ -519,6 +693,11 @@ impl RuntimeGraphics {
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
+        debug_assert!(
+            !self
+                .vertex_buffer_com_object_index
+                .contains_key(&com_object_id)
+        );
         let next_texture_id = plan
             .id
             .0
@@ -544,6 +723,309 @@ impl RuntimeGraphics {
         self.next_texture_id = next_texture_id;
         self.generation = plan.next_generation;
         texture
+    }
+
+    pub(super) fn plan_vertex_buffer_creation(
+        &self,
+        request: RuntimeGraphicsVertexBufferCreateRequest,
+        address_allocation_id: ProcessAddressAllocationId,
+        backing_range: GuestRange,
+    ) -> Result<RuntimeGraphicsVertexBufferCreationPlan, RuntimeStateError> {
+        validate_vertex_buffer_creation_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-vertex-buffer-device-com-object-unknown",
+                    "logical vertex-buffer creation requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        if address_allocation_id.0 == 0
+            || backing_range.byte_length() < u64::from(request.descriptor.byte_length)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-vertex-buffer-backing-invalid",
+                "logical vertex-buffer backing must identify sufficient guest memory",
+            ));
+        }
+        if self.vertex_buffers.len() >= RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-vertex-buffer-capacity-reached",
+                "logical graphics vertex-buffer capacity is exhausted",
+            ));
+        }
+        if self.vertex_buffers.values().any(|vertex_buffer| {
+            vertex_buffer.backing.address_allocation_id == address_allocation_id
+                || vertex_buffer.backing.range == backing_range
+        }) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-backing-collision",
+                "logical vertex-buffer allocator selected live guest backing",
+            ));
+        }
+        let id = RuntimeGraphicsVertexBufferId(self.next_vertex_buffer_id);
+        if id.0 == 0 || self.vertex_buffers.contains_key(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-id-collision",
+                "logical graphics vertex-buffer allocator selected a live identity",
+            ));
+        }
+        Ok(RuntimeGraphicsVertexBufferCreationPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            id,
+            device_id,
+            request,
+            address_allocation_id,
+            backing_range,
+        })
+    }
+
+    pub(super) fn preflight_vertex_buffer_creation(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferCreationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.next_vertex_buffer_id != plan.id.0
+            || self.vertex_buffers.len() >= RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT
+            || self.vertex_buffers.contains_key(&plan.id)
+            || self
+                .device_com_object_index
+                .get(&plan.request.device_com_object_id)
+                != Some(&plan.device_id)
+            || self.vertex_buffers.values().any(|vertex_buffer| {
+                vertex_buffer.backing.address_allocation_id == plan.address_allocation_id
+                    || vertex_buffer.backing.range == plan.backing_range
+            })
+        {
+            return Err(stale_plan("graphics-vertex-buffer-creation-plan-stale"));
+        }
+        validate_vertex_buffer_creation_request(plan.request)?;
+        if plan.address_allocation_id.0 == 0
+            || plan.backing_range.byte_length() < u64::from(plan.request.descriptor.byte_length)
+        {
+            return Err(stale_plan("graphics-vertex-buffer-creation-plan-stale"));
+        }
+        self.validate_device_association(plan.request.device_com_object_id, plan.device_id)
+    }
+
+    pub(super) fn commit_vertex_buffer_creation(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferCreationPlan,
+        com_object_id: RuntimeComObjectId,
+        memory_owner: MemoryOwnerId,
+    ) -> RuntimeGraphicsVertexBuffer {
+        debug_assert!(self.preflight_vertex_buffer_creation(&plan).is_ok());
+        debug_assert_ne!(com_object_id.0, 0);
+        debug_assert_ne!(memory_owner.0, 0);
+        debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
+        debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
+        debug_assert!(
+            !self
+                .vertex_buffer_com_object_index
+                .contains_key(&com_object_id)
+        );
+        let next_vertex_buffer_id = plan
+            .id
+            .0
+            .checked_add(1)
+            .expect("preflighted graphics vertex-buffer ID must advance");
+        let vertex_buffer = RuntimeGraphicsVertexBuffer {
+            id: plan.id,
+            namespace: RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE.to_owned(),
+            device_id: plan.device_id,
+            descriptor: plan.request.descriptor,
+            backing: RuntimeGraphicsVertexBufferBacking {
+                address_allocation_id: plan.address_allocation_id,
+                memory_owner,
+                range: plan.backing_range,
+            },
+            com_object_id,
+            active_lock: None,
+            content_generation: 0,
+            generation: plan.next_generation,
+        };
+        self.vertex_buffer_com_object_index
+            .insert(com_object_id, vertex_buffer.id);
+        self.device_vertex_buffer_index
+            .get_mut(&vertex_buffer.device_id)
+            .expect("preflighted graphics vertex-buffer device disappeared")
+            .insert(vertex_buffer.id);
+        self.vertex_buffers
+            .insert(vertex_buffer.id, vertex_buffer.clone());
+        self.next_vertex_buffer_id = next_vertex_buffer_id;
+        self.generation = plan.next_generation;
+        vertex_buffer
+    }
+
+    pub(super) fn plan_vertex_buffer_lock(
+        &self,
+        request: RuntimeGraphicsVertexBufferLockRequest,
+    ) -> Result<RuntimeGraphicsVertexBufferLockPlan, RuntimeStateError> {
+        let vertex_buffer =
+            self.vertex_buffer_for_com_object(request.vertex_buffer_com_object_id)?;
+        if request.offset != 0 || request.byte_length != 0 || request.flags != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-vertex-buffer-lock-variant-unsupported",
+                "bounded vertex-buffer locking supports only a full-range lock with zero flags",
+            ));
+        }
+        if vertex_buffer.active_lock.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-vertex-buffer-already-locked",
+                "logical graphics vertex buffer already has an active lock",
+            ));
+        }
+        let lock = RuntimeGraphicsVertexBufferLock {
+            offset: 0,
+            byte_length: vertex_buffer.descriptor.byte_length,
+            flags: 0,
+            guest_address: vertex_buffer.backing.range.start(),
+        };
+        Ok(RuntimeGraphicsVertexBufferLockPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            vertex_buffer_id: vertex_buffer.id,
+            vertex_buffer_generation: vertex_buffer.generation,
+            next_vertex_buffer_generation: vertex_buffer.generation.checked_add(1).ok_or_else(
+                || {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-vertex-buffer-generation-exhausted",
+                        "logical graphics vertex-buffer generation is exhausted",
+                    )
+                },
+            )?,
+            lock,
+        })
+    }
+
+    pub(super) fn preflight_vertex_buffer_lock(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferLockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(vertex_buffer) = self.vertex_buffers.get(&plan.vertex_buffer_id) else {
+            return Err(stale_plan("graphics-vertex-buffer-lock-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || vertex_buffer.generation != plan.vertex_buffer_generation
+            || vertex_buffer.active_lock.is_some()
+            || plan.lock.offset != 0
+            || plan.lock.byte_length != vertex_buffer.descriptor.byte_length
+            || plan.lock.flags != 0
+            || plan.lock.guest_address != vertex_buffer.backing.range.start()
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || vertex_buffer.generation.checked_add(1) != Some(plan.next_vertex_buffer_generation)
+        {
+            return Err(stale_plan("graphics-vertex-buffer-lock-plan-stale"));
+        }
+        self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)
+    }
+
+    pub(super) fn commit_vertex_buffer_lock(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferLockPlan,
+    ) -> RuntimeGraphicsVertexBufferLock {
+        debug_assert!(self.preflight_vertex_buffer_lock(&plan).is_ok());
+        let vertex_buffer = self
+            .vertex_buffers
+            .get_mut(&plan.vertex_buffer_id)
+            .expect("preflighted graphics vertex buffer disappeared");
+        vertex_buffer.active_lock = Some(plan.lock);
+        vertex_buffer.generation = plan.next_vertex_buffer_generation;
+        self.generation = plan.next_generation;
+        plan.lock
+    }
+
+    pub(super) fn plan_vertex_buffer_unlock(
+        &self,
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsVertexBufferUnlockPlan, RuntimeStateError> {
+        let vertex_buffer = self.vertex_buffer_for_com_object(vertex_buffer_com_object_id)?;
+        let lock = vertex_buffer.active_lock.ok_or_else(|| {
+            RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-vertex-buffer-not-locked",
+                "logical graphics vertex buffer has no active lock",
+            )
+        })?;
+        Ok(RuntimeGraphicsVertexBufferUnlockPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            vertex_buffer_id: vertex_buffer.id,
+            vertex_buffer_generation: vertex_buffer.generation,
+            next_vertex_buffer_generation: vertex_buffer.generation.checked_add(1).ok_or_else(
+                || {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-vertex-buffer-generation-exhausted",
+                        "logical graphics vertex-buffer generation is exhausted",
+                    )
+                },
+            )?,
+            content_generation: vertex_buffer.content_generation,
+            next_content_generation: vertex_buffer.content_generation.checked_add(1).ok_or_else(
+                || {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-vertex-buffer-content-generation-exhausted",
+                        "logical graphics vertex-buffer content generation is exhausted",
+                    )
+                },
+            )?,
+            lock,
+        })
+    }
+
+    pub(super) fn preflight_vertex_buffer_unlock(
+        &self,
+        plan: &RuntimeGraphicsVertexBufferUnlockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(vertex_buffer) = self.vertex_buffers.get(&plan.vertex_buffer_id) else {
+            return Err(stale_plan("graphics-vertex-buffer-unlock-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || vertex_buffer.generation != plan.vertex_buffer_generation
+            || vertex_buffer.content_generation != plan.content_generation
+            || vertex_buffer.active_lock != Some(plan.lock)
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || vertex_buffer.generation.checked_add(1) != Some(plan.next_vertex_buffer_generation)
+            || vertex_buffer.content_generation.checked_add(1) != Some(plan.next_content_generation)
+        {
+            return Err(stale_plan("graphics-vertex-buffer-unlock-plan-stale"));
+        }
+        self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)
+    }
+
+    pub(super) fn commit_vertex_buffer_unlock(
+        &mut self,
+        plan: RuntimeGraphicsVertexBufferUnlockPlan,
+    ) -> RuntimeGraphicsVertexBufferUnlockResult {
+        debug_assert!(self.preflight_vertex_buffer_unlock(&plan).is_ok());
+        let vertex_buffer = self
+            .vertex_buffers
+            .get_mut(&plan.vertex_buffer_id)
+            .expect("preflighted graphics vertex buffer disappeared");
+        vertex_buffer.active_lock = None;
+        vertex_buffer.content_generation = plan.next_content_generation;
+        vertex_buffer.generation = plan.next_vertex_buffer_generation;
+        self.generation = plan.next_generation;
+        RuntimeGraphicsVertexBufferUnlockResult {
+            vertex_buffer_id: vertex_buffer.id,
+            generation: vertex_buffer.generation,
+            content_generation: vertex_buffer.content_generation,
+        }
     }
 
     pub(super) fn plan_surface_creation(
@@ -663,6 +1145,11 @@ impl RuntimeGraphics {
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.surface_com_object_index.contains_key(&com_object_id));
+        debug_assert!(
+            !self
+                .vertex_buffer_com_object_index
+                .contains_key(&com_object_id)
+        );
         let next_surface_id = plan
             .id
             .0
@@ -874,9 +1361,19 @@ impl RuntimeGraphics {
                     .map(|surface_id| (*com_object_id, surface_id))
             })
             .collect::<Vec<_>>();
+        let vertex_buffer_associations = com_object_ids
+            .iter()
+            .filter_map(|com_object_id| {
+                self.vertex_buffer_com_object_index
+                    .get(com_object_id)
+                    .copied()
+                    .map(|vertex_buffer_id| (*com_object_id, vertex_buffer_id))
+            })
+            .collect::<Vec<_>>();
         if device_associations.is_empty()
             && texture_associations.is_empty()
             && surface_associations.is_empty()
+            && vertex_buffer_associations.is_empty()
         {
             return Ok(None);
         }
@@ -884,6 +1381,7 @@ impl RuntimeGraphics {
             &device_associations,
             &texture_associations,
             &surface_associations,
+            &vertex_buffer_associations,
         )?;
         Ok(Some(RuntimeGraphicsComRetirementPlan {
             expected_generation: self.generation,
@@ -891,7 +1389,26 @@ impl RuntimeGraphics {
             device_associations,
             texture_associations,
             surface_associations,
+            vertex_buffer_associations,
         }))
+    }
+
+    pub(crate) fn vertex_buffer_backings_for_retirement(
+        &self,
+        plan: &RuntimeGraphicsComRetirementPlan,
+    ) -> Result<Vec<(RuntimeGraphicsVertexBufferBacking, u32)>, RuntimeStateError> {
+        self.preflight_com_object_retirement(plan)?;
+        Ok(plan
+            .vertex_buffer_associations
+            .iter()
+            .map(|(_, vertex_buffer_id)| {
+                let vertex_buffer = self
+                    .vertex_buffers
+                    .get(vertex_buffer_id)
+                    .expect("validated retiring graphics vertex buffer disappeared");
+                (vertex_buffer.backing, vertex_buffer.descriptor.byte_length)
+            })
+            .collect())
     }
 
     pub(crate) fn preflight_com_object_retirement(
@@ -904,6 +1421,7 @@ impl RuntimeGraphics {
                     &plan.device_associations,
                     &plan.texture_associations,
                     &plan.surface_associations,
+                    &plan.vertex_buffer_associations,
                 )
                 .is_err()
         {
@@ -939,9 +1457,21 @@ impl RuntimeGraphics {
                 .remove(&texture_id);
             self.texture_surface_index.remove(&texture_id);
         }
+        for (com_object_id, vertex_buffer_id) in plan.vertex_buffer_associations {
+            self.vertex_buffer_com_object_index.remove(&com_object_id);
+            let vertex_buffer = self
+                .vertex_buffers
+                .remove(&vertex_buffer_id)
+                .expect("preflighted logical vertex buffer disappeared during retirement");
+            self.device_vertex_buffer_index
+                .get_mut(&vertex_buffer.device_id)
+                .expect("preflighted logical vertex-buffer device disappeared during retirement")
+                .remove(&vertex_buffer_id);
+        }
         for (com_object_id, device_id) in plan.device_associations {
             self.device_com_object_index.remove(&com_object_id);
             self.device_texture_index.remove(&device_id);
+            self.device_vertex_buffer_index.remove(&device_id);
             self.devices.remove(&device_id);
         }
         self.generation = plan.next_generation;
@@ -952,10 +1482,12 @@ impl RuntimeGraphics {
         device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
         texture_associations: &[(RuntimeComObjectId, RuntimeGraphicsTextureId)],
         surface_associations: &[(RuntimeComObjectId, RuntimeGraphicsSurfaceId)],
+        vertex_buffer_associations: &[(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)],
     ) -> Result<(), RuntimeStateError> {
         if device_associations.is_empty()
             && texture_associations.is_empty()
             && surface_associations.is_empty()
+            && vertex_buffer_associations.is_empty()
         {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-graphics",
@@ -971,6 +1503,9 @@ impl RuntimeGraphics {
         }
         for (com_object_id, surface_id) in surface_associations {
             self.validate_surface_association(*com_object_id, *surface_id)?;
+        }
+        for (com_object_id, vertex_buffer_id) in vertex_buffer_associations {
+            self.validate_vertex_buffer_association(*com_object_id, *vertex_buffer_id)?;
         }
         let retiring_surfaces = surface_associations
             .iter()
@@ -996,6 +1531,10 @@ impl RuntimeGraphics {
             .iter()
             .map(|(_, texture_id)| *texture_id)
             .collect::<BTreeSet<_>>();
+        let retiring_vertex_buffers = vertex_buffer_associations
+            .iter()
+            .map(|(_, vertex_buffer_id)| *vertex_buffer_id)
+            .collect::<BTreeSet<_>>();
         for (_, device_id) in device_associations {
             let children = self.device_texture_index.get(device_id).ok_or_else(|| {
                 RuntimeStateError::runtime_defect(
@@ -1009,6 +1548,23 @@ impl RuntimeGraphics {
                     "runtime-graphics",
                     "graphics-device-retirement-has-live-textures",
                     "logical graphics device cannot retire while a child texture remains live",
+                ));
+            }
+            let vertex_buffers =
+                self.device_vertex_buffer_index
+                    .get(device_id)
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-graphics",
+                            "graphics-device-vertex-buffer-index-missing",
+                            "logical graphics device has no vertex-buffer relation index",
+                        )
+                    })?;
+            if !vertex_buffers.is_subset(&retiring_vertex_buffers) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-device-retirement-has-live-vertex-buffers",
+                    "logical graphics device cannot retire while a child vertex buffer remains live",
                 ));
             }
         }
@@ -1039,11 +1595,13 @@ impl RuntimeGraphics {
                 "logical graphics device and COM index disagree",
             ));
         }
-        if !self.device_texture_index.contains_key(&device_id) {
+        if !self.device_texture_index.contains_key(&device_id)
+            || !self.device_vertex_buffer_index.contains_key(&device_id)
+        {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-graphics",
                 "graphics-device-texture-index-missing",
-                "logical graphics device has no texture relation index",
+                "logical graphics device is missing a resource relation index",
             ));
         }
         Ok(())
@@ -1122,6 +1680,40 @@ impl RuntimeGraphics {
         Ok(())
     }
 
+    fn validate_vertex_buffer_association(
+        &self,
+        com_object_id: RuntimeComObjectId,
+        vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    ) -> Result<(), RuntimeStateError> {
+        if self.vertex_buffer_com_object_index.get(&com_object_id) != Some(&vertex_buffer_id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-com-index-dangling",
+                "graphics vertex-buffer COM association does not resolve to a live logical buffer",
+            ));
+        }
+        let vertex_buffer = self.vertex_buffers.get(&vertex_buffer_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-com-association-mismatch",
+                "logical graphics vertex buffer and COM index disagree",
+            )
+        })?;
+        if vertex_buffer.com_object_id != com_object_id
+            || !self
+                .device_vertex_buffer_index
+                .get(&vertex_buffer.device_id)
+                .is_some_and(|vertex_buffers| vertex_buffers.contains(&vertex_buffer_id))
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-vertex-buffer-com-association-mismatch",
+                "logical graphics vertex buffer, device relation, and COM index disagree",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn plan_process_teardown(
         &self,
     ) -> Result<Option<RuntimeGraphicsTeardownPlan>, RuntimeStateError> {
@@ -1134,6 +1726,7 @@ impl RuntimeGraphics {
             devices: self.devices.len(),
             textures: self.textures.len(),
             surfaces: self.surfaces.len(),
+            vertex_buffers: self.vertex_buffers.len(),
         }))
     }
 
@@ -1145,12 +1738,15 @@ impl RuntimeGraphics {
             || self.devices.len() != plan.devices
             || self.device_com_object_index.len() != plan.devices
             || self.device_texture_index.len() != plan.devices
+            || self.device_vertex_buffer_index.len() != plan.devices
             || self.textures.len() != plan.textures
             || self.texture_com_object_index.len() != plan.textures
             || self.texture_surface_index.len() != plan.textures
             || self.surfaces.len() != plan.surfaces
             || self.surface_com_object_index.len() != plan.surfaces
             || self.texture_level_surface_index.len() != plan.surfaces
+            || self.vertex_buffers.len() != plan.vertex_buffers
+            || self.vertex_buffer_com_object_index.len() != plan.vertex_buffers
         {
             return Err(stale_plan("graphics-teardown-plan-stale"));
         }
@@ -1166,6 +1762,9 @@ impl RuntimeGraphics {
         self.textures.clear();
         self.texture_com_object_index.clear();
         self.device_texture_index.clear();
+        self.vertex_buffers.clear();
+        self.vertex_buffer_com_object_index.clear();
+        self.device_vertex_buffer_index.clear();
         self.devices.clear();
         self.device_com_object_index.clear();
         self.generation = plan.next_generation;
@@ -1244,6 +1843,47 @@ impl RuntimeGraphics {
         &self.surfaces
     }
 
+    pub fn vertex_buffer(
+        &self,
+        id: RuntimeGraphicsVertexBufferId,
+    ) -> Result<&RuntimeGraphicsVertexBuffer, RuntimeStateError> {
+        self.vertex_buffers.get(&id).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-graphics",
+                "graphics-vertex-buffer-id-unknown",
+                format!("logical graphics vertex buffer {} is not live", id.0),
+            )
+        })
+    }
+
+    pub fn vertex_buffers(
+        &self,
+    ) -> &BTreeMap<RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBuffer> {
+        &self.vertex_buffers
+    }
+
+    pub(super) fn vertex_buffer_for_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeGraphicsVertexBuffer, RuntimeStateError> {
+        let vertex_buffer_id = self
+            .vertex_buffer_com_object_index
+            .get(&com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-vertex-buffer-com-object-unknown",
+                    "logical graphics vertex-buffer COM object is not live",
+                )
+            })?;
+        self.validate_vertex_buffer_association(com_object_id, vertex_buffer_id)?;
+        Ok(self
+            .vertex_buffers
+            .get(&vertex_buffer_id)
+            .expect("validated logical vertex-buffer association disappeared"))
+    }
+
     pub(super) fn surface_for_com_object(
         &self,
         com_object_id: RuntimeComObjectId,
@@ -1293,7 +1933,10 @@ impl RuntimeGraphics {
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.devices.is_empty() && self.textures.is_empty() && self.surfaces.is_empty()
+        self.devices.is_empty()
+            && self.textures.is_empty()
+            && self.surfaces.is_empty()
+            && self.vertex_buffers.is_empty()
     }
 }
 
@@ -1330,6 +1973,22 @@ fn validate_texture_creation_request(
             "runtime-graphics",
             "graphics-texture-creation-request-invalid",
             "logical graphics texture creation requires a live device and nonzero descriptor",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_vertex_buffer_creation_request(
+    request: RuntimeGraphicsVertexBufferCreateRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0
+        || request.descriptor.byte_length == 0
+        || request.descriptor.flexible_vertex_format == 0
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-vertex-buffer-creation-request-invalid",
+            "logical graphics vertex-buffer creation requires a live device and nonzero descriptor",
         ));
     }
     Ok(())
@@ -1594,6 +2253,117 @@ mod tests {
             .unwrap();
         graphics.commit_com_object_retirement(retirement);
         assert!(graphics.is_empty());
+    }
+
+    #[test]
+    fn vertex_buffer_lock_unlock_and_retirement_preserve_backing_identity() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
+        let creation = graphics
+            .plan_vertex_buffer_creation(
+                RuntimeGraphicsVertexBufferCreateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
+                        byte_length: 112,
+                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                        flexible_vertex_format: 0x144,
+                        pool: RuntimeGraphicsVertexBufferPool::Managed,
+                    },
+                },
+                ProcessAddressAllocationId(41),
+                backing_range,
+            )
+            .unwrap();
+        let stale_creation = creation.clone();
+        graphics
+            .preflight_vertex_buffer_creation(&creation)
+            .unwrap();
+        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+            creation,
+            RuntimeComObjectId(8),
+            MemoryOwnerId(23),
+        );
+        assert_eq!(vertex_buffer.device_id, device.id);
+        assert_eq!(vertex_buffer.backing.address_allocation_id.0, 41);
+        assert_eq!(vertex_buffer.backing.memory_owner.0, 23);
+        assert_eq!(vertex_buffer.backing.range, backing_range);
+        assert_eq!(
+            graphics
+                .preflight_vertex_buffer_creation(&stale_creation)
+                .unwrap_err()
+                .code,
+            "graphics-vertex-buffer-creation-plan-stale"
+        );
+
+        let lock_plan = graphics
+            .plan_vertex_buffer_lock(RuntimeGraphicsVertexBufferLockRequest {
+                vertex_buffer_com_object_id: RuntimeComObjectId(8),
+                offset: 0,
+                byte_length: 0,
+                flags: 0,
+            })
+            .unwrap();
+        let stale_lock = lock_plan.clone();
+        let lock = graphics.commit_vertex_buffer_lock(lock_plan);
+        assert_eq!(lock.guest_address, backing_range.start());
+        assert_eq!(lock.byte_length, 112);
+        assert_eq!(
+            graphics
+                .preflight_vertex_buffer_lock(&stale_lock)
+                .unwrap_err()
+                .code,
+            "graphics-vertex-buffer-lock-plan-stale"
+        );
+        assert_eq!(
+            graphics
+                .plan_vertex_buffer_lock(RuntimeGraphicsVertexBufferLockRequest {
+                    vertex_buffer_com_object_id: RuntimeComObjectId(8),
+                    offset: 0,
+                    byte_length: 0,
+                    flags: 0,
+                })
+                .unwrap_err()
+                .code,
+            "graphics-vertex-buffer-already-locked"
+        );
+
+        let unlock_plan = graphics
+            .plan_vertex_buffer_unlock(RuntimeComObjectId(8))
+            .unwrap();
+        let stale_unlock = unlock_plan.clone();
+        let unlock = graphics.commit_vertex_buffer_unlock(unlock_plan);
+        assert_eq!(unlock.vertex_buffer_id, vertex_buffer.id);
+        assert_eq!(unlock.content_generation, 1);
+        assert_eq!(
+            graphics
+                .preflight_vertex_buffer_unlock(&stale_unlock)
+                .unwrap_err()
+                .code,
+            "graphics-vertex-buffer-unlock-plan-stale"
+        );
+        assert_eq!(
+            graphics
+                .plan_vertex_buffer_unlock(RuntimeComObjectId(8))
+                .unwrap_err()
+                .code,
+            "graphics-vertex-buffer-not-locked"
+        );
+
+        let retirement = graphics
+            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            graphics
+                .vertex_buffer_backings_for_retirement(&retirement)
+                .unwrap(),
+            vec![(vertex_buffer.backing, 112)]
+        );
+        graphics.commit_com_object_retirement(retirement);
+        assert!(graphics.vertex_buffers().is_empty());
+        assert_eq!(graphics.device(device.id).unwrap().id, device.id);
     }
 
     #[test]

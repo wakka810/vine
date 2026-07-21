@@ -12,6 +12,7 @@ import {
   idirect3ddevice9MethodNames,
   idirect3dsurface9MethodNames,
   idirect3dtexture9MethodNames,
+  idirect3dvertexbuffer9MethodNames,
   summarizeTrace,
 } from "./summarize-windows-trace.mjs";
 
@@ -1119,6 +1120,12 @@ const pointerSlot = (pointer, value, bytes) => ({
   bytes,
   value,
 });
+const boundedRaw = (pointer, bytes) => ({
+  pointer,
+  requestedBytes: bytes.length,
+  maximumBytes: bytes.length,
+  bytes,
+});
 const vtableSlots = (names, base) =>
   names.map((name, slot) => ({
     slot,
@@ -1613,6 +1620,258 @@ malformedInitialTextureTuple.find(
 assert.throws(
   () => summarizeTrace(encode(malformedInitialTextureTuple)),
   /violates its caller, tuple, or output contract/,
+);
+
+const vertexPayload = Array.from({ length: 112 }, (_, index) => index);
+const vertexBufferCreateObservation = {
+  vertexBufferOutput: {
+    before: pointerSlot("0x6ffd4c", "0x0", [0, 0, 0, 0]),
+    after: pointerSlot("0x6ffd4c", "0x500000", [0, 0, 0x50, 0]),
+  },
+  immediateConsumer: null,
+};
+const vertexBufferLockObservation = {
+  dataOutput: {
+    before: pointerSlot("0x6ffd50", "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
+    after: pointerSlot("0x6ffd50", "0x510000", [0, 0, 0x51, 0]),
+  },
+  immediateConsumer: null,
+  dataBefore: boundedRaw("0x510000", Array(112).fill(0)),
+};
+const vertexBufferUnlockObservation = {
+  dataAtUnlock: boundedRaw("0x510000", vertexPayload),
+};
+const d3d9InitialVertexBufferEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-22T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "d".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-initial-vertex-buffer-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-initial-vertex-buffer"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-initial-vertex-buffer"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    kind: "vtable-observed",
+    interface: "IDirect3DVertexBuffer9",
+    object: "0x500000",
+    vtable: "0x76050000",
+    slots: vtableSlots(idirect3dvertexbuffer9MethodNames, 0x7605_0000),
+  },
+];
+const vertexBufferCallFixtures = [
+  {
+    callId: 1,
+    sequence: 5,
+    callerRva: 0x5a890,
+    api: "CreateVertexBuffer",
+    interface: "IDirect3DDevice9",
+    slot: 26,
+    object: "0x490000",
+    arguments: ["0x70", "0x8", "0x144", "0x1", "0x6ffd4c", "0x0"],
+    observationKey: "d3d9CreateVertexBuffer",
+    observation: vertexBufferCreateObservation,
+  },
+  {
+    callId: 2,
+    sequence: 7,
+    callerRva: 0x5aa96,
+    api: "Lock",
+    interface: "IDirect3DVertexBuffer9",
+    slot: 11,
+    object: "0x500000",
+    arguments: ["0x0", "0x0", "0x6ffd50", "0x0"],
+    observationKey: "d3d9VertexBufferLock",
+    observation: vertexBufferLockObservation,
+  },
+  {
+    callId: 3,
+    sequence: 9,
+    callerRva: 0x5aab2,
+    api: "Unlock",
+    interface: "IDirect3DVertexBuffer9",
+    slot: 12,
+    object: "0x500000",
+    arguments: [],
+    observationKey: "d3d9VertexBufferUnlock",
+    observation: vertexBufferUnlockObservation,
+  },
+];
+const vertexBufferCompletionCalls = [];
+for (const fixture of vertexBufferCallFixtures) {
+  const caller = {
+    address: `0x${(0x0040_0000 + fixture.callerRva).toString(16)}`,
+    module: "BGI.exe",
+    rva: fixture.callerRva,
+  };
+  d3d9InitialVertexBufferEvents.push(
+    {
+      schema,
+      sequence: fixture.sequence,
+      threadId: 20,
+      kind: "api-enter",
+      callId: fixture.callId,
+      parentCallId: null,
+      caller,
+      module: "d3d9.dll",
+      api: fixture.api,
+      interface: fixture.interface,
+      vtableSlot: fixture.slot,
+      object: fixture.object,
+      arguments: fixture.arguments,
+    },
+    {
+      schema,
+      sequence: fixture.sequence + 1,
+      threadId: 20,
+      kind: "api-leave",
+      callId: fixture.callId,
+      parentCallId: null,
+      caller,
+      durationMs: 1,
+      lastError: 0,
+      module: "d3d9.dll",
+      api: fixture.api,
+      interface: fixture.interface,
+      vtableSlot: fixture.slot,
+      object: fixture.object,
+      result: "0x0",
+      [fixture.observationKey]: fixture.observation,
+    },
+  );
+  vertexBufferCompletionCalls.push({
+    callId: fixture.callId,
+    api: fixture.api,
+    interface: fixture.interface,
+    vtableSlot: fixture.slot,
+    object: fixture.object,
+    arguments: fixture.arguments,
+    result: "0x0",
+    lastError: 0,
+    [fixture.observationKey]: fixture.observation,
+    caller,
+  });
+}
+d3d9InitialVertexBufferEvents.push(
+  {
+    schema,
+    sequence: 11,
+    kind: "d3d9-initial-vertex-buffer-complete",
+    profile: "x86-bgi-initial-vertex-buffer-v1",
+    device: "0x490000",
+    vertexBuffer: "0x500000",
+    calls: vertexBufferCompletionCalls,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-22T00:00:01.000Z",
+    reason: "event-d3d9-initial-vertex-buffer-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const d3d9InitialVertexBufferSummary = summarizeTrace(
+  encode(d3d9InitialVertexBufferEvents),
+  "d3d9-initial-vertex-buffer-fixture.jsonl",
+);
+assert.equal(d3d9InitialVertexBufferSummary.d3d9.createVertexBuffers.length, 1);
+assert.equal(
+  d3d9InitialVertexBufferSummary.d3d9.initialVertexBufferSequences.length,
+  1,
+);
+assert.deepEqual(
+  d3d9InitialVertexBufferSummary.d3d9.vertexBufferCalls.map((call) => [
+    call.method,
+    call.slot,
+    call.caller.rva,
+  ]),
+  [
+    ["Lock", 11, 0x5aa96],
+    ["Unlock", 12, 0x5aab2],
+  ],
+);
+assert.equal(
+  d3d9InitialVertexBufferSummary.d3d9.initialVertexBufferSequences[0].unlock
+    .dataAtUnlock.bytesSha256,
+  crypto.createHash("sha256").update(Uint8Array.from(vertexPayload)).digest("hex"),
+);
+const missingInitialVertexBufferCompletion = d3d9InitialVertexBufferEvents.filter(
+  (event) => event.kind !== "d3d9-initial-vertex-buffer-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingInitialVertexBufferCompletion)),
+  /requires exactly one structured completion/,
+);
+const malformedInitialVertexBufferTuple = structuredClone(
+  d3d9InitialVertexBufferEvents,
+);
+malformedInitialVertexBufferTuple.find(
+  (event) => event.kind === "api-enter" && event.api === "CreateVertexBuffer",
+).arguments[1] = "0x0";
+malformedInitialVertexBufferTuple.find(
+  (event) => event.kind === "d3d9-initial-vertex-buffer-complete",
+).calls[0].arguments[1] = "0x0";
+assert.throws(
+  () => summarizeTrace(encode(malformedInitialVertexBufferTuple)),
+  /violates its identity or argument contract/,
+);
+const changedInitialVertexBufferDataPointer = structuredClone(
+  d3d9InitialVertexBufferEvents,
+);
+changedInitialVertexBufferDataPointer.find(
+  (event) => event.kind === "api-leave" && event.api === "Unlock",
+).d3d9VertexBufferUnlock.dataAtUnlock.pointer = "0x520000";
+changedInitialVertexBufferDataPointer.find(
+  (event) => event.kind === "d3d9-initial-vertex-buffer-complete",
+).calls[2].d3d9VertexBufferUnlock.dataAtUnlock.pointer = "0x520000";
+assert.throws(
+  () => summarizeTrace(encode(changedInitialVertexBufferDataPointer)),
+  /changed its Lock data pointer/,
 );
 
 const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);

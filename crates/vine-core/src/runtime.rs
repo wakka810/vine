@@ -65,20 +65,26 @@ pub use gdi::{
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,
-    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT,
+    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
+    RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE, RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT,
     RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_GRAPHICS_SURFACE_LIMIT,
     RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE, RUNTIME_GRAPHICS_TEXTURE_LIMIT,
+    RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE, RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT,
     RuntimeBrowserRendererResourceId, RuntimeGraphicsColorFormat, RuntimeGraphicsDevice,
     RuntimeGraphicsDeviceId, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
     RuntimeGraphicsPresentation, RuntimeGraphicsRendererAssociation,
     RuntimeGraphicsRendererOwnership, RuntimeGraphicsSurface, RuntimeGraphicsSurfaceDescriptor,
     RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureId, RuntimeGraphicsTexturePool,
-    RuntimeGraphicsTextureUsage,
+    RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBuffer, RuntimeGraphicsVertexBufferBacking,
+    RuntimeGraphicsVertexBufferDescriptor, RuntimeGraphicsVertexBufferId,
+    RuntimeGraphicsVertexBufferLock, RuntimeGraphicsVertexBufferPool,
+    RuntimeGraphicsVertexBufferUnlockResult, RuntimeGraphicsVertexBufferUsage,
 };
 pub(crate) use graphics::{
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsVertexBufferCreateRequest,
+    RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

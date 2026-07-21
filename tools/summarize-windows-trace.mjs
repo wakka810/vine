@@ -64,6 +64,7 @@ const supportedObservations = new Set([
   "d3d9-get-surface-level",
   "d3d9-surface-get-dc",
   "d3d9-initial-textures",
+  "d3d9-initial-vertex-buffer",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -235,6 +236,24 @@ const idirect3dtexture9Methods = [
 export const idirect3dtexture9MethodNames = idirect3dtexture9Methods.map(
   ([name]) => name,
 );
+const idirect3dvertexbuffer9Methods = [
+  ["QueryInterface", 2],
+  ["AddRef", 0],
+  ["Release", 0],
+  ["GetDevice", 1],
+  ["SetPrivateData", 4],
+  ["GetPrivateData", 3],
+  ["FreePrivateData", 1],
+  ["SetPriority", 1],
+  ["GetPriority", 0],
+  ["PreLoad", 0],
+  ["GetType", 0],
+  ["Lock", 4],
+  ["Unlock", 0],
+  ["GetDesc", 1],
+];
+export const idirect3dvertexbuffer9MethodNames =
+  idirect3dvertexbuffer9Methods.map(([name]) => name);
 const idirect3dsurface9Methods = [
   ["QueryInterface", 2],
   ["AddRef", 0],
@@ -458,6 +477,8 @@ const validateCallTarget = (event, selectedVtables) => {
         ? idirect3ddevice9MethodNames
         : event.interface === "IDirect3DTexture9"
           ? idirect3dtexture9MethodNames
+          : event.interface === "IDirect3DVertexBuffer9"
+            ? idirect3dvertexbuffer9MethodNames
           : event.interface === "IDirect3DSurface9"
             ? idirect3dsurface9MethodNames
             : null;
@@ -840,6 +861,37 @@ const normalizePointerSlotSnapshot = (snapshot, sequence, phase) => {
   };
 };
 
+const normalizeBoundedRawBytesSnapshot = (
+  snapshot,
+  expectedBytes,
+  sequence,
+  phase,
+) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.requestedBytes !== expectedBytes ||
+    snapshot.maximumBytes !== expectedBytes ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== expectedBytes ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    )
+  ) {
+    throw new Error(
+      `api sequence ${sequence} has invalid bounded raw ${phase} snapshot`,
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  return {
+    pointer: snapshot.pointer,
+    bytes: [...snapshot.bytes],
+    bytesSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+  };
+};
+
 const normalizeD3d9U32Argument = (value, sequence, index, method) => {
   if (typeof value !== "string" || !/^0x[0-9a-f]+$/iu.test(value)) {
     throw new Error(
@@ -1159,6 +1211,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
               ? idirect3ddevice9MethodNames
               : event.interface === "IDirect3DTexture9"
                 ? idirect3dtexture9MethodNames
+                : event.interface === "IDirect3DVertexBuffer9"
+                  ? idirect3dvertexbuffer9MethodNames
                 : event.interface === "IDirect3DSurface9"
                   ? idirect3dsurface9MethodNames
                   : null;
@@ -1697,6 +1751,62 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const createVertexBuffers = apiPairing.pairs
+    .filter(
+      (pair) =>
+        pair.enter.interface === "IDirect3DDevice9" &&
+        pair.enter.vtableSlot === 26 &&
+        pair.enter.api === "CreateVertexBuffer" &&
+        pair.leave.d3d9CreateVertexBuffer !== undefined,
+    )
+    .map((pair) => {
+      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+        throw new Error(
+          `api-enter sequence ${pair.enter.sequence} has invalid CreateVertexBuffer arguments`,
+        );
+      }
+      const observation = pair.leave.d3d9CreateVertexBuffer;
+      if (observation === null || typeof observation !== "object") {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} has invalid CreateVertexBuffer observation`,
+        );
+      }
+      const outputBefore = normalizePointerSlotSnapshot(
+        observation.vertexBufferOutput?.before,
+        pair.leave.sequence,
+        "before",
+      );
+      const outputAfter = normalizePointerSlotSnapshot(
+        observation.vertexBufferOutput?.after,
+        pair.leave.sequence,
+        "after",
+      );
+      if (
+        outputBefore.pointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+        outputAfter.pointer.toLowerCase() !== pair.enter.arguments[4].toLowerCase()
+      ) {
+        throw new Error(
+          `api-leave sequence ${pair.leave.sequence} changed its CreateVertexBuffer output pointer`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId ?? null,
+        parentCallId: pair.enter.parentCallId ?? null,
+        caller:
+          pair.enter.caller === undefined
+            ? null
+            : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+        object: pair.enter.object,
+        arguments: [...pair.enter.arguments],
+        result: pair.leave.result,
+        lastError: pair.leave.lastError ?? null,
+        vertexBufferOutput: { before: outputBefore, after: outputAfter },
+        returnedVertexBuffer: outputAfter.value,
+        immediateConsumer: observation.immediateConsumer ?? null,
+      };
+    });
+
   const initialTextureCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-initial-textures-complete",
   );
@@ -1717,6 +1827,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   );
   const createTexturesBySequence = new Map(
     createTextures.map((texture) => [texture.sequence, texture]),
+  );
+  const createVertexBuffersBySequence = new Map(
+    createVertexBuffers.map((buffer) => [buffer.sequence, buffer]),
   );
   const initialTextureSequences = initialTextureCompletionEvents.map((completion) => {
     const expectedArguments = [
@@ -1797,6 +1910,212 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       calls,
     };
   });
+
+  const initialVertexBufferCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-initial-vertex-buffer-complete",
+  );
+  const requiresInitialVertexBufferCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-initial-vertex-buffer" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-initial-vertex-buffer-complete";
+  if (
+    initialVertexBufferCompletionEvents.length > 1 ||
+    (requiresInitialVertexBufferCompletion &&
+      initialVertexBufferCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-initial-vertex-buffer observation requires exactly one structured completion",
+    );
+  }
+  const initialVertexBufferSequences = initialVertexBufferCompletionEvents.map(
+    (completion) => {
+      if (
+        completion.profile !== "x86-bgi-initial-vertex-buffer-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        typeof completion.vertexBuffer !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.vertexBuffer) ||
+        BigInt(completion.vertexBuffer) === 0n ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== 3 ||
+        !Number.isInteger(completion.sequence)
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion has invalid structure",
+        );
+      }
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const pairs = completion.calls.map((snapshot, index) => {
+        const pair = pairsByCallId.get(snapshot?.callId);
+        if (
+          pair === undefined ||
+          snapshot.api !== pair.enter.api ||
+          snapshot.interface !== pair.enter.interface ||
+          snapshot.vtableSlot !== pair.enter.vtableSlot ||
+          snapshot.object?.toLowerCase() !== pair.enter.object?.toLowerCase() ||
+          JSON.stringify(snapshot.arguments) !==
+            JSON.stringify(pair.enter.arguments) ||
+          snapshot.result !== pair.leave.result ||
+          snapshot.lastError !== pair.leave.lastError ||
+          snapshot.caller?.module !== pair.enter.caller?.module ||
+          snapshot.caller?.rva !== pair.enter.caller?.rva ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== [0x5a890, 0x5aa96, 0x5aab2][index] ||
+          pair.enter.api !== ["CreateVertexBuffer", "Lock", "Unlock"][index] ||
+          pair.enter.vtableSlot !== [26, 11, 12][index] ||
+          BigInt(pair.leave.result) !== 0n ||
+          pair.leave.lastError !== 0
+        ) {
+          throw new Error(
+            `d3d9-initial-vertex-buffer completion call ${index} violates its caller, method, or result contract`,
+          );
+        }
+        return pair;
+      });
+      if (
+        !pairs.every((pair) => pair.enter.threadId === pairs[0].enter.threadId) ||
+        pairs[0].enter.object.toLowerCase() !== completion.device.toLowerCase() ||
+        pairs[1].enter.object.toLowerCase() !==
+          completion.vertexBuffer.toLowerCase() ||
+        pairs[2].enter.object.toLowerCase() !==
+          completion.vertexBuffer.toLowerCase() ||
+        pairs[0].enter.arguments.length !== 6 ||
+        pairs[0].enter.arguments
+          .slice(0, 4)
+          .some(
+            (argument, index) =>
+              BigInt(argument) !== [0x70n, 0x8n, 0x144n, 0x1n][index],
+          ) ||
+        BigInt(pairs[0].enter.arguments[5]) !== 0n ||
+        pairs[1].enter.arguments.length !== 4 ||
+        [0, 1, 3].some(
+          (index) => BigInt(pairs[1].enter.arguments[index]) !== 0n,
+        ) ||
+        pairs[2].enter.arguments.length !== 0
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion violates its identity or argument contract",
+        );
+      }
+
+      const create = createVertexBuffersBySequence.get(
+        pairs[0].enter.sequence,
+      );
+      if (
+        create === undefined ||
+        create.returnedVertexBuffer.toLowerCase() !==
+          completion.vertexBuffer.toLowerCase() ||
+        create.vertexBufferOutput.after.pointer.toLowerCase() !==
+          pairs[0].enter.arguments[4].toLowerCase() ||
+        JSON.stringify(completion.calls[0].d3d9CreateVertexBuffer) !==
+          JSON.stringify(pairs[0].leave.d3d9CreateVertexBuffer)
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion violates its creation output contract",
+        );
+      }
+
+      const lockObservation = pairs[1].leave.d3d9VertexBufferLock;
+      if (
+        lockObservation === null ||
+        typeof lockObservation !== "object" ||
+        JSON.stringify(completion.calls[1].d3d9VertexBufferLock) !==
+          JSON.stringify(lockObservation)
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion has invalid Lock observation",
+        );
+      }
+      const lockOutputBefore = normalizePointerSlotSnapshot(
+        lockObservation.dataOutput?.before,
+        pairs[1].leave.sequence,
+        "Lock before",
+      );
+      const lockOutputAfter = normalizePointerSlotSnapshot(
+        lockObservation.dataOutput?.after,
+        pairs[1].leave.sequence,
+        "Lock after",
+      );
+      const dataBefore = normalizeBoundedRawBytesSnapshot(
+        lockObservation.dataBefore,
+        112,
+        pairs[1].leave.sequence,
+        "Lock data-before",
+      );
+      if (
+        lockOutputBefore.pointer.toLowerCase() !==
+          lockOutputAfter.pointer.toLowerCase() ||
+        lockOutputAfter.pointer.toLowerCase() !==
+          pairs[1].enter.arguments[2].toLowerCase() ||
+        BigInt(lockOutputAfter.value) === 0n ||
+        dataBefore.pointer.toLowerCase() !== lockOutputAfter.value.toLowerCase()
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion violates its Lock pointer contract",
+        );
+      }
+
+      const unlockObservation = pairs[2].leave.d3d9VertexBufferUnlock;
+      if (
+        unlockObservation === null ||
+        typeof unlockObservation !== "object" ||
+        JSON.stringify(completion.calls[2].d3d9VertexBufferUnlock) !==
+          JSON.stringify(unlockObservation)
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion has invalid Unlock observation",
+        );
+      }
+      const dataAtUnlock = normalizeBoundedRawBytesSnapshot(
+        unlockObservation.dataAtUnlock,
+        112,
+        pairs[2].leave.sequence,
+        "Unlock data",
+      );
+      if (
+        dataAtUnlock.pointer.toLowerCase() !== lockOutputAfter.value.toLowerCase()
+      ) {
+        throw new Error(
+          "d3d9-initial-vertex-buffer completion changed its Lock data pointer",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pairs[0].enter.threadId,
+        device: completion.device,
+        vertexBuffer: completion.vertexBuffer,
+        create,
+        lock: {
+          sequence: pairs[1].enter.sequence,
+          caller: {
+            module: pairs[1].enter.caller.module,
+            rva: pairs[1].enter.caller.rva,
+          },
+          arguments: [...pairs[1].enter.arguments],
+          result: pairs[1].leave.result,
+          lastError: pairs[1].leave.lastError,
+          dataOutput: { before: lockOutputBefore, after: lockOutputAfter },
+          dataBefore,
+        },
+        unlock: {
+          sequence: pairs[2].enter.sequence,
+          caller: {
+            module: pairs[2].enter.caller.module,
+            rva: pairs[2].enter.caller.rva,
+          },
+          result: pairs[2].leave.result,
+          lastError: pairs[2].leave.lastError,
+          dataAtUnlock,
+        },
+      };
+    },
+  );
 
   const getSurfaceLevels = apiPairing.pairs
     .filter(
@@ -1925,6 +2244,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   const textureCalls = summarizeD3d9InterfaceCalls(
     "IDirect3DTexture9",
     idirect3dtexture9Methods,
+  );
+  const vertexBufferCalls = summarizeD3d9InterfaceCalls(
+    "IDirect3DVertexBuffer9",
+    idirect3dvertexbuffer9Methods,
   );
   const surfaceCalls = summarizeD3d9InterfaceCalls(
     "IDirect3DSurface9",
@@ -2369,11 +2692,14 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       deviceCaps,
       createDevices,
       createTextures,
+      createVertexBuffers,
       initialTextureSequences,
+      initialVertexBufferSequences,
       getSurfaceLevels,
       surfaceDcFlows,
       deviceCalls,
       textureCalls,
+      vertexBufferCalls,
       surfaceCalls,
     },
     categories,

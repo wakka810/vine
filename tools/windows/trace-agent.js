@@ -27,12 +27,16 @@ const focusedD3d9SurfaceGetDcObservation =
 const focusedD3d9InitialTexturesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-textures");
+const focusedD3d9InitialVertexBufferObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-initial-vertex-buffer");
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
   focusedD3d9CreateDeviceObservation ||
   focusedD3d9ResourceObservation ||
-  focusedD3d9InitialTexturesObservation;
+  focusedD3d9InitialTexturesObservation ||
+  focusedD3d9InitialVertexBufferObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -45,6 +49,12 @@ const focusedD3d9SurfaceDcCalls = [];
 let focusedD3d9InitialTextureDevice = null;
 let focusedD3d9InitialTexturesComplete = false;
 const focusedD3d9InitialTextureCalls = [];
+let focusedD3d9InitialVertexBufferDevice = null;
+let focusedD3d9InitialVertexBufferObject = null;
+let focusedD3d9InitialVertexBufferData = null;
+let focusedD3d9InitialVertexBufferLength = null;
+let focusedD3d9InitialVertexBufferComplete = false;
+const focusedD3d9InitialVertexBufferCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2944,6 +2954,23 @@ const idirect3dsurface9Methods = [
   [16, "ReleaseDC", 1],
 ];
 
+const idirect3dvertexbuffer9Methods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "GetDevice", 1],
+  [4, "SetPrivateData", 4],
+  [5, "GetPrivateData", 3],
+  [6, "FreePrivateData", 1],
+  [7, "SetPriority", 1],
+  [8, "GetPriority", 0],
+  [9, "PreLoad", 0],
+  [10, "GetType", 0],
+  [11, "Lock", 4],
+  [12, "Unlock", 0],
+  [13, "GetDesc", 1],
+];
+
 function findExport(module, name) {
   if (typeof module.findExportByName === "function") {
     return module.findExportByName(name);
@@ -3433,6 +3460,175 @@ function attachIdirect3dtexture9(object) {
   }
 }
 
+function attachIdirect3dvertexbuffer9(object) {
+  if (object.isNull()) {
+    return;
+  }
+  try {
+    const vtable = object.readPointer();
+    const vtableKey = `IDirect3DVertexBuffer9:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      return;
+    }
+    observedVtables.add(vtableKey);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirect3dvertexbuffer9Methods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirect3DVertexBuffer9:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          const caller = describeCaller(this.returnAddress);
+          const objectAddress = args[0].toString().toLowerCase();
+          const expectedMethod =
+            focusedD3d9InitialVertexBufferCalls.length === 1
+              ? "Lock"
+              : focusedD3d9InitialVertexBufferCalls.length === 2
+                ? "Unlock"
+                : null;
+          if (
+            !focusedD3d9InitialVertexBufferObservation ||
+            focusedD3d9InitialVertexBufferComplete ||
+            objectAddress !== focusedD3d9InitialVertexBufferObject ||
+            caller.module?.toLowerCase() !==
+              Process.mainModule.name.toLowerCase() ||
+            name !== expectedMethod
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
+            args[index + 1].toString(),
+          );
+          this.traceObject = objectAddress;
+          this.traceArguments = arguments_;
+          this.traceVertexBufferLockOutput = slot === 11 ? args[3] : null;
+          this.traceD3d9VertexBufferLock =
+            this.traceVertexBufferLockOutput === null
+              ? null
+              : {
+                  dataOutput: {
+                    before: snapshotPointerSlot(this.traceVertexBufferLockOutput),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    256,
+                  ),
+                };
+          this.traceD3d9VertexBufferUnlock =
+            slot === 12
+              ? {
+                  dataAtUnlock: snapshotBoundedRawBytes(
+                    ptr(focusedD3d9InitialVertexBufferData),
+                    focusedD3d9InitialVertexBufferLength,
+                    112,
+                  ),
+                }
+              : null;
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DVertexBuffer9",
+              vtableSlot: slot,
+              object: objectAddress,
+              arguments: arguments_,
+            },
+            this.returnAddress,
+          );
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          const d3d9VertexBufferLock =
+            this.traceD3d9VertexBufferLock === null
+              ? null
+              : {
+                  ...this.traceD3d9VertexBufferLock,
+                  dataOutput: {
+                    ...this.traceD3d9VertexBufferLock.dataOutput,
+                    after: snapshotPointerSlot(this.traceVertexBufferLockOutput),
+                  },
+                };
+          if (
+            d3d9VertexBufferLock !== null &&
+            result.toInt32() >= 0 &&
+            typeof d3d9VertexBufferLock.dataOutput.after.value === "string" &&
+            d3d9VertexBufferLock.dataOutput.after.value !== "0x0"
+          ) {
+            focusedD3d9InitialVertexBufferData =
+              d3d9VertexBufferLock.dataOutput.after.value.toLowerCase();
+            d3d9VertexBufferLock.dataBefore = snapshotBoundedRawBytes(
+              ptr(focusedD3d9InitialVertexBufferData),
+              focusedD3d9InitialVertexBufferLength,
+              112,
+            );
+          }
+          const lastError = Number(this.lastError) >>> 0;
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirect3DVertexBuffer9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+              ...(d3d9VertexBufferLock === null
+                ? {}
+                : { d3d9VertexBufferLock }),
+              ...(this.traceD3d9VertexBufferUnlock === null
+                ? {}
+                : {
+                    d3d9VertexBufferUnlock:
+                      this.traceD3d9VertexBufferUnlock,
+                  }),
+            },
+            this.lastError,
+          );
+          focusedD3d9InitialVertexBufferCalls.push({
+            callId: this.traceFrame.callId,
+            api: name,
+            interface: "IDirect3DVertexBuffer9",
+            vtableSlot: slot,
+            object: this.traceObject,
+            arguments: this.traceArguments,
+            result: result.toString(),
+            lastError,
+            ...(d3d9VertexBufferLock === null ? {} : { d3d9VertexBufferLock }),
+            ...(this.traceD3d9VertexBufferUnlock === null
+              ? {}
+              : {
+                  d3d9VertexBufferUnlock:
+                    this.traceD3d9VertexBufferUnlock,
+                }),
+            caller: this.traceFrame.caller,
+          });
+          maybeCompleteFocusedD3d9InitialVertexBufferObservation();
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirect3DVertexBuffer9",
+      object: object.toString(),
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirect3DVertexBuffer9",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
 function attachIdirect3ddevice9(object) {
   if (object.isNull()) {
     return;
@@ -3456,7 +3652,23 @@ function attachIdirect3ddevice9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (focusedD3d9InitialTexturesObservation) {
+          if (focusedD3d9InitialVertexBufferObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            if (
+              focusedD3d9InitialVertexBufferComplete ||
+              focusedD3d9InitialVertexBufferCalls.length !== 0 ||
+              slot !== 26 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              (focusedD3d9InitialVertexBufferDevice !== null &&
+                objectAddress !== focusedD3d9InitialVertexBufferDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9InitialVertexBufferDevice ??= objectAddress;
+          } else if (focusedD3d9InitialTexturesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
             if (
@@ -3502,6 +3714,24 @@ function attachIdirect3ddevice9(object) {
                     128,
                   ),
                 };
+          this.traceD3d9CreateVertexBufferOutput =
+            focusedD3d9InitialVertexBufferObservation && slot === 26
+              ? args[5]
+              : null;
+          this.traceD3d9CreateVertexBuffer =
+            this.traceD3d9CreateVertexBufferOutput === null
+              ? null
+              : {
+                  vertexBufferOutput: {
+                    before: snapshotPointerSlot(
+                      this.traceD3d9CreateVertexBufferOutput,
+                    ),
+                  },
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    256,
+                  ),
+                };
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -3529,6 +3759,18 @@ function attachIdirect3ddevice9(object) {
                     after: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
                   },
                 };
+          const d3d9CreateVertexBuffer =
+            this.traceD3d9CreateVertexBuffer === null
+              ? null
+              : {
+                  ...this.traceD3d9CreateVertexBuffer,
+                  vertexBufferOutput: {
+                    ...this.traceD3d9CreateVertexBuffer.vertexBufferOutput,
+                    after: snapshotPointerSlot(
+                      this.traceD3d9CreateVertexBufferOutput,
+                    ),
+                  },
+                };
           const lastError = Number(this.lastError) >>> 0;
           finishCall(
             this.traceFrame,
@@ -3540,6 +3782,9 @@ function attachIdirect3ddevice9(object) {
               object: this.traceObject,
               result: result.toString(),
               ...(d3d9CreateTexture === null ? {} : { d3d9CreateTexture }),
+              ...(d3d9CreateVertexBuffer === null
+                ? {}
+                : { d3d9CreateVertexBuffer }),
             },
             this.lastError,
           );
@@ -3558,6 +3803,36 @@ function attachIdirect3ddevice9(object) {
             });
             maybeCompleteFocusedD3d9InitialTexturesObservation();
           }
+          if (focusedD3d9InitialVertexBufferObservation) {
+            focusedD3d9InitialVertexBufferCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              d3d9CreateVertexBuffer,
+              caller: this.traceFrame.caller,
+            });
+            if (
+              d3d9CreateVertexBuffer !== null &&
+              result.toInt32() >= 0 &&
+              typeof d3d9CreateVertexBuffer.vertexBufferOutput.after.value ===
+                "string" &&
+              d3d9CreateVertexBuffer.vertexBufferOutput.after.value !== "0x0"
+            ) {
+              focusedD3d9InitialVertexBufferObject =
+                d3d9CreateVertexBuffer.vertexBufferOutput.after.value.toLowerCase();
+              focusedD3d9InitialVertexBufferLength = Number(
+                BigInt(this.traceArguments[0]),
+              );
+              attachIdirect3dvertexbuffer9(
+                ptr(focusedD3d9InitialVertexBufferObject),
+              );
+            }
+          }
           if (
             d3d9CreateTexture !== null &&
             !focusedD3d9InitialTexturesObservation &&
@@ -3571,7 +3846,8 @@ function attachIdirect3ddevice9(object) {
           }
           if (
             focusedD3d9DeviceObservation &&
-            !focusedD3d9InitialTexturesObservation
+            !focusedD3d9InitialTexturesObservation &&
+            !focusedD3d9InitialVertexBufferObservation
           ) {
             focusedD3d9DeviceMethodCaptured = true;
           }
@@ -3611,6 +3887,32 @@ function maybeCompleteFocusedD3d9InitialTexturesObservation() {
     calls: focusedD3d9InitialTextureCalls,
   });
   if (stopOnEvent === "d3d9-initial-textures-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9InitialVertexBufferObservation() {
+  if (
+    focusedD3d9InitialVertexBufferComplete ||
+    focusedD3d9InitialVertexBufferCalls.length !== 3 ||
+    focusedD3d9InitialVertexBufferCalls[0]?.api !== "CreateVertexBuffer" ||
+    focusedD3d9InitialVertexBufferCalls[1]?.api !== "Lock" ||
+    focusedD3d9InitialVertexBufferCalls[2]?.api !== "Unlock"
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9InitialVertexBufferObservation, 10);
+    return;
+  }
+  focusedD3d9InitialVertexBufferComplete = true;
+  emit("d3d9-initial-vertex-buffer-complete", {
+    profile: "x86-bgi-initial-vertex-buffer-v1",
+    device: focusedD3d9InitialVertexBufferDevice,
+    vertexBuffer: focusedD3d9InitialVertexBufferObject,
+    calls: focusedD3d9InitialVertexBufferCalls,
+  });
+  if (stopOnEvent === "d3d9-initial-vertex-buffer-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

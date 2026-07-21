@@ -11,6 +11,7 @@ use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
 use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestMemoryError};
 
 use super::{
+    RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE,
     RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RuntimeStateError,
@@ -64,6 +65,7 @@ pub struct ProcessAddressSpaceLayout {
     pub callback_returns: RuntimeAddressRange,
     pub dynamic_exports: RuntimeAddressRange,
     pub callback_scratch: RuntimeAddressRange,
+    pub graphics_resources: RuntimeAddressRange,
 }
 
 impl ProcessAddressSpaceLayout {
@@ -84,6 +86,10 @@ impl ProcessAddressSpaceLayout {
             callback_scratch: RuntimeAddressRange {
                 base: CALLBACK_SCRATCH_ARENA_BASE,
                 byte_length: CALLBACK_SCRATCH_ARENA_SIZE,
+            },
+            graphics_resources: RuntimeAddressRange {
+                base: RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
+                byte_length: RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE,
             },
         }
     }
@@ -107,6 +113,8 @@ pub enum ProcessAddressAllocationPurpose {
     ThreadStack,
     ProcessEnvironment,
     ComEndpoint,
+    GraphicsResourceArena,
+    GraphicsResource,
     MappedFile,
 }
 
@@ -119,6 +127,7 @@ pub enum ProcessAddressAllocationClassification {
     Heap,
     ProcessEnvironment,
     Com,
+    Graphics,
     MappedFile,
 }
 
@@ -197,6 +206,21 @@ pub(crate) struct ProcessAddressReservationPlan {
     expected_next_id: u64,
     next_id: u64,
     pub(crate) allocation: ProcessAddressAllocationRecord,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProcessAddressReservationBatchPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    expected_next_id: u64,
+    next_id: u64,
+    allocations: Vec<ProcessAddressAllocationRecord>,
+}
+
+impl ProcessAddressReservationBatchPlan {
+    pub(crate) fn allocations(&self) -> &[ProcessAddressAllocationRecord] {
+        &self.allocations
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -331,6 +355,16 @@ impl ProcessAddressSpaceAllocator {
                 false,
             ),
         )?;
+        allocator.reserve_fixed(
+            None,
+            fixed_request(
+                ProcessAddressAllocationPurpose::GraphicsResourceArena,
+                "runtime-graphics-resource-arena",
+                layout.graphics_resources,
+                ProcessAddressAllocationClassification::Graphics,
+                false,
+            ),
+        )?;
         Ok(allocator)
     }
 
@@ -352,6 +386,42 @@ impl ProcessAddressSpaceAllocator {
             expected_next_id: self.next_id,
             next_id,
             allocation,
+        })
+    }
+
+    pub(crate) fn plan_reservations(
+        &self,
+        requests: Vec<(
+            Option<ProcessAddressAllocationId>,
+            ProcessAddressAllocationRequest,
+        )>,
+    ) -> Result<ProcessAddressReservationBatchPlan, RuntimeStateError> {
+        if requests.is_empty() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-address-space",
+                "address-allocation-reservation-batch-empty",
+                "process address reservation batch must contain at least one request",
+            ));
+        }
+        let mut allocations = Vec::with_capacity(requests.len());
+        let mut next_id = self.next_id;
+        for (parent_id, request) in requests {
+            let (allocation, following_id) = self.build_reservation_with_pending(
+                parent_id,
+                request,
+                false,
+                next_id,
+                &allocations,
+            )?;
+            allocations.push(allocation);
+            next_id = following_id;
+        }
+        Ok(ProcessAddressReservationBatchPlan {
+            expected_generation: self.mutation_generation,
+            next_generation: self.next_mutation_generation()?,
+            expected_next_id: self.next_id,
+            next_id,
+            allocations,
         })
     }
 
@@ -378,11 +448,48 @@ impl ProcessAddressSpaceAllocator {
         Ok(())
     }
 
+    pub(crate) fn preflight_reservations_commit(
+        &self,
+        plan: &ProcessAddressReservationBatchPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.mutation_generation != plan.expected_generation
+            || self.next_id != plan.expected_next_id
+            || plan.allocations.is_empty()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-address-space",
+                "address-allocation-reservation-batch-plan-stale",
+                "process address allocations changed after batch reservation planning",
+            ));
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        for allocation in &plan.allocations {
+            if !ids.insert(allocation.id) || self.allocations.contains_key(&allocation.id) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-address-space",
+                    "address-allocation-reservation-batch-plan-invalid",
+                    "planned process address allocation identity is duplicated or already live",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn commit_reservation(&mut self, plan: ProcessAddressReservationPlan) {
         debug_assert_eq!(self.mutation_generation, plan.expected_generation);
         debug_assert_eq!(self.next_id, plan.expected_next_id);
         let replaced = self.allocations.insert(plan.allocation.id, plan.allocation);
         debug_assert!(replaced.is_none());
+        self.next_id = plan.next_id;
+        self.mutation_generation = plan.next_generation;
+    }
+
+    pub(crate) fn commit_reservations(&mut self, plan: ProcessAddressReservationBatchPlan) {
+        debug_assert!(self.preflight_reservations_commit(&plan).is_ok());
+        for allocation in plan.allocations {
+            let replaced = self.allocations.insert(allocation.id, allocation);
+            debug_assert!(replaced.is_none());
+        }
         self.next_id = plan.next_id;
         self.mutation_generation = plan.next_generation;
     }
@@ -554,6 +661,23 @@ impl ProcessAddressSpaceAllocator {
         request: ProcessAddressAllocationRequest,
         preferred_required: bool,
     ) -> Result<(ProcessAddressAllocationRecord, u64), RuntimeStateError> {
+        self.build_reservation_with_pending(
+            parent_id,
+            request,
+            preferred_required,
+            self.next_id,
+            &[],
+        )
+    }
+
+    fn build_reservation_with_pending(
+        &self,
+        parent_id: Option<ProcessAddressAllocationId>,
+        request: ProcessAddressAllocationRequest,
+        preferred_required: bool,
+        next_id: u64,
+        pending: &[ProcessAddressAllocationRecord],
+    ) -> Result<(ProcessAddressAllocationRecord, u64), RuntimeStateError> {
         validate_request(&request)?;
         let aligned_reserve_size =
             align_up(request.reserve_size, GUEST_PAGE_SIZE).ok_or_else(|| {
@@ -576,7 +700,17 @@ impl ProcessAddressSpaceAllocator {
         let search_range =
             RuntimeAddressRange::new(request.search_range.base, request.search_range.byte_length)?;
         if let Some(parent_id) = parent_id {
-            let parent = self.allocation(parent_id)?;
+            let parent = self
+                .allocations
+                .get(&parent_id)
+                .or_else(|| pending.iter().find(|allocation| allocation.id == parent_id))
+                .ok_or_else(|| {
+                    RuntimeStateError::not_found(
+                        "runtime-address-space",
+                        "address-allocation-id-unknown",
+                        format!("process address allocation ID {} is unknown", parent_id.0),
+                    )
+                })?;
             if !parent.range.contains(search_range)? {
                 return Err(address_error(
                     "address-allocation-parent-range",
@@ -596,8 +730,15 @@ impl ProcessAddressSpaceAllocator {
                 Ok(base)
             })
             .transpose()?;
-        let available_preferred = preferred
-            .filter(|base| self.range_is_available(parent_id, *base, total_size, search_range));
+        let available_preferred = preferred.filter(|base| {
+            self.range_is_available_with_pending(
+                parent_id,
+                *base,
+                total_size,
+                search_range,
+                pending,
+            )
+        });
         if preferred_required && preferred.is_some() && available_preferred.is_none() {
             return Err(RuntimeStateError::conflict(
                 "runtime-address-space",
@@ -608,7 +749,15 @@ impl ProcessAddressSpaceAllocator {
         let base = available_preferred
             .or_else(|| {
                 (!preferred_required)
-                    .then(|| self.first_fit(parent_id, search_range, total_size, request.alignment))
+                    .then(|| {
+                        self.first_fit_with_pending(
+                            parent_id,
+                            search_range,
+                            total_size,
+                            request.alignment,
+                            pending,
+                        )
+                    })
                     .flatten()
             })
             .ok_or_else(|| {
@@ -618,8 +767,8 @@ impl ProcessAddressSpaceAllocator {
                     "no aligned process address range satisfies the request",
                 )
             })?;
-        let id = ProcessAddressAllocationId(self.next_id);
-        let next_id = self.next_id.checked_add(1).ok_or_else(|| {
+        let id = ProcessAddressAllocationId(next_id);
+        let next_id = next_id.checked_add(1).ok_or_else(|| {
             RuntimeStateError::resource_limit(
                 "runtime-address-space",
                 "address-allocation-id-exhausted",
@@ -653,18 +802,20 @@ impl ProcessAddressSpaceAllocator {
         })
     }
 
-    fn first_fit(
+    fn first_fit_with_pending(
         &self,
         parent_id: Option<ProcessAddressAllocationId>,
         search: RuntimeAddressRange,
         byte_length: u64,
         alignment: u32,
+        pending: &[ProcessAddressAllocationRecord],
     ) -> Option<GuestAddress> {
         let search_end = search.end_exclusive().ok()?;
         let mut candidate = align_up(u64::from(search.base.0), u64::from(alignment))?;
         let mut siblings: Vec<_> = self
             .allocations
             .values()
+            .chain(pending.iter())
             .filter(|allocation| allocation.parent_id == parent_id)
             .collect();
         siblings.sort_by_key(|allocation| allocation.range.base.0);
@@ -685,12 +836,13 @@ impl ProcessAddressSpaceAllocator {
         Some(GuestAddress(u32::try_from(candidate).ok()?))
     }
 
-    fn range_is_available(
+    fn range_is_available_with_pending(
         &self,
         parent_id: Option<ProcessAddressAllocationId>,
         base: GuestAddress,
         byte_length: u64,
         search: RuntimeAddressRange,
+        pending: &[ProcessAddressAllocationRecord],
     ) -> bool {
         let Ok(candidate) = RuntimeAddressRange::new(base, byte_length) else {
             return false;
@@ -704,6 +856,7 @@ impl ProcessAddressSpaceAllocator {
         };
         self.allocations
             .values()
+            .chain(pending.iter())
             .filter(|allocation| allocation.parent_id == parent_id)
             .all(|allocation| {
                 let allocation_start = u64::from(allocation.range.base.0);
@@ -890,7 +1043,7 @@ mod tests {
     fn vine_layout_registers_control_arenas_and_heap_slots() {
         let allocator =
             ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
-        assert_eq!(allocator.records().len(), 38);
+        assert_eq!(allocator.records().len(), 39);
         let import = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
             .unwrap();
@@ -925,6 +1078,74 @@ mod tests {
             u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
         );
         assert_eq!(large_heap.parent_id, first_heap.parent_id);
+        let graphics = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)
+            .unwrap();
+        assert_eq!(graphics.range.base, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE);
+        assert_eq!(
+            graphics.range.byte_length,
+            RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE
+        );
+        assert_eq!(
+            graphics.release_policy,
+            ProcessAddressAllocationReleasePolicy::Permanent
+        );
+    }
+
+    #[test]
+    fn batch_reservation_assigns_distinct_child_ranges_and_rejects_stale_commit() {
+        let mut allocator =
+            ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
+        let arena = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)
+            .unwrap()
+            .clone();
+        let request = || ProcessAddressAllocationRequest {
+            purpose: ProcessAddressAllocationPurpose::GraphicsResource,
+            owner: "runtime-graphics-resource".to_owned(),
+            preferred_address: None,
+            search_range: arena.range,
+            reserve_size: 112,
+            alignment: GUEST_PAGE_SIZE as u32,
+            guard_pages: 0,
+            classification: ProcessAddressAllocationClassification::Graphics,
+            lifetime: ProcessAddressAllocationLifetime::Object,
+            release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+            executable: false,
+        };
+        let plan = allocator
+            .plan_reservations(vec![
+                (Some(arena.id), request()),
+                (Some(arena.id), request()),
+            ])
+            .unwrap();
+        let stale = plan.clone();
+        assert_eq!(plan.allocations().len(), 2);
+        assert_eq!(
+            plan.allocations()[0].range.base,
+            RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE
+        );
+        assert_eq!(
+            plan.allocations()[1].range.base,
+            GuestAddress(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE.0 + GUEST_PAGE_SIZE as u32)
+        );
+        assert_eq!(plan.allocations()[0].usable_byte_length, 112);
+        assert_eq!(plan.allocations()[1].usable_byte_length, 112);
+        allocator.preflight_reservations_commit(&plan).unwrap();
+        let ids = plan
+            .allocations()
+            .iter()
+            .map(|allocation| allocation.id)
+            .collect::<Vec<_>>();
+        allocator.commit_reservations(plan);
+        assert!(ids.iter().all(|id| allocator.allocation(*id).is_ok()));
+        assert_eq!(
+            allocator
+                .preflight_reservations_commit(&stale)
+                .unwrap_err()
+                .code,
+            "address-allocation-reservation-batch-plan-stale"
+        );
     }
 
     #[test]
@@ -1048,6 +1269,7 @@ mod tests {
                 base: GuestAddress(0x0050_1000),
                 byte_length: 0x1_0000,
             },
+            graphics_resources: ProcessAddressSpaceLayout::vine_v1().graphics_resources,
         };
         assert_eq!(
             ProcessAddressSpaceAllocator::vine_v1(layout)
