@@ -336,9 +336,10 @@ pub use win32::{
 };
 pub use winmm::{
     TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
-    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIMERR_NOCANDO, TIMERR_NOERROR,
+    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, TIMERR_NOCANDO, TIMERR_NOERROR,
     WINMM_COMPATIBILITY_POLICY_SCHEMA, WINMM_COMPATIBILITY_POLICY_VERSION,
-    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, WinmmTimerResolutionPolicy,
-    X86_TIMECAPS_BYTE_LENGTH, dispatch_winmm_api_with_policy, time_begin_period_contract,
-    time_end_period_contract, time_get_dev_caps_contract, winmm_contract_for_endpoint,
+    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, WinmmTimeGetTimePolicy,
+    WinmmTimerResolutionPolicy, X86_TIMECAPS_BYTE_LENGTH, dispatch_winmm_api_with_policy,
+    time_begin_period_contract, time_end_period_contract, time_get_dev_caps_contract,
+    time_get_time_contract, winmm_contract_for_endpoint,
 };

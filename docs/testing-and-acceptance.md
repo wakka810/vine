@@ -634,6 +634,17 @@ reached period 1、Node／Chrome timer snapshot／memory equivalence、clean can
 authorityへ昇格させない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-begin-period.md](bgi-time-begin-period.md)を正とする。
 
+Reached `timeGetTime`の代表contractはzero-argument x86 stdcall、raw DWORD／U32、
+LastError preserve、zero guest writeを固定し、Kernel32 `GetTickCount`と同じ
+`RuntimeProcessState` tick plan／commitを使う。Dispatcher fixtureは連続する共有clock sample、
+`timeBeginPeriod(1)`からの独立、disabled／zero-increment policyのmutation-free failureを検査し、
+process-owner model testがwrapping progressionを固定する。Primary evidenceはLastError sentinel 3種とwrapping
+`GetTickCount` bracketを使うtwo-run native oracle、BGIのwrap-aware consumer、Node／Chrome
+ordered semantics／memory／`MessageBoxA` stop、clean cancel／watchdog、unchanged
+17-threshold browser benchmarkを要求する。Host uptime、browser clock、scheduler／audio clockを
+importしない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
+[bgi-time-get-time.md](bgi-time-get-time.md)を正とする。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

@@ -294,6 +294,11 @@ compatibility serializationはimmutable snapshotを返す。Begin／endはexpect
 mutation前に拒否する。Process exitはprocess／thread planとtimer teardownを全てpreflightした後にrequest
 tableを一回でretireする。
 
+WinMM `timeGetTime`のsampled DWORDはtimer subsystemへ複製しない。既存の
+`runtime/process.rs::RuntimeProcessState`がKernel32 `GetTickCount`と共有するtick datum、
+sample plan、wrapping commitを所有し、WinMM policyはbounded incrementだけを選ぶ。
+Resolution request table、browser clock、host uptimeはこのprocess clockのauthorityではない。
+
 Waitable timerのtyped handle／object ID／wait stateは`RuntimeObjectTable`が別authorityとして所有する。
 Creation、last close、process teardownはtimer payload planとopaque close-handle object planを両方preflightし、
 timer map、object index、handle slot、allocatorを部分更新しない。Browser scheduler／audio adapterはrequest
@@ -327,6 +332,10 @@ WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが�
 clockを進めずhost／browser granularityをimportしない。Resolution begin／end APIsは
 dedicated Rust timer-resolution ownerがperiod、request count、matching end、process teardownを
 plan／commitし、browser task timerやAudioContextをguest-visible request stateの代用にしない。
+Reached `timeGetTime`はKernel32 `GetTickCount`と同じprocess-owned tick counterを同じ
+plan／commitでsampleする。WinMM policyはcounterを所有せず、resolution requestはsample値を変更しない。
+現在のdeterministic incrementはcompatibility policyであり、host経過時間やbrowser millisecond精度の
+claimではない。
 詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
 
 ## 6. Guest address space と memory

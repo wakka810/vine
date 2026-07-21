@@ -391,6 +391,14 @@ Historical policies omit the option and reproduce the fixed sample. Neither
 path reads host uptime or wall time; the policy does not encode the BGI loop
 count, duration, caller, or stop identity.
 
+Reached WinMM `timeGetTime` delegates to this same process-owned tick plan and
+commit under its own bounded compatibility selector. It does not allocate a
+WinMM clock or import a host／browser epoch, and active `timeBeginPeriod`
+requests do not affect the sample. The cross-catalog authority relation and
+native consumer evidence are documented in
+[winmm-compatibility-policy.md](winmm-compatibility-policy.md) and
+[bgi-time-get-time.md](bgi-time-get-time.md).
+
 `GetSystemInfo` uses one VOID one-argument semantic handler and a checked
 36-byte x86 `SYSTEM_INFO` output. Policy supplies the bounded PE32 application
 address profile and processor fields. The reserved word is always zero;

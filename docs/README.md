@@ -66,7 +66,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [d3d9-frontend.md](d3d9-frontend.md) | bounded D3D9と将来Direct3D frontendをどこで分けるか | root identity、COM trap routing、version別frontend、CreateDevice時の`RuntimeGraphics` boundary |
 | [gdi-frontend.md](gdi-frontend.md) | GDI identity／surfaceと将来graphics共有層をどこで分けるか | HDC／stock object／logical surface authority、failure ordering、Direct3D／renderer分離 |
 | [win32-compatibility-policy.md](win32-compatibility-policy.md) | Win32 semanticsと到達profileをどう分けるか | single handler ID、versioned bounded policy、evidence-only BGI identity |
-| [winmm-compatibility-policy.md](winmm-compatibility-policy.md) | WinMM capabilityとtimer stateをどう分けるか | policy-owned TIMECAPS、fixed-width output、future resolution-request authority |
+| [winmm-compatibility-policy.md](winmm-compatibility-policy.md) | WinMM capabilityとtimer stateをどう分けるか | policy-owned TIMECAPS、timer-resolution owner、共有process tick authority |
 | [runtime-input-state.md](runtime-input-state.md) | guest-visible input stateをどこが所有するか | logical mouse-button mapping、configure-once、stale plan拒否、browser authority分離 |
 | [guest-memory-ingress.md](guest-memory-ingress.md) | production memory ingressが何を所有するか | sparse region／page API、fault／invalidation、fixture／BGI layout evidence |
 | [memory-delta-and-transactions.md](memory-delta-and-transactions.md) | mutationと失敗をどう同期するか | bidirectional dirty pages、binary transport、generation ack、rollback |
@@ -178,6 +178,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md) | reached mouse mappingをどう変更・復元するか | Rust input authority、previous-state BOOL、two-call restore、next structured stop |
 | [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md) | reached WinMM timer capabilityをどう返すか | native size／guard oracle、policy-owned TIMECAPS、clock非進行、next resolution stop |
 | [bgi-time-begin-period.md](bgi-time-begin-period.md) | WinMM timer-resolution requestをどこが所有するか | native pairing oracle、Rust timer plan／commit／teardown、Node／Chrome equivalence |
+| [bgi-time-get-time.md](bgi-time-get-time.md) | multimedia tick sampleをどこが所有するか | shared process tick plan／commit、wrapping native oracle、Node／Chrome／benchmark evidence |
 | [bgi-get-version-ex-a.md](bgi-get-version-ex-a.md) | size-versioned ANSI OS情報をどこが所有するか | guarded native layout oracle、policy-owned virtual version、atomic read-merge-write、Node／Chrome equivalence |
 | [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md) | waitable timer identity／lifetimeをどこが所有するか | native initial-state oracle、Rust timer payload＋typed object handle、atomic close／process teardown、Node／Chrome／benchmark evidence |
 | [bgi-load-icon-a.md](bgi-load-icon-a.md) | mapped module iconをどう選び所有するか | PE resource catalog、shared logical HICON、native selection oracle、process teardown |

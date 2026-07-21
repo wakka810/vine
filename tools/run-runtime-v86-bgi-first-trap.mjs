@@ -149,6 +149,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-create-texture",
         "d3d9-get-surface-level",
         "d3d9-surface-get-dc",
+        "winmm-time-get-time",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -217,6 +218,7 @@ assert(
       "d3d9-create-texture",
       "d3d9-get-surface-level",
       "d3d9-surface-get-dc",
+      "winmm-time-get-time",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -249,6 +251,7 @@ if (
     "d3d9-create-texture",
     "d3d9-get-surface-level",
     "d3d9-surface-get-dc",
+    "winmm-time-get-time",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -274,7 +277,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-create-device" ||
     genericRuntimeCapability === "d3d9-create-texture" ||
     genericRuntimeCapability === "d3d9-get-surface-level" ||
-    genericRuntimeCapability === "d3d9-surface-get-dc"
+    genericRuntimeCapability === "d3d9-surface-get-dc" ||
+    genericRuntimeCapability === "winmm-time-get-time"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -409,8 +413,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const timeGetTimeEnabled = genericRuntimeCapability === "winmm-time-get-time";
 const d3d9SurfaceGetDcEnabled =
-  genericRuntimeCapability === "d3d9-surface-get-dc";
+  timeGetTimeEnabled || genericRuntimeCapability === "d3d9-surface-get-dc";
 const d3d9GetSurfaceLevelEnabled =
   d3d9SurfaceGetDcEnabled || genericRuntimeCapability === "d3d9-get-surface-level";
 const d3d9CreateTextureEnabled =
@@ -630,7 +635,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9SurfaceGetDcEnabled
+      ? timeGetTimeEnabled
+        ? "v86-bgi-time-get-time"
+      : d3d9SurfaceGetDcEnabled
         ? "v86-bgi-d3d9-surface-get-dc"
       : d3d9GetSurfaceLevelEnabled
         ? "v86-bgi-d3d9-get-surface-level"
@@ -4594,6 +4601,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (timeGetTimeEnabled) {
+        validateTimeGetTimeResult(genericResult);
       } else if (d3d9SurfaceGetDcEnabled) {
         validateD3d9SurfaceGetDcResult(genericResult);
       } else if (d3d9GetSurfaceLevelEnabled) {
@@ -4763,6 +4772,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : timeGetTimeEnabled
+            ? "bgi WinMM timeGetTime"
           : d3d9SurfaceGetDcEnabled
             ? "bgi D3D9 surface GetDC fill and ReleaseDC"
           : d3d9GetSurfaceLevelEnabled
@@ -5980,6 +5991,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : timeGetTimeEnabled
+          ? 72
         : monitorFromWindowEnabled
           ? 71
         : setWindowPosActivationEnabled
@@ -6140,7 +6153,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (timeGetDevCapsEnabled) {
     assert.equal(
       ready.winmmCompatibilityPolicyId,
-      "winmm-timecaps-1-1000000-period-1-v1",
+      "winmm-timecaps-1-1000000-period-1-tick-1-v1",
     );
   } else {
     assert.equal(ready.winmmCompatibilityPolicyId, undefined);
@@ -13096,6 +13109,86 @@ function validateD3d9GetSurfaceLevelResult(result) {
   ]);
 }
 
+function validateTimeGetTimeResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_858);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_913);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_066,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_627,
+  );
+  assert.equal(result.hostDeltas.length, 16_568);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_811);
+
+  const call = result.supportedCalls.at(-1);
+  assert.equal(call.sequence, 17_858);
+  assert.equal(call.module.toLowerCase(), "winmm.dll");
+  assert.equal(call.symbol, "timeGetTime");
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_807_928);
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_601_004 });
+  assert.equal(call.implementationId, "winmm.time-get-time.v1");
+  assert.equal(call.returnAddress, 0x1009_1ebf);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 4);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.tickCount, {
+    returnedTickCount: 3_601_004,
+    nextTickCount: 3_601_005,
+    incrementPerRead: 1,
+  });
+
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 221);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0dc0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "MessageBoxA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_144c);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "a540914cb267680fa2b9d6a07ab7d3c02853703073b4969d1fb448bb0291d3b0",
+  );
+
+  assert.equal(result.terminal.instructionCount, 11_807_974);
+  const terminal = result.terminal.terminal;
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 221);
+  assert.equal(terminal.thunk.address, 0x7f00_0dc0);
+  assert.equal(terminal.thunk.iatAddress, 0x100d_144c);
+  assert.equal(terminal.thunk.module, "USER32.dll");
+  assert.equal(terminal.thunk.name, "MessageBoxA");
+  assert.equal(terminal.returnAddress, 0x1006_6b0d);
+  assert.deepEqual(terminal.stackWords.slice(1, 5), [
+    0x4801_0001,
+    0x100d_cba0,
+    0x100d_cbe0,
+    0x0000_1010,
+  ]);
+}
+
 function validateD3d9SurfaceGetDcResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15212,6 +15305,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : timeGetTimeEnabled
+          ? "vine.v86-bgi-time-get-time"
         : d3d9SurfaceGetDcEnabled
           ? "vine.v86-bgi-d3d9-surface-get-dc"
         : d3d9GetSurfaceLevelEnabled

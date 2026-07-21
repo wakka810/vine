@@ -7,8 +7,9 @@ use vine_core::{
     ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
     RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
     RuntimeState, RuntimeThreadId, StackCleanup, TIME_BEGIN_PERIOD_IMPLEMENTATION,
-    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_DEV_CAPS_IMPLEMENTATION, TIMERR_NOCANDO,
-    WinmmCompatibilityPolicy, dispatch_winmm_api_with_policy, winmm_contract_for_endpoint,
+    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_DEV_CAPS_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
+    TIMERR_NOCANDO, WinmmCompatibilityPolicy, dispatch_winmm_api_with_policy,
+    winmm_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -28,9 +29,11 @@ const IAT_ADDRESS: GuestAddress = GuestAddress(0x2000_2000);
 const ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0020);
 const BEGIN_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0030);
 const END_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0040);
+const TIME_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0070);
 const RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_1e6d);
 const BEGIN_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_1e7e);
 const END_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_1ea5);
+const TIME_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_1ebf);
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234_5678;
@@ -50,6 +53,83 @@ struct TimePeriodFixture {
     begin_endpoint: ApiEndpointIdentity,
     end_endpoint: ApiEndpointIdentity,
     policy: WinmmCompatibilityPolicy,
+}
+
+struct TimeGetTimeFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: WinmmCompatibilityPolicy,
+}
+
+impl TimeGetTimeFixture {
+    fn new() -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(8),
+            address: TIME_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "WINMM.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_14e4),
+            iat_address: GuestAddress(IAT_ADDRESS.0 + 0x14),
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "timeGetTime".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(owner, thunk.iat_address, &thunk.address.0.to_le_bytes())
+            .expect("initialize timeGetTime IAT");
+        write_words(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_POINTER),
+            &[TIME_RETURN_ADDRESS.0],
+        );
+        memory.seal_owner(owner).expect("seal timeGetTime fixture");
+        let reflection = memory.pending_reflection().expect("initial reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge initial reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract = winmm_contract_for_endpoint(endpoint.clone())
+            .expect("WinMM contract lookup")
+            .expect("implemented timeGetTime contract");
+        let dispatcher =
+            ApiDispatcher::new([endpoint.clone()], [contract]).expect("timeGetTime dispatcher");
+        let mut runtime = controlled_runtime();
+        runtime
+            .start_initial_thread()
+            .expect("start timeGetTime fixture runtime");
+        Self {
+            memory,
+            runtime,
+            dispatcher,
+            endpoint,
+            policy: WinmmCompatibilityPolicy::controlled_v1(),
+        }
+    }
+
+    fn dispatch(&mut self) -> DispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer: GuestAddress(STACK_POINTER),
+                return_address: TIME_RETURN_ADDRESS,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_winmm_api_with_policy(&self.policy, contract, frame, session)
+            },
+        )
+    }
 }
 
 impl TimePeriodFixture {
@@ -330,9 +410,79 @@ fn time_period_contracts_are_one_argument_stdcall_mmresult() {
 }
 
 #[test]
+fn time_get_time_contract_is_zero_argument_stdcall_dword() {
+    let fixture = TimeGetTimeFixture::new();
+    let contract = winmm_contract_for_endpoint(fixture.endpoint)
+        .expect("WinMM contract lookup")
+        .expect("timeGetTime contract");
+    assert_eq!(contract.implementation_id, TIME_GET_TIME_IMPLEMENTATION);
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn time_get_time_samples_shared_process_clock_and_preserves_last_error() {
+    let mut fixture = TimeGetTimeFixture::new();
+    let before_memory = fixture.memory.stats();
+    for expected in [3_600_000, 3_600_001] {
+        let completion = match fixture.dispatch() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected timeGetTime completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected));
+        assert_eq!(completion.instruction_pointer, TIME_RETURN_ADDRESS);
+        assert_eq!(completion.stack_pointer, GuestAddress(STACK_POINTER + 4));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(fixture.runtime.clock().tick_count, 3_600_002);
+    assert_eq!(fixture.memory.stats(), before_memory);
+}
+
+#[test]
+fn time_get_time_policy_failures_are_mutation_free() {
+    let mut fixture = TimeGetTimeFixture::new();
+    fixture.policy.time_get_time = None;
+    let before_runtime = fixture.runtime.clone();
+    let before_memory = fixture.memory.stats();
+    let fault = match fixture.dispatch() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled timeGetTime fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "time-get-time-policy-disabled");
+    assert_eq!(fixture.runtime, before_runtime);
+    assert_eq!(fixture.memory.stats(), before_memory);
+
+    let mut invalid = TimeGetTimeFixture::new();
+    invalid
+        .policy
+        .time_get_time
+        .as_mut()
+        .unwrap()
+        .increment_per_read = 0;
+    let before_runtime = invalid.runtime.clone();
+    let before_memory = invalid.memory.stats();
+    let fault = match invalid.dispatch() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected invalid timeGetTime policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "winmm-time-get-time-policy-invalid");
+    assert_eq!(invalid.runtime, before_runtime);
+    assert_eq!(invalid.memory.stats(), before_memory);
+}
+
+#[test]
 fn time_period_requests_count_exact_pairs_and_preserve_last_error() {
     let mut fixture = TimePeriodFixture::new();
     let before_memory = fixture.memory.stats();
+    let before_tick_count = fixture.runtime.clock().tick_count;
     let begin = match fixture.dispatch_begin(BEGIN_STACK_POINTER) {
         DispatchOutcome::Immediate(completion) => completion,
         other => panic!("expected timeBeginPeriod completion, got {other:?}"),
@@ -348,6 +498,7 @@ fn time_period_requests_count_exact_pairs_and_preserve_last_error() {
     assert_eq!(state.total_request_count, 1);
     assert_eq!(state.effective_period_milliseconds, Some(1));
     assert_eq!(state.generation, 1);
+    assert_eq!(fixture.runtime.clock().tick_count, before_tick_count);
 
     let duplicate = match fixture.dispatch_begin(BEGIN_STACK_POINTER) {
         DispatchOutcome::Immediate(completion) => completion,
@@ -357,6 +508,7 @@ fn time_period_requests_count_exact_pairs_and_preserve_last_error() {
     let state = fixture.runtime.timer_resolution_state().unwrap();
     assert_eq!(state.request_counts.get(&1), Some(&2));
     assert_eq!(state.generation, 2);
+    assert_eq!(fixture.runtime.clock().tick_count, before_tick_count);
 
     for expected_remaining in [1, 0] {
         let end = match fixture.dispatch_end(END_STACK_POINTER) {
@@ -379,6 +531,7 @@ fn time_period_requests_count_exact_pairs_and_preserve_last_error() {
                 .unwrap_or(0),
             expected_remaining
         );
+        assert_eq!(fixture.runtime.clock().tick_count, before_tick_count);
     }
 
     let before_unmatched = fixture.runtime.clone();

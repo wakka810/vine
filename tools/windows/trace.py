@@ -61,6 +61,7 @@ SUPPORTED_OBSERVATIONS = (
     "drive-type",
     "swap-mouse-button",
     "time-get-dev-caps",
+    "time-get-time",
     "get-version-ex-a",
     "get-cp-info",
     "processor-feature",

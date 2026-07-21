@@ -945,7 +945,7 @@ browserOwnedTimerCapabilityEvidence.activeRuntimeCheckpoint.latestEvidence.timeG
   true;
 assert.ok(
   validateCurrentCheckpoint(browserOwnedTimerCapabilityEvidence).some((error) =>
-    error.includes("WinMM timer-resolution evidence"),
+    error.includes("WinMM timer and shared-clock evidence"),
   ),
 );
 
@@ -963,7 +963,7 @@ duplicateTimerResolutionAuthority.activeRuntimeCheckpoint.latestEvidence.timeBeg
   true;
 assert.ok(
   validateCurrentCheckpoint(duplicateTimerResolutionAuthority).some((error) =>
-    error.includes("WinMM timer-resolution evidence"),
+    error.includes("WinMM timer and shared-clock evidence"),
   ),
 );
 
@@ -973,6 +973,33 @@ unmatchedTimerEndSilentlySucceeds.activeRuntimeCheckpoint.winmmCompatibilityPoli
 assert.ok(
   validateCurrentCheckpoint(unmatchedTimerEndSilentlySucceeds).some((error) =>
     error.includes("WinMM compatibility policy boundary"),
+  ),
+);
+
+const duplicatedTimeGetTimeAuthority = structuredClone(manifest);
+duplicatedTimeGetTimeAuthority.activeRuntimeCheckpoint.winmmCompatibilityPolicy.timeGetTimeClockAuthority =
+  "browser-performance-now";
+assert.ok(
+  validateCurrentCheckpoint(duplicatedTimeGetTimeAuthority).some((error) =>
+    error.includes("WinMM compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedTimeGetTime = structuredClone(manifest);
+browserOwnedTimeGetTime.activeRuntimeCheckpoint.latestEvidence.timeGetTimeBrowserClockImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedTimeGetTime).some((error) =>
+    error.includes("WinMM timer and shared-clock evidence"),
+  ),
+);
+
+const detachedTimeGetTimeClock = structuredClone(manifest);
+detachedTimeGetTimeClock.activeRuntimeCheckpoint.latestEvidence.timeGetTimeClockRelation =
+  "winmm-private-clock";
+assert.ok(
+  validateCurrentCheckpoint(detachedTimeGetTimeClock).some((error) =>
+    error.includes("WinMM timer and shared-clock evidence"),
   ),
 );
 

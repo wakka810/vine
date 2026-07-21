@@ -54,6 +54,7 @@ const supportedObservations = new Set([
   "drive-type",
   "swap-mouse-button",
   "time-get-dev-caps",
+  "time-get-time",
   "get-version-ex-a",
   "get-cp-info",
   "processor-feature",
@@ -1828,6 +1829,218 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     idirect3dsurface9Methods,
   );
 
+  const timeGetTimeOracleEvents = events.filter(
+    (event) => event.kind === "time-get-time-oracle",
+  );
+  const timeGetTimeCompletionEvents = events.filter(
+    (event) => event.kind === "time-get-time-complete",
+  );
+  const requiresTimeGetTimeCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "time-get-time" &&
+    traceStart.arguments?.stopOnEvent === "time-get-time-complete";
+  if (
+    timeGetTimeOracleEvents.length > 1 ||
+    timeGetTimeCompletionEvents.length > 1 ||
+    (requiresTimeGetTimeCompletion &&
+      (timeGetTimeOracleEvents.length !== 1 ||
+        timeGetTimeCompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "time-get-time observation requires exactly one oracle and structured completion",
+    );
+  }
+
+  const isU32 = (value) =>
+    Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
+  const timeGetTime = timeGetTimeCompletionEvents.map((completion) => {
+    const oracle = timeGetTimeOracleEvents[0];
+    const sentinels = [0, 87, 0x1234_5678];
+    if (
+      oracle === undefined ||
+      oracle.profile !== "x86-time-get-time-shared-tick-epoch-v1" ||
+      !Array.isArray(oracle.calls) ||
+      oracle.calls.length !== sentinels.length ||
+      oracle.allResultsMatchHooks !== true ||
+      oracle.allPreserveLastError !== true ||
+      oracle.allResultsWithinTickCountBrackets !== true ||
+      completion.profile !== "x86-bgi-time-get-time-v1" ||
+      completion.oracleProfile !== oracle.profile ||
+      !Array.isArray(completion.mainModuleCalls) ||
+      completion.mainModuleCalls.length !== 1 ||
+      completion.sequence <= oracle.sequence
+    ) {
+      throw new Error("time-get-time completion or oracle has invalid structure");
+    }
+
+    const oraclePairs = apiPairing.pairs.filter(
+      (pair) =>
+        pair.enter.api === "timeGetTime" &&
+        pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll",
+    );
+    if (oraclePairs.length !== sentinels.length) {
+      throw new Error("time-get-time oracle calls do not match their paired traces");
+    }
+    const oracleCalls = oracle.calls.map((call, index) => {
+      const pair = oraclePairs[index];
+      const sentinel = sentinels[index];
+      if (
+        !isU32(call.sentinel) ||
+        call.sentinel !== sentinel ||
+        ![
+          call.tickCountBefore,
+          call.systemResult,
+          call.tickCountAfter,
+          call.tickCountSpan,
+          call.resultOffset,
+          call.hookResult,
+          call.hookLastErrorAfter,
+          call.systemLastError,
+        ].every(isU32) ||
+        call.tickCountSpan !==
+          ((call.tickCountAfter - call.tickCountBefore) >>> 0) ||
+        call.resultOffset !== ((call.systemResult - call.tickCountBefore) >>> 0) ||
+        call.resultOffset > call.tickCountSpan ||
+        call.hookResult !== call.systemResult ||
+        call.hookLastErrorAfter !== sentinel ||
+        call.systemLastError !== sentinel ||
+        call.resultWithinTickCountBracket !== true ||
+        call.hookResultMatches !== true ||
+        call.hookPreservesLastError !== true ||
+        call.systemPreservesLastError !== true ||
+        pair.enter.module.toLowerCase() !== "winmm.dll" ||
+        pair.enter.parentCallId !== null ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 0 ||
+        pair.enter.lastErrorBefore !== sentinel ||
+        pair.leave.lastError !== sentinel ||
+        BigInt(pair.leave.result) !== BigInt(call.systemResult) ||
+        pair.leave.timeGetTime?.result !== call.systemResult
+      ) {
+        throw new Error(
+          `time-get-time oracle call ${index} violates its tick or LastError contract`,
+        );
+      }
+      return { ...call, callId: pair.enter.callId, sequence: pair.enter.sequence };
+    });
+
+    const snapshot = completion.mainModuleCalls[0];
+    const pair = apiPairing.pairs.find(
+      (candidate) => candidate.enter.callId === snapshot.callId,
+    );
+    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
+    if (
+      pair === undefined ||
+      pair.enter.api !== "timeGetTime" ||
+      pair.enter.module.toLowerCase() !== "winmm.dll" ||
+      pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+      pair.enter.caller?.rva !== 0x91ebf ||
+      pair.enter.parentCallId !== null ||
+      !Array.isArray(pair.enter.arguments) ||
+      pair.enter.arguments.length !== 0 ||
+      pair.leave.sequence + 1 !== completion.sequence ||
+      pair.leave.timeGetTime?.result !== snapshot.result ||
+      BigInt(pair.leave.result) !== BigInt(snapshot.result) ||
+      snapshot.returnAddress.toLowerCase() !==
+        pair.enter.caller.address.toLowerCase() ||
+      snapshot.result !== pair.leave.timeGetTime.result ||
+      snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
+      snapshot.lastError !== pair.leave.lastError ||
+      snapshot.lastErrorBefore !== snapshot.lastError ||
+      JSON.stringify(snapshot.immediateConsumer) !==
+        JSON.stringify(pair.enter.timeGetTime?.immediateConsumer)
+    ) {
+      throw new Error(
+        "time-get-time completion does not match its primary paired trace",
+      );
+    }
+
+    const consumer = snapshot.immediateConsumer;
+    const entry = consumer?.apiContinuation?.entry;
+    const target = consumer?.apiContinuation?.directJumpTarget;
+    const frames = consumer?.frameCallerContinuations?.frames;
+    const expectedConsumer = [
+      ["mov", "ecx, dword ptr [0x1e2358]"],
+      ["cmp", "eax, ecx"],
+      ["jb", "0x121edd"],
+      ["mov", "edx, dword ptr [0x188dd8]"],
+      ["add", "edx, ecx"],
+      ["cmp", "edx, eax"],
+      ["jae", "0x121ee7"],
+      ["mov", "edx, eax"],
+      ["sub", "edx, ecx"],
+      ["add", "dword ptr [0x1e2360], edx"],
+      ["mov", "ecx, dword ptr [0x1e235c]"],
+      ["mov", "dword ptr [0x1e2358], eax"],
+      ["test", "ecx, ecx"],
+      ["je", "0x121ef9"],
+      ["mov", "eax, ecx"],
+      ["ret", ""],
+      ["sub", "eax, dword ptr [0x1e2360]"],
+      ["ret", ""],
+    ];
+    if (
+      consumer === null ||
+      typeof consumer !== "object" ||
+      entry?.address?.toLowerCase() !== snapshot.returnAddress.toLowerCase() ||
+      entry?.instructions?.[0]?.mnemonic !== "jmp" ||
+      entry.instructions[0].opStr?.toLowerCase() !== target?.address?.toLowerCase() ||
+      target?.address?.toLowerCase() !== "0x121ec7" ||
+      !Array.isArray(target.instructions) ||
+      target.instructions.length < expectedConsumer.length ||
+      expectedConsumer.some(
+        ([mnemonic, opStr], index) =>
+          target.instructions[index]?.mnemonic !== mnemonic ||
+          target.instructions[index]?.opStr?.toLowerCase() !== opStr,
+      ) ||
+      !Array.isArray(frames) ||
+      frames.length === 0 ||
+      frames.some(
+        (frame, index) =>
+          frame.depth !== index ||
+          frame.caller?.module?.toLowerCase() !== executableModule,
+      )
+    ) {
+      throw new Error(
+        "time-get-time primary consumer is not the observed wrap-aware EAX delta flow",
+      );
+    }
+
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      oracle: {
+        sequence: oracle.sequence,
+        profile: oracle.profile,
+        calls: oracleCalls,
+      },
+      mainModuleCalls: [
+        {
+          sequence: pair.enter.sequence,
+          callId: pair.enter.callId,
+          threadId: pair.enter.threadId,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          returnAddress: snapshot.returnAddress,
+          result: snapshot.result,
+          lastErrorBefore: snapshot.lastErrorBefore,
+          lastError: snapshot.lastError,
+          consumer: {
+            profile: "wrap-aware-eax-delta-v1",
+            directJumpTarget: target.address,
+            frameCallers: frames.map((frame) => ({
+              depth: frame.depth,
+              module: frame.caller.module,
+              rva: frame.caller.rva,
+            })),
+          },
+        },
+      ],
+    };
+  });
+
   const surfaceDcCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-surface-get-dc-complete",
   );
@@ -2043,6 +2256,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     modules,
     apis,
     vtables,
+    winmm: {
+      timeGetTime,
+    },
     d3d9: {
       adapterIdentifiers,
       adapterDisplayModes,

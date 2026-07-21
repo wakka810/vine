@@ -1666,6 +1666,275 @@ assert.throws(
   /requires exactly one structured completion/,
 );
 
+const timeGetTimeConsumerInstructions = [
+  ["0x121ec7", "mov", "ecx, dword ptr [0x1e2358]"],
+  ["0x121ecd", "cmp", "eax, ecx"],
+  ["0x121ecf", "jb", "0x121edd"],
+  ["0x121ed1", "mov", "edx, dword ptr [0x188dd8]"],
+  ["0x121ed7", "add", "edx, ecx"],
+  ["0x121ed9", "cmp", "edx, eax"],
+  ["0x121edb", "jae", "0x121ee7"],
+  ["0x121edd", "mov", "edx, eax"],
+  ["0x121edf", "sub", "edx, ecx"],
+  ["0x121ee1", "add", "dword ptr [0x1e2360], edx"],
+  ["0x121ee7", "mov", "ecx, dword ptr [0x1e235c]"],
+  ["0x121eed", "mov", "dword ptr [0x1e2358], eax"],
+  ["0x121ef2", "test", "ecx, ecx"],
+  ["0x121ef4", "je", "0x121ef9"],
+  ["0x121ef6", "mov", "eax, ecx"],
+  ["0x121ef8", "ret", ""],
+  ["0x121ef9", "sub", "eax, dword ptr [0x1e2360]"],
+  ["0x121eff", "ret", ""],
+].map(([address, mnemonic, opStr]) => ({ address, mnemonic, opStr, size: 1 }));
+const timeGetTimeConsumer = {
+  apiContinuation: {
+    entry: {
+      address: "0x121ebf",
+      maximumInstructions: 96,
+      instructions: [
+        { address: "0x121ebf", mnemonic: "jmp", opStr: "0x121ec7", size: 2 },
+      ],
+    },
+    directJumpTarget: {
+      address: "0x121ec7",
+      maximumInstructions: 96,
+      instructions: timeGetTimeConsumerInstructions,
+    },
+  },
+  frameCallerContinuations: {
+    maximumFrames: 6,
+    maximumInstructions: 20,
+    frames: [
+      {
+        depth: 0,
+        framePointer: "0x6ff000",
+        caller: { address: "0x113144", module: "BGI.exe", rva: 0x83144 },
+        address: "0x113144",
+        maximumInstructions: 20,
+        instructions: [],
+      },
+    ],
+  },
+};
+const timeGetTimeOracleCalls = [0, 87, 0x1234_5678].map((sentinel) => ({
+  sentinel,
+  tickCountBefore: 1000,
+  systemResult: 1000,
+  tickCountAfter: 1000,
+  tickCountSpan: 0,
+  resultOffset: 0,
+  hookResult: 1000,
+  hookLastErrorAfter: sentinel,
+  systemLastError: sentinel,
+  resultWithinTickCountBracket: true,
+  hookResultMatches: true,
+  hookPreservesLastError: true,
+  systemPreservesLastError: true,
+}));
+const timeGetTimeEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-20T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1193472,
+    executableSha256: "b".repeat(64),
+    arguments: {
+      seconds: 30,
+      killAfter: true,
+      stopOnEvent: "time-get-time-complete",
+      vtables: [],
+      observations: ["time-get-time"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "WINMM.dll",
+    path: "C:\\Windows\\System32\\WINMM.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: [],
+    selectedObservations: ["time-get-time"],
+  },
+];
+for (const [index, sentinel] of [0, 87, 0x1234_5678].entries()) {
+  const sequence = 3 + index * 2;
+  const caller = { address: "0x70001000", module: "frida-agent.dll", rva: 0x1000 };
+  timeGetTimeEvents.push(
+    {
+      schema,
+      sequence,
+      threadId: 30,
+      kind: "api-enter",
+      callId: index + 1,
+      parentCallId: null,
+      caller,
+      module: "WINMM.dll",
+      api: "timeGetTime",
+      arguments: [],
+      lastErrorBefore: sentinel,
+      timeGetTime: { immediateConsumer: null },
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 30,
+      kind: "api-leave",
+      callId: index + 1,
+      parentCallId: null,
+      caller,
+      durationMs: 0,
+      lastError: sentinel,
+      module: "WINMM.dll",
+      api: "timeGetTime",
+      result: "0x3e8",
+      timeGetTime: { result: 1000 },
+    },
+  );
+}
+timeGetTimeEvents.push(
+  {
+    schema,
+    sequence: 9,
+    threadId: 30,
+    kind: "time-get-time-oracle",
+    profile: "x86-time-get-time-shared-tick-epoch-v1",
+    calls: timeGetTimeOracleCalls,
+    allResultsMatchHooks: true,
+    allPreserveLastError: true,
+    allResultsWithinTickCountBrackets: true,
+  },
+  {
+    schema,
+    sequence: 10,
+    threadId: 31,
+    kind: "api-enter",
+    callId: 4,
+    parentCallId: null,
+    caller: { address: "0x121ebf", module: "BGI.exe", rva: 0x91ebf },
+    module: "WINMM.dll",
+    api: "timeGetTime",
+    arguments: [],
+    lastErrorBefore: 0,
+    timeGetTime: { immediateConsumer: timeGetTimeConsumer },
+  },
+  {
+    schema,
+    sequence: 11,
+    threadId: 31,
+    kind: "api-leave",
+    callId: 4,
+    parentCallId: null,
+    caller: { address: "0x121ebf", module: "BGI.exe", rva: 0x91ebf },
+    durationMs: 0,
+    lastError: 0,
+    module: "WINMM.dll",
+    api: "timeGetTime",
+    result: "0x7d0",
+    timeGetTime: { result: 2000 },
+  },
+  {
+    schema,
+    sequence: 12,
+    threadId: 31,
+    kind: "time-get-time-complete",
+    profile: "x86-bgi-time-get-time-v1",
+    oracleProfile: "x86-time-get-time-shared-tick-epoch-v1",
+    mainModuleCalls: [
+      {
+        callId: 4,
+        returnAddress: "0x121ebf",
+        result: 2000,
+        lastErrorBefore: 0,
+        lastError: 0,
+        immediateConsumer: timeGetTimeConsumer,
+      },
+    ],
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-20T00:00:01.000Z",
+    reason: "event-time-get-time-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const timeGetTimeSummary = summarizeTrace(
+  encode(timeGetTimeEvents),
+  "time-get-time-fixture.jsonl",
+);
+assert.equal(timeGetTimeSummary.winmm.timeGetTime.length, 1);
+assert.equal(
+  timeGetTimeSummary.winmm.timeGetTime[0].oracle.profile,
+  "x86-time-get-time-shared-tick-epoch-v1",
+);
+assert.deepEqual(
+  timeGetTimeSummary.winmm.timeGetTime[0].oracle.calls.map((call) => call.sentinel),
+  [0, 87, 0x1234_5678],
+);
+assert.deepEqual(timeGetTimeSummary.winmm.timeGetTime[0].mainModuleCalls[0], {
+  sequence: 10,
+  callId: 4,
+  threadId: 31,
+  caller: { module: "BGI.exe", rva: 0x91ebf },
+  returnAddress: "0x121ebf",
+  result: 2000,
+  lastErrorBefore: 0,
+  lastError: 0,
+  consumer: {
+    profile: "wrap-aware-eax-delta-v1",
+    directJumpTarget: "0x121ec7",
+    frameCallers: [{ depth: 0, module: "BGI.exe", rva: 0x83144 }],
+  },
+});
+
+const invalidTimeGetTimeOracle = structuredClone(timeGetTimeEvents);
+invalidTimeGetTimeOracle.find(
+  (event) => event.kind === "time-get-time-oracle",
+).calls[1].resultOffset = 1;
+assert.throws(
+  () => summarizeTrace(encode(invalidTimeGetTimeOracle)),
+  /oracle call 1 violates its tick or LastError contract/,
+);
+
+const invalidTimeGetTimeConsumer = structuredClone(timeGetTimeEvents);
+invalidTimeGetTimeConsumer.find(
+  (event) => event.kind === "api-enter" && event.caller.module === "BGI.exe",
+).timeGetTime.immediateConsumer.apiContinuation.directJumpTarget.instructions[8].opStr =
+  "edx, eax";
+invalidTimeGetTimeConsumer.find(
+  (event) => event.kind === "time-get-time-complete",
+).mainModuleCalls[0].immediateConsumer.apiContinuation.directJumpTarget.instructions[8].opStr =
+  "edx, eax";
+assert.throws(
+  () => summarizeTrace(encode(invalidTimeGetTimeConsumer)),
+  /wrap-aware EAX delta flow/,
+);
+
+const missingTimeGetTimeCompletion = timeGetTimeEvents.filter(
+  (event) => event.kind !== "time-get-time-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingTimeGetTimeCompletion)),
+  /requires exactly one oracle and structured completion/,
+);
+
 const duplicateSequence = events.map((event) => ({ ...event }));
 duplicateSequence[5].sequence = 3;
 assert.throws(

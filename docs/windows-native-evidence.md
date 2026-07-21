@@ -3689,6 +3689,55 @@ arguments `1024, 1024, 1, 0, 22, 2, 0x101517CC, 0`、endpoint `0x010111A0`、ret
 `0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
 
+## 121. BGI shared multimedia tick sample
+
+Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／
+854 records／390 balanced API pairs／SHA-256
+`8560ea8389627cfc2c85b4a98f30f835ab53ff3ec13038ac55b25ad736790a29`、summaryは51,478 bytes／
+SHA-256 `5fa32c69a605e1cd173eed042522669f253534a1d993d943ee239b12d16fc777`である。Confirmation
+raw traceは303,051 bytes／851 records／388 balanced pairs／SHA-256
+`8f3a8847793282b4eadb4f4e45c6a142610b9f3ea1f3e4437e0b8349b314cc5e`、summaryは51,652 bytes／
+SHA-256 `83d7a4ca65a6b109379b796838cc1d97718083a28657bc70d395d636ef9604c3`で、両summaryとも
+diagnosticsは0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+`x86-time-get-time-shared-tick-epoch-v1` oracleはLastError sentinel `0／87／0x12345678`ごとに
+`timeGetTime`を一回呼ぶ。Hook resultと`SystemFunction` resultは各callで一致し、LastErrorを保存し、
+直前／直後の`GetTickCount` sampleによるunsigned wrapping bracket内にある。Concrete native tick値は
+artifact identityでありVine policyへimportしない。BGIはcaller RVA `0x00091EBF`から一回呼び、LastError
+0のまま戻る。RVA `0x00083144`をrootとするconsumerはEAXをunsigned wrapping elapsed-time operandとして
+使う`wrap-aware-eax-delta-v1` flowであり、runtime handlerはcaller／hash／occurrenceを分岐条件にしない。
+Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeは`winmm.time-get-time.v1`をzero-argument x86 stdcall／U32／LastError preserve／zero guest writeとして
+実装した。Version-1 WinMM policyの`shared-process-tick-count-increment-1-v1`はincrement 1だけを選び、
+`runtime/process.rs::RuntimeProcessState`がKernel32 `GetTickCount`と共有するtick datumを同じ
+mutation-free plan／wrapping commitでsampleする。Sequence 17,858／instruction 11,807,928の結果は
+3,601,004、次sampleは3,601,005である。`RuntimeTimers`のresolution-request tableはこのclockを変更せず、
+disabled／zero-increment policyはruntime／memory mutation前のtyped faultとなる。Host／browser clock、
+scheduler granularity、audio clockはimportしない。
+
+Node summaryは17,858 calls／85 contracts／11,807,974 terminal instructions、17,913 writebacks／
+36,066 dirty pages／1,807,627 changed bytes、16,568 host deltas、generation 34,811を通す。Semantic SHA-256は
+`8bc885cebc50634d583f8ee8cfc7f22995fa7c177b2f4b94e83cea55695b563b`、final memory SHA-256は
+`a540914cb267680fa2b9d6a07ab7d3c02853703073b4969d1fb448bb0291d3b0`、reportは49,985 bytes／
+SHA-256 `dff9c0799ff4b6e3d583a52f3d2bbef1db02ebe132ffc8191dcd693f2f556a79`である。
+
+Chrome Runtime Workerもsame ordered completion／instructions／semantic digest／terminal memoryを再現し、
+29,089 writebacks／61,972 pages、16,568 mapping deltas、generation 27→45,989、63,598 Wasm crossings、
+87,239 success execution transitions、terminal pending work zeroを通す。Browser reportは115,932 bytes／
+SHA-256 `41bcd53626661df496cab3a8bf1b1f9bf41eb135ee091561d05c87886f2a6f0a`、Wasm artifactは
+3,571,126 bytes／SHA-256 `d3bcdffc0e5a84b55fba2f5ad79163361954db5476a169c620cb2cb23a825843`
+である。同じ180-second fixtureと既存17 thresholdsのbenchmarkは63 sessions、semantic failure 0、session
+P95 2,952.075 ms、slice P99 2.665 ms、heartbeat P99 5.995 msで17／17を通した。Reportは944,587 bytes／
+SHA-256 `cb8af93eb085ac01e74ec0bbf76aba7d019933a5ce4679fd9a79a0ff93de85bc`である。
+
+次stopはinstruction 11,807,974、runtime-system endpoint ID 221、
+`USER32.dll!MessageBoxA(0x48010001,0x100DCBA0,0x100DCBE0,0x00001010)`、endpoint
+`0x7F000DC0`、IAT `0x100D144C`、return `0x10066B0D`の`endpoint-contract-missing`である。
+このcheckpointはelapsed host time、native／browser millisecond精度、sleep／wait、multimedia callback、
+frame cadence、audio deliveryを実装済みとしない。
+
 ## 120. BGI D3D9 surface DC and logical fill
 
 Focused `d3d9-surface-get-dc` observationを独立に2回取得した。Primary raw traceは259,841 bytes／

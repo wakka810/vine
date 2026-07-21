@@ -3,17 +3,17 @@
 ## Status
 
 - Status: threshold passed
-- Date: 2026-07-20
-- Workload: 17,857-call `d3d9-surface-get-dc` private BGI generic session
-- Observation status: `current-d3d9-surface-get-dc-observation`
+- Date: 2026-07-22
+- Workload: 17,858-call `winmm-time-get-time` private BGI generic session
+- Observation status: `current-winmm-time-get-time-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-surface-get-dc-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-surface-get-dc-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-time-get-time-v1.json`](../fixtures/benchmarks/bgi-browser-time-get-time-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `d3d9-surface-get-dc` BGI
+This observation repeats the complete `winmm-time-get-time` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,857 calls before the 11,807,928-instruction
-terminal stop, performs 63,596 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,858 calls before the 11,807,974-instruction
+terminal stop, performs 63,598 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -23,25 +23,28 @@ logical D3D9 device with an 800x600 format-22 presentation and one Rust-owned
 1024x1024／one-level／format-22 system-memory logical texture descriptor and its
 level-zero logical surface identity. It then acquires one typed surface HDC,
 gets the shared black brush, records one `[0,0,800,600]` logical fill command,
-releases the HDC, retires the surface, and reaches `WINMM.dll!timeGetTime`.
+releases the HDC, retires the surface, samples the Rust-owned process tick through
+`WINMM.dll!timeGetTime`, and reaches `USER32.dll!MessageBoxA`. The sample returns
+`3,601,004` and advances the same counter used by `GetTickCount` to `3,601,005`;
+the active timer-resolution request does not alter it.
 No texture／surface pixel bytes, lock staging, or browser renderer is allocated.
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, icon／cursor, window-class, logical-window, system-metric, large-heap,
-source-file, D3D9 adapter, and root-device contracts. Every
+source-file, D3D9 adapter／resource, and WinMM capability／resolution contracts. Every
 repetition checks call and instruction counts, crossing count, large-allocation
 identity, materialization identity, source completion count, memory digest, next
 structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-17,857 detailed call objects or canonical strings on every repetition. Each
+17,858 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
-are released after scalar capture. The capacity, COM／GDI／graphics lifetime
-boundary, digest allocation path, and Wasm artifact changed in this checkpoint,
-so the workload was rerun against the exact current Rust/Wasm and Worker
-artifacts without relaxing any threshold or accepting a retry.
+are released after scalar capture. The active semantic profile and Rust/Wasm
+artifact changed in this checkpoint, so the workload was rerun against those
+exact artifacts without changing browser scheduling, relaxing any threshold,
+or accepting a retry.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -68,7 +71,7 @@ reason, the exact evaluation count, and failure IDs. The current decision is
 ## Result
 
 The isolated clean-profile Chrome run completed 63 sessions with no semantic failure.
-The Surface GetDC version 1 configuration retained all 17 existing threshold
+The Time Get Time version 1 configuration retained all 17 existing threshold
 values unchanged before this 180-second run. All 17 thresholds passed. Previous workload configurations remain
 unchanged as historical evidence; their identities are not applied to this
 current workload.
@@ -78,22 +81,22 @@ current workload.
 | Completed sessions | >= 24 | 63 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 2,956.980 ms |
-| Maximum slice p99 | <= 10 ms | 2.485 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.000 ms |
-| Main heartbeat gap maximum | <= 250 ms | 18.525 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,629,145 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | -46,837.06 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,339,808 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,643,363.76 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 59,465,728 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 31,103,179 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 1,966,762.81 bytes/min |
+| Session latency p95 | <= 8,000 ms | 2,952.075 ms |
+| Maximum slice p99 | <= 10 ms | 2.665 ms |
+| Main heartbeat gap p99 | <= 25 ms | 5.995 ms |
+| Main heartbeat gap maximum | <= 250 ms | 18.155 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,992,865 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | -126,052.45 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,280,412 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 1,475,484.09 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 59,203,584 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 28,404,718 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 1,390,652.05 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 956,407 bytes with SHA-256
-`8382db48a785f6d36dce74d6e68fd16d0696efeeb5b157177548ff3b2aefa685`.
+The exact report is 944,587 bytes with SHA-256
+`cb8af93eb085ac01e74ec0bbf76aba7d019933a5ce4679fd9a79a0ff93de85bc`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
@@ -251,10 +254,10 @@ any threshold.
 | CPU | AMD Ryzen 7 8840U with Radeon 780M Graphics |
 | Logical CPUs | 16 |
 | Host memory | 16,398,209,024 bytes |
-| Chrome | `150.0.7871.127` |
+| Chrome | `150.0.7871.129` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `55980048ed95880dc837c042aa425b4666af4d58`
+The report records base implementation commit `79fd87abfadc786f9cd76c294eb2a9135298ae19`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -263,12 +266,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,568,357 | `ada8b39eaf1535d92c2c5a6552b8c5d2fafec3f48d2894196f0a72e46207630b` |
+| Rust runtime core Wasm | 3,571,126 | `d3bcdffc0e5a84b55fba2f5ad79163361954db5476a169c620cb2cb23a825843` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 156,776 | `4a777c1c7d611805086bbbf68ae5b914f2b6bf248f83740fa969955d7476ab49` |
 | BGI benchmark bundle | 10,354 | `fb23aa94ae00e63ecefc12decc48a6c7560bf8b4e1574cfcebec90c4315b514d` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| Surface GetDC version 1 configuration | 1,164 | `f957b1863ff06d9d21d79cd2632eb478fd6182afb2b5d562a90aa48187c99e1c` |
+| Time Get Time version 1 configuration | 1,159 | `fd6a8e46408f4278f16f510fa374079cb03ffca77b3c04a06e6c372dbe5a6c94` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -306,6 +309,9 @@ profile plus a loopback-only server and DevTools endpoint.
   input coverage is limited to the logical mouse-button mapping transaction.
   Waitable-timer coverage is limited to creation and initial nonsignaled
   lifetime; no due-time, period, signal, or cancellation workload is measured.
+  Multimedia-clock coverage is one deterministic shared-counter sample; it does
+  not measure elapsed host time, timer precision, sleep／wait timing, frame cadence,
+  or audio delivery.
   Icon coverage is limited to logical module-resource selection, identity, and
   one small-icon relation;
   cursor coverage is limited to shared `IDC_ARROW` identity. Window-class

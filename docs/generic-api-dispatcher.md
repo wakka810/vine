@@ -1092,6 +1092,15 @@ carry an immutable timer snapshot for diagnostics, but the Worker does not own
 or apply the request table. Details are in
 [bgi-time-begin-period.md](bgi-time-begin-period.md).
 
+`winmm.time-get-time.v1` is a zero-argument stdcall U32 contract. It preserves
+LastError, writes no guest bytes, and delegates to the same
+`RuntimeProcessState` tick-sample plan and targeted commit as Kernel32
+`GetTickCount`. The WinMM policy selects only the bounded increment; it owns no
+second counter, and `RuntimeTimers` resolution requests cannot alter the
+sample. Neither the handler nor the Worker imports a host or browser clock.
+Native consumer and Node／Chrome evidence are documented in
+[bgi-time-get-time.md](bgi-time-get-time.md).
+
 ## Deliberate exclusions
 
 - API-specific request／receipt schemas remain only in the frozen numbered evidence adapters; the Step 10 path does not use them.

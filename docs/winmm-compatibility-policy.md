@@ -2,8 +2,8 @@
 
 ## Status
 
-- Status: implemented timer-capability and resolution-request boundary
-- Date: 2026-07-16
+- Status: implemented timer-capability, resolution-request, and shared-clock boundary
+- Date: 2026-07-22
 - Semantic authority: Rust `vine-core::winmm`
 - Policy schema: `vine.winmm-compatibility-policy` version `1`
 - Evidence selection: `docs/current-checkpoint.json`
@@ -19,8 +19,8 @@ WinMM ABI contract
   stdcall frame, MMRESULT, pointer bounds, LastError policy
                          |
                          v
-Rust compatibility policy and logical WinMM state
-  virtual capability range; counted resolution-request lifetime
+Rust compatibility policy and Rust-owned state
+  virtual capability range; counted resolution requests; shared process tick sample
                          |
                          v
 Browser adapters
@@ -70,10 +70,32 @@ serialized timer snapshot is immutable diagnostic data, not a second owner.
 Browser timeout granularity, Worker yield policy, Web Audio, and host timer
 resolution remain unchanged and non-authoritative.
 
+## Shared multimedia tick sample
+
+The controlled policy enables `shared-process-tick-count-increment-1-v1` for
+`winmm.time-get-time.v1`. The contract is zero-argument x86 stdcall, returns a
+raw DWORD through U32 completion, preserves LastError, and performs no guest
+write or browser request. Policy absence or a zero increment stops before
+runtime mutation.
+
+`runtime/process.rs::RuntimeProcessState` remains the single owner of
+`RuntimeClockState.tick_count`. Both `GetTickCount` and `timeGetTime` call the
+same mutation-free sample plan and targeted commit: return the current DWORD,
+then advance the stored value with wrapping addition. WinMM does not own a
+second epoch or counter. The version-1 increment of 1 is deterministic
+compatibility policy, not an observation of elapsed host time.
+
+Timer capabilities and resolution requests remain orthogonal to this datum.
+`timeGetDevCaps` does not sample it, and a successful `timeBeginPeriod` does
+not alter it. Browser `performance.now()`, host uptime, task scheduling, frame
+cadence, and audio clocks are not imported into either API.
+
 The capability query is documented in
 [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md); native pairing evidence
 and the reached begin call are documented in
-[bgi-time-begin-period.md](bgi-time-begin-period.md). Active call counts, report
+[bgi-time-begin-period.md](bgi-time-begin-period.md). Shared-clock native and
+caller evidence is documented in
+[bgi-time-get-time.md](bgi-time-get-time.md). Active call counts, report
 identity, and the next structured stop remain solely in
 [`current-checkpoint.json`](current-checkpoint.json).
 
@@ -83,7 +105,9 @@ identity, and the next structured stop remain solely in
 short and oversized lengths, LastError preservation, stdcall cleanup, policy
 validation, duplicate begin／matching end, unmatched and out-of-policy
 rejection, process teardown, and mutation-free failure paths. Owner model tests
-fix capacity and stale-plan behavior. Node and Chrome execute the same semantic
+fix capacity, stale-plan, and DWORD-wrap behavior. The `timeGetTime` fixture
+also fixes consecutive shared-process samples, zero guest writes, and
+disabled／invalid policy failure atomicity. Node and Chrome execute the same semantic
 handlers through the generic endpoint catalog; TypeScript stores no parallel
 capability or request profile.
 
@@ -95,3 +119,5 @@ capability or request profile.
   precision, accuracy, latency, or power behavior.
 - Periods other than 1 and cross-process aggregation are not enabled by the
   controlled policy.
+- Deterministic read progression does not claim elapsed-time accuracy or bind
+  the sampled clock to timer-resolution requests.

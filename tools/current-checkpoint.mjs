@@ -706,6 +706,14 @@ export function validateCurrentCheckpoint(manifest) {
     "setWindowPosActivationSequence",
     "setWindowPosActivationLastError",
     "setWindowPosActivationGuestWriteBytes",
+    "timeGetTimeCompletions",
+    "timeGetTimeSequence",
+    "timeGetTimeInstructionCount",
+    "timeGetTimeResult",
+    "timeGetTimeLastError",
+    "timeGetTimeGuestWriteBytes",
+    "timeGetTimeNextTickCount",
+    "timeGetTimeIncrementPerRead",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -775,7 +783,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 87_236 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 87_239 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1129,6 +1137,27 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.setWindowPosActivationFocusWindow !== "0x48010001" ||
     bgiBrowserEvidence.setWindowPosActivationForegroundWindow !== "0x48010001" ||
     bgiBrowserEvidence.setWindowPosActivationOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.timeGetTimeCompletions !== 1 ||
+    bgiBrowserEvidence.timeGetTimeSequence !== 17_858 ||
+    bgiBrowserEvidence.timeGetTimeInstructionCount !== 11_807_928 ||
+    bgiBrowserEvidence.timeGetTimeArguments?.length !== 0 ||
+    bgiBrowserEvidence.timeGetTimeResult !== 3_601_004 ||
+    bgiBrowserEvidence.timeGetTimeLastError !== 0 ||
+    bgiBrowserEvidence.timeGetTimeGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.timeGetTimeImplementationId !==
+      "winmm.time-get-time.v1" ||
+    bgiBrowserEvidence.timeGetTimePolicyProfileId !==
+      "shared-process-tick-count-increment-1-v1" ||
+    bgiBrowserEvidence.timeGetTimeClockAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    bgiBrowserEvidence.timeGetTimeClockRelation !==
+      "shared-with-kernel32-get-tick-count" ||
+    bgiBrowserEvidence.timeGetTimeNextTickCount !== 3_601_005 ||
+    bgiBrowserEvidence.timeGetTimeIncrementPerRead !== 1 ||
+    bgiBrowserEvidence.timeGetTimeTimerResolutionAffectsClock !== false ||
+    bgiBrowserEvidence.timeGetTimeHostClockImported !== false ||
+    bgiBrowserEvidence.timeGetTimeBrowserClockImported !== false ||
+    bgiBrowserEvidence.timeGetTimeOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.browserOwnsGdiState !== false ||
     bgiBrowserEvidence.runtimeGraphicsCreatedByWindowDcSlice !== false ||
     bgiBrowserEvidence.browserRendererResourceCreatedByWindowDcSlice !== false ||
@@ -1227,10 +1256,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 2 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-d3d9-surface-get-dc-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "d3d9-surface-get-dc" ||
+      "fixtures/benchmarks/bgi-browser-time-get-time-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "winmm-time-get-time" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-d3d9-surface-get-dc-observation" ||
+      "current-winmm-time-get-time-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -4095,7 +4124,7 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     winmmPolicy.schema !== "vine.winmm-compatibility-policy" ||
     winmmPolicy.schemaVersion !== 1 ||
-    winmmPolicy.id !== "winmm-timecaps-1-1000000-period-1-v1" ||
+    winmmPolicy.id !== "winmm-timecaps-1-1000000-period-1-tick-1-v1" ||
     winmmPolicy.source !==
       "crates/vine-core/src/winmm.rs::WinmmCompatibilityPolicy::controlled_v1" ||
     winmmPolicy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
@@ -4115,11 +4144,21 @@ export function validateCurrentCheckpoint(manifest) {
     winmmPolicy.duplicateBeginRequiresMatchingEnds !== true ||
     winmmPolicy.unmatchedEndResult !== 97 ||
     winmmPolicy.processExitRetiresRequests !== true ||
+    winmmPolicy.timeGetTimeProfileId !==
+      "shared-process-tick-count-increment-1-v1" ||
+    winmmPolicy.timeGetTimeClockAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    winmmPolicy.timeGetTimeClockRelation !==
+      "shared-with-kernel32-get-tick-count" ||
+    winmmPolicy.timeGetTimeIncrementPerRead !== 1 ||
+    winmmPolicy.timerResolutionAffectsSampledClock !== false ||
     winmmPolicy.lastErrorPolicy !== "preserve" ||
     winmmPolicy.hostTimerCapabilitiesImported !== false ||
     winmmPolicy.browserTimerCapabilitiesImported !== false ||
     winmmPolicy.hostTimerResolutionImported !== false ||
     winmmPolicy.browserTimerResolutionImported !== false ||
+    winmmPolicy.hostClockImported !== false ||
+    winmmPolicy.browserClockImported !== false ||
     winmmPolicy.clockAdvancedByQuery !== false ||
     winmmPolicy.unsupportedBeforeMutation !== true
   ) {
@@ -4132,6 +4171,18 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (latestEvidence.implementedApiContractCount !== APIs.length) {
     errors.push("latest active evidence API count does not match the active summary");
+  }
+  for (const field of [
+    "nativeTimeGetTimePrimaryTraceSha256",
+    "nativeTimeGetTimePrimarySummarySha256",
+    "nativeTimeGetTimeConfirmationTraceSha256",
+    "nativeTimeGetTimeConfirmationSummarySha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
   }
   if (
     latestEvidence.genericSupportedCallCount !==
@@ -4369,9 +4420,68 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.timeBeginPeriodAdvancesClock !== false ||
     latestEvidence.timeEndPeriodImplemented !== true ||
     latestEvidence.timeEndPeriodReached !== false ||
-    latestEvidence.timerResolutionProcessExitTeardown !== true
+    latestEvidence.timerResolutionProcessExitTeardown !== true ||
+    latestEvidence.nativeTimeGetTimePrimaryTraceBytes !== 304_054 ||
+    latestEvidence.nativeTimeGetTimePrimaryTraceLines !== 854 ||
+    latestEvidence.nativeTimeGetTimePrimaryTraceSha256 !==
+      "8560ea8389627cfc2c85b4a98f30f835ab53ff3ec13038ac55b25ad736790a29" ||
+    latestEvidence.nativeTimeGetTimePrimaryBalancedApiPairs !== 390 ||
+    latestEvidence.nativeTimeGetTimePrimarySummaryBytes !== 51_478 ||
+    latestEvidence.nativeTimeGetTimePrimarySummarySha256 !==
+      "5fa32c69a605e1cd173eed042522669f253534a1d993d943ee239b12d16fc777" ||
+    latestEvidence.nativeTimeGetTimeConfirmationTraceBytes !== 303_051 ||
+    latestEvidence.nativeTimeGetTimeConfirmationTraceLines !== 851 ||
+    latestEvidence.nativeTimeGetTimeConfirmationTraceSha256 !==
+      "8f3a8847793282b4eadb4f4e45c6a142610b9f3ea1f3e4437e0b8349b314cc5e" ||
+    latestEvidence.nativeTimeGetTimeConfirmationBalancedApiPairs !== 388 ||
+    latestEvidence.nativeTimeGetTimeConfirmationSummaryBytes !== 51_652 ||
+    latestEvidence.nativeTimeGetTimeConfirmationSummarySha256 !==
+      "83d7a4ca65a6b109379b796838cc1d97718083a28657bc70d395d636ef9604c3" ||
+    latestEvidence.nativeTimeGetTimeTraceDiagnostics !== 0 ||
+    latestEvidence.nativeTimeGetTimeProfile !== "x86-bgi-time-get-time-v1" ||
+    latestEvidence.nativeTimeGetTimeOracleProfile !==
+      "x86-time-get-time-shared-tick-epoch-v1" ||
+    latestEvidence.nativeTimeGetTimeOracleSentinels?.join(",") !==
+      "0,87,305419896" ||
+    latestEvidence.nativeTimeGetTimeOracleCallsPerTrace !== 3 ||
+    latestEvidence.nativeTimeGetTimeOracleResultsMatchHooks !== true ||
+    latestEvidence.nativeTimeGetTimeOraclePreservesLastError !== true ||
+    latestEvidence.nativeTimeGetTimeOracleResultsWithinGetTickCountBrackets !==
+      true ||
+    latestEvidence.nativeTimeGetTimeMainCallsPerTrace !== 1 ||
+    latestEvidence.nativeTimeGetTimeCallerRva !== "0x00091ebf" ||
+    latestEvidence.nativeTimeGetTimeLastError !== 0 ||
+    latestEvidence.nativeTimeGetTimeConsumerProfile !==
+      "wrap-aware-eax-delta-v1" ||
+    latestEvidence.nativeTimeGetTimeConsumerFrameCallerRva !== "0x00083144" ||
+    latestEvidence.nativeTimeGetTimeExecutableHashUnchanged !== true ||
+    latestEvidence.timeGetTimeImplemented !== true ||
+    latestEvidence.timeGetTimeSequence !== 17_858 ||
+    latestEvidence.timeGetTimeInstructionCount !== 11_807_928 ||
+    latestEvidence.timeGetTimeArguments?.length !== 0 ||
+    latestEvidence.timeGetTimeReturnAddress !== "0x10091ebf" ||
+    latestEvidence.timeGetTimeResult !== 3_601_004 ||
+    latestEvidence.timeGetTimeLastError !== 0 ||
+    latestEvidence.timeGetTimeGuestWriteBytes !== 0 ||
+    latestEvidence.timeGetTimeImplementationId !== "winmm.time-get-time.v1" ||
+    latestEvidence.timeGetTimePolicyProfileId !==
+      "shared-process-tick-count-increment-1-v1" ||
+    latestEvidence.timeGetTimeClockAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    latestEvidence.timeGetTimeClockRelation !==
+      "shared-with-kernel32-get-tick-count" ||
+    latestEvidence.timeGetTimeNextTickCount !== 3_601_005 ||
+    latestEvidence.timeGetTimeIncrementPerRead !== 1 ||
+    latestEvidence.timeGetTimeTimerResolutionAffectsClock !== false ||
+    latestEvidence.timeGetTimeHostClockImported !== false ||
+    latestEvidence.timeGetTimeBrowserClockImported !== false ||
+    latestEvidence.timeGetTimeFailureAtomicity !== true ||
+    latestEvidence.timeGetTimeNodeCompletions !== 1 ||
+    latestEvidence.timeGetTimeChromeCompletions !== 1 ||
+    latestEvidence.timeGetTimeNodeChromeOrderedSemanticsMatched !== true ||
+    latestEvidence.tickCountNextValue !== 3_601_005
   ) {
-    errors.push("latest WinMM timer-resolution evidence is invalid");
+    errors.push("latest WinMM timer and shared-clock evidence is invalid");
   }
   if (
     latestEvidence.nativeGetVersionExATraceDiagnostics !== 0 ||
@@ -4400,7 +4510,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-d3d9-surface-get-dc.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-time-get-time.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -4862,11 +4972,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_912 ||
-    latestEvidence.writebackDirtyPages !== 36_064 ||
-    latestEvidence.writebackChangedBytes !== 1_807_607 ||
+    latestEvidence.writebackBatches !== 17_913 ||
+    latestEvidence.writebackDirtyPages !== 36_066 ||
+    latestEvidence.writebackChangedBytes !== 1_807_627 ||
     latestEvidence.hostDeltaBatches !== 16_568 ||
-    latestEvidence.finalMemoryGeneration !== 34_810
+    latestEvidence.finalMemoryGeneration !== 34_811
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -6646,7 +6756,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "atomic D3D9 surface HDC publication, relation-checked GDI fill into RuntimeGraphics command history, and guarded ReleaseDC/COM retirement" ||
+      "shared process tick-count sampling for Kernel32 GetTickCount and WinMM timeGetTime with deterministic wrap-aware progression" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

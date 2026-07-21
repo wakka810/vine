@@ -141,6 +141,12 @@ let timeGetDevCapsCompletionRecorded = false;
 let timeGetDevCapsDrainCheckScheduled = false;
 const timeGetDevCapsMainModuleCalls = [];
 const timePeriodMainModuleCalls = [];
+let timeGetTimeOracleScheduled = false;
+let timeGetTimeOracleCall = null;
+let timeGetTimeOracleComplete = false;
+let timeGetTimeOracleEvidence = null;
+let timeGetTimeCompletionRecorded = false;
+const timeGetTimeMainModuleCalls = [];
 let getVersionExAOracleScheduled = false;
 let getVersionExAOracleCall = null;
 let getVersionExAOracleComplete = false;
@@ -10654,6 +10660,197 @@ function maybeCompleteTimeGetDevCapsObservation() {
   }, 250);
 }
 
+function maybeCompleteTimeGetTimeObservation() {
+  if (
+    timeGetTimeCompletionRecorded ||
+    !timeGetTimeOracleComplete ||
+    timeGetTimeMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  timeGetTimeCompletionRecorded = true;
+  emit("time-get-time-complete", {
+    profile: "x86-bgi-time-get-time-v1",
+    oracleProfile: timeGetTimeOracleEvidence.profile,
+    mainModuleCalls: timeGetTimeMainModuleCalls.map((call) => ({ ...call })),
+  });
+  if (stopOnEvent === "time-get-time-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachTimeGetTimeHook(module) {
+  const name = "timeGetTime";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("timeGetTime export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter() {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      this.mainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      this.oracleCaller =
+        callerModule === "frida-agent.dll" && timeGetTimeOracleCall !== null;
+      if (!this.mainModuleCaller && !this.oracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (this.oracleCaller) {
+        this.lastError = timeGetTimeOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = this.mainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              96,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [],
+          lastErrorBefore: this.lastErrorBefore,
+          timeGetTime: {
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const value = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        timeGetTimeOracleCall.hookResult = value;
+        timeGetTimeOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          timeGetTime: { result: value },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && timeGetTimeMainModuleCalls.length === 0) {
+        timeGetTimeMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          result: value,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteTimeGetTimeObservation);
+      }
+    },
+  });
+}
+
+function scheduleTimeGetTimeOracle(module) {
+  if (timeGetTimeOracleScheduled) {
+    return;
+  }
+  timeGetTimeOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "timeGetTime");
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const getTickCountAddress = findExport(kernel32, "GetTickCount");
+      if (address === null || getTickCountAddress === null) {
+        throw new Error("timeGetTime or GetTickCount export is unavailable");
+      }
+      const timeGetTime = new SystemFunction(address, "uint32", [], "stdcall");
+      const getTickCount = new SystemFunction(
+        getTickCountAddress,
+        "uint32",
+        [],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const tickCountBefore = Number(getTickCount().value) >>> 0;
+        timeGetTimeOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = timeGetTime();
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          const tickCountAfter = Number(getTickCount().value) >>> 0;
+          if (
+            timeGetTimeOracleCall.hookResult === null ||
+            timeGetTimeOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("timeGetTime oracle did not pass through the hook");
+          }
+          const tickCountSpan = (tickCountAfter - tickCountBefore) >>> 0;
+          const resultOffset = (systemResult - tickCountBefore) >>> 0;
+          return {
+            sentinel,
+            tickCountBefore,
+            systemResult,
+            tickCountAfter,
+            tickCountSpan,
+            resultOffset,
+            hookResult: timeGetTimeOracleCall.hookResult,
+            hookLastErrorAfter: timeGetTimeOracleCall.hookLastErrorAfter,
+            systemLastError,
+            resultWithinTickCountBracket: resultOffset <= tickCountSpan,
+            hookResultMatches:
+              timeGetTimeOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              timeGetTimeOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          timeGetTimeOracleCall = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678].map(invoke);
+      timeGetTimeOracleEvidence = {
+        profile: "x86-time-get-time-shared-tick-epoch-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+        allResultsWithinTickCountBrackets: calls.every(
+          (call) => call.resultWithinTickCountBracket,
+        ),
+      };
+      timeGetTimeOracleComplete = true;
+      emit("time-get-time-oracle", timeGetTimeOracleEvidence);
+      maybeCompleteTimeGetTimeObservation();
+    } catch (error) {
+      emit("time-get-time-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleTimeGetDevCapsOracle(module) {
   if (timeGetDevCapsOracleScheduled) {
     return;
@@ -14285,6 +14482,21 @@ Process.attachModuleObserver({
       selectedObservations.has("time-get-dev-caps")
     ) {
       scheduleTimeGetDevCapsOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "winmm.dll" &&
+      selectedObservations.has("time-get-time")
+    ) {
+      try {
+        attachTimeGetTimeHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "timeGetTime",
+          error: error.message,
+        });
+      }
+      scheduleTimeGetTimeOracle(module);
     }
     if (
       module.name.toLowerCase() === "ole32.dll" &&

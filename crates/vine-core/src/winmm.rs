@@ -14,6 +14,7 @@ pub const WINMM_COMPATIBILITY_POLICY_VERSION: u32 = 1;
 pub const TIME_GET_DEV_CAPS_IMPLEMENTATION: &str = "winmm.time-get-dev-caps.v1";
 pub const TIME_BEGIN_PERIOD_IMPLEMENTATION: &str = "winmm.time-begin-period.v1";
 pub const TIME_END_PERIOD_IMPLEMENTATION: &str = "winmm.time-end-period.v1";
+pub const TIME_GET_TIME_IMPLEMENTATION: &str = "winmm.time-get-time.v1";
 pub const X86_TIMECAPS_BYTE_LENGTH: u32 = 8;
 pub const TIMERR_NOERROR: u32 = 0;
 pub const TIMERR_NOCANDO: u32 = 97;
@@ -37,12 +38,20 @@ pub struct WinmmTimerResolutionPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WinmmTimeGetTimePolicy {
+    pub profile_id: String,
+    pub increment_per_read: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WinmmCompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub time_get_dev_caps: Option<WinmmTimeCapabilitiesPolicy>,
     pub timer_resolution: Option<WinmmTimerResolutionPolicy>,
+    pub time_get_time: Option<WinmmTimeGetTimePolicy>,
 }
 
 impl WinmmCompatibilityPolicy {
@@ -50,7 +59,7 @@ impl WinmmCompatibilityPolicy {
         Self {
             schema: WINMM_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: WINMM_COMPATIBILITY_POLICY_VERSION,
-            id: "winmm-timecaps-1-1000000-period-1-v1".to_owned(),
+            id: "winmm-timecaps-1-1000000-period-1-tick-1-v1".to_owned(),
             time_get_dev_caps: Some(WinmmTimeCapabilitiesPolicy {
                 profile_id: "timecaps-1-1000000-v1".to_owned(),
                 period_minimum_milliseconds: 1,
@@ -59,6 +68,10 @@ impl WinmmCompatibilityPolicy {
             timer_resolution: Some(WinmmTimerResolutionPolicy {
                 profile_id: "timer-resolution-period-1-v1".to_owned(),
                 allowed_periods_milliseconds: vec![1],
+            }),
+            time_get_time: Some(WinmmTimeGetTimePolicy {
+                profile_id: "shared-process-tick-count-increment-1-v1".to_owned(),
+                increment_per_read: 1,
             }),
         }
     }
@@ -117,6 +130,16 @@ impl WinmmCompatibilityPolicy {
                 ));
             }
         }
+        if let Some(time_get_time) = self.time_get_time.as_ref()
+            && (!valid_policy_id(&time_get_time.profile_id)
+                || time_get_time.increment_per_read == 0)
+        {
+            return Err(ApiFault::runtime_defect(
+                "winmm-compatibility-policy",
+                "winmm-time-get-time-policy-invalid",
+                "WinMM timeGetTime policy requires a bounded identity and nonzero deterministic increment",
+            ));
+        }
         Ok(())
     }
 }
@@ -136,6 +159,7 @@ pub fn dispatch_winmm_api_with_policy(
             handle_time_begin_period(policy, contract, frame, session)
         }
         TIME_END_PERIOD_IMPLEMENTATION => handle_time_end_period(policy, contract, frame, session),
+        TIME_GET_TIME_IMPLEMENTATION => handle_time_get_time(policy, contract, session),
         implementation_id => Err(ApiFault::unsupported(
             "winmm-api-dispatch",
             "implementation-id-unsupported",
@@ -146,6 +170,28 @@ pub fn dispatch_winmm_api_with_policy(
         Ok(immediate) => ApiHandlerResult::Immediate(immediate),
         Err(fault) => ApiHandlerResult::Fault(fault),
     }
+}
+
+fn handle_time_get_time(
+    policy: &WinmmCompatibilityPolicy,
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let clock = policy.time_get_time.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "winmm-process-clock",
+            "time-get-time-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable multimedia tick sampling",
+                policy.id
+            ),
+        )
+    })?;
+    let tick_count = session
+        .runtime_mut()
+        .sample_tick_count(clock.increment_per_read)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::U32(tick_count)))
 }
 
 fn handle_time_get_dev_caps(
@@ -253,8 +299,26 @@ pub fn winmm_contract_for_endpoint(
         "timeGetDevCaps" => Ok(Some(time_get_dev_caps_contract(endpoint)?)),
         "timeBeginPeriod" => Ok(Some(time_begin_period_contract(endpoint)?)),
         "timeEndPeriod" => Ok(Some(time_end_period_contract(endpoint)?)),
+        "timeGetTime" => Ok(Some(time_get_time_contract(endpoint)?)),
         _ => Ok(None),
     }
+}
+
+pub fn time_get_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: Vec::new(),
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: TIME_GET_TIME_IMPLEMENTATION.to_owned(),
+    })
 }
 
 pub fn time_begin_period_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
@@ -372,6 +436,12 @@ mod tests {
                 .allowed_periods_milliseconds,
             [1]
         );
+        let time_get_time = policy.time_get_time.as_ref().unwrap();
+        assert_eq!(
+            time_get_time.profile_id,
+            "shared-process-tick-count-increment-1-v1"
+        );
+        assert_eq!(time_get_time.increment_per_read, 1);
 
         let mut invalid = policy;
         invalid
@@ -393,6 +463,13 @@ mod tests {
         assert_eq!(
             invalid.validate().unwrap_err().code,
             "winmm-timer-resolution-policy-invalid"
+        );
+
+        let mut invalid = WinmmCompatibilityPolicy::controlled_v1();
+        invalid.time_get_time.as_mut().unwrap().increment_per_read = 0;
+        assert_eq!(
+            invalid.validate().unwrap_err().code,
+            "winmm-time-get-time-policy-invalid"
         );
     }
 }

@@ -35,17 +35,17 @@ use vine_core::{
     RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
     RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
     SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
-    TIME_END_PERIOD_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
-    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, encode_pointer_contract, gdi32_contract_for_endpoint,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, UnsupportedPoint,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
+    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api,
+    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, encode_pointer_contract,
+    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -191,6 +191,7 @@ enum GenericRuntimeCapability {
     D3d9CreateTexture,
     D3d9GetSurfaceLevel,
     D3d9SurfaceGetDc,
+    TimeGetTime,
 }
 
 struct GenericRuntimeProcess {
@@ -2319,6 +2320,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9CreateTexture
                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
                     | GenericRuntimeCapability::D3d9SurfaceGetDc
+                    | GenericRuntimeCapability::TimeGetTime
             )
         ) {
             let loader = kernel32_policy
@@ -2983,6 +2985,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3020,7 +3023,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9CreateDevice
             | GenericRuntimeCapability::D3d9CreateTexture
             | GenericRuntimeCapability::D3d9GetSurfaceLevel
-            | GenericRuntimeCapability::D3d9SurfaceGetDc,
+            | GenericRuntimeCapability::D3d9SurfaceGetDc
+            | GenericRuntimeCapability::TimeGetTime,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3093,6 +3097,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3107,6 +3112,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3123,6 +3129,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3134,6 +3141,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3145,6 +3153,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         d3d9_policy.create_texture = None;
@@ -3156,6 +3165,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         d3d9_policy.get_surface_level = None;
@@ -3163,7 +3173,7 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9SurfaceGetDc)
+        Some(GenericRuntimeCapability::D3d9SurfaceGetDc | GenericRuntimeCapability::TimeGetTime)
     ) {
         d3d9_policy.surface_dc = None;
     }
@@ -3452,6 +3462,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4249,6 +4260,28 @@ fn run_v86_generic_runtime_session(
                                         })
                                     })
                                     .transpose()?
+                            } else if completion.implementation_id == TIME_GET_TIME_IMPLEMENTATION {
+                                let increment_per_read = winmm_policy
+                                    .time_get_time
+                                    .as_ref()
+                                    .ok_or_else(|| {
+                                        LoaderError::runtime_defect(
+                                            "runtime-reentry",
+                                            "time-get-time-policy-missing-after-dispatch",
+                                            "completed timeGetTime has no multimedia clock policy",
+                                        )
+                                    })?
+                                    .increment_per_read;
+                                let returned_tick_count = set_eax_result(
+                                    &completion,
+                                    "time-get-time-return-register-invalid",
+                                    "timeGetTime dispatcher did not set EAX",
+                                )?;
+                                Some(GenericRuntimeTickCount {
+                                    returned_tick_count,
+                                    next_tick_count: session.runtime().clock().tick_count,
+                                    increment_per_read,
+                                })
                             } else {
                                 None
                             };
@@ -4677,6 +4710,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9CreateTexture
                             | GenericRuntimeCapability::D3d9GetSurfaceLevel
                             | GenericRuntimeCapability::D3d9SurfaceGetDc
+                            | GenericRuntimeCapability::TimeGetTime
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4736,6 +4770,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9CreateTexture
                                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
                                     | GenericRuntimeCapability::D3d9SurfaceGetDc
+                                    | GenericRuntimeCapability::TimeGetTime
                             )
                         )
                     {
@@ -4777,6 +4812,7 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let time_get_time_enabled = matches!(enabled, Some(GenericRuntimeCapability::TimeGetTime));
     let monitor_from_window_enabled = matches!(
         enabled,
         Some(
@@ -4787,6 +4823,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4801,6 +4838,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4816,6 +4854,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4832,6 +4871,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let load_library_a_enabled = matches!(
@@ -4849,6 +4889,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4872,6 +4913,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4913,6 +4955,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5372,6 +5415,7 @@ fn runtime_capability_enables_endpoint(
         "SwapMouseButton" => swap_mouse_button_enabled,
         "timeGetDevCaps" => time_get_dev_caps_enabled,
         "timeBeginPeriod" | "timeEndPeriod" => time_begin_period_enabled,
+        "timeGetTime" => time_get_time_enabled,
         "GetVersionExA" => get_version_ex_a_enabled,
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
         "LoadIconA" => load_icon_a_enabled,
@@ -5422,6 +5466,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9CreateTexture
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -11208,6 +11253,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-create-texture" => GenericRuntimeCapability::D3d9CreateTexture,
                 "d3d9-get-surface-level" => GenericRuntimeCapability::D3d9GetSurfaceLevel,
                 "d3d9-surface-get-dc" => GenericRuntimeCapability::D3d9SurfaceGetDc,
+                "winmm-time-get-time" => GenericRuntimeCapability::TimeGetTime,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

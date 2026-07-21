@@ -97,9 +97,10 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-d3d9-surface-get-dc-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-surface-get-dc-v1.json).
+[`bgi-browser-time-get-time-v1.json`](../fixtures/benchmarks/bgi-browser-time-get-time-v1.json).
 It repeats the complete current session through surface `GetDC`, stock-brush
-`FillRect`, `ReleaseDC`, and surface retirement. Every summary-evidence
+`FillRect`, `ReleaseDC`, surface retirement, and the shared process-clock
+`timeGetTime` sample before the `MessageBoxA` stop. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
@@ -190,7 +191,8 @@ Focused native startup／heap evidence is opt-in with
 `py tools/windows/trace.py ... --observe startup-info`,
 `--observe heap-set-information`, `--observe heap-lifecycle`, `--observe heap-allocation`,
 `--observe module-handle`, `--observe dynamic-export`, `--observe get-cp-info`, or
-`--observe multi-byte-to-wide-char`. Startup records the 68-byte x86 span;
+`--observe multi-byte-to-wide-char`. Reached shared-clock evidence additionally uses
+`--observe time-get-time`. Startup records the 68-byte x86 span;
 heap-set records the exact policy call; heap-lifecycle hooks reached lifecycle
 calls; and heap-allocation retains only main-executable `HeapAlloc`／`HeapFree`
 with bounded buffer／caller／lifetime metadata. Module-handle decodes A/W names,
@@ -199,7 +201,9 @@ Heap, module, and dynamic-export observations retain the focused LastError
 evidence. GetCPInfo retains direct BGI calls and a guarded raw-output／LastError
 self-oracle with bounded x86 consumer frames. The multibyte option records the
 six-argument query／conversion pair, bounded bytes／UTF-16 output, consumer
-frames, and a guarded Windows-932 oracle. Ordinary
+frames, and a guarded Windows-932 oracle. The multimedia-clock option records
+hook／system result agreement, LastError sentinels, wrapping `GetTickCount`
+brackets, and the reached consumer without treating host tick values as policy. Ordinary
 traces do not install these hooks.
 
 ## GitHub Actions
