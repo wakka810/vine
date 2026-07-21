@@ -63,6 +63,7 @@ const supportedObservations = new Set([
   "d3d9-create-device",
   "d3d9-get-surface-level",
   "d3d9-surface-get-dc",
+  "d3d9-initial-textures",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -1696,6 +1697,107 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       };
     });
 
+  const initialTextureCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-initial-textures-complete",
+  );
+  const requiresInitialTextureCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-initial-textures" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-initial-textures-complete";
+  if (
+    initialTextureCompletionEvents.length > 1 ||
+    (requiresInitialTextureCompletion && initialTextureCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-initial-textures observation requires exactly one structured completion",
+    );
+  }
+  const pairsByCallId = new Map(
+    apiPairing.pairs.map((pair) => [pair.enter.callId, pair]),
+  );
+  const createTexturesBySequence = new Map(
+    createTextures.map((texture) => [texture.sequence, texture]),
+  );
+  const initialTextureSequences = initialTextureCompletionEvents.map((completion) => {
+    const expectedArguments = [
+      [0x400n, 0x400n, 1n, 0n, 0x16n, 2n],
+      [0x400n, 0x400n, 1n, 0n, 0x16n, 0n],
+      [0x400n, 0x400n, 1n, 0x200n, 0x16n, 0n],
+    ];
+    const expectedCallers = [0x5a715, 0x5a7b7, 0x5a7dc];
+    if (
+      completion.profile !== "x86-bgi-initial-textures-v1" ||
+      typeof completion.device !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+      BigInt(completion.device) === 0n ||
+      !Array.isArray(completion.calls) ||
+      completion.calls.length !== expectedArguments.length ||
+      !Number.isInteger(completion.sequence)
+    ) {
+      throw new Error("d3d9-initial-textures completion has invalid structure");
+    }
+    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
+    const returnedTextures = new Set();
+    let threadId = null;
+    const calls = completion.calls.map((snapshot, index) => {
+      const pair = pairsByCallId.get(snapshot?.callId);
+      const createTexture =
+        pair === undefined ? undefined : createTexturesBySequence.get(pair.enter.sequence);
+      if (
+        pair === undefined ||
+        createTexture === undefined ||
+        snapshot.api !== "CreateTexture" ||
+        snapshot.interface !== "IDirect3DDevice9" ||
+        snapshot.vtableSlot !== 23 ||
+        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== pair.leave.result ||
+        snapshot.lastError !== pair.leave.lastError ||
+        JSON.stringify(snapshot.d3d9CreateTexture) !==
+          JSON.stringify(pair.leave.d3d9CreateTexture) ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== expectedCallers[index] ||
+        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        pair.enter.arguments.length !== 8 ||
+        expectedArguments[index].some(
+          (expected, argumentIndex) =>
+            BigInt(pair.enter.arguments[argumentIndex]) !== expected,
+        ) ||
+        BigInt(pair.enter.arguments[7]) !== 0n ||
+        BigInt(pair.leave.result) !== 0n ||
+        pair.leave.lastError !== 0 ||
+        BigInt(createTexture.returnedTexture) === 0n ||
+        createTexture.textureOutput.after.pointer.toLowerCase() !==
+          pair.enter.arguments[6].toLowerCase()
+      ) {
+        throw new Error(
+          `d3d9-initial-textures completion call ${index} violates its caller, tuple, or output contract`,
+        );
+      }
+      threadId ??= pair.enter.threadId;
+      if (
+        pair.enter.threadId !== threadId ||
+        returnedTextures.has(createTexture.returnedTexture.toLowerCase())
+      ) {
+        throw new Error(
+          "d3d9-initial-textures completion does not describe one thread with distinct texture identities",
+        );
+      }
+      returnedTextures.add(createTexture.returnedTexture.toLowerCase());
+      return createTexture;
+    });
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      threadId,
+      device: completion.device,
+      calls,
+    };
+  });
+
   const getSurfaceLevels = apiPairing.pairs
     .filter(
       (pair) =>
@@ -2267,6 +2369,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       deviceCaps,
       createDevices,
       createTextures,
+      initialTextureSequences,
       getSurfaceLevels,
       surfaceDcFlows,
       deviceCalls,

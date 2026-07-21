@@ -3440,6 +3440,14 @@ impl RuntimeKernel {
         self.graphics.textures()
     }
 
+    pub(crate) fn graphics_texture_for_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeGraphicsTexture, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.texture_for_com_object(com_object_id)
+    }
+
     pub(crate) fn plan_graphics_surface_creation(
         &self,
         request: RuntimeGraphicsSurfaceCreateRequest,
@@ -5150,10 +5158,11 @@ mod tests {
     use crate::d3d9::{
         D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DDEVTYPE_HAL,
         D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16, D3D9_D3DFMT_UNKNOWN,
-        D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_SYSTEMMEM,
-        D3D9_D3DSWAPEFFECT_DISCARD, D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID,
-        D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID, D3d9CompatibilityPolicy,
-        direct3d9_object_spec, dispatch_d3d9_com_call,
+        D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_DEFAULT,
+        D3D9_D3DPOOL_SYSTEMMEM, D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DUSAGE_DYNAMIC,
+        D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID,
+        D3D9_IDIRECT3DTEXTURE9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
+        dispatch_d3d9_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
@@ -5410,7 +5419,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v11(),
+                &D3d9CompatibilityPolicy::controlled_v12(),
                 ComCallTrap {
                     endpoint_address: root_interface.methods[&16].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5501,18 +5510,30 @@ mod tests {
         acknowledge_d3d9_fixture_memory(&mut memory);
 
         write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_TEXTURE_OUTPUT, &[0xcccc_cccc]);
-        for (width, levels, output, shared_handle, expected) in [
+        for (width, levels, usage, pool, output, shared_handle, expected) in [
             (
                 0,
                 1,
+                0,
+                D3D9_D3DPOOL_SYSTEMMEM,
                 D3D9_FIXTURE_TEXTURE_OUTPUT.0,
                 0,
                 D3D9_D3DERR_INVALIDCALL,
             ),
-            (1_024, 1, 0, 0, D3D9_D3DERR_INVALIDCALL),
             (
                 1_024,
                 1,
+                0,
+                D3D9_D3DPOOL_SYSTEMMEM,
+                0,
+                0,
+                D3D9_D3DERR_INVALIDCALL,
+            ),
+            (
+                1_024,
+                1,
+                0,
+                D3D9_D3DPOOL_SYSTEMMEM,
                 D3D9_FIXTURE_TEXTURE_OUTPUT.0,
                 D3D9_FIXTURE_TEXTURE_OUTPUT.0,
                 D3D9_D3DERR_INVALIDCALL,
@@ -5520,6 +5541,8 @@ mod tests {
             (
                 512,
                 1,
+                0,
+                D3D9_D3DPOOL_SYSTEMMEM,
                 D3D9_FIXTURE_TEXTURE_OUTPUT.0,
                 0,
                 D3D9_D3DERR_NOTAVAILABLE,
@@ -5527,6 +5550,26 @@ mod tests {
             (
                 1_024,
                 2,
+                0,
+                D3D9_D3DPOOL_SYSTEMMEM,
+                D3D9_FIXTURE_TEXTURE_OUTPUT.0,
+                0,
+                D3D9_D3DERR_NOTAVAILABLE,
+            ),
+            (
+                1_024,
+                1,
+                D3D9_D3DUSAGE_DYNAMIC,
+                D3D9_D3DPOOL_SYSTEMMEM,
+                D3D9_FIXTURE_TEXTURE_OUTPUT.0,
+                0,
+                D3D9_D3DERR_NOTAVAILABLE,
+            ),
+            (
+                1_024,
+                1,
+                1,
+                D3D9_D3DPOOL_DEFAULT,
                 D3D9_FIXTURE_TEXTURE_OUTPUT.0,
                 0,
                 D3D9_D3DERR_NOTAVAILABLE,
@@ -5541,9 +5584,9 @@ mod tests {
                     width,
                     1_024,
                     levels,
-                    0,
+                    usage,
                     D3D9_D3DFMT_X8R8G8B8,
-                    D3D9_D3DPOOL_SYSTEMMEM,
+                    pool,
                     output,
                     shared_handle,
                 ],
@@ -5554,7 +5597,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v11(),
+                    &D3d9CompatibilityPolicy::controlled_v12(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5594,7 +5637,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled = D3d9CompatibilityPolicy::controlled_v11();
+        let mut disabled = D3d9CompatibilityPolicy::controlled_v12();
         disabled.create_texture = None;
         disabled.get_surface_level = None;
         disabled.surface_dc = None;
@@ -5641,7 +5684,7 @@ mod tests {
         let texture_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v11(),
+                &D3d9CompatibilityPolicy::controlled_v12(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&23].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5721,6 +5764,134 @@ mod tests {
             RuntimeGraphicsTexturePool::SystemMemory
         );
 
+        let mut additional_texture_interfaces = Vec::new();
+        for (call_site, usage, pool, expected_usage, expected_pool) in [
+            (
+                GuestAddress(0x1005_a7b7),
+                0,
+                D3D9_D3DPOOL_DEFAULT,
+                RuntimeGraphicsTextureUsage::None,
+                RuntimeGraphicsTexturePool::Default,
+            ),
+            (
+                GuestAddress(0x1005_a7dc),
+                D3D9_D3DUSAGE_DYNAMIC,
+                D3D9_D3DPOOL_DEFAULT,
+                RuntimeGraphicsTextureUsage::Dynamic,
+                RuntimeGraphicsTexturePool::Default,
+            ),
+        ] {
+            write_d3d9_fixture_words(
+                &mut memory,
+                D3D9_FIXTURE_STACK,
+                &[
+                    call_site.0,
+                    device_interface.guest_pointer.0,
+                    1_024,
+                    1_024,
+                    1,
+                    usage,
+                    D3D9_D3DFMT_X8R8G8B8,
+                    pool,
+                    D3D9_FIXTURE_TEXTURE_OUTPUT.0,
+                    0,
+                ],
+            );
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let completion = {
+                let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+                match dispatch_d3d9_com_call(
+                    &D3d9CompatibilityPolicy::controlled_v12(),
+                    ComCallTrap {
+                        endpoint_address: device_interface.methods[&23].endpoint,
+                        stack_pointer: D3D9_FIXTURE_STACK,
+                        return_address: call_site,
+                        call_site,
+                    },
+                    &mut session,
+                ) {
+                    ComDispatchOutcome::Completed(completion) => completion,
+                    other => panic!("initial CreateTexture did not complete: {other:?}"),
+                }
+            };
+            assert_eq!(completion.return_value, ComReturnValue::HResult(COM_S_OK));
+            assert_eq!(completion.guest_writes.len(), 1);
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let pointer = u32::from_le_bytes(
+                memory
+                    .read(D3D9_FIXTURE_TEXTURE_OUTPUT, 4)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            );
+            let interface = runtime
+                .com_interface_for_pointer(GuestAddress(pointer))
+                .expect("additional IDirect3DTexture9 output")
+                .clone();
+            let logical_texture = runtime
+                .graphics_textures()
+                .values()
+                .find(|texture| texture.com_object_id == interface.object_id)
+                .expect("additional logical graphics texture");
+            assert_eq!(logical_texture.descriptor.usage, expected_usage);
+            assert_eq!(logical_texture.descriptor.pool, expected_pool);
+            assert_eq!(logical_texture.descriptor.width, 1_024);
+            assert_eq!(logical_texture.descriptor.height, 1_024);
+            assert_eq!(logical_texture.descriptor.levels, 1);
+            additional_texture_interfaces.push(interface);
+        }
+        assert_eq!(runtime.graphics_textures().len(), 3);
+        assert_eq!(
+            runtime
+                .com()
+                .object(device_object.id)
+                .unwrap()
+                .reference_count,
+            4
+        );
+
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_a7f0,
+                additional_texture_interfaces[0].guest_pointer.0,
+                0,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_default_surface_memory = memory.stats();
+        let before_default_surface_runtime = runtime.clone();
+        let default_surface_fault = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v12(),
+                ComCallTrap {
+                    endpoint_address: additional_texture_interfaces[0].methods[&18].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_a7f0),
+                    call_site: GuestAddress(0x1005_a7f0),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Fault(fault) => fault,
+                other => panic!("default-pool GetSurfaceLevel did not fault: {other:?}"),
+            }
+        };
+        assert_eq!(default_surface_fault.class, ComFaultClass::Unsupported);
+        assert_eq!(
+            default_surface_fault.code,
+            "get-surface-level-texture-variant-unsupported"
+        );
+        assert_eq!(memory.stats(), before_default_surface_memory);
+        assert_eq!(runtime, before_default_surface_runtime);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+            0xcccc_cccc_u32.to_le_bytes()
+        );
+
         for (level, output, expected) in [
             (1, D3D9_FIXTURE_SURFACE_OUTPUT.0, D3D9_D3DERR_INVALIDCALL),
             (0, 0, D3D9_D3DERR_INVALIDCALL),
@@ -5742,7 +5913,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v11(),
+                    &D3d9CompatibilityPolicy::controlled_v12(),
                     ComCallTrap {
                         endpoint_address: texture_interface.methods[&18].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -5776,7 +5947,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v11();
+        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v12();
         disabled_surface.get_surface_level = None;
         disabled_surface.surface_dc = None;
         let before_disabled_memory = memory.stats();
@@ -5817,7 +5988,7 @@ mod tests {
         let surface_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v11(),
+                &D3d9CompatibilityPolicy::controlled_v12(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -5907,7 +6078,7 @@ mod tests {
         let null_output = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -5923,7 +6094,7 @@ mod tests {
         assert_eq!(memory.stats(), before_null_memory);
         assert_eq!(runtime, before_null_runtime);
 
-        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v11();
+        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v12();
         disabled_surface_dc.surface_dc = None;
         write_d3d9_fixture_words(
             &mut memory,
@@ -5960,7 +6131,7 @@ mod tests {
         let unwritable_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -5987,7 +6158,7 @@ mod tests {
         let get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6045,7 +6216,7 @@ mod tests {
         let repeated_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6136,7 +6307,7 @@ mod tests {
         let wrong_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6160,7 +6331,7 @@ mod tests {
         let release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6177,7 +6348,7 @@ mod tests {
         let repeated_release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6201,7 +6372,7 @@ mod tests {
         let reacquired = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -6228,7 +6399,7 @@ mod tests {
         let reacquired_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v11(),
+            &D3d9CompatibilityPolicy::controlled_v12(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -6258,7 +6429,7 @@ mod tests {
         let repeated_surface = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v11(),
+                &D3d9CompatibilityPolicy::controlled_v12(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -6305,6 +6476,27 @@ mod tests {
         );
         assert_eq!(repeated_release.return_value, ComReturnValue::U32(1));
         assert!(!repeated_release.object_retired);
+
+        for interface in additional_texture_interfaces.iter().rev() {
+            let release = dispatch_d3d9_fixture_release(
+                &mut memory,
+                &mut runtime,
+                interface,
+                interface.guest_pointer,
+            );
+            assert_eq!(release.return_value, ComReturnValue::U32(0));
+            assert!(release.object_retired);
+            assert!(memory.read(interface.guest_pointer, 4).is_err());
+        }
+        assert_eq!(runtime.graphics_textures().len(), 1);
+        assert_eq!(
+            runtime
+                .com()
+                .object(device_object.id)
+                .unwrap()
+                .reference_count,
+            2
+        );
 
         let root_release = dispatch_d3d9_fixture_release(
             &mut memory,

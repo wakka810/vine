@@ -330,12 +330,15 @@ HRESULT ABI、56-byte x86 `D3DPRESENT_PARAMETERS`のstrict windowed HAL band、l
 private ownership、capacity／stale plan／failure atomicity、final device releaseによるgraphics retirementと
 optional root cascadeもunit／aggregate fixtureで固定する。Node／Chromeはsame ordered completion、guest
 write、COM identity、logical presentationを比較する。Slot 23は8-word／HRESULT ABI、exact
-1024x1024／one-level／usage 0／format 22／system-memory profile、4-byte texture pointer publication、
-complete 22-slot `IDirect3DTexture9` catalog、child-held device reference、private logical descriptor／indexを
-検証する。Invalid／unsupported／unwritable／capacity／stale pathsはguest、COM、graphics stateをpartial
-mutationせず、final texture releaseはlogical textureをretireして必要ならdevice／rootへcascadeする。
+1024x1024／one-level／format 22に対するusage／pool `0／2`、`0／0`、`0x200／0`のversion-12 allow-list、
+three distinct 4-byte texture pointer publications、complete 22-slot `IDirect3DTexture9` catalog、各child-held
+device reference、private logical descriptor／indexを検証する。Invalid／unsupported／unwritable／capacity／
+stale pathsはguest、COM、graphics stateをpartial mutationせず、failureはidentity allocatorやdevice refcountを
+消費しない。Final texture releaseはlogical textureをretireして必要ならdevice／rootへcascadeする。
 Slot 18は2-word／HRESULT ABI、level zero、4-byte surface pointer publication、complete 17-slot
 `IDirect3DSurface9` catalog、child-held texture reference、private logical descriptor／indexを検証する。
+Source textureはversion-12 variant index 0のstatic SYSTEMMEM descriptorに限定し、二DEFAULT variantは
+guest／COM／graphics mutation前のtyped unsupportedを検証する。
 Repeat取得は同じsurface／IUnknown identityへAddRefし、invalid level／NULL／unwritable／capacity／stale pathは
 guest、COM、graphics stateをpartial mutationしない。Final surface releaseはlogical surfaceをretireして
 必要ならtexture／device／rootへcascadeする。Surface slot 15／16は1-word／HRESULT ABI、4-byte HDC writeと
@@ -343,8 +346,9 @@ exact surface／HDC／thread release relationを検証する。Repeat acquisitio
 `D3DERR_INVALIDCALL`かつfailure-atomicで、live HDC中のsurface COM retirementを拒否する。Reached
 `GetStockObject(4)`／`FillRect`はtyped graphics-surface HDCを通り、GDI ownerとGraphics ownerのplanを両方
 preflightして`1024x1024` surfaceへ`[0,0,800,600]`／COLORREF 0のbounded commandを一件だけcommitする。
-Node／Chromeはsame ordered surface DC／fill／release semanticsと次のowned endpointを比較し、browser renderer、
-texture／surface pixel storage、pitch、Lock stagingが未生成であることを要求する。
+Node／Chromeはsame ordered surface DC／fill／release、続く二texture creation、device refcount 4のsemanticsと
+device slot 26 `CreateVertexBuffer` stopを比較し、browser renderer、texture／surface pixel storage、pitch、
+Lock stagingが未生成であることを要求する。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
@@ -352,7 +356,9 @@ method、nested AddRef relationに加え、focused surface callと直後の`GetD
 i386 oracleはrepeat surface／IUnknown identity、textureとは別のIUnknown、`GetContainer` relation、native
 invalid-level output zero化とNULL access violationを固定する。Vineは共通failure-atomicity contractを優先し、
 invalid inputでoutputを変更しない。Surface DC oracleはrepeat／reacquire、surface reference-count不変、
-wrong／repeated `ReleaseDC`、live DC中の`LockRect`拒否、NULL／read-only output exceptionを固定する。詳細は
+wrong／repeated `ReleaseDC`、live DC中の`LockRect`拒否、NULL／read-only output exceptionを固定する。
+Focused initial-texture traceは三callのexact caller RVA／arguments／S_OK、same device、distinct non-NULL output、
+直後の`CreateVertexBuffer`をtwo-runで固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

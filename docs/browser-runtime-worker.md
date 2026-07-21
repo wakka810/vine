@@ -238,8 +238,9 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. The reached D3D9 path now includes Rust-owned logical device, texture, and
-level-zero surface descriptors; a typed surface HDC; one bounded graphics fill command; and their
+same structured stop. The reached D3D9 path now includes one Rust-owned logical device; three
+logical textures covering the exact system-memory／default／dynamic-default initial band; the first
+texture's level-zero surface; a typed surface HDC; one bounded graphics fill command; and their
 COM／GDI lifetime relations. The Worker observes completions but owns neither identity nor resource
 state. No pixel or renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.

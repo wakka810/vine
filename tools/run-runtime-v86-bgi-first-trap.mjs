@@ -150,6 +150,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-get-surface-level",
         "d3d9-surface-get-dc",
         "winmm-time-get-time",
+        "d3d9-initial-textures",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -219,6 +220,7 @@ assert(
       "d3d9-get-surface-level",
       "d3d9-surface-get-dc",
       "winmm-time-get-time",
+      "d3d9-initial-textures",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -252,6 +254,7 @@ if (
     "d3d9-get-surface-level",
     "d3d9-surface-get-dc",
     "winmm-time-get-time",
+    "d3d9-initial-textures",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -278,7 +281,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-create-texture" ||
     genericRuntimeCapability === "d3d9-get-surface-level" ||
     genericRuntimeCapability === "d3d9-surface-get-dc" ||
-    genericRuntimeCapability === "winmm-time-get-time"
+    genericRuntimeCapability === "winmm-time-get-time" ||
+    genericRuntimeCapability === "d3d9-initial-textures"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -413,7 +417,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const timeGetTimeEnabled = genericRuntimeCapability === "winmm-time-get-time";
+const d3d9InitialTexturesEnabled =
+  genericRuntimeCapability === "d3d9-initial-textures";
+const timeGetTimeEnabled =
+  d3d9InitialTexturesEnabled || genericRuntimeCapability === "winmm-time-get-time";
 const d3d9SurfaceGetDcEnabled =
   timeGetTimeEnabled || genericRuntimeCapability === "d3d9-surface-get-dc";
 const d3d9GetSurfaceLevelEnabled =
@@ -635,7 +642,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? timeGetTimeEnabled
+      ? d3d9InitialTexturesEnabled
+        ? "v86-bgi-d3d9-initial-textures"
+      : timeGetTimeEnabled
         ? "v86-bgi-time-get-time"
       : d3d9SurfaceGetDcEnabled
         ? "v86-bgi-d3d9-surface-get-dc"
@@ -4601,6 +4610,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9InitialTexturesEnabled) {
+        validateD3d9InitialTexturesResult(genericResult);
       } else if (timeGetTimeEnabled) {
         validateTimeGetTimeResult(genericResult);
       } else if (d3d9SurfaceGetDcEnabled) {
@@ -4772,6 +4783,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9InitialTexturesEnabled
+            ? "bgi D3D9 initial texture sequence"
           : timeGetTimeEnabled
             ? "bgi WinMM timeGetTime"
           : d3d9SurfaceGetDcEnabled
@@ -13189,6 +13202,147 @@ function validateTimeGetTimeResult(result) {
   ]);
 }
 
+function validateD3d9InitialTexturesResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_858);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_913);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_064,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_590,
+  );
+  assert.equal(result.hostDeltas.length, 16_570);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_883);
+
+  const textureCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3DDevice9.CreateTexture",
+  );
+  assert.equal(textureCalls.length, 3);
+  assert.deepEqual(
+    textureCalls.map((call) => [
+      call.sequence,
+      call.occurrence,
+      call.trapInstructionCount,
+      call.arguments,
+      call.result,
+      call.returnAddress,
+      call.stackPointerAfter - call.stackPointerBefore,
+      call.referenceCount,
+      call.guestWrites.length,
+    ]),
+    [
+      [
+        17_850,
+        1,
+        11_807_772,
+        [0x0101_0004, 1024, 1024, 1, 0, 22, 2, 0x1015_17cc, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a715,
+        40,
+        1,
+        1,
+      ],
+      [
+        17_857,
+        2,
+        11_807_840,
+        [0x0101_0004, 1024, 1024, 1, 0, 22, 0, 0x1015_17d0, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a7b7,
+        40,
+        2,
+        1,
+      ],
+      [
+        17_858,
+        3,
+        11_807_856,
+        [0x0101_0004, 1024, 1024, 1, 0x200, 22, 0, 0x1015_17d4, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a7dc,
+        40,
+        3,
+        1,
+      ],
+    ],
+  );
+  assert.deepEqual(
+    textureCalls.map((call) => [
+      call.guestWrites[0].address,
+      call.guestWrites[0].bytes,
+      call.objectRetired,
+    ]),
+    [
+      [0x1015_17cc, [0x04, 0x00, 0x02, 0x01], false],
+      [0x1015_17d0, [0x04, 0x00, 0x03, 0x01], false],
+      [0x1015_17d4, [0x04, 0x00, 0x04, 0x01], false],
+    ],
+  );
+  assert.equal(
+    result.supportedCalls.filter((call) => call.symbol === "timeGetTime").length,
+    0,
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(endpoint.target.object.referenceCount, 4);
+  assert.equal(endpoint.target.object.parentInterfaceId, "4");
+  assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(endpoint.target.method.slot, 26);
+  assert.equal(endpoint.target.method.name, "CreateVertexBuffer");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 6);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_a890);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
+  assert.equal(result.fault.fault.target.vtableSlot, 26);
+  assert.equal(result.fault.fault.target.method, "CreateVertexBuffer");
+  assert.equal(result.fault.memory.physicalPages, 727);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "3ff9351545b113f8cdd109d8dfcbfda92547a7eedddb22cc2fe1e02d50799d78",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_807_897);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 26);
+  assert.equal(terminal.returnAddress, 0x1005_a890);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_a890,
+    0x0101_0004,
+    112,
+    8,
+    0x144,
+    1,
+    0x1015_17dc,
+    0,
+  ]);
+}
+
 function validateD3d9SurfaceGetDcResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15305,6 +15459,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9InitialTexturesEnabled
+          ? "vine.v86-bgi-d3d9-initial-textures"
         : timeGetTimeEnabled
           ? "vine.v86-bgi-time-get-time"
         : d3d9SurfaceGetDcEnabled

@@ -3689,6 +3689,66 @@ arguments `1024, 1024, 1, 0, 22, 2, 0x101517CC, 0`、endpoint `0x010111A0`、ret
 `0x1005A715`の`com-method-unsupported`である。Texture identity／storage／lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
 
+## 122. BGI D3D9 initial texture sequence
+
+Focused `d3d9-initial-textures` observationを独立に2回取得した。Primary raw traceは261,943 bytes／
+505 records／219 balanced API pairs／SHA-256
+`2fe16a38d7a8c8ee18b673d06f759ef3bfa3d412d3f688689692edb4d6d55ad4`、summaryは328,531 bytes／
+SHA-256 `85db2bcea0fb895c1481a3af7330a3c79b430cbed997761cdb23d30e0fbf875d`である。Confirmation raw
+traceは262,766 bytes／508 records／220 balanced pairs／SHA-256
+`cdf646718a1a187e72129d9ae5562d44b4c5432c7c9c60ee1c217d30ae90179f`、summaryは328,698 bytes／
+SHA-256 `20eb05e775a84075aec1c48b2137c9d237f684e2e19d580b1aac5671a7039837`で、両summaryともdiagnosticsは
+0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+
+各traceは同じnative deviceからBGI caller RVA `0x0005A715／0x0005A7B7／0x0005A7DC`の
+`IDirect3DDevice9::CreateTexture`を三回直接完了する。三variantは順に
+`1024×1024／level 1／usage 0／format 22／pool 2`、同shapeの`pool 0`、
+`usage 0x200／pool 0`で、shared handleは全てNULL、resultは全て`S_OK`、observed LastErrorは0である。
+Output addressは`0x00D117CC／0x00D117D0／0x00D117D4`、native texture pointerは全てnon-NULLかつ
+trace内でdistinctである。Pointer値はopaque artifact identityでありVine guest identityへimportしない。
+三call成功後の次methodはdevice slot 26 `CreateVertexBuffer(112, 8, 0x144, 1, ..., NULL)`である。
+Caller inspectionと実行traceにより、従来の`MessageBoxA`は第二textureの失敗branchであり、独立した
+primary capability stopではないと分類した。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Runtimeはversion-12 `primary-initial-x8r8g8b8-textures-v1` allow-listを実装した。Sequence
+17,850／17,857／17,858、instruction 11,807,772／840／856で同じdevice `0x01010004`から呼ばれ、
+guest output `0x101517CC／0x101517D0／0x101517D4`へdistinct texture pointer
+`0x01020004／0x01030004／0x01040004`を各4 bytes publishして`S_OK`を返す。`RuntimeGraphics`は
+one system-memory static、one default-pool static、one default-pool dynamic descriptorをlogical texture
+ID 1～3として所有する。`RuntimeCom`は三childからdevice referenceを一つずつretainし、terminal device
+reference countは4である。各guest write、COM identity、graphics associationは全owner preflight後にだけ
+publishされ、unsupported variant、unwritable output、capacity、stale planはguest bytes、allocator、COM
+refcount、graphics index／generationをpartial mutationしない。DEFAULT poolもlogical descriptorだけで、
+pixel storage、GPU allocation、browser renderer resourceは生成しない。`GetSurfaceLevel`はnativeで到達した
+variant index 0のsystem-memory textureだけにboundし、二DEFAULT textureへはmutation-free typed unsupportedで
+止まる。
+
+Node summaryは17,858 calls／85 contracts／11,807,897 terminal instructions、17,913 writebacks／36,064
+dirty pages／1,807,590 changed bytes、16,570 host deltas、generation 34,883を通す。Semantic SHA-256は
+`1ced14993c500a6adff24ccba93fbb4db2b72e697cbb0efab5096ff2e2dfe53d`、final memory SHA-256は
+`3ff9351545b113f8cdd109d8dfcbfda92547a7eedddb22cc2fe1e02d50799d78`、reportは82,645 bytes／
+SHA-256 `0f6d63a5994607aea9947d4500efd580c74b99e05959ab7f860acdcfe2376286`である。
+
+Chrome Runtime Workerもsame ordered semantics／instructions／digestを再現し、29,089 writebacks／61,970
+pages、16,570 mapping deltas／17,768 dirty pages、generation 27→46,061、63,602 Wasm crossings、87,239
+success transitions、terminal pending work zeroを通す。Elapsedは3,232.830 ms、maximum sliceは2.710 ms、
+648 heartbeat samplesのmaximum gapは20.725 msである。Browser reportは116,647 bytes／SHA-256
+`fb42845fe87bc550a83e41b0c97d15d4af524334fa998de367af142512bef9b5`、Wasm artifactは3,578,969
+bytes／SHA-256 `ad905bca78caf37d78f1feecc43bd34b6af7440a44c8260f8e0aa5343cf25f01`である。
+
+同じ180-second fixtureと既存17 thresholdsのbenchmarkは63 sessions、semantic failure 0、session P95
+2,950.410 ms、slice P99 2.900 ms、heartbeat P99／maximum 5.995／18.655 msで17／17を通した。
+Reportは946,980 bytes／SHA-256
+`ce4884b30af587bda891ed611022980620f64be802f9c1172be67620140069a0`であり、threshold変更やretry
+acceptanceは行っていない。
+
+次stopはinstruction 11,807,897、`IDirect3DDevice9` slot 26／`CreateVertexBuffer`、this
+`0x01010004`、arguments `0x70, 0x8, 0x144, 0x1, 0x101517DC, 0`、endpoint `0x010111D0`、
+return `0x1005A890`の`com-method-unsupported`である。Vertex-buffer identity／storage、texture pixel
+storage、Lock／Unlock、renderer、draw、Present、Reset、device loss、first visible frameはこのcheckpointで
+実装済みとしない。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

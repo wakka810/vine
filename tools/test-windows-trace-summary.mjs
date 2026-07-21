@@ -1397,6 +1397,224 @@ assert.throws(
   /changed its GetSurfaceLevel output pointer/,
 );
 
+const d3d9InitialTextureEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-22T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "c".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-initial-textures-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-initial-textures"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-initial-textures"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+];
+const initialTextureSnapshots = [];
+for (const [index, fixture] of [
+  {
+    rva: 0x5a715,
+    usage: "0x0",
+    pool: "0x2",
+    output: "0x6ffd40",
+    returned: "0x500000",
+    returnedBytes: [0, 0, 0x50, 0],
+  },
+  {
+    rva: 0x5a7b7,
+    usage: "0x0",
+    pool: "0x0",
+    output: "0x6ffd44",
+    returned: "0x510000",
+    returnedBytes: [0, 0, 0x51, 0],
+  },
+  {
+    rva: 0x5a7dc,
+    usage: "0x200",
+    pool: "0x0",
+    output: "0x6ffd48",
+    returned: "0x520000",
+    returnedBytes: [0, 0, 0x52, 0],
+  },
+].entries()) {
+  const callId = index + 1;
+  const caller = {
+    address: `0x${(0x0040_0000 + fixture.rva).toString(16)}`,
+    module: "BGI.exe",
+    rva: fixture.rva,
+  };
+  const arguments_ = [
+    "0x400",
+    "0x400",
+    "0x1",
+    fixture.usage,
+    "0x16",
+    fixture.pool,
+    fixture.output,
+    "0x0",
+  ];
+  const observation = {
+    textureOutput: {
+      before: pointerSlot(fixture.output, "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
+      after: pointerSlot(fixture.output, fixture.returned, fixture.returnedBytes),
+    },
+    immediateConsumer: null,
+  };
+  d3d9InitialTextureEvents.push(
+    {
+      schema,
+      sequence: 4 + index * 2,
+      threadId: 20,
+      kind: "api-enter",
+      callId,
+      parentCallId: null,
+      caller,
+      module: "d3d9.dll",
+      api: "CreateTexture",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 23,
+      object: "0x490000",
+      arguments: arguments_,
+    },
+    {
+      schema,
+      sequence: 5 + index * 2,
+      threadId: 20,
+      kind: "api-leave",
+      callId,
+      parentCallId: null,
+      caller,
+      durationMs: 1,
+      lastError: 0,
+      module: "d3d9.dll",
+      api: "CreateTexture",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 23,
+      object: "0x490000",
+      result: "0x0",
+      d3d9CreateTexture: observation,
+    },
+  );
+  initialTextureSnapshots.push({
+    callId,
+    api: "CreateTexture",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 23,
+    object: "0x490000",
+    arguments: arguments_,
+    result: "0x0",
+    lastError: 0,
+    d3d9CreateTexture: observation,
+    caller,
+  });
+}
+d3d9InitialTextureEvents.push(
+  {
+    schema,
+    sequence: 10,
+    kind: "d3d9-initial-textures-complete",
+    profile: "x86-bgi-initial-textures-v1",
+    device: "0x490000",
+    calls: initialTextureSnapshots,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-22T00:00:01.000Z",
+    reason: "event-d3d9-initial-textures-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const d3d9InitialTextureSummary = summarizeTrace(
+  encode(d3d9InitialTextureEvents),
+  "d3d9-initial-textures-fixture.jsonl",
+);
+assert.equal(d3d9InitialTextureSummary.d3d9.createTextures.length, 3);
+assert.equal(d3d9InitialTextureSummary.d3d9.initialTextureSequences.length, 1);
+assert.deepEqual(
+  d3d9InitialTextureSummary.d3d9.initialTextureSequences[0].calls.map((call) => ({
+    caller: call.caller,
+    arguments: call.arguments.slice(0, 6),
+    returnedTexture: call.returnedTexture,
+  })),
+  [
+    {
+      caller: { module: "BGI.exe", rva: 0x5a715 },
+      arguments: ["0x400", "0x400", "0x1", "0x0", "0x16", "0x2"],
+      returnedTexture: "0x500000",
+    },
+    {
+      caller: { module: "BGI.exe", rva: 0x5a7b7 },
+      arguments: ["0x400", "0x400", "0x1", "0x0", "0x16", "0x0"],
+      returnedTexture: "0x510000",
+    },
+    {
+      caller: { module: "BGI.exe", rva: 0x5a7dc },
+      arguments: ["0x400", "0x400", "0x1", "0x200", "0x16", "0x0"],
+      returnedTexture: "0x520000",
+    },
+  ],
+);
+const missingInitialTextureCompletion = d3d9InitialTextureEvents.filter(
+  (event) => event.kind !== "d3d9-initial-textures-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingInitialTextureCompletion)),
+  /requires exactly one structured completion/,
+);
+const malformedInitialTextureTuple = structuredClone(d3d9InitialTextureEvents);
+malformedInitialTextureTuple.find(
+  (event) => event.kind === "api-enter" && event.callId === 2,
+).arguments[5] = "0x2";
+malformedInitialTextureTuple.find(
+  (event) => event.kind === "d3d9-initial-textures-complete",
+).calls[1].arguments[5] = "0x2";
+assert.throws(
+  () => summarizeTrace(encode(malformedInitialTextureTuple)),
+  /violates its caller, tuple, or output contract/,
+);
+
 const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);
 d3d9SurfaceDcEvents[0].arguments.stopOnEvent = "d3d9-surface-get-dc-complete";
 d3d9SurfaceDcEvents[0].arguments.observations = ["d3d9-surface-get-dc"];

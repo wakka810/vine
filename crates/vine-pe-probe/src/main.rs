@@ -192,6 +192,7 @@ enum GenericRuntimeCapability {
     D3d9GetSurfaceLevel,
     D3d9SurfaceGetDc,
     TimeGetTime,
+    D3d9InitialTextures,
 }
 
 struct GenericRuntimeProcess {
@@ -2321,6 +2322,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
                     | GenericRuntimeCapability::D3d9SurfaceGetDc
                     | GenericRuntimeCapability::TimeGetTime
+                    | GenericRuntimeCapability::D3d9InitialTextures
             )
         ) {
             let loader = kernel32_policy
@@ -2986,6 +2988,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3024,7 +3027,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9CreateTexture
             | GenericRuntimeCapability::D3d9GetSurfaceLevel
             | GenericRuntimeCapability::D3d9SurfaceGetDc
-            | GenericRuntimeCapability::TimeGetTime,
+            | GenericRuntimeCapability::TimeGetTime
+            | GenericRuntimeCapability::D3d9InitialTextures,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3098,6 +3102,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3113,6 +3118,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3120,7 +3126,7 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v11();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v12();
     if !matches!(
         requested_capability,
         Some(
@@ -3130,6 +3136,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3142,6 +3149,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3154,6 +3162,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         d3d9_policy.create_texture = None;
@@ -3166,6 +3175,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         d3d9_policy.get_surface_level = None;
@@ -3173,9 +3183,20 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9SurfaceGetDc | GenericRuntimeCapability::TimeGetTime)
+        Some(
+            GenericRuntimeCapability::D3d9SurfaceGetDc
+                | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
+        )
     ) {
         d3d9_policy.surface_dc = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9InitialTextures)
+    ) && let Some(create_texture) = d3d9_policy.create_texture.as_mut()
+    {
+        create_texture.restrict_to_system_memory_v1();
     }
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
@@ -3463,6 +3484,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4711,6 +4733,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9GetSurfaceLevel
                             | GenericRuntimeCapability::D3d9SurfaceGetDc
                             | GenericRuntimeCapability::TimeGetTime
+                            | GenericRuntimeCapability::D3d9InitialTextures
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4771,6 +4794,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9GetSurfaceLevel
                                     | GenericRuntimeCapability::D3d9SurfaceGetDc
                                     | GenericRuntimeCapability::TimeGetTime
+                                    | GenericRuntimeCapability::D3d9InitialTextures
                             )
                         )
                     {
@@ -4812,7 +4836,10 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
-    let time_get_time_enabled = matches!(enabled, Some(GenericRuntimeCapability::TimeGetTime));
+    let time_get_time_enabled = matches!(
+        enabled,
+        Some(GenericRuntimeCapability::TimeGetTime | GenericRuntimeCapability::D3d9InitialTextures)
+    );
     let monitor_from_window_enabled = matches!(
         enabled,
         Some(
@@ -4824,6 +4851,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4839,6 +4867,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4855,6 +4884,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4872,6 +4902,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let load_library_a_enabled = matches!(
@@ -4890,6 +4921,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4914,6 +4946,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -4956,6 +4989,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5467,6 +5501,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9GetSurfaceLevel
                 | GenericRuntimeCapability::D3d9SurfaceGetDc
                 | GenericRuntimeCapability::TimeGetTime
+                | GenericRuntimeCapability::D3d9InitialTextures
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -11254,6 +11289,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-get-surface-level" => GenericRuntimeCapability::D3d9GetSurfaceLevel,
                 "d3d9-surface-get-dc" => GenericRuntimeCapability::D3d9SurfaceGetDc,
                 "winmm-time-get-time" => GenericRuntimeCapability::TimeGetTime,
+                "d3d9-initial-textures" => GenericRuntimeCapability::D3d9InitialTextures,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

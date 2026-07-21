@@ -678,14 +678,18 @@ identity、logical graphics deviceは一つの外部観測可能transactionと�
 一reference保持し、final releaseはCOM backing／process allocation／graphics associationをまとめてretireし、
 必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
 
-`CreateTexture`はlive device association、bounded descriptor、guest output span、COM child registration、
-graphics texture capacityを全てpreflightする。Guest texture pointer、child COM identity、logical textureは一つの
-外部観測可能transactionとしてpublishする。Textureはdevice interfaceを一reference保持し、final releaseは
-texture associationを退役して必要ならdevice／root retirementへcascadeする。Logical descriptorはtexture bytes、
+`CreateTexture`はlive device association、policy-bounded descriptor、guest output span、COM child registration、
+graphics texture capacityを全てpreflightする。Version 12のactive bandは1024×1024／one-level／X8R8G8B8に対し、
+static SYSTEMMEM、static DEFAULT、dynamic DEFAULTの三variantだけを許可する。各completionはdistinct guest
+texture pointer、child COM identity、logical textureを一つの外部観測可能transactionとしてpublishし、各Textureは
+device interfaceを一reference保持する。Final releaseはtexture associationを退役して必要ならdevice／root
+retirementへcascadeする。Logical usage／pool descriptor、特にDEFAULT poolはtexture bytes、GPU allocation、
 lock staging、browser renderer resourceの代用ではなく、それらは到達methodごとの後続gatewayで追加する。
 
-`GetSurfaceLevel`はlive texture association、bounded level、guest output span、既存surface identityまたは新規
-COM child registration、graphics surface capacityを全てpreflightする。初回はguest surface pointer、child COM
+`GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
+span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。
+Active bandではstatic SYSTEMMEM textureだけを許可し、未到達の二DEFAULT variantはmutation前にtyped
+unsupportedとなる。初回はguest surface pointer、child COM
 identity、logical surfaceを一transactionでpublishし、repeat取得は同じsurface identityへAddRefするだけである。
 Surfaceはtexture interfaceを一reference保持し、final releaseはsurface associationを退役して必要なら
 texture／device／root retirementへcascadeする。Logical surface descriptorはpixel storage、pitch、DC、lock

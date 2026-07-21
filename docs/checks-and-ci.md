@@ -97,10 +97,11 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-time-get-time-v1.json`](../fixtures/benchmarks/bgi-browser-time-get-time-v1.json).
-It repeats the complete current session through surface `GetDC`, stock-brush
-`FillRect`, `ReleaseDC`, surface retirement, and the shared process-clock
-`timeGetTime` sample before the `MessageBoxA` stop. Every summary-evidence
+[`bgi-browser-d3d9-initial-textures-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-textures-v1.json).
+It repeats the complete current session through the first texture's surface
+`GetDC`, stock-brush `FillRect`, `ReleaseDC`, surface retirement, then the
+static-default and dynamic-default texture creations before the device slot 26
+`CreateVertexBuffer` stop. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,

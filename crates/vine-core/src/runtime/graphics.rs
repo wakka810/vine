@@ -45,11 +45,13 @@ pub enum RuntimeGraphicsColorFormat {
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsTextureUsage {
     None,
+    Dynamic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsTexturePool {
+    Default,
     SystemMemory,
 }
 
@@ -1203,6 +1205,28 @@ impl RuntimeGraphics {
         &self.textures
     }
 
+    pub(super) fn texture_for_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeGraphicsTexture, RuntimeStateError> {
+        let texture_id = self
+            .texture_com_object_index
+            .get(&com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-texture-com-object-unknown",
+                    "logical graphics texture COM object is not live",
+                )
+            })?;
+        self.validate_texture_association(com_object_id, texture_id)?;
+        Ok(self
+            .textures
+            .get(&texture_id)
+            .expect("validated logical texture association disappeared"))
+    }
+
     pub fn surface(
         &self,
         id: RuntimeGraphicsSurfaceId,
@@ -1247,22 +1271,8 @@ impl RuntimeGraphics {
         texture_com_object_id: RuntimeComObjectId,
         level: u32,
     ) -> Result<Option<&RuntimeGraphicsSurface>, RuntimeStateError> {
-        let texture_id = self
-            .texture_com_object_index
-            .get(&texture_com_object_id)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-surface-texture-com-object-unknown",
-                    "logical surface lookup requires a live graphics texture COM object",
-                )
-            })?;
-        self.validate_texture_association(texture_com_object_id, texture_id)?;
-        let texture = self
-            .textures
-            .get(&texture_id)
-            .expect("validated logical texture association disappeared");
+        let texture = self.texture_for_com_object(texture_com_object_id)?;
+        let texture_id = texture.id;
         if level >= texture.descriptor.levels {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-graphics",

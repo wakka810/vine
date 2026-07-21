@@ -24,10 +24,15 @@ const focusedD3d9GetSurfaceLevelObservation =
 const focusedD3d9SurfaceGetDcObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-surface-get-dc");
+const focusedD3d9InitialTexturesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-initial-textures");
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
-  focusedD3d9CreateDeviceObservation || focusedD3d9ResourceObservation;
+  focusedD3d9CreateDeviceObservation ||
+  focusedD3d9ResourceObservation ||
+  focusedD3d9InitialTexturesObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -37,6 +42,9 @@ let focusedD3d9SurfaceMethodCaptured = false;
 let focusedD3d9SurfaceObject = null;
 let focusedD3d9SurfaceDcComplete = false;
 const focusedD3d9SurfaceDcCalls = [];
+let focusedD3d9InitialTextureDevice = null;
+let focusedD3d9InitialTexturesComplete = false;
+const focusedD3d9InitialTextureCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -3448,7 +3456,23 @@ function attachIdirect3ddevice9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (
+          if (focusedD3d9InitialTexturesObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            if (
+              focusedD3d9InitialTexturesComplete ||
+              focusedD3d9InitialTextureCalls.length >= 3 ||
+              slot !== 23 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              (focusedD3d9InitialTextureDevice !== null &&
+                objectAddress !== focusedD3d9InitialTextureDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9InitialTextureDevice ??= objectAddress;
+          } else if (
             focusedD3d9DeviceObservation &&
             focusedD3d9DeviceMethodCaptured
           ) {
@@ -3459,8 +3483,11 @@ function attachIdirect3ddevice9(object) {
           const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
             args[index + 1].toString(),
           );
+          this.traceArguments = arguments_;
           this.traceD3d9CreateTextureOutput =
-            focusedD3d9ResourceObservation && slot === 23
+            (focusedD3d9ResourceObservation ||
+              focusedD3d9InitialTexturesObservation) &&
+            slot === 23
               ? args[7]
               : null;
           this.traceD3d9CreateTexture =
@@ -3502,6 +3529,7 @@ function attachIdirect3ddevice9(object) {
                     after: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
                   },
                 };
+          const lastError = Number(this.lastError) >>> 0;
           finishCall(
             this.traceFrame,
             {
@@ -3515,8 +3543,24 @@ function attachIdirect3ddevice9(object) {
             },
             this.lastError,
           );
+          if (focusedD3d9InitialTexturesObservation) {
+            focusedD3d9InitialTextureCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              d3d9CreateTexture,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9InitialTexturesObservation();
+          }
           if (
             d3d9CreateTexture !== null &&
+            !focusedD3d9InitialTexturesObservation &&
             result.toInt32() >= 0 &&
             typeof d3d9CreateTexture.textureOutput.after.value === "string" &&
             d3d9CreateTexture.textureOutput.after.value !== "0x0"
@@ -3525,7 +3569,10 @@ function attachIdirect3ddevice9(object) {
               ptr(d3d9CreateTexture.textureOutput.after.value),
             );
           }
-          if (focusedD3d9DeviceObservation) {
+          if (
+            focusedD3d9DeviceObservation &&
+            !focusedD3d9InitialTexturesObservation
+          ) {
             focusedD3d9DeviceMethodCaptured = true;
           }
         },
@@ -3543,6 +3590,28 @@ function attachIdirect3ddevice9(object) {
       object: object.toString(),
       error: error.message,
     });
+  }
+}
+
+function maybeCompleteFocusedD3d9InitialTexturesObservation() {
+  if (
+    focusedD3d9InitialTexturesComplete ||
+    focusedD3d9InitialTextureCalls.length !== 3
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9InitialTexturesObservation, 10);
+    return;
+  }
+  focusedD3d9InitialTexturesComplete = true;
+  emit("d3d9-initial-textures-complete", {
+    profile: "x86-bgi-initial-textures-v1",
+    device: focusedD3d9InitialTextureDevice,
+    calls: focusedD3d9InitialTextureCalls,
+  });
+  if (stopOnEvent === "d3d9-initial-textures-complete") {
+    recv("vine-trace-stop", () => {}).wait();
   }
 }
 
