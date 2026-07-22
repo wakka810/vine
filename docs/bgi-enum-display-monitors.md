@@ -50,18 +50,19 @@ the outer API must remain suspended while an ordinary nested Win32 trap runs.
 
 `RuntimeDisplays` privately owns the configure-once display profile, logical
 monitor identity, and geometry. The controlled User32 policy selects profile
-`single-monitor-1920x1080-v1`:
+`single-monitor-1920x1080-work-1920x1032-v2`:
 
 ```text
 monitor namespace: vine.logical-monitor.v1
 primary handle:    0x4F010001
 rectangle:         (0,0)-(1920,1080)
+work rectangle:    (0,0)-(1920,1032)
 ```
 
 The logical handle namespace is independent of native HMONITOR, Win32 handle
 tables, COM pointers, and browser resource IDs. The profile is planned and
-validated before commit; duplicate configuration and invalid geometry do not
-advance its state.
+validated before commit; duplicate configuration, invalid monitor geometry, and
+a non-positive or non-contained work rectangle do not advance its state.
 
 `user32.enum-display-monitors.v1` is a four-argument stdcall BOOL contract with
 required callback, allowed same-thread reentrancy, and LastError preservation.

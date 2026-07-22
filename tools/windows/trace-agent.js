@@ -265,6 +265,13 @@ let getClientRectOracleComplete = false;
 let getClientRectOracleEvidence = null;
 let getClientRectCompletionRecorded = false;
 const getClientRectMainModuleCalls = [];
+let getMonitorInfoAOracleScheduled = false;
+let getMonitorInfoAOracleCall = null;
+let getMonitorInfoAOracleComplete = false;
+let getMonitorInfoAOracleEvidence = null;
+let getMonitorInfoACompletionRecorded = false;
+let getMonitorInfoAQuiescentNextCallId = null;
+const getMonitorInfoAMainModuleCalls = [];
 let windowDcOracleScheduled = false;
 let windowDcOracleCall = null;
 let windowDcOracleComplete = false;
@@ -2454,6 +2461,39 @@ function snapshotD3d9RasterStatus(pointer) {
     };
   } catch (error) {
     return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotMonitorInfoA(pointer) {
+  const profile = "x86-monitor-info-a-v1";
+  const header = snapshotBoundedRawBytes(pointer, 4);
+  if (header.error !== undefined) {
+    return { profile, header };
+  }
+  try {
+    const cbSize = pointer.readU32();
+    const capturedBytes = Math.min(Math.max(cbSize, 4), 72);
+    const raw = snapshotBoundedRawBytes(pointer, capturedBytes, 72);
+    const result = { profile, cbSize, capturedBytes, raw };
+    if (raw.error !== undefined || capturedBytes < 40) {
+      return result;
+    }
+    result.fields = {
+      monitor: snapshotRect(pointer.add(4)),
+      work: snapshotRect(pointer.add(20)),
+      flags: pointer.add(36).readU32(),
+    };
+    if (capturedBytes >= 72) {
+      const deviceBytes = [...new Uint8Array(pointer.add(40).readByteArray(32))];
+      const terminator = deviceBytes.indexOf(0);
+      result.fields.deviceBytes = deviceBytes;
+      result.fields.deviceBytesWithoutNul =
+        terminator < 0 ? deviceBytes : deviceBytes.slice(0, terminator);
+      result.fields.deviceTerminated = terminator >= 0;
+    }
+    return result;
+  } catch (error) {
+    return { profile, header, error: error.message };
   }
 }
 
@@ -6504,6 +6544,311 @@ function maybeCompleteGetClientRectObservation() {
     oracle: getClientRectOracleEvidence,
   });
   if (stopOnEvent === "get-client-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachGetMonitorInfoAHook(module) {
+  const name = "GetMonitorInfoA";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("GetMonitorInfoA export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && getMonitorInfoAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.monitor = args[0];
+      this.output = args[1];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getMonitorInfoAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotMonitorInfoA(this.output);
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              128,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              48,
+            ),
+          }
+        : null;
+      if (isOracleCaller) {
+        getMonitorInfoAOracleCall.hookOutputBefore = this.outputBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.monitor.toString(), this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          getMonitorInfoA: {
+            monitor: this.monitor.toString(),
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotMonitorInfoA(this.output);
+      if (this.oracleCaller) {
+        getMonitorInfoAOracleCall.hookResult = resultValue;
+        getMonitorInfoAOracleCall.hookLastErrorAfter = lastError;
+        getMonitorInfoAOracleCall.hookOutputAfter = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getMonitorInfoA: {
+            result: resultValue,
+            succeeded: resultValue !== 0,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && getMonitorInfoAMainModuleCalls.length === 0) {
+        getMonitorInfoAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          monitor: this.monitor.toString(),
+          outputPointer: this.output.toString(),
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: resultValue,
+          succeeded: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleGetMonitorInfoAOracle(module, this.monitor);
+        setImmediate(maybeCompleteGetMonitorInfoAObservation);
+      }
+    },
+  });
+}
+
+function scheduleGetMonitorInfoAOracle(module, liveMonitor) {
+  if (getMonitorInfoAOracleScheduled) {
+    return;
+  }
+  getMonitorInfoAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetMonitorInfoA");
+      if (address === null) {
+        throw new Error("GetMonitorInfoA oracle export is unavailable");
+      }
+      const getMonitorInfoA = new SystemFunction(
+        address,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const allocationBytes = 80;
+      const invoke = ({ id, monitor, cbSize, sentinel }) => {
+        const output = Memory.alloc(allocationBytes);
+        output.writeByteArray(Array(allocationBytes).fill(0xa5));
+        output.writeU32(cbSize);
+        const outputBefore = snapshotMonitorInfoA(output);
+        const outputRawBefore = snapshotBoundedRawBytes(
+          output,
+          allocationBytes,
+          allocationBytes,
+        );
+        getMonitorInfoAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutputBefore: null,
+          hookOutputAfter: null,
+        };
+        try {
+          const outcome = getMonitorInfoA(monitor, output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getMonitorInfoAOracleCall.hookResult === null ||
+            getMonitorInfoAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("GetMonitorInfoA oracle did not pass through the hook");
+          }
+          const outputAfter = snapshotMonitorInfoA(output);
+          const outputRawAfter = snapshotBoundedRawBytes(
+            output,
+            allocationBytes,
+            allocationBytes,
+          );
+          return {
+            id,
+            monitor: monitor.toString(),
+            output: output.toString(),
+            allocationBytes,
+            cbSize,
+            sentinel,
+            systemResult,
+            succeeded: systemResult !== 0,
+            systemLastError,
+            outputBefore,
+            outputAfter,
+            outputRawBefore,
+            outputRawAfter,
+            hookResult: getMonitorInfoAOracleCall.hookResult,
+            hookLastErrorAfter:
+              getMonitorInfoAOracleCall.hookLastErrorAfter,
+            hookOutputBefore: getMonitorInfoAOracleCall.hookOutputBefore,
+            hookOutputAfter: getMonitorInfoAOracleCall.hookOutputAfter,
+            hookResultMatches:
+              getMonitorInfoAOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              getMonitorInfoAOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          getMonitorInfoAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "live-monitor-info",
+          monitor: liveMonitor,
+          cbSize: 40,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "live-monitor-info-ex-a",
+          monitor: liveMonitor,
+          cbSize: 72,
+          sentinel: 0x22334455,
+        },
+        {
+          id: "live-size-zero",
+          monitor: liveMonitor,
+          cbSize: 0,
+          sentinel: 0x33445566,
+        },
+        {
+          id: "live-size-39",
+          monitor: liveMonitor,
+          cbSize: 39,
+          sentinel: 0x44556677,
+        },
+        {
+          id: "live-size-41",
+          monitor: liveMonitor,
+          cbSize: 41,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "live-size-71",
+          monitor: liveMonitor,
+          cbSize: 71,
+          sentinel: 0x66778899,
+        },
+        {
+          id: "live-size-73",
+          monitor: liveMonitor,
+          cbSize: 73,
+          sentinel: 0x778899aa,
+        },
+        {
+          id: "null-monitor",
+          monitor: ptr(0),
+          cbSize: 40,
+          sentinel: 0x8899aabb,
+        },
+        {
+          id: "invalid-monitor",
+          monitor: ptr("0x1234"),
+          cbSize: 40,
+          sentinel: 0x99aabbcc,
+        },
+        {
+          id: "null-monitor-size-zero",
+          monitor: ptr(0),
+          cbSize: 0,
+          sentinel: 0xaabbccdd,
+        },
+        {
+          id: "invalid-monitor-size-zero",
+          monitor: ptr("0x1234"),
+          cbSize: 0,
+          sentinel: 0xbbccddee,
+        },
+      ].map(invoke);
+      getMonitorInfoAOracleEvidence = {
+        profile: "x86-live-monitor-size-and-handle-matrix-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      getMonitorInfoAOracleComplete = true;
+      emit("get-monitor-info-a-oracle", getMonitorInfoAOracleEvidence);
+      maybeCompleteGetMonitorInfoAObservation();
+    } catch (error) {
+      emit("get-monitor-info-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteGetMonitorInfoAObservation() {
+  if (
+    getMonitorInfoACompletionRecorded ||
+    !getMonitorInfoAOracleComplete ||
+    getMonitorInfoAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    getMonitorInfoAQuiescentNextCallId = null;
+    setTimeout(maybeCompleteGetMonitorInfoAObservation, 10);
+    return;
+  }
+  if (getMonitorInfoAQuiescentNextCallId !== nextCallId) {
+    getMonitorInfoAQuiescentNextCallId = nextCallId;
+    setTimeout(maybeCompleteGetMonitorInfoAObservation, 1000);
+    return;
+  }
+  getMonitorInfoACompletionRecorded = true;
+  emit("get-monitor-info-a-complete", {
+    profile: "x86-bgi-first-monitor-info-a-v1",
+    mainModuleCall: getMonitorInfoAMainModuleCalls[0],
+    oracle: getMonitorInfoAOracleEvidence,
+  });
+  if (stopOnEvent === "get-monitor-info-a-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -15508,6 +15853,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetClientRect",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("get-monitor-info-a")
+    ) {
+      try {
+        attachGetMonitorInfoAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetMonitorInfoA",
           error: error.message,
         });
       }

@@ -3611,7 +3611,7 @@ outputは`.work/`に保持しGitへ追加しない。Source executableは1,193,4
 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
 
 Runtimeはversion-7 D3D9 policyの`primary-adapter-monitor-v1`でadapter `0`だけを
-`single-monitor-1920x1080-v1`へ対応付ける。Mappingは`D3d9CompatibilityPolicy`、HMONITOR identityは
+`single-monitor-1920x1080-work-1920x1032-v2`へ対応付ける。Mappingは`D3d9CompatibilityPolicy`、HMONITOR identityは
 `RuntimeDisplays`がauthorityを持つ。Valid adapterはlogical primary handle `0x4F010001`、invalid adapterは
 NULLを通常完了として返す。いずれもLastError、guest memory、COM reference count、object lifetime、
 runtime generationを変更しない。Disabled／malformed policy、missing monitor、display-profile mismatchは
@@ -3906,6 +3906,60 @@ terminal pending work 0を通した。Browser reportは43,931 bytes／SHA-256
 heartbeat P99 6.055 msで17／17を通した。Benchmark reportは1,958,180 bytes／SHA-256
 `333ae2125e48e5d63c1be7622b11bd7395566f97c01b81344bd268b0ad0bc932`である。Current artifact
 identityとcanonical reproductionはcurrent checkpoint manifestを正本とする。
+
+## 127. BGI logical monitor information
+
+Focused `get-monitor-info-a` observationを独立に2回取得した。Primary raw traceは412,244 bytes／
+816 records／371 balanced API pairs／SHA-256
+`01cfd734a384bf3678263af7312e3354688194e79ef21ee019b4fd527ec64577`、summaryは70,362 bytes／
+SHA-256 `39ebd444eb1bc674bf71c7a2a869cf8af42a6f948d8c33be3ccaa46949da0c0b`である。
+Confirmation raw traceは370,979 bytes／677 records／303 balanced API pairs／SHA-256
+`f13219e019c4eecc5b383d8c2a79093338226a2ae19e00d0828d28fab8ef1a08`、summaryは65,244 bytes／
+SHA-256 `f4c0c49198b5b8aceaf282871c29f215611e584a272a23111c0d01f0e5367c13`である。両summaryとも
+diagnosticは0、hook completion後1秒のAPI quiescenceまで確認した。Raw trace／summaryは`.work/`に保持し、
+Gitへ追加しない。Source executableは前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で変更していない。
+
+BGI callはcaller RVA `0x0005C913`、frame caller RVA `0x0009384C`から一回到達する。Live primary
+HMONITORと40-byte `MONITORINFO`でBOOL 1、LastError preserve、monitor rect
+`(0,0)-(1920,1080)`、work rect `(0,0)-(1920,1032)`、flags `MONITORINFOF_PRIMARY`を返す。
+Callerはmonitor left／topをwindow placementへ使い、work rectはこの到達pathでは消費しない。Native
+HMONITORとtaskbar／desktop topologyはartifact observationでありVineへimportしない。
+
+Controlled x86 oracleは11 casesを一runで固定した。Live handleのsize 40／72は成功してLastErrorを保存する。
+Live handleのsize `0／39／41／71／73`はFALSE／87、NULL／invalid handleはsize 40と0の両方で
+FALSE／1461となり、handle validationがsize validationより先であることを示す。全failureで80-byte guard
+bufferは不変である。72-byte `MONITORINFOEXA`は同じrect／flagsとdevice `\\.\DISPLAY1`を返すが、
+primary callerは40-byte variantだけを要求する。
+
+Runtimeは`RuntimeDisplays`をmonitor identity／monitor rect／contained work rectの単一authorityとし、version-17
+User32 policyの`logical-primary-monitor-info-40-v1`だけを実装する。Logical handleを先にtyped lookupし、
+invalid handleは1461、live handleのnon-40 sizeは87、40-byte successは全spanをpreflightして一回だけ
+`28000000000000000000000080070000380400000000000000000000800700000804000001000000`をpublishする。
+Native 72-byte variantはsilent truncationせず`get-monitor-info-a-ex-variant-unsupported`となる。Failureはguest
+bytes、display identity、generation、LastErrorを部分更新しない。
+
+Node summaryはsequence 18,439／instruction 11,824,580でcallを完了し、その後の
+`GetSystemMetrics(23／3)`をsequence 18,440／18,441で完了する。18,441 supported calls、18,496
+writebacks／36,660 dirty pages／1,816,970 changed bytes、17,146 host deltas、generation 36,073を通し、
+semantic SHA-256は`cd147b58fb5c0f2ca0d8ffea5a38c47f586b9f63ce7b33ddc6e3eef79e55a98d`、
+final memory SHA-256は`f9df61ebd98d5563ffd912b494322b69ce9520c712c3bf6553f52fdd51c46c38`である。
+Summary reportは50,161 bytes／SHA-256
+`ac57d5a0619b1688499be4bac30cacab1b261c38b4d092c3b78d7622c29e7790`である。Chrome Runtime Workerも
+same ordered semantics／digest／memory／stopを再現し、19,191 slices、19,189 writebacks／38,272 pages、
+17,146 mapping deltas／18,346 dirty pages、generation 27→36,768、55,138 Wasm crossings、57,539
+execution transitions、terminal pending work 0を通した。Browser reportは43,930 bytes／SHA-256
+`42f42b4e1eb57413b8fa5c61faad1e11a0002056130a0d772fe12623cfbd6572`である。
+
+同じ180-second／17-threshold gateはvalid environmentで二回ともsemantic failure 0、16／17 passとなった。
+Heartbeat P99だけが33.480／33.865 msで25 ms ceilingを超え、maximumは43.990／44.550 msで250 ms ceiling内、
+二回目は79 sessionsを完了した。旧performance-frequency stopと新monitor-info stopのsame-host Node三回比較は
+中央値27,192.873／26,989.812 ms（新path -0.747%）で、追加API costはshiftを説明しない。Thresholdを変更せず、
+retryをacceptanceに使わず、exact reports／A/B／resume conditionをcurrent manifestのstructured feasibility
+blockerへ保存した。次stopはinstruction 11,825,212の
+`dinput8.dll!DirectInput8Create(0x10000000,0x00000800,0x100D22B8,0x10151800,0)`、endpoint ID 2／
+`0x7F000010`、IAT `0x100D1050`、return `0x1005C234`、reason `endpoint-contract-missing`である。
+DirectInput identity／device behaviorとhost／browser display importは実装済みとしない。
 
 ## 121. BGI shared multimedia tick sample
 

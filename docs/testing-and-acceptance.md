@@ -386,9 +386,28 @@ frequency failure時だけ1000／`GetTickCount`へfallbackして成功時はcoun
 same semantic digest／memory／`GetMonitorInfoA` stop、clean cancel／watchdogを一致させる。Host QPC、
 browser clock、Worker cadence、WinMM resolution、frame／audio clockをimportしない。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。SHA固定Chrome for Testingのvalid environmentで127 sessions、semantic failure 0、heartbeat P99
-6.055 ms／maximum 36.075 ms、slice P99 1.675 msを記録して17／17を通過した。Heartbeat 25 ms、live
-heap／slope／backing storage、96 MiB capacityを含むversioned thresholdsは変更していない。
+条件とする。Performance-frequency stopの履歴runはSHA固定Chrome for Testingのvalid environmentで127 sessions、
+semantic failure 0、heartbeat P99 6.055 ms／maximum 36.075 ms、slice P99 1.675 msを記録して17／17を通過した。
+Heartbeat 25 ms、live heap／slope／backing storage、96 MiB capacityを含むversioned thresholdsは変更していない。
+
+Reached `GetMonitorInfoA`はtwo-word／BOOL ABIとrequired writable 40-byte `MONITORINFO`を固定する。
+`RuntimeDisplays`がlogical HMONITOR、monitor rect、contained work rectを一つのprofile identityとして所有し、
+handlerはhandleをsizeより先に検証する。NULL／stale handleはFALSE／1461、live handleのnon-40 sizeは
+FALSE／87、40-byte successはmonitor `(0,0)-(1920,1080)`、work `(0,0)-(1920,1032)`、primary flagを
+全span preflight後にatomic publishしてLastErrorを保存する。Native 72-byte `MONITORINFOEXA`はoracleだけを
+保持し、reached consumerがないためtyped unsupportedとする。Controlled oracleは11 casesでsize
+`0／39／40／41／71／72／73`、NULL／invalid handle、failure buffer preservation、validation orderを固定する。
+Owner modelはinvalid／non-contained work rect、duplicate configure、stale identityでdisplay stateとallocatorを
+変更しない。Node／Chromeはsequence 18,439のexact 40 bytes、続く二metric、18,441-call digest、final memory、
+`DirectInput8Create` stopを一致させる。
+
+このcurrent workloadの180-second gateはvalid environmentで二回ともsemantic failure 0かつ16／17 passだが、
+heartbeat P99だけが33.480／33.865 msで25 ms ceilingを超えた。Unchanged confirmationでも再現し、旧
+performance-frequency stopとのNode三回A/Bでは新pathが中央値0.747%速いためAPI cost regressionを支持しない。
+Failure report、environment qualification、A/B、保持するauthority／threshold invariant、再開条件をmanifestの
+structured feasibility blockerへ保存する。Retry passやthreshold緩和でacceptせず、isolated／explicitly
+quiescent hostのunchanged gate、またはevidence付きbrowser scheduling remediationで17／17を通すまで
+`GetMonitorInfoA` checkpointをacceptして`DirectInput8Create`へ進めない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

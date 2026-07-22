@@ -43,6 +43,7 @@ const supportedObservations = new Set([
   "register-class-ex-a",
   "get-system-metrics",
   "get-client-rect",
+  "get-monitor-info-a",
   "window-dc",
   "set-window-long-a",
   "get-string-type-w",
@@ -2944,6 +2945,436 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     }
   }
 
+  const normalizeRawByteSnapshot = (
+    snapshot,
+    label,
+    requestedBytes,
+    maximumBytes,
+  ) => {
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      typeof snapshot.pointer !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+      snapshot.requestedBytes !== requestedBytes ||
+      snapshot.maximumBytes !== maximumBytes ||
+      !Array.isArray(snapshot.bytes) ||
+      snapshot.bytes.length !== requestedBytes ||
+      !snapshot.bytes.every(
+        (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+      )
+    ) {
+      throw new Error(`${label} is not a bounded raw-byte snapshot`);
+    }
+    return { ...snapshot, bytes: [...snapshot.bytes] };
+  };
+  const readSnapshotU32 = (bytes, offset) =>
+    Buffer.from(bytes).readUInt32LE(offset);
+  const readSnapshotI32 = (bytes, offset) =>
+    Buffer.from(bytes).readInt32LE(offset);
+  const normalizeRectSnapshot = (snapshot, label) => {
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      snapshot.profile !== "x86-rect-v1" ||
+      snapshot.fields === null ||
+      typeof snapshot.fields !== "object"
+    ) {
+      throw new Error(`${label} is not an x86 RECT snapshot`);
+    }
+    const raw = normalizeRawByteSnapshot(snapshot.raw, `${label} raw`, 16, 64);
+    const fields = {
+      left: readSnapshotI32(raw.bytes, 0),
+      top: readSnapshotI32(raw.bytes, 4),
+      right: readSnapshotI32(raw.bytes, 8),
+      bottom: readSnapshotI32(raw.bytes, 12),
+    };
+    if (JSON.stringify(snapshot.fields) !== JSON.stringify(fields)) {
+      throw new Error(`${label} fields do not match its raw bytes`);
+    }
+    return fields;
+  };
+  const normalizeMonitorInfoASnapshot = (snapshot, label) => {
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      snapshot.profile !== "x86-monitor-info-a-v1" ||
+      !isU32(snapshot.cbSize)
+    ) {
+      throw new Error(`${label} is not an x86 MONITORINFOA snapshot`);
+    }
+    const capturedBytes = Math.min(Math.max(snapshot.cbSize, 4), 72);
+    if (snapshot.capturedBytes !== capturedBytes) {
+      throw new Error(`${label} has an invalid captured-byte length`);
+    }
+    const raw = normalizeRawByteSnapshot(
+      snapshot.raw,
+      `${label} raw`,
+      capturedBytes,
+      72,
+    );
+    if (readSnapshotU32(raw.bytes, 0) !== snapshot.cbSize) {
+      throw new Error(`${label} size field does not match its raw bytes`);
+    }
+    const normalized = {
+      pointer: raw.pointer,
+      cbSize: snapshot.cbSize,
+      capturedBytes,
+      rawBytes: raw.bytes,
+    };
+    if (capturedBytes < 40) {
+      if (snapshot.fields !== undefined) {
+        throw new Error(`${label} exposes fields before a full MONITORINFO`);
+      }
+      return normalized;
+    }
+    if (
+      snapshot.fields === null ||
+      typeof snapshot.fields !== "object" ||
+      !isU32(snapshot.fields.flags)
+    ) {
+      throw new Error(`${label} is missing MONITORINFO fields`);
+    }
+    const monitor = normalizeRectSnapshot(
+      snapshot.fields.monitor,
+      `${label} monitor`,
+    );
+    const work = normalizeRectSnapshot(snapshot.fields.work, `${label} work`);
+    const flags = readSnapshotU32(raw.bytes, 36);
+    if (
+      JSON.stringify(raw.bytes.slice(4, 20)) !==
+        JSON.stringify(snapshot.fields.monitor.raw.bytes) ||
+      JSON.stringify(raw.bytes.slice(20, 36)) !==
+        JSON.stringify(snapshot.fields.work.raw.bytes) ||
+      snapshot.fields.flags !== flags
+    ) {
+      throw new Error(`${label} fields are inconsistent with its structure bytes`);
+    }
+    normalized.monitor = monitor;
+    normalized.work = work;
+    normalized.flags = flags;
+    if (capturedBytes >= 72) {
+      if (
+        !Array.isArray(snapshot.fields.deviceBytes) ||
+        snapshot.fields.deviceBytes.length !== 32 ||
+        !snapshot.fields.deviceBytes.every(
+          (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+        ) ||
+        typeof snapshot.fields.deviceTerminated !== "boolean" ||
+        !Array.isArray(snapshot.fields.deviceBytesWithoutNul)
+      ) {
+        throw new Error(`${label} has an invalid MONITORINFOEXA device field`);
+      }
+      const terminator = snapshot.fields.deviceBytes.indexOf(0);
+      const withoutNul =
+        terminator < 0
+          ? snapshot.fields.deviceBytes
+          : snapshot.fields.deviceBytes.slice(0, terminator);
+      if (
+        JSON.stringify(raw.bytes.slice(40, 72)) !==
+          JSON.stringify(snapshot.fields.deviceBytes) ||
+        snapshot.fields.deviceTerminated !== (terminator >= 0) ||
+        JSON.stringify(snapshot.fields.deviceBytesWithoutNul) !==
+          JSON.stringify(withoutNul)
+      ) {
+        throw new Error(`${label} device bytes are internally inconsistent`);
+      }
+      normalized.deviceBytes = [...snapshot.fields.deviceBytes];
+      normalized.deviceBytesWithoutNul = [...withoutNul];
+      normalized.deviceTerminated = terminator >= 0;
+    }
+    return normalized;
+  };
+
+  const getMonitorInfoAOracleEvents = events.filter(
+    (event) => event.kind === "get-monitor-info-a-oracle",
+  );
+  const getMonitorInfoACompletionEvents = events.filter(
+    (event) => event.kind === "get-monitor-info-a-complete",
+  );
+  const requiresGetMonitorInfoACompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "get-monitor-info-a" &&
+    traceStart.arguments?.stopOnEvent === "get-monitor-info-a-complete";
+  if (
+    getMonitorInfoAOracleEvents.length > 1 ||
+    getMonitorInfoACompletionEvents.length > 1 ||
+    (requiresGetMonitorInfoACompletion &&
+      (getMonitorInfoAOracleEvents.length !== 1 ||
+        getMonitorInfoACompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "get-monitor-info-a observation requires exactly one oracle and structured completion",
+    );
+  }
+  const getMonitorInfoA = getMonitorInfoACompletionEvents.map((completion) => {
+    const oracle = getMonitorInfoAOracleEvents[0];
+    const expectedCalls = [
+      ["live-monitor-info", 40, 0x1122_3344, 1, null],
+      ["live-monitor-info-ex-a", 72, 0x2233_4455, 1, null],
+      ["live-size-zero", 0, 0x3344_5566, 0, 87],
+      ["live-size-39", 39, 0x4455_6677, 0, 87],
+      ["live-size-41", 41, 0x5566_7788, 0, 87],
+      ["live-size-71", 71, 0x6677_8899, 0, 87],
+      ["live-size-73", 73, 0x7788_99aa, 0, 87],
+      ["null-monitor", 40, 0x8899_aabb, 0, 1461],
+      ["invalid-monitor", 40, 0x99aa_bbcc, 0, 1461],
+      ["null-monitor-size-zero", 0, 0xaabb_ccdd, 0, 1461],
+      ["invalid-monitor-size-zero", 0, 0xbbcc_ddee, 0, 1461],
+    ];
+    if (
+      oracle === undefined ||
+      oracle.profile !== "x86-live-monitor-size-and-handle-matrix-v1" ||
+      completion.profile !== "x86-bgi-first-monitor-info-a-v1" ||
+      !Array.isArray(oracle.calls) ||
+      oracle.calls.length !== expectedCalls.length ||
+      oracle.allResultsMatchHooks !== true ||
+      oracle.allLastErrorsMatchHooks !== true ||
+      completion.sequence <= oracle.sequence ||
+      completion.oracle?.profile !== oracle.profile ||
+      JSON.stringify(completion.oracle?.calls) !== JSON.stringify(oracle.calls) ||
+      completion.oracle?.allResultsMatchHooks !== true ||
+      completion.oracle?.allLastErrorsMatchHooks !== true
+    ) {
+      throw new Error(
+        "get-monitor-info-a completion or oracle has invalid structure",
+      );
+    }
+    const oraclePairs = apiPairing.pairs.filter(
+      (pair) =>
+        pair.enter.api === "GetMonitorInfoA" &&
+        pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll",
+    );
+    if (oraclePairs.length !== expectedCalls.length) {
+      throw new Error(
+        "get-monitor-info-a oracle calls do not match their paired traces",
+      );
+    }
+    let liveMonitor = null;
+    const oracleCalls = oracle.calls.map((call, index) => {
+      const [id, cbSize, sentinel, expectedResult, failureLastError] =
+        expectedCalls[index];
+      const pair = oraclePairs[index];
+      const before = normalizeMonitorInfoASnapshot(
+        call.outputBefore,
+        `get-monitor-info-a oracle ${id} before`,
+      );
+      const after = normalizeMonitorInfoASnapshot(
+        call.outputAfter,
+        `get-monitor-info-a oracle ${id} after`,
+      );
+      const hookBefore = normalizeMonitorInfoASnapshot(
+        call.hookOutputBefore,
+        `get-monitor-info-a oracle ${id} hook before`,
+      );
+      const hookAfter = normalizeMonitorInfoASnapshot(
+        call.hookOutputAfter,
+        `get-monitor-info-a oracle ${id} hook after`,
+      );
+      const rawBefore = normalizeRawByteSnapshot(
+        call.outputRawBefore,
+        `get-monitor-info-a oracle ${id} raw before`,
+        80,
+        80,
+      );
+      const rawAfter = normalizeRawByteSnapshot(
+        call.outputRawAfter,
+        `get-monitor-info-a oracle ${id} raw after`,
+        80,
+        80,
+      );
+      const expectedBeforeBuffer = Buffer.alloc(80, 0xa5);
+      expectedBeforeBuffer.writeUInt32LE(cbSize, 0);
+      const expectedBefore = [...expectedBeforeBuffer];
+      const expectedLastError =
+        failureLastError === null ? sentinel : failureLastError;
+      if (index === 0) {
+        liveMonitor = call.monitor;
+      }
+      const expectsLiveMonitor = index <= 6;
+      const expectedMonitor = expectsLiveMonitor
+        ? liveMonitor
+        : id.startsWith("null-")
+          ? "0x0"
+          : "0x1234";
+      const failedBytesUnchanged = expectedResult === 0;
+      if (
+        call.id !== id ||
+        call.cbSize !== cbSize ||
+        call.sentinel !== sentinel ||
+        call.allocationBytes !== 80 ||
+        call.monitor !== expectedMonitor ||
+        call.output !== before.pointer ||
+        before.pointer !== after.pointer ||
+        before.pointer !== rawBefore.pointer ||
+        before.cbSize !== cbSize ||
+        after.cbSize !== cbSize ||
+        JSON.stringify(call.outputBefore) !==
+          JSON.stringify(call.hookOutputBefore) ||
+        JSON.stringify(call.outputAfter) !==
+          JSON.stringify(call.hookOutputAfter) ||
+        JSON.stringify(before) !== JSON.stringify(hookBefore) ||
+        JSON.stringify(after) !== JSON.stringify(hookAfter) ||
+        JSON.stringify(rawBefore.bytes) !== JSON.stringify(expectedBefore) ||
+        call.systemResult !== expectedResult ||
+        call.hookResult !== expectedResult ||
+        call.succeeded !== (expectedResult !== 0) ||
+        call.systemLastError !== expectedLastError ||
+        call.hookLastErrorAfter !== expectedLastError ||
+        call.hookResultMatches !== true ||
+        call.hookAndSystemLastErrorMatch !== true ||
+        failedBytesUnchanged !==
+          (JSON.stringify(rawBefore.bytes) === JSON.stringify(rawAfter.bytes)) ||
+        pair.enter.module.toLowerCase() !== "user32.dll" ||
+        pair.enter.parentCallId !== null ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 2 ||
+        pair.enter.arguments[0].toLowerCase() !== call.monitor.toLowerCase() ||
+        pair.enter.arguments[1].toLowerCase() !== call.output.toLowerCase() ||
+        pair.enter.lastErrorBefore !== sentinel ||
+        pair.leave.lastError !== expectedLastError ||
+        Number(BigInt(pair.leave.result)) !== expectedResult ||
+        pair.leave.getMonitorInfoA?.result !== expectedResult ||
+        JSON.stringify(pair.enter.getMonitorInfoA?.outputBefore) !==
+          JSON.stringify(call.outputBefore) ||
+        JSON.stringify(pair.leave.getMonitorInfoA?.outputAfter) !==
+          JSON.stringify(call.outputAfter)
+      ) {
+        throw new Error(
+          `get-monitor-info-a oracle call ${id} violates its size, handle, output, or LastError contract`,
+        );
+      }
+      if (expectedResult !== 0) {
+        const expectedRect = { left: 0, top: 0, right: 1920, bottom: 1080 };
+        const expectedWork = { left: 0, top: 0, right: 1920, bottom: 1032 };
+        if (
+          JSON.stringify(after.monitor) !== JSON.stringify(expectedRect) ||
+          JSON.stringify(after.work) !== JSON.stringify(expectedWork) ||
+          after.flags !== 1 ||
+          JSON.stringify(rawAfter.bytes.slice(0, 40)) !==
+            JSON.stringify(after.rawBytes.slice(0, 40)) ||
+          rawAfter.bytes.slice(cbSize).some((byte) => byte !== 0xa5)
+        ) {
+          throw new Error(
+            `get-monitor-info-a oracle call ${id} violates its successful monitor output contract`,
+          );
+        }
+        if (
+          cbSize === 72 &&
+          (after.deviceTerminated !== true ||
+            JSON.stringify(after.deviceBytesWithoutNul) !==
+              JSON.stringify([92, 92, 46, 92, 68, 73, 83, 80, 76, 65, 89, 49]))
+        ) {
+          throw new Error(
+            "get-monitor-info-a MONITORINFOEXA oracle has an unexpected device name",
+          );
+        }
+      }
+      return {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId,
+        id,
+        monitor: call.monitor,
+        cbSize,
+        result: expectedResult,
+        lastError: expectedLastError,
+        output: after,
+        failedBytesUnchanged,
+      };
+    });
+
+    const snapshot = completion.mainModuleCall;
+    const pair = apiPairing.pairs.find(
+      (candidate) => candidate.enter.callId === snapshot?.callId,
+    );
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
+    const mainBefore = normalizeMonitorInfoASnapshot(
+      snapshot?.outputBefore,
+      "get-monitor-info-a main output before",
+    );
+    const mainAfter = normalizeMonitorInfoASnapshot(
+      snapshot?.outputAfter,
+      "get-monitor-info-a main output after",
+    );
+    const firstConsumerInstruction =
+      snapshot?.immediateConsumer?.apiContinuation?.entry?.instructions?.[0];
+    const firstFrame =
+      snapshot?.immediateConsumer?.frameCallerContinuations?.frames?.[0];
+    if (
+      pair === undefined ||
+      pair.enter.api !== "GetMonitorInfoA" ||
+      pair.enter.module.toLowerCase() !== "user32.dll" ||
+      pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+      pair.enter.caller?.rva !== 0x5c913 ||
+      pair.enter.parentCallId !== null ||
+      !Array.isArray(pair.enter.arguments) ||
+      pair.enter.arguments.length !== 2 ||
+      snapshot.callerRva !== pair.enter.caller.rva ||
+      snapshot.monitor !== liveMonitor ||
+      snapshot.outputPointer !== mainBefore.pointer ||
+      mainBefore.pointer !== mainAfter.pointer ||
+      pair.enter.arguments[0].toLowerCase() !== liveMonitor.toLowerCase() ||
+      pair.enter.arguments[1].toLowerCase() !== mainBefore.pointer.toLowerCase() ||
+      mainBefore.cbSize !== 40 ||
+      mainAfter.cbSize !== 40 ||
+      JSON.stringify(mainAfter.monitor) !==
+        JSON.stringify({ left: 0, top: 0, right: 1920, bottom: 1080 }) ||
+      JSON.stringify(mainAfter.work) !==
+        JSON.stringify({ left: 0, top: 0, right: 1920, bottom: 1032 }) ||
+      mainAfter.flags !== 1 ||
+      snapshot.result !== 1 ||
+      snapshot.succeeded !== true ||
+      Number(BigInt(pair.leave.result)) !== 1 ||
+      pair.leave.getMonitorInfoA?.result !== 1 ||
+      snapshot.lastErrorBefore !== snapshot.lastError ||
+      snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
+      snapshot.lastError !== pair.leave.lastError ||
+      JSON.stringify(pair.enter.getMonitorInfoA?.outputBefore) !==
+        JSON.stringify(snapshot.outputBefore) ||
+      JSON.stringify(pair.leave.getMonitorInfoA?.outputAfter) !==
+        JSON.stringify(snapshot.outputAfter) ||
+      JSON.stringify(pair.enter.getMonitorInfoA?.immediateConsumer) !==
+        JSON.stringify(snapshot.immediateConsumer) ||
+      firstConsumerInstruction?.mnemonic !== "ret" ||
+      firstFrame?.caller?.module?.toLowerCase() !== executableModule ||
+      firstFrame?.caller?.rva !== 0x9384c
+    ) {
+      throw new Error(
+        "get-monitor-info-a main call does not match its paired target trace",
+      );
+    }
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      oracle: {
+        sequence: oracle.sequence,
+        profile: oracle.profile,
+        calls: oracleCalls,
+      },
+      mainModuleCall: {
+        sequence: pair.enter.sequence,
+        callId: pair.enter.callId,
+        threadId: pair.enter.threadId,
+        caller: {
+          module: pair.enter.caller.module,
+          rva: pair.enter.caller.rva,
+        },
+        monitor: liveMonitor,
+        outputBefore: mainBefore,
+        outputAfter: mainAfter,
+        result: 1,
+        lastErrorBefore: snapshot.lastErrorBefore,
+        lastError: snapshot.lastError,
+        consumer: {
+          apiReturnMnemonic: firstConsumerInstruction.mnemonic,
+          firstFrameCallerRva: firstFrame.caller.rva,
+        },
+      },
+    };
+  });
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -3375,6 +3806,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
     winmm: {
       timeGetTime,
+    },
+    user32: {
+      getMonitorInfoA,
     },
     d3d9: {
       adapterIdentifiers,

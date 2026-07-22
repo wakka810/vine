@@ -155,6 +155,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-initial-render-states",
         "d3d9-raster-status",
         "kernel32-query-performance-frequency",
+        "user32-get-monitor-info-a",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -267,6 +268,7 @@ if (
     "d3d9-initial-render-states",
     "d3d9-raster-status",
     "kernel32-query-performance-frequency",
+    "user32-get-monitor-info-a",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -298,7 +300,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-initial-vertex-buffer" ||
     genericRuntimeCapability === "d3d9-initial-render-states" ||
     genericRuntimeCapability === "d3d9-raster-status" ||
-    genericRuntimeCapability === "kernel32-query-performance-frequency"
+    genericRuntimeCapability === "kernel32-query-performance-frequency" ||
+    genericRuntimeCapability === "user32-get-monitor-info-a"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -433,7 +436,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const getMonitorInfoAEnabled =
+  genericRuntimeCapability === "user32-get-monitor-info-a";
 const queryPerformanceFrequencyEnabled =
+  getMonitorInfoAEnabled ||
   genericRuntimeCapability === "kernel32-query-performance-frequency";
 const d3d9RasterStatusEnabled =
   queryPerformanceFrequencyEnabled ||
@@ -670,7 +676,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? queryPerformanceFrequencyEnabled
+      ? getMonitorInfoAEnabled
+      ? "v86-bgi-get-monitor-info-a"
+      : queryPerformanceFrequencyEnabled
       ? "v86-bgi-query-performance-frequency"
       : d3d9RasterStatusEnabled
       ? "v86-bgi-d3d9-raster-status"
@@ -4646,6 +4654,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (getMonitorInfoAEnabled) {
+        validateGetMonitorInfoAResult(genericResult);
       } else if (queryPerformanceFrequencyEnabled) {
         validateQueryPerformanceFrequencyResult(genericResult);
       } else if (d3d9RasterStatusEnabled) {
@@ -4827,6 +4837,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getMonitorInfoAEnabled
+          ? "bgi GetMonitorInfoA logical primary monitor"
           : queryPerformanceFrequencyEnabled
           ? "bgi QueryPerformanceFrequency"
           : d3d9RasterStatusEnabled
@@ -6056,6 +6068,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : getMonitorInfoAEnabled
+          ? 74
         : queryPerformanceFrequencyEnabled
           ? 73
         : timeGetTimeEnabled
@@ -6192,14 +6206,18 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-monitor-v16",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-v17",
     );
-    assert.equal(ready.displayProfileId, "single-monitor-1920x1080-v1");
+    assert.equal(
+      ready.displayProfileId,
+      "single-monitor-1920x1080-work-1920x1032-v2",
+    );
     assert.deepEqual(ready.primaryMonitor, {
       namespace: "vine.logical-monitor.v1",
       handle: 0x4f010001,
       primary: true,
       rect: { left: 0, top: 0, right: 1920, bottom: 1080 },
+      workRect: { left: 0, top: 0, right: 1920, bottom: 1032 },
     });
     if (swapMouseButtonEnabled) {
       assert.deepEqual(ready.mouseButtonMapping, {
@@ -13554,6 +13572,144 @@ function validateD3d9InitialVertexBufferResult(result) {
   ]);
 }
 
+function validateGetMonitorInfoAResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_441);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_496);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_660,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_816_970,
+  );
+  assert.equal(result.hostDeltas.length, 17_146);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_073);
+
+  const calls = result.supportedCalls.filter(
+    (candidate) => candidate.symbol === "GetMonitorInfoA",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call.sequence, 18_439);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_824_580);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(call.arguments, [0x4f01_0001, 0x006f_fd44]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.implementationId, "user32.get-monitor-info-a.v1");
+  assert.equal(call.returnAddress, 0x1005_c913);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 12);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006f_fd44);
+  assert.deepEqual(call.guestWrites[0].bytes, [
+    40, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    128, 7, 0, 0,
+    56, 4, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    128, 7, 0, 0,
+    8, 4, 0, 0,
+    1, 0, 0, 0,
+  ]);
+  assert.equal(call.guestWrites[0].result.bytesWritten, 40);
+  assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+  assert.deepEqual(call.guestWrites[0].result.invalidation, {
+    generation: 36_070,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-3).map((candidate) => ({
+      sequence: candidate.sequence,
+      symbol: candidate.symbol,
+      arguments: candidate.arguments,
+      result: candidate.result,
+      trapInstructionCount: candidate.trapInstructionCount,
+    })),
+    [
+      {
+        sequence: 18_439,
+        symbol: "GetMonitorInfoA",
+        arguments: [0x4f01_0001, 0x006f_fd44],
+        result: { action: "set", value: 1 },
+        trapInstructionCount: 11_824_580,
+      },
+      {
+        sequence: 18_440,
+        symbol: "GetSystemMetrics",
+        arguments: [4],
+        result: { action: "set", value: 23 },
+        trapInstructionCount: 11_824_593,
+      },
+      {
+        sequence: 18_441,
+        symbol: "GetSystemMetrics",
+        arguments: [8],
+        result: { action: "set", value: 3 },
+        trapInstructionCount: 11_824_605,
+      },
+    ],
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "runtime-system-export");
+  assert.equal(endpoint.endpoint.id, 2);
+  assert.equal(endpoint.endpoint.address, 0x7f00_0010);
+  assert.equal(endpoint.endpoint.module, "dinput8.dll");
+  assert.deepEqual(endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "DirectInput8Create",
+  });
+  assert.equal(endpoint.endpoint.iatAddress, 0x100d_1050);
+  assert.equal(endpoint.endpoint.disposition, "declared-runtime-export");
+  assert.equal(result.fault.capabilityCluster, "dinput8-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 730);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "f9df61ebd98d5563ffd912b494322b69ce9520c712c3bf6553f52fdd51c46c38",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_825_212);
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 2);
+  assert.equal(terminal.thunk.address, 0x7f00_0010);
+  assert.equal(terminal.thunk.module, "DINPUT8.dll");
+  assert.equal(terminal.thunk.name, "DirectInput8Create");
+  assert.equal(terminal.returnAddress, 0x1005_c234);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_c234,
+    0x1000_0000,
+    0x0000_0800,
+    0x100d_22b8,
+    0x1015_1800,
+    0,
+    1,
+    0x1006_8315,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -16042,6 +16198,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getMonitorInfoAEnabled
+        ? "vine.v86-bgi-get-monitor-info-a"
         : queryPerformanceFrequencyEnabled
         ? "vine.v86-bgi-query-performance-frequency"
         : d3d9RasterStatusEnabled

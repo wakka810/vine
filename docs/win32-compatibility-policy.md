@@ -124,10 +124,12 @@ runtime or memory mutation.
 
 `User32CompatibilityPolicy` is a distinct versioned policy because logical
 display, input, and User32 resource selection do not belong to Kernel32 process
-policy. Version 13 composes display profile `single-monitor-1920x1080-v1`, input
-profile `normal-mouse-buttons-v1`, bounded icon／cursor／class variants, and the
-initial-window metrics profile. `runtime/displays.rs::RuntimeDisplays` owns the
-configured monitor; `runtime/input.rs::RuntimeInput` separately owns initial／
+policy. Version 17 composes display profile
+`single-monitor-1920x1080-work-1920x1032-v2`, input profile
+`normal-mouse-buttons-v1`, bounded icon／cursor／class variants, the initial-window
+metrics profile, and the reached 40-byte `MONITORINFO` variant.
+`runtime/displays.rs::RuntimeDisplays` owns the configured monitor and contained
+work area; `runtime/input.rs::RuntimeInput` separately owns initial／
 current mouse-button mapping and its generation; `RuntimeUser32` owns icon,
 cursor, and class identities. Policy values select variants but do not become
 parallel state collections. The policy stores no native HMONITOR, HICON,
@@ -147,6 +149,17 @@ identity is committed before execution and retired only by the exact top frame.
 Node and Worker keep outer call-entry order while nested API traps execute.
 Detailed native, core, Node, Chrome, and performance evidence is in
 [bgi-enum-display-monitors.md](bgi-enum-display-monitors.md).
+
+`GetMonitorInfoA` resolves the logical HMONITOR through that same display owner
+before reading the caller's `cbSize`. NULL／stale handles return BOOL FALSE with
+LastError `1461`; a live handle with a size other than 40 returns FALSE with
+LastError `87`. The successful 40-byte variant atomically publishes monitor rect
+`(0,0)-(1920,1080)`, work rect `(0,0)-(1920,1032)`, and
+`MONITORINFOF_PRIMARY`, while preserving LastError. The native 72-byte
+`MONITORINFOEXA` variant is measured but deliberately remains unsupported until
+a reached consumer requires its device-name contract. Failure buffers remain
+unchanged, and no native monitor value, taskbar state, browser screen bounds, or
+DOM geometry is imported.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only

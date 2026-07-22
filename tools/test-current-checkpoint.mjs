@@ -29,9 +29,13 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
-assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
-assert.ok(!rendered.includes("| Active blocker |"));
+assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-blocked");
+assert.equal(
+  manifest.browserCheckpoint.bgiBenchmarkBlocker.id,
+  "user32-get-monitor-info-a-heartbeat-threshold-v1",
+);
+assert.ok(rendered.includes("| Active blocker |"));
+assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.id));
 assert.equal(manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus, "valid");
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));

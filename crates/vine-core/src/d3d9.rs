@@ -27,7 +27,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 15;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 16;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -293,31 +293,31 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v15() -> Self {
+    pub fn controlled_v16() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v15".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v16".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter_count: 1,
             }),
             get_adapter_monitor: Some(D3d9AdapterMonitorPolicy {
                 profile_id: "primary-adapter-monitor-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
             }),
             get_adapter_display_mode: Some(D3d9AdapterDisplayModePolicy {
                 profile_id: "primary-adapter-1920x1080-60-x8r8g8b8-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 refresh_rate: 60,
                 format: D3D9_D3DFMT_X8R8G8B8,
             }),
             get_adapter_identifier: Some(D3d9AdapterIdentifierPolicy {
                 profile_id: "primary-virtual-adapter-identifier-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 flags: 0,
                 driver: D3D9_VIRTUAL_DRIVER.to_owned(),
@@ -333,7 +333,7 @@ impl D3d9CompatibilityPolicy {
             }),
             get_device_caps: Some(D3d9DeviceCapsPolicy {
                 profile_id: "primary-hal-readscanline-dynamic-textures-ps3-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 device_type: D3D9_D3DDEVTYPE_HAL,
                 caps: D3D9_D3DCAPS_READ_SCANLINE,
@@ -343,7 +343,7 @@ impl D3d9CompatibilityPolicy {
             }),
             check_device_type: Some(D3d9CheckDeviceTypePolicy {
                 profile_id: "primary-hal-x8r8g8b8-windowed-fullscreen-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 device_type: D3D9_D3DDEVTYPE_HAL,
                 adapter_format: D3D9_D3DFMT_X8R8G8B8,
@@ -353,7 +353,7 @@ impl D3d9CompatibilityPolicy {
             }),
             check_device_format: Some(D3d9CheckDeviceFormatPolicy {
                 profile_id: "primary-hal-x8r8g8b8-texture-basic-dynamic-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 device_type: D3D9_D3DDEVTYPE_HAL,
                 adapter_format: D3D9_D3DFMT_X8R8G8B8,
@@ -363,7 +363,7 @@ impl D3d9CompatibilityPolicy {
             }),
             create_device: Some(D3d9CreateDevicePolicy {
                 profile_id: "primary-windowed-hal-device-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 adapter: 0,
                 device_type: D3D9_D3DDEVTYPE_HAL,
                 behavior_flags: D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED,
@@ -413,7 +413,7 @@ impl D3d9CompatibilityPolicy {
             }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
-                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 in_v_blank: false,
                 scan_line: 1,
             }),

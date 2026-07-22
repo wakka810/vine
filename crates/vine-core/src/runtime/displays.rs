@@ -31,6 +31,7 @@ impl RuntimeRect {
 pub struct RuntimeDisplayProfile {
     pub id: String,
     pub primary_monitor_rect: RuntimeRect,
+    pub primary_work_rect: RuntimeRect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -40,6 +41,7 @@ pub struct RuntimeLogicalMonitor {
     pub handle: u32,
     pub primary: bool,
     pub rect: RuntimeRect,
+    pub work_rect: RuntimeRect,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -81,6 +83,7 @@ impl RuntimeDisplays {
             ));
         }
         let rect = profile.primary_monitor_rect;
+        let work_rect = profile.primary_work_rect;
         if rect.left != 0
             || rect.top != 0
             || rect.right <= rect.left
@@ -94,6 +97,19 @@ impl RuntimeDisplays {
                 "single logical primary monitor requires a bounded positive rectangle at the virtual origin",
             ));
         }
+        if work_rect.left < rect.left
+            || work_rect.top < rect.top
+            || work_rect.right <= work_rect.left
+            || work_rect.bottom <= work_rect.top
+            || work_rect.right > rect.right
+            || work_rect.bottom > rect.bottom
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-display",
+                "primary-work-rect-invalid",
+                "logical primary work rectangle must be positive and contained by its monitor rectangle",
+            ));
+        }
         Ok(RuntimeDisplayConfigurationPlan {
             profile_id: profile.id,
             primary_monitor: RuntimeLogicalMonitor {
@@ -101,6 +117,7 @@ impl RuntimeDisplays {
                 handle: RUNTIME_PRIMARY_MONITOR_HANDLE,
                 primary: true,
                 rect,
+                work_rect,
             },
         })
     }
@@ -128,6 +145,19 @@ impl RuntimeDisplays {
     pub(super) fn primary_monitor(&self) -> Option<&RuntimeLogicalMonitor> {
         self.primary_monitor.as_ref()
     }
+
+    pub(super) fn monitor(&self, handle: u32) -> Result<&RuntimeLogicalMonitor, RuntimeStateError> {
+        self.primary_monitor
+            .as_ref()
+            .filter(|monitor| monitor.handle == handle)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-display",
+                    "logical-monitor-handle-unknown",
+                    format!("logical HMONITOR {handle:#010x} is not live"),
+                )
+            })
+    }
 }
 
 #[cfg(test)]
@@ -142,6 +172,12 @@ mod tests {
                 top: 0,
                 right: 1920,
                 bottom: 1080,
+            },
+            primary_work_rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1032,
             },
         }
     }
@@ -165,6 +201,12 @@ mod tests {
         let monitor = displays.primary_monitor().unwrap();
         assert_eq!(monitor.handle, RUNTIME_PRIMARY_MONITOR_HANDLE);
         assert_eq!(monitor.rect.to_x86_bytes().len(), 16);
+        assert_eq!(monitor.work_rect.bottom, 1032);
+        assert_eq!(displays.monitor(monitor.handle).unwrap(), monitor);
+        assert_eq!(
+            displays.monitor(0).unwrap_err().code,
+            "logical-monitor-handle-unknown"
+        );
         assert_eq!(
             displays.commit_configuration(stale).unwrap_err().code,
             "display-configuration-plan-stale"
@@ -178,5 +220,18 @@ mod tests {
             displays.plan_configuration(profile()).unwrap_err().code,
             "display-profile-already-configured"
         );
+    }
+
+    #[test]
+    fn configuration_rejects_work_area_outside_monitor_without_mutation() {
+        let displays = RuntimeDisplays::default();
+        let mut invalid = profile();
+        invalid.primary_work_rect.bottom = 1081;
+        assert_eq!(
+            displays.plan_configuration(invalid).unwrap_err().code,
+            "primary-work-rect-invalid"
+        );
+        assert!(displays.profile_id().is_none());
+        assert!(displays.primary_monitor().is_none());
     }
 }

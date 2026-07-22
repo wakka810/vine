@@ -2,18 +2,20 @@
 
 ## Status
 
-- Status: threshold passed
+- Status: threshold blocked
 - Date: 2026-07-22
-- Workload: 18,438-call `kernel32-query-performance-frequency` private BGI generic session
-- Observation status: `current-query-performance-frequency-observation`
+- Workload: 18,441-call `user32-get-monitor-info-a` private BGI generic session
+- Observation status: `current-get-monitor-info-a-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json`](../fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json)
-- Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
+- Configuration: [`fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json`](../fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json)
+- First evidence: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`
+- Confirmation evidence: `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
 
-This observation repeats the complete `kernel32-query-performance-frequency` BGI
+This observation repeats the complete `user32-get-monitor-info-a` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 18,438 calls before the 11,824,580-instruction
-terminal stop, performs 55,131 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 18,441 calls before the 11,825,212-instruction
+`dinput8.dll!DirectInput8Create` terminal stop, performs 55,138 Rust/Wasm bridge
+operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -33,8 +35,10 @@ off, lighting off, and alpha blending on before slot 19
 `IDirect3DDevice9::GetRasterStatus(0, output)` returns the deterministic eight-byte
 status `0000000001000000`. Execution then reads the process-owned 10 MHz
 `QueryPerformanceFrequency` value and advances `QueryPerformanceCounter` in
-10,000-tick increments while the caller repeats its raster-polling loop. It
-continues to `user32.dll!GetMonitorInfoA`. The successful resource path
+10,000-tick increments while the caller repeats its raster-polling loop. It then
+publishes the Rust-owned 40-byte primary `MONITORINFO` with monitor rect
+`(0,0)-(1920,1080)`, work rect `(0,0)-(1920,1032)`, and primary flag, followed
+by the reached frame／caption metrics. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
@@ -47,7 +51,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-18,438 detailed call objects or canonical strings on every repetition. Each
+18,441 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The Rust/Wasm artifact, Worker transport,
@@ -73,7 +77,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current decision is
-`passed`, reason `all-17-versioned-thresholds-passed`.
+`failed`, reason `1-of-17-versioned-thresholds-failed`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -91,24 +95,55 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The accepted fixed-browser run completed 127 sessions with no semantic failure
-in a valid environment. All 17 thresholds passed. Heartbeat P99 was 6.055 ms,
-its maximum was 36.075 ms, and slice P99 was 1.675 ms. The environment monitor
-recorded all 180 expected samples, no Updater, no sustained CPU or disk
-excursion, and no post-warm-up QoS transition. The report is 1,958,180 bytes
-with SHA-256
-`333ae2125e48e5d63c1be7622b11bd7395566f97c01b81344bd268b0ad0bc932`.
+Two unchanged fixed-browser runs completed with no semantic failure in valid
+environments. Both passed 16 of 17 thresholds and failed only heartbeat P99:
+33.480 ms and 33.865 ms against the unchanged 25 ms ceiling. Their maximum gaps
+remained below the separate 250 ms freeze ceiling. The first report is 1,644,990
+bytes with SHA-256
+`5b4618c71bf6978a2a72f3e945c89dbc745d9548c981db5be09190d35cd9b468`;
+the confirmation report is 1,553,219 bytes with SHA-256
+`1850519d8de4ed97c6d4a5ae4d43c8a2aca95ebec26dc672919e0d35b4dc0c0c`.
+
+The confirmation environment monitor recorded 178 samples against a minimum of
+153, no Updater, no sustained CPU or disk excursion, and no post-warm-up QoS
+transition. Total CPU mean／maximum were 12.860%／23.852%; external CPU
+mean／maximum were 6.388%／17.592%. Environment qualification therefore does not
+discard the failure as a contaminated run.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 127 |
-| Session latency p95 | <= 8,000 ms | 1,471.575 ms |
-| Maximum slice p99 | <= 10 ms | 1.675 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.055 ms |
-| Main heartbeat gap maximum | <= 250 ms | 36.075 ms |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,557,900 bytes |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 82,010,112 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 44,635,004 bytes |
+| Completed sessions | >= 24 | 79 |
+| Failed sessions | <= 0 | 0 |
+| Main／Worker heap samples | >= 30 each | 38 / 37 |
+| Session latency p95 | <= 8,000 ms | 2,615.540 ms |
+| Maximum slice p99 | <= 10 ms | 4.165 ms |
+| Main heartbeat gap p99 | <= 25 ms | **33.865 ms (failed)** |
+| Main heartbeat gap maximum | <= 250 ms | 44.550 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,357,792 bytes |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,413,804 bytes |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 81,788,928 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 44,215,006 bytes |
+| Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
+| Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
+
+The first run retained 21,643 heartbeat samples; 645 exceeded 25 ms and 457
+exceeded 30 ms. The confirmation retained 21,371 samples; 657 exceeded 25 ms
+and 488 exceeded 30 ms. This is a repeated distribution shift, not one maximum
+outlier. A same-host three-run Node A/B compared the preceding
+`kernel32-query-performance-frequency` stop with the current stop. Their medians
+were 27,192.873 ms and 26,989.812 ms respectively, a `-0.747%` change. The
+1,059-byte A/B report has SHA-256
+`b4716f50ed7c495405154af8d5c2d71f0045414bcbefd5c6db1f7938be0ea19c`;
+it does not support the added monitor-info work as the cause of the Chrome
+heartbeat shift.
+
+Neither failure is accepted by retry or threshold change. The current manifest
+records a structured feasibility blocker with the exact reports, attempted
+diagnostics, protected Rust／memory／source invariants, required authority, and
+resume condition. Resume requires the unchanged 180-second gate to pass on an
+isolated or explicitly quiescent host, or a separately profiled browser-
+scheduling remediation that preserves the same 17 thresholds. Until then this
+checkpoint does not advance to `DirectInput8Create`.
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
@@ -335,8 +370,8 @@ any threshold.
 | Chrome | Chrome for Testing `151.0.7922.34` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `6c8270e4c8bf06627dbf63305770492b33e7aa6a`
-and `dirty: false` for the benchmark implementation under test.
+The reports record base implementation commit `005717c00fb408dea5bf2942d94c92e6fb6fb85d`
+and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
 
@@ -344,12 +379,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,680,045 | `b158802c859c0185bdce2c25711ea6b361676c8df4deb0c319025c7c95098926` |
+| Rust runtime core Wasm | 3,686,138 | `d9ae4163a254d35d40e2e87f6d258a196d1e605ad3a8d380b6d55eb6d7a70dd6` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
 | BGI benchmark bundle | 10,355 | `02115b91f77250831c7ed41f87153d69f2c420bca42fd0f62133ccff1a28bb55` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| Performance Frequency version 1 configuration | 1,195 | `a9d79abad9523083043db61eef5958e6f07c27d4f65d0250ed8e4037a14b327f` |
+| GetMonitorInfoA version 1 configuration | 1,179 | `bed535ea5dafbd53e2b70d7e70e39cb74475f5993c2e2f23a0c0ba3706fb82f7` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -406,7 +441,11 @@ never falls back to installed Chrome.
   metadata lifetime. Window coverage is limited to one logical top-level window,
   bounded synchronous creation／small-icon／initial show／hide callbacks, default-
   procedure results, and the reached invalid-menu chain. System-metric coverage is
-  limited to the reached initial-window indices. Large-heap coverage is one exact 64 MiB reserve and the pages reached
+  limited to the reached initial-window indices. Monitor coverage is one logical
+  primary 40-byte `MONITORINFO`; multiple displays, negative origins, taskbar
+  movement, `MONITORINFOEXA`, native screen import, and browser display topology
+  are not measured. DirectInput is only the next structured stop and has no
+  implemented identity or input behavior in this workload. Large-heap coverage is one exact 64 MiB reserve and the pages reached
   during startup; multiple／arbitrary large allocations and long-lived page growth are
   not measured. No general z-order／resize／activation, queued window message, DOM
   window, bitmap／cursor rendering, hotspot, active cursor, or browser resource is measured.

@@ -3162,6 +3162,364 @@ assert.throws(
   /inconsistent bytes, words, or decimal value/,
 );
 
+const monitorInfoABytes = (cbSize, success) => {
+  const bytes = Buffer.alloc(80, 0xa5);
+  bytes.writeUInt32LE(cbSize, 0);
+  if (!success) {
+    return [...bytes];
+  }
+  [0, 0, 1920, 1080, 0, 0, 1920, 1032].forEach((value, index) =>
+    bytes.writeInt32LE(value, 4 + index * 4),
+  );
+  bytes.writeUInt32LE(1, 36);
+  if (cbSize === 72) {
+    bytes.set(Buffer.from("\\\\.\\DISPLAY1", "ascii"), 40);
+    bytes[52] = 0;
+  }
+  return [...bytes];
+};
+
+const monitorInfoASnapshot = (pointer, cbSize, bytes) => {
+  const capturedBytes = Math.min(Math.max(cbSize, 4), 72);
+  const captured = bytes.slice(0, capturedBytes);
+  const snapshot = {
+    profile: "x86-monitor-info-a-v1",
+    cbSize,
+    capturedBytes,
+    raw: {
+      pointer,
+      requestedBytes: capturedBytes,
+      maximumBytes: 72,
+      bytes: captured,
+    },
+  };
+  if (capturedBytes < 40) {
+    return snapshot;
+  }
+  const view = Buffer.from(captured);
+  const rect = (offset) => {
+    const rectBytes = captured.slice(offset, offset + 16);
+    return {
+      profile: "x86-rect-v1",
+      raw: {
+        pointer: `0x${(BigInt(pointer) + BigInt(offset)).toString(16)}`,
+        requestedBytes: 16,
+        maximumBytes: 64,
+        bytes: rectBytes,
+      },
+      fields: {
+        left: view.readInt32LE(offset),
+        top: view.readInt32LE(offset + 4),
+        right: view.readInt32LE(offset + 8),
+        bottom: view.readInt32LE(offset + 12),
+      },
+    };
+  };
+  snapshot.fields = {
+    monitor: rect(4),
+    work: rect(20),
+    flags: view.readUInt32LE(36),
+  };
+  if (capturedBytes === 72) {
+    const deviceBytes = captured.slice(40, 72);
+    const terminator = deviceBytes.indexOf(0);
+    snapshot.fields.deviceBytes = deviceBytes;
+    snapshot.fields.deviceBytesWithoutNul =
+      terminator < 0 ? deviceBytes : deviceBytes.slice(0, terminator);
+    snapshot.fields.deviceTerminated = terminator >= 0;
+  }
+  return snapshot;
+};
+
+const getMonitorInfoAEvents = () => {
+  const result = [
+    {
+      schema,
+      kind: "trace-start",
+      timestamp: "2026-07-22T00:00:00.000Z",
+      executable: "C:\\fixture\\BGI.exe",
+      executableBytes: 1_193_472,
+      executableSha256: "f".repeat(64),
+      python: "3.14.6",
+      frida: "17.15.4",
+      platform: "Windows",
+      arguments: {
+        seconds: 180,
+        killAfter: true,
+        stopOnEvent: "get-monitor-info-a-complete",
+        vtables: [],
+        observations: ["get-monitor-info-a"],
+      },
+    },
+    {
+      schema,
+      sequence: 0,
+      kind: "module-load",
+      module: "USER32.dll",
+      base: "0x76000000",
+      size: 1_000_000,
+      path: "C:\\Windows\\System32\\USER32.dll",
+    },
+    {
+      schema,
+      sequence: 1,
+      kind: "agent-ready",
+      architecture: "ia32",
+      pointerSize: 4,
+      processId: 456,
+      selectedVtables: [],
+      selectedObservations: ["get-monitor-info-a"],
+    },
+  ];
+  let sequence = 2;
+  let callId = 1;
+  const liveMonitor = "0x10001";
+  const mainPointer = "0x600000";
+  const mainBeforeBytes = monitorInfoABytes(40, false);
+  const mainAfterBytes = monitorInfoABytes(40, true);
+  const mainBefore = monitorInfoASnapshot(mainPointer, 40, mainBeforeBytes);
+  const mainAfter = monitorInfoASnapshot(mainPointer, 40, mainAfterBytes);
+  const immediateConsumer = {
+    apiContinuation: {
+      entry: { instructions: [{ mnemonic: "ret", opStr: "", size: 1 }] },
+    },
+    frameCallerContinuations: {
+      frames: [{ caller: { module: "BGI.exe", rva: 0x9384c } }],
+    },
+  };
+  const mainCaller = {
+    address: "0x65c913",
+    module: "BGI.exe",
+    rva: 0x5c913,
+  };
+  result.push(
+    {
+      schema,
+      sequence,
+      threadId: 20,
+      kind: "api-enter",
+      callId,
+      parentCallId: null,
+      caller: mainCaller,
+      module: "USER32.dll",
+      api: "GetMonitorInfoA",
+      arguments: [liveMonitor, mainPointer],
+      lastErrorBefore: 0x1234,
+      getMonitorInfoA: {
+        monitor: liveMonitor,
+        outputBefore: mainBefore,
+        immediateConsumer,
+      },
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 20,
+      kind: "api-leave",
+      callId,
+      parentCallId: null,
+      caller: mainCaller,
+      durationMs: 0,
+      lastError: 0x1234,
+      module: "USER32.dll",
+      api: "GetMonitorInfoA",
+      result: "0x1",
+      getMonitorInfoA: { result: 1, outputAfter: mainAfter },
+    },
+  );
+  const mainCallId = callId;
+  sequence += 2;
+  callId += 1;
+
+  const specifications = [
+    ["live-monitor-info", liveMonitor, 40, 0x1122_3344, 1, null],
+    ["live-monitor-info-ex-a", liveMonitor, 72, 0x2233_4455, 1, null],
+    ["live-size-zero", liveMonitor, 0, 0x3344_5566, 0, 87],
+    ["live-size-39", liveMonitor, 39, 0x4455_6677, 0, 87],
+    ["live-size-41", liveMonitor, 41, 0x5566_7788, 0, 87],
+    ["live-size-71", liveMonitor, 71, 0x6677_8899, 0, 87],
+    ["live-size-73", liveMonitor, 73, 0x7788_99aa, 0, 87],
+    ["null-monitor", "0x0", 40, 0x8899_aabb, 0, 1461],
+    ["invalid-monitor", "0x1234", 40, 0x99aa_bbcc, 0, 1461],
+    ["null-monitor-size-zero", "0x0", 0, 0xaabb_ccdd, 0, 1461],
+    ["invalid-monitor-size-zero", "0x1234", 0, 0xbbcc_ddee, 0, 1461],
+  ];
+  const oracleCalls = [];
+  for (const [index, specification] of specifications.entries()) {
+    const [id, monitor, cbSize, sentinel, systemResult, failureLastError] =
+      specification;
+    const pointer = `0x${(0x700000n + BigInt(index) * 0x100n).toString(16)}`;
+    const beforeBytes = monitorInfoABytes(cbSize, false);
+    const afterBytes = monitorInfoABytes(cbSize, systemResult !== 0);
+    const outputBefore = monitorInfoASnapshot(pointer, cbSize, beforeBytes);
+    const outputAfter = monitorInfoASnapshot(pointer, cbSize, afterBytes);
+    const lastError = failureLastError ?? sentinel;
+    const caller = {
+      address: `0x${(0x710000n + BigInt(index) * 0x10n).toString(16)}`,
+      module: "frida-agent.dll",
+      rva: 0x1000 + index,
+    };
+    result.push(
+      {
+        schema,
+        sequence,
+        threadId: 30,
+        kind: "api-enter",
+        callId,
+        parentCallId: null,
+        caller,
+        module: "USER32.dll",
+        api: "GetMonitorInfoA",
+        arguments: [monitor, pointer],
+        lastErrorBefore: sentinel,
+        getMonitorInfoA: { monitor, outputBefore, immediateConsumer: null },
+      },
+      {
+        schema,
+        sequence: sequence + 1,
+        threadId: 30,
+        kind: "api-leave",
+        callId,
+        parentCallId: null,
+        caller,
+        durationMs: 0,
+        lastError,
+        module: "USER32.dll",
+        api: "GetMonitorInfoA",
+        result: `0x${systemResult.toString(16)}`,
+        getMonitorInfoA: { result: systemResult, outputAfter },
+      },
+    );
+    const rawBefore = {
+      pointer,
+      requestedBytes: 80,
+      maximumBytes: 80,
+      bytes: beforeBytes,
+    };
+    const rawAfter = {
+      pointer,
+      requestedBytes: 80,
+      maximumBytes: 80,
+      bytes: afterBytes,
+    };
+    oracleCalls.push({
+      id,
+      monitor,
+      output: pointer,
+      allocationBytes: 80,
+      cbSize,
+      sentinel,
+      systemResult,
+      succeeded: systemResult !== 0,
+      systemLastError: lastError,
+      outputBefore,
+      outputAfter,
+      outputRawBefore: rawBefore,
+      outputRawAfter: rawAfter,
+      hookResult: systemResult,
+      hookLastErrorAfter: lastError,
+      hookOutputBefore: outputBefore,
+      hookOutputAfter: outputAfter,
+      hookResultMatches: true,
+      hookAndSystemLastErrorMatch: true,
+    });
+    sequence += 2;
+    callId += 1;
+  }
+  const oracleEvidence = {
+    profile: "x86-live-monitor-size-and-handle-matrix-v1",
+    calls: oracleCalls,
+    allResultsMatchHooks: true,
+    allLastErrorsMatchHooks: true,
+  };
+  result.push(
+    {
+      schema,
+      sequence,
+      kind: "get-monitor-info-a-oracle",
+      ...oracleEvidence,
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 20,
+      kind: "get-monitor-info-a-complete",
+      profile: "x86-bgi-first-monitor-info-a-v1",
+      mainModuleCall: {
+        callId: mainCallId,
+        callerRva: 0x5c913,
+        monitor: liveMonitor,
+        outputPointer: mainPointer,
+        result: 1,
+        succeeded: true,
+        outputBefore: mainBefore,
+        outputAfter: mainAfter,
+        lastErrorBefore: 0x1234,
+        lastError: 0x1234,
+        immediateConsumer,
+      },
+      oracle: oracleEvidence,
+    },
+    {
+      schema,
+      kind: "trace-stop",
+      timestamp: "2026-07-22T00:00:02.000Z",
+      reason: "event-get-monitor-info-a-complete-kill",
+      detachedReason: "process-terminated",
+      crash: null,
+    },
+  );
+  return result;
+};
+
+const getMonitorInfoAFixtureEvents = getMonitorInfoAEvents();
+const getMonitorInfoASummary = summarizeTrace(
+  encode(getMonitorInfoAFixtureEvents),
+  "get-monitor-info-a-fixture.jsonl",
+);
+assert.deepEqual(getMonitorInfoASummary.user32.getMonitorInfoA[0].mainModuleCall.outputAfter, {
+  pointer: "0x600000",
+  cbSize: 40,
+  capturedBytes: 40,
+  rawBytes: monitorInfoABytes(40, true).slice(0, 40),
+  monitor: { left: 0, top: 0, right: 1920, bottom: 1080 },
+  work: { left: 0, top: 0, right: 1920, bottom: 1032 },
+  flags: 1,
+});
+assert.deepEqual(
+  getMonitorInfoASummary.user32.getMonitorInfoA[0].oracle.calls
+    .filter((call) => call.result === 0)
+    .map((call) => [call.id, call.lastError, call.failedBytesUnchanged]),
+  [
+    ["live-size-zero", 87, true],
+    ["live-size-39", 87, true],
+    ["live-size-41", 87, true],
+    ["live-size-71", 87, true],
+    ["live-size-73", 87, true],
+    ["null-monitor", 1461, true],
+    ["invalid-monitor", 1461, true],
+    ["null-monitor-size-zero", 1461, true],
+    ["invalid-monitor-size-zero", 1461, true],
+  ],
+);
+
+const mutatedMonitorInfoAFailure = structuredClone(getMonitorInfoAFixtureEvents);
+mutatedMonitorInfoAFailure
+  .find((event) => event.kind === "get-monitor-info-a-oracle")
+  .calls.find((call) => call.id === "live-size-39").outputRawAfter.bytes[4] = 0;
+assert.throws(
+  () => summarizeTrace(encode(mutatedMonitorInfoAFailure)),
+  /oracle call live-size-39 violates its size, handle, output, or LastError contract/,
+);
+
+const missingGetMonitorInfoACompletion = getMonitorInfoAFixtureEvents.filter(
+  (event) => event.kind !== "get-monitor-info-a-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingGetMonitorInfoACompletion)),
+  /requires exactly one oracle and structured completion/,
+);
+
 const duplicateSequence = events.map((event) => ({ ...event }));
 duplicateSequence[5].sequence = 3;
 assert.throws(

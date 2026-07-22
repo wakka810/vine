@@ -197,6 +197,7 @@ enum GenericRuntimeCapability {
     D3d9InitialRenderStates,
     D3d9RasterStatus,
     QueryPerformanceFrequency,
+    GetMonitorInfoA,
 }
 
 struct GenericRuntimeProcess {
@@ -2331,6 +2332,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9InitialRenderStates
                     | GenericRuntimeCapability::D3d9RasterStatus
                     | GenericRuntimeCapability::QueryPerformanceFrequency
+                    | GenericRuntimeCapability::GetMonitorInfoA
             )
         ) {
             let loader = kernel32_policy
@@ -3001,6 +3003,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3044,11 +3047,12 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9InitialVertexBuffer
             | GenericRuntimeCapability::D3d9InitialRenderStates
             | GenericRuntimeCapability::D3d9RasterStatus
-            | GenericRuntimeCapability::QueryPerformanceFrequency,
+            | GenericRuntimeCapability::QueryPerformanceFrequency
+            | GenericRuntimeCapability::GetMonitorInfoA,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v16();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v17();
     if !matches!(
         user32_capability,
         Some(
@@ -3123,6 +3127,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3143,14 +3148,21 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         user32_policy.monitor_from_window = None;
     }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::GetMonitorInfoA)
+    ) {
+        user32_policy.get_monitor_info_a = None;
+    }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v15();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
     if !matches!(
         requested_capability,
         Some(
@@ -3165,6 +3177,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3182,6 +3195,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3199,6 +3213,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.create_texture = None;
@@ -3216,6 +3231,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.get_surface_level = None;
@@ -3231,6 +3247,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.surface_dc = None;
@@ -3243,6 +3260,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) && let Some(create_texture) = d3d9_policy.create_texture.as_mut()
     {
@@ -3255,6 +3273,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.initial_vertex_buffer = None;
@@ -3265,6 +3284,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.initial_render_states = None;
@@ -3274,6 +3294,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         d3d9_policy.raster_status = None;
@@ -3569,6 +3590,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4822,6 +4844,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9InitialRenderStates
                             | GenericRuntimeCapability::D3d9RasterStatus
                             | GenericRuntimeCapability::QueryPerformanceFrequency
+                            | GenericRuntimeCapability::GetMonitorInfoA
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4890,6 +4913,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9InitialRenderStates
                                     | GenericRuntimeCapability::D3d9RasterStatus
                                     | GenericRuntimeCapability::QueryPerformanceFrequency
+                                    | GenericRuntimeCapability::GetMonitorInfoA
                             )
                         )
                     {
@@ -4931,6 +4955,8 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
 ) -> bool {
+    let get_monitor_info_a_enabled =
+        matches!(enabled, Some(GenericRuntimeCapability::GetMonitorInfoA));
     let time_get_time_enabled = matches!(
         enabled,
         Some(
@@ -4940,6 +4966,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let monitor_from_window_enabled = matches!(
@@ -4958,6 +4985,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4978,6 +5006,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4999,6 +5028,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let get_client_rect_enabled = matches!(
@@ -5021,6 +5051,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let load_library_a_enabled = matches!(
@@ -5044,6 +5075,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -5073,6 +5105,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -5120,6 +5153,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5601,6 +5635,7 @@ fn runtime_capability_enables_endpoint(
         "GetDC" | "GetStockObject" | "FillRect" | "ReleaseDC" => window_dc_fill_enabled,
         "SetWindowLongA" => set_window_long_a_enabled,
         "MonitorFromWindow" => monitor_from_window_enabled,
+        "GetMonitorInfoA" => get_monitor_info_a_enabled,
         _ => true,
     }
 }
@@ -5636,6 +5671,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
                 | GenericRuntimeCapability::QueryPerformanceFrequency
+                | GenericRuntimeCapability::GetMonitorInfoA
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -11432,6 +11468,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-query-performance-frequency" => {
                     GenericRuntimeCapability::QueryPerformanceFrequency
                 }
+                "user32-get-monitor-info-a" => GenericRuntimeCapability::GetMonitorInfoA,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

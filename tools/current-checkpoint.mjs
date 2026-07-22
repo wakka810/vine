@@ -698,6 +698,11 @@ export function validateCurrentCheckpoint(manifest) {
     "d3d9GetRasterStatusGuestWriteBytes",
     "d3d9GetRasterStatusDeviceReferenceCount",
     "d3d9GetRasterStatusScanLine",
+    "getMonitorInfoACompletions",
+    "getMonitorInfoASequence",
+    "getMonitorInfoAInstructionCount",
+    "getMonitorInfoALastError",
+    "getMonitorInfoAGuestWriteBytes",
     "loadLibraryACompletions",
     "loadLibraryASequence",
     "loadLibraryALastError",
@@ -818,12 +823,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 19 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_145 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_345 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_146 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_346 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 57_530 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 57_539 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -868,7 +873,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.monitorFromWindowImplementationId !==
       "user32.monitor-from-window.v1" ||
     bgiBrowserEvidence.monitorFromWindowDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     bgiBrowserEvidence.monitorFromWindowMonitorHandleNamespace !==
       "vine.logical-monitor.v1" ||
     bgiBrowserEvidence.monitorFromWindowOrderedSemanticsMatched !== true ||
@@ -1171,7 +1176,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.d3d9GetRasterStatusPolicyProfileId !==
       "primary-stable-nonblank-scanline-v1" ||
     bgiBrowserEvidence.d3d9GetRasterStatusDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     bgiBrowserEvidence.d3d9GetRasterStatusInVBlank !== false ||
     bgiBrowserEvidence.d3d9GetRasterStatusScanLine !== 1 ||
     bgiBrowserEvidence.d3d9GetRasterStatusStateMutation !== false ||
@@ -1210,6 +1215,25 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.queryPerformanceCounterHostClockImported !== false ||
     bgiBrowserEvidence.queryPerformanceCounterBrowserClockImported !== false ||
     bgiBrowserEvidence.queryPerformanceCounterOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.getMonitorInfoACompletions !== 1 ||
+    bgiBrowserEvidence.getMonitorInfoASequence !== 18_439 ||
+    bgiBrowserEvidence.getMonitorInfoAInstructionCount !== 11_824_580 ||
+    bgiBrowserEvidence.getMonitorInfoAArguments?.join(",") !==
+      "0x4f010001,0x006ffd44" ||
+    bgiBrowserEvidence.getMonitorInfoAResult !== "0x00000001" ||
+    bgiBrowserEvidence.getMonitorInfoALastError !== 0 ||
+    bgiBrowserEvidence.getMonitorInfoAGuestWriteBytes !== 40 ||
+    bgiBrowserEvidence.getMonitorInfoAOutputAddress !== "0x006ffd44" ||
+    bgiBrowserEvidence.getMonitorInfoAOutputHex !==
+      "28000000000000000000000080070000380400000000000000000000800700000804000001000000" ||
+    bgiBrowserEvidence.getMonitorInfoAImplementationId !==
+      "user32.get-monitor-info-a.v1" ||
+    bgiBrowserEvidence.getMonitorInfoADisplayProfileId !==
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
+    bgiBrowserEvidence.getMonitorInfoAMonitorHandleNamespace !==
+      "vine.logical-monitor.v1" ||
+    bgiBrowserEvidence.getMonitorInfoAWorkRect?.join(",") !== "0,0,1920,1032" ||
+    bgiBrowserEvidence.getMonitorInfoAOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -1450,10 +1474,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-query-performance-frequency" ||
+      "fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "user32-get-monitor-info-a" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-query-performance-frequency-observation" ||
+      "current-get-monitor-info-a-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -1580,6 +1604,8 @@ export function validateCurrentCheckpoint(manifest) {
       "firstBenchmarkReport",
       "confirmationBenchmarkReport",
       "nodeComparisonReport",
+      "firstEnvironmentStatus",
+      "confirmationEnvironmentStatus",
     ]) {
       requireString(
         benchmarkBlockerEvidence[field],
@@ -1592,6 +1618,7 @@ export function validateCurrentCheckpoint(manifest) {
       "firstHeartbeatSamples",
       "firstHeartbeatSamplesOverThreshold",
       "firstHeartbeatSamplesOverThirtyMilliseconds",
+      "firstEnvironmentSamples",
       "confirmationBenchmarkReportBytes",
       "passingThresholds",
       "thresholdEvaluations",
@@ -1600,6 +1627,10 @@ export function validateCurrentCheckpoint(manifest) {
       "confirmationHeartbeatSamples",
       "confirmationHeartbeatSamplesOverThreshold",
       "confirmationHeartbeatSamplesOverThirtyMilliseconds",
+      "confirmationEnvironmentSamples",
+      "environmentUpdaterEvents",
+      "environmentSustainedExcursions",
+      "environmentQosChangesAfterWarmup",
       "nodeComparisonReportBytes",
       "logicalCpus",
     ]) {
@@ -1612,10 +1643,18 @@ export function validateCurrentCheckpoint(manifest) {
     for (const field of [
       "firstHeartbeatP99Milliseconds",
       "firstMaximumHeartbeatGapMilliseconds",
+      "firstTotalCpuMeanPercent",
+      "firstTotalCpuMaximumPercent",
+      "firstExternalCpuMeanPercent",
+      "firstExternalCpuMaximumPercent",
       "confirmationHeartbeatP99Milliseconds",
       "confirmationMaximumHeartbeatGapMilliseconds",
-      "vertexBufferMedianMilliseconds",
-      "renderStatesMedianMilliseconds",
+      "confirmationTotalCpuMeanPercent",
+      "confirmationTotalCpuMaximumPercent",
+      "confirmationExternalCpuMeanPercent",
+      "confirmationExternalCpuMaximumPercent",
+      "queryPerformanceFrequencyMedianMilliseconds",
+      "getMonitorInfoAMedianMilliseconds",
       "nodeMedianIncreasePercent",
     ]) {
       requireFiniteNumber(
@@ -1632,42 +1671,6 @@ export function validateCurrentCheckpoint(manifest) {
       requireSha256(
         benchmarkBlockerEvidence[field],
         `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
-        errors,
-      );
-    }
-    const hostQuiescenceObservation = requireRecord(
-      benchmarkBlockerEvidence.hostQuiescenceObservation,
-      "browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation",
-      errors,
-    );
-    for (const field of ["classification", "topProcess"]) {
-      requireString(
-        hostQuiescenceObservation[field],
-        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
-        errors,
-      );
-    }
-    for (const field of [
-      "durationMilliseconds",
-      "samples",
-      "samplesOver25Percent",
-      "samplesOver50Percent",
-    ]) {
-      requireInteger(
-        hostQuiescenceObservation[field],
-        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
-        errors,
-      );
-    }
-    for (const field of [
-      "meanCpuPercent",
-      "p95CpuPercent",
-      "maximumCpuPercent",
-      "topProcessHostPercent",
-    ]) {
-      requireFiniteNumber(
-        hostQuiescenceObservation[field],
-        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
         errors,
       );
     }
@@ -1691,19 +1694,18 @@ export function validateCurrentCheckpoint(manifest) {
     if (
       browser.bgiBenchmark !== "threshold-blocked" ||
       benchmarkBlocker.schema !== "vine.structured-blocker" ||
-      benchmarkBlocker.schemaVersion !== 2 ||
-      benchmarkBlocker.id !==
-        "d3d9-initial-render-states-heartbeat-threshold-v2" ||
+      benchmarkBlocker.schemaVersion !== 3 ||
+      benchmarkBlocker.id !== "user32-get-monitor-info-a-heartbeat-threshold-v1" ||
       benchmarkBlocker.kind !== "feasibility-blocker" ||
       benchmarkBlocker.reason !==
-        "browser-heartbeat-p99-repeats-above-versioned-threshold-on-quiescent-host-without-node-cost-regression" ||
+        "browser-heartbeat-p99-repeats-above-versioned-threshold-in-valid-environment-without-node-cost-regression" ||
       benchmarkBlocker.status !== "blocked" ||
       benchmarkBlocker.blockedWork !==
-        "accept-d3d9-initial-render-states-and-advance-to-get-raster-status" ||
+        "accept-user32-get-monitor-info-a-and-advance-to-direct-input-8-create" ||
       benchmarkBlocker.exactReproduction !==
         "npm run check:runtime:bgi-browser-benchmark:prepared" ||
       firstBenchmarkFailure.thresholdId !== benchmarkFailureIds[0] ||
-      firstBenchmarkFailure.observed !== 30.50500000268221 ||
+      firstBenchmarkFailure.observed !== 33.480000004172325 ||
       firstBenchmarkFailure.comparison !== "<=" ||
       firstBenchmarkFailure.threshold !== 25 ||
       confirmationBenchmarkFailure.thresholdId !== benchmarkFailureIds[0] ||
@@ -1712,19 +1714,27 @@ export function validateCurrentCheckpoint(manifest) {
       confirmationBenchmarkFailure.comparison !== "<=" ||
       confirmationBenchmarkFailure.threshold !== 25 ||
       benchmarkBlockerEvidence.firstBenchmarkReport !==
-        ".work/browser-runtime/bgi-browser-benchmark-report.json" ||
-      benchmarkBlockerEvidence.firstBenchmarkReportBytes !== 642_010 ||
+        ".work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json" ||
+      benchmarkBlockerEvidence.firstBenchmarkReportBytes !== 1_644_990 ||
       benchmarkBlockerEvidence.firstBenchmarkReportSha256 !==
-        "68d66db730712da40f924defbd5669db55a97d40c3b095d00f1a27986ea8d4d9" ||
-      benchmarkBlockerEvidence.firstHeartbeatSamples !== 24_487 ||
-      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThreshold !== 405 ||
-      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThirtyMilliseconds !== 260 ||
+        "5b4618c71bf6978a2a72f3e945c89dbc745d9548c981db5be09190d35cd9b468" ||
+      benchmarkBlockerEvidence.firstHeartbeatSamples !== 21_643 ||
+      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThreshold !== 645 ||
+      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThirtyMilliseconds !== 457 ||
       benchmarkBlockerEvidence.firstHeartbeatP99Milliseconds !==
         firstBenchmarkFailure.observed ||
       benchmarkBlockerEvidence.firstMaximumHeartbeatGapMilliseconds !==
-        43.96000000089407 ||
+        43.98999999463558 ||
+      benchmarkBlockerEvidence.firstEnvironmentStatus !== "valid" ||
+      benchmarkBlockerEvidence.firstEnvironmentSamples !== 178 ||
+      benchmarkBlockerEvidence.firstTotalCpuMeanPercent !== 12.85375774390497 ||
+      benchmarkBlockerEvidence.firstTotalCpuMaximumPercent !==
+        31.875537768580987 ||
+      benchmarkBlockerEvidence.firstExternalCpuMeanPercent !== 6.168668629453616 ||
+      benchmarkBlockerEvidence.firstExternalCpuMaximumPercent !==
+        25.02570510532766 ||
       benchmarkBlockerEvidence.confirmationBenchmarkReport !==
-        ".work/browser-runtime/bgi-browser-benchmark-report-d3d9-initial-render-states-quiescent-r2.json" ||
+        ".work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json" ||
       benchmarkBlockerEvidence.confirmationBenchmarkReportBytes !==
         bgiBenchmarkEvidence.reportBytes ||
       benchmarkBlockerEvidence.confirmationBenchmarkReportSha256 !==
@@ -1737,42 +1747,48 @@ export function validateCurrentCheckpoint(manifest) {
         bgiBenchmarkEvidence.completedSessions ||
       benchmarkBlockerEvidence.confirmationFailedSessions !==
         bgiBenchmarkEvidence.failedSessions ||
-      benchmarkBlockerEvidence.confirmationHeartbeatSamples !== 23_815 ||
-      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThreshold !== 601 ||
-      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThirtyMilliseconds !== 411 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamples !== 21_371 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThreshold !== 657 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThirtyMilliseconds !== 488 ||
       benchmarkBlockerEvidence.confirmationHeartbeatP99Milliseconds !==
         bgiBenchmarkEvidence.heartbeatP99Milliseconds ||
       benchmarkBlockerEvidence.confirmationMaximumHeartbeatGapMilliseconds !==
         bgiBenchmarkEvidence.maximumHeartbeatGapMilliseconds ||
-      hostQuiescenceObservation.classification !==
-        "diagnostic-preflight-not-versioned-threshold" ||
-      hostQuiescenceObservation.durationMilliseconds !== 18_499 ||
-      hostQuiescenceObservation.samples !== 15 ||
-      hostQuiescenceObservation.meanCpuPercent !== 12.267 ||
-      hostQuiescenceObservation.p95CpuPercent !== 17 ||
-      hostQuiescenceObservation.maximumCpuPercent !== 17 ||
-      hostQuiescenceObservation.samplesOver25Percent !== 0 ||
-      hostQuiescenceObservation.samplesOver50Percent !== 0 ||
-      hostQuiescenceObservation.topProcess !== "codex" ||
-      hostQuiescenceObservation.topProcessHostPercent !== 1.964 ||
-      benchmarkBlockerEvidence.nodeComparisonReportBytes !== 1_108 ||
+      benchmarkBlockerEvidence.confirmationEnvironmentStatus !== "valid" ||
+      benchmarkBlockerEvidence.confirmationEnvironmentSamples !== 178 ||
+      benchmarkBlockerEvidence.confirmationTotalCpuMeanPercent !==
+        12.860080347033424 ||
+      benchmarkBlockerEvidence.confirmationTotalCpuMaximumPercent !==
+        23.85210915316297 ||
+      benchmarkBlockerEvidence.confirmationExternalCpuMeanPercent !==
+        6.388341606491718 ||
+      benchmarkBlockerEvidence.confirmationExternalCpuMaximumPercent !==
+        17.59194120952698 ||
+      benchmarkBlockerEvidence.environmentUpdaterEvents !== 0 ||
+      benchmarkBlockerEvidence.environmentSustainedExcursions !== 0 ||
+      benchmarkBlockerEvidence.environmentQosChangesAfterWarmup !== 0 ||
+      benchmarkBlockerEvidence.nodeComparisonReport !==
+        ".work/hyperfine-query-performance-frequency-get-monitor-info-a-v1.json" ||
+      benchmarkBlockerEvidence.nodeComparisonReportBytes !== 1_059 ||
       benchmarkBlockerEvidence.nodeComparisonReportSha256 !==
-        "7320265a1c826761d751c93e6f7fa30ad228444db4441348f2e3993e749b32fb" ||
-      benchmarkBlockerEvidence.vertexBufferMedianMilliseconds !== 29_258.362198 ||
-      benchmarkBlockerEvidence.renderStatesMedianMilliseconds !== 29_105.954998 ||
-      benchmarkBlockerEvidence.nodeMedianIncreasePercent !== -0.5209013374317206 ||
+        "b4716f50ed7c495405154af8d5c2d71f0045414bcbefd5c6db1f7938be0ea19c" ||
+      benchmarkBlockerEvidence.queryPerformanceFrequencyMedianMilliseconds !==
+        27_192.872861999997 ||
+      benchmarkBlockerEvidence.getMonitorInfoAMedianMilliseconds !==
+        26_989.811961999996 ||
+      benchmarkBlockerEvidence.nodeMedianIncreasePercent !== -0.7467430934219643 ||
       benchmarkBlockerEvidence.host !== "win32 10.0.26200 x64" ||
       benchmarkBlockerEvidence.cpu !==
         "AMD Ryzen 7 8840U w/ Radeon 780M Graphics" ||
       benchmarkBlockerEvidence.logicalCpus !== 16 ||
       benchmarkBlockerEvidence.chromeVersion !== bgiBenchmarkEvidence.chromeVersion ||
       benchmarkBlockerEvidence.nodeVersion !== "v24.18.0" ||
-      attemptedOptions.length < 5 ||
-      protectedInvariants.length < 3 ||
+      attemptedOptions.length < 6 ||
+      protectedInvariants.length < 5 ||
       benchmarkBlocker.requiredAuthority !==
-        "profiled-browser-scheduling-remediation-or-versioned-performance-contract-decision" ||
+        "isolated-or-quiescent-browser-host-or-profiled-browser-scheduling-remediation-or-versioned-performance-contract-decision" ||
       !benchmarkBlocker.resumeCondition.includes("unchanged 180-second gate") ||
-      !benchmarkBlocker.resumeCondition.includes("GetRasterStatus")
+      !benchmarkBlocker.resumeCondition.includes("DirectInput8Create")
     ) {
       errors.push("browser BGI structured performance blocker is invalid");
     }
@@ -3037,10 +3053,10 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 15 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v15" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 16 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v16" ||
     d3d9CompatibilityPolicy.displayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9CompatibilityPolicy.surfaceDcProfileId !==
       "primary-surface-gdi-dc-v1" ||
     d3d9CompatibilityPolicy.rasterStatusProfileId !==
@@ -3054,7 +3070,7 @@ export function validateCurrentCheckpoint(manifest) {
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     d3d9AdapterCount.displayAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
-    d3d9AdapterCount.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9AdapterCount.displayProfileId !== "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9AdapterCount.guestWriteBytes !== 0 ||
     d3d9AdapterCount.referenceCountMutation !== false ||
     d3d9AdapterCount.lastErrorPolicy !== "preserve" ||
@@ -3094,7 +3110,7 @@ export function validateCurrentCheckpoint(manifest) {
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     d3d9AdapterMonitor.monitorIdentityAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
-    d3d9AdapterMonitor.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9AdapterMonitor.displayProfileId !== "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9AdapterMonitor.monitorHandleNamespace !== "vine.logical-monitor.v1" ||
     d3d9AdapterMonitor.primaryMonitorHandle !== "0x4f010001" ||
     d3d9AdapterMonitor.invalidAdapterResult !== "0x00000000" ||
@@ -3492,7 +3508,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/user32.rs::RuntimeUser32" ||
     d3d9CreateDevice.displayAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
-    d3d9CreateDevice.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9CreateDevice.displayProfileId !== "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9CreateDevice.presentationStructure !== "D3DPRESENT_PARAMETERS" ||
     d3d9CreateDevice.presentationBytes !== 56 ||
     d3d9CreateDevice.requestedBackBufferWidth !== 0 ||
@@ -4010,7 +4026,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9GetRasterStatus.explicitArgumentWords !== 2 ||
     d3d9GetRasterStatus.returnKind !== "h-result" ||
     d3d9GetRasterStatus.profileId !== "primary-stable-nonblank-scanline-v1" ||
-    d3d9GetRasterStatus.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9GetRasterStatus.displayProfileId !== "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9GetRasterStatus.swapChain !== 0 ||
     d3d9GetRasterStatus.outputStructure !== "D3DRASTER_STATUS" ||
     d3d9GetRasterStatus.outputBytes !== 8 ||
@@ -4865,6 +4881,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.primaryMonitorRect",
     errors,
   );
+  const primaryWorkRect = requireRecord(
+    user32Policy.primaryWorkRect,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.primaryWorkRect",
+    errors,
+  );
   const enumerationVariants = requireStringArray(
     user32Policy.enumerationVariants,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.enumerationVariants",
@@ -4957,21 +4978,25 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 16 ||
+    user32Policy.schemaVersion !== 17 ||
     user32Policy.id !==
-      "user32-single-monitor-normal-mouse-icon-cursor-class-metrics-window-menu-small-icon-position-style-activation-monitor-v16" ||
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-v17" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v16" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v17" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
-    user32Policy.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    user32Policy.displayProfileId !== "single-monitor-1920x1080-work-1920x1032-v2" ||
     user32Policy.monitorHandleNamespace !== "vine.logical-monitor.v1" ||
     user32Policy.primaryMonitorHandle !== "0x4f010001" ||
     primaryMonitorRect.left !== 0 ||
     primaryMonitorRect.top !== 0 ||
     primaryMonitorRect.right !== 1920 ||
     primaryMonitorRect.bottom !== 1080 ||
+    primaryWorkRect.left !== 0 ||
+    primaryWorkRect.top !== 0 ||
+    primaryWorkRect.right !== 1920 ||
+    primaryWorkRect.bottom !== 1032 ||
     enumerationVariants.join(",") !== "null-hdc-null-clip" ||
     user32Policy.monitorFromWindowProfileId !==
       "live-window-default-to-primary-v1" ||
@@ -4985,6 +5010,17 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.monitorFromWindowFailureAtomicity !== true ||
     user32Policy.monitorFromWindowHostDisplayTopologyImported !== false ||
     user32Policy.monitorFromWindowBrowserDisplayTopologyImported !== false ||
+    user32Policy.getMonitorInfoAProfileId !==
+      "logical-primary-monitor-info-40-v1" ||
+    user32Policy.getMonitorInfoAStructureBytes !== 40 ||
+    user32Policy.getMonitorInfoAExtendedVariantImplemented !== false ||
+    user32Policy.getMonitorInfoAInvalidHandleLastError !== 1_461 ||
+    user32Policy.getMonitorInfoAInvalidSizeLastError !== 87 ||
+    user32Policy.getMonitorInfoAMutation !==
+      "atomic-guest-structure-publication" ||
+    user32Policy.getMonitorInfoAFailureAtomicity !== true ||
+    user32Policy.getMonitorInfoAHostDisplayTopologyImported !== false ||
+    user32Policy.getMonitorInfoABrowserDisplayTopologyImported !== false ||
     user32Policy.logicalInputAuthority !== "runtime/input.rs::RuntimeInput" ||
     user32Policy.inputProfileId !== "normal-mouse-buttons-v1" ||
     user32Policy.initialMouseButtonsSwapped !== false ||
@@ -5597,7 +5633,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-query-performance-frequency.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-get-monitor-info-a.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6059,11 +6095,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_493 ||
-    latestEvidence.writebackDirtyPages !== 36_650 ||
-    latestEvidence.writebackChangedBytes !== 1_816_818 ||
-    latestEvidence.hostDeltaBatches !== 17_145 ||
-    latestEvidence.finalMemoryGeneration !== 36_069
+    latestEvidence.writebackBatches !== 18_496 ||
+    latestEvidence.writebackDirtyPages !== 36_660 ||
+    latestEvidence.writebackChangedBytes !== 1_816_970 ||
+    latestEvidence.hostDeltaBatches !== 17_146 ||
+    latestEvidence.finalMemoryGeneration !== 36_073
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -6360,7 +6396,7 @@ export function validateCurrentCheckpoint(manifest) {
       "vine.logical-monitor.v1" ||
     latestEvidence.monitorFromWindowPrimaryMonitorHandle !== "0x4f010001" ||
     latestEvidence.monitorFromWindowDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.monitorFromWindowFlags !== 1 ||
     latestEvidence.monitorFromWindowInvalidWindowResult !== "0x00000000" ||
     latestEvidence.monitorFromWindowInvalidWindowLastError !== 1_400 ||
@@ -6398,13 +6434,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterCountGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterCountPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 16 ||
     latestEvidence.d3d9GetAdapterCountPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetAdapterCountProfileId !==
       "single-logical-adapter-v1" ||
     latestEvidence.d3d9GetAdapterCountDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetAdapterCountCapabilityAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9GetAdapterCountDisplayAuthority !==
@@ -6482,13 +6518,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterMonitorGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterMonitorPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 16 ||
     latestEvidence.d3d9GetAdapterMonitorPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetAdapterMonitorProfileId !==
       "primary-adapter-monitor-v1" ||
     latestEvidence.d3d9GetAdapterMonitorDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetAdapterMonitorAdapterMappingAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9GetAdapterMonitorIdentityAuthority !==
@@ -6604,13 +6640,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 15 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 16 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetAdapterDisplayModeGeometryAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
     latestEvidence.d3d9GetAdapterDisplayModeReferenceCount !== 1 ||
@@ -6696,13 +6732,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 16 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetAdapterIdentifierProfileId !==
       "primary-virtual-adapter-identifier-v1" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetAdapterIdentifierIdentityAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayAuthority !==
@@ -6802,13 +6838,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetDeviceCapsOtherFieldsZero !== true ||
     latestEvidence.d3d9GetDeviceCapsPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 16 ||
     latestEvidence.d3d9GetDeviceCapsPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetDeviceCapsProfileId !==
       "primary-hal-readscanline-dynamic-textures-ps3-v1" ||
     latestEvidence.d3d9GetDeviceCapsDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetDeviceCapsCapabilityAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9GetDeviceCapsDisplayAuthority !==
@@ -6913,13 +6949,13 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-fullscreen-nonzero-windowed" ||
     latestEvidence.d3d9CheckDeviceTypePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 15 ||
+    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 16 ||
     latestEvidence.d3d9CheckDeviceTypePolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9CheckDeviceTypeProfileId !==
       "primary-hal-x8r8g8b8-windowed-fullscreen-v1" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9CheckDeviceTypeCapabilityAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayAuthority !==
@@ -7011,13 +7047,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CheckDeviceFormatNotAvailableResult !== "0x8876086a" ||
     latestEvidence.d3d9CheckDeviceFormatPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 15 ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 16 ||
     latestEvidence.d3d9CheckDeviceFormatPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9CheckDeviceFormatProfileId !==
       "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
     latestEvidence.d3d9CheckDeviceFormatDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9CheckDeviceFormatCapabilityAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9CheckDeviceFormatDisplayAuthority !==
@@ -7100,13 +7136,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateDeviceOutputPointer !== "0x01010004" ||
     latestEvidence.d3d9CreateDevicePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateDevicePolicyVersion !== 15 ||
+    latestEvidence.d3d9CreateDevicePolicyVersion !== 16 ||
     latestEvidence.d3d9CreateDevicePolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9CreateDeviceProfileId !==
       "primary-windowed-hal-device-v1" ||
     latestEvidence.d3d9CreateDeviceDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9CreateDeviceWindowAuthority !==
       "runtime/user32.rs::RuntimeUser32" ||
     latestEvidence.d3d9CreateDeviceDisplayAuthority !==
@@ -7239,9 +7275,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateTextureOutputPointer !== "0x01020004" ||
     latestEvidence.d3d9CreateTexturePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateTexturePolicyVersion !== 15 ||
+    latestEvidence.d3d9CreateTexturePolicyVersion !== 16 ||
     latestEvidence.d3d9CreateTexturePolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9CreateTextureProfileId !==
       "primary-initial-x8r8g8b8-textures-v1" ||
     latestEvidence.d3d9CreateTextureGraphicsAuthority !==
@@ -7380,13 +7416,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetRasterStatusObjectRetired !== false ||
     latestEvidence.d3d9GetRasterStatusPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetRasterStatusPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetRasterStatusPolicyVersion !== 16 ||
     latestEvidence.d3d9GetRasterStatusPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetRasterStatusProfileId !==
       "primary-stable-nonblank-scanline-v1" ||
     latestEvidence.d3d9GetRasterStatusDisplayProfileId !==
-      "single-monitor-1920x1080-v1" ||
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
     latestEvidence.d3d9GetRasterStatusStateAuthority !==
       "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
     latestEvidence.d3d9GetRasterStatusRuntimeStateMutation !== false ||
@@ -7537,6 +7573,96 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest high-resolution performance-clock evidence is invalid");
   }
   for (const field of [
+    "nativeGetMonitorInfoAPrimaryTraceSha256",
+    "nativeGetMonitorInfoAPrimarySummarySha256",
+    "nativeGetMonitorInfoAConfirmationTraceSha256",
+    "nativeGetMonitorInfoAConfirmationSummarySha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeGetMonitorInfoAPrimaryTraceBytes !== 412_244 ||
+    latestEvidence.nativeGetMonitorInfoAPrimaryTraceLines !== 816 ||
+    latestEvidence.nativeGetMonitorInfoAPrimaryBalancedApiPairs !== 371 ||
+    latestEvidence.nativeGetMonitorInfoAPrimaryTraceSha256 !==
+      "01cfd734a384bf3678263af7312e3354688194e79ef21ee019b4fd527ec64577" ||
+    latestEvidence.nativeGetMonitorInfoAPrimarySummaryBytes !== 70_362 ||
+    latestEvidence.nativeGetMonitorInfoAPrimarySummarySha256 !==
+      "39ebd444eb1bc674bf71c7a2a869cf8af42a6f948d8c33be3ccaa46949da0c0b" ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationTraceBytes !== 370_979 ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationTraceLines !== 677 ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationBalancedApiPairs !== 303 ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationTraceSha256 !==
+      "f13219e019c4eecc5b383d8c2a79093338226a2ae19e00d0828d28fab8ef1a08" ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationSummaryBytes !== 65_244 ||
+    latestEvidence.nativeGetMonitorInfoAConfirmationSummarySha256 !==
+      "f4c0c49198b5b8aceaf282871c29f215611e584a272a23111c0d01f0e5367c13" ||
+    latestEvidence.nativeGetMonitorInfoATraceDiagnostics !== 0 ||
+    latestEvidence.nativeGetMonitorInfoAProfile !==
+      "x86-bgi-first-monitor-info-a-v1" ||
+    latestEvidence.nativeGetMonitorInfoAOracleProfile !==
+      "x86-live-monitor-size-and-handle-matrix-v1" ||
+    latestEvidence.nativeGetMonitorInfoAOracleCallsPerTrace !== 11 ||
+    latestEvidence.nativeGetMonitorInfoAValidStructureSizes?.join(",") !==
+      "40,72" ||
+    latestEvidence.nativeGetMonitorInfoAInvalidStructureSizes?.join(",") !==
+      "0,39,41,71,73" ||
+    latestEvidence.nativeGetMonitorInfoAInvalidSizeLastError !== 87 ||
+    latestEvidence.nativeGetMonitorInfoAInvalidHandleLastError !== 1_461 ||
+    latestEvidence.nativeGetMonitorInfoAHandleValidatedBeforeSize !== true ||
+    latestEvidence.nativeGetMonitorInfoAFailureBuffersUnchanged !== true ||
+    latestEvidence.nativeGetMonitorInfoASuccessPreservesLastError !== true ||
+    latestEvidence.nativeGetMonitorInfoAMonitorRect?.join(",") !==
+      "0,0,1920,1080" ||
+    latestEvidence.nativeGetMonitorInfoAWorkRect?.join(",") !==
+      "0,0,1920,1032" ||
+    latestEvidence.nativeGetMonitorInfoAFlags !== 1 ||
+    latestEvidence.nativeGetMonitorInfoADeviceName !== "\\\\.\\DISPLAY1" ||
+    latestEvidence.nativeGetMonitorInfoACallerRva !== "0x0005c913" ||
+    latestEvidence.nativeGetMonitorInfoAFrameCallerRva !== "0x0009384c" ||
+    latestEvidence.nativeGetMonitorInfoAConsumer !==
+      "monitor-left-top-used-for-window-placement-work-area-not-consumed" ||
+    latestEvidence.nativeGetMonitorInfoAExecutableHashUnchanged !== true ||
+    latestEvidence.getMonitorInfoAImplemented !== true ||
+    latestEvidence.getMonitorInfoASequence !== 18_439 ||
+    latestEvidence.getMonitorInfoAInstructionCount !== 11_824_580 ||
+    latestEvidence.getMonitorInfoAArguments?.join(",") !==
+      "0x4f010001,0x006ffd44" ||
+    latestEvidence.getMonitorInfoAReturnAddress !== "0x1005c913" ||
+    latestEvidence.getMonitorInfoAResult !== "0x00000001" ||
+    latestEvidence.getMonitorInfoALastError !== 0 ||
+    latestEvidence.getMonitorInfoAGuestWriteBytes !== 40 ||
+    latestEvidence.getMonitorInfoAOutputAddress !== "0x006ffd44" ||
+    latestEvidence.getMonitorInfoAOutputHex !==
+      "28000000000000000000000080070000380400000000000000000000800700000804000001000000" ||
+    latestEvidence.getMonitorInfoAImplementationId !==
+      "user32.get-monitor-info-a.v1" ||
+    latestEvidence.getMonitorInfoAStateAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    latestEvidence.getMonitorInfoADisplayProfileId !==
+      "single-monitor-1920x1080-work-1920x1032-v2" ||
+    latestEvidence.getMonitorInfoAMonitorHandleNamespace !==
+      "vine.logical-monitor.v1" ||
+    latestEvidence.getMonitorInfoAProfileId !==
+      "logical-primary-monitor-info-40-v1" ||
+    latestEvidence.getMonitorInfoAExtendedVariantImplemented !== false ||
+    latestEvidence.getMonitorInfoAMutation !==
+      "atomic-guest-structure-publication" ||
+    latestEvidence.getMonitorInfoAFailureAtomicity !== true ||
+    latestEvidence.getMonitorInfoAHostDisplayTopologyImported !== false ||
+    latestEvidence.getMonitorInfoABrowserDisplayTopologyImported !== false ||
+    latestEvidence.getMonitorInfoAFollowingMetricSequences?.join(",") !==
+      "18440,18441" ||
+    latestEvidence.getMonitorInfoAFollowingMetricValues?.join(",") !== "23,3" ||
+    latestEvidence.getMonitorInfoANodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest logical monitor-information evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -7606,9 +7732,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetSurfaceLevelOutputPointer !== "0x01030004" ||
     latestEvidence.d3d9GetSurfaceLevelPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 16 ||
     latestEvidence.d3d9GetSurfaceLevelPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9GetSurfaceLevelProfileId !==
       "primary-texture-level-zero-surface-v1" ||
     latestEvidence.d3d9GetSurfaceLevelGraphicsAuthority !==
@@ -7747,9 +7873,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9SurfaceDcImplemented !== true ||
     latestEvidence.d3d9SurfaceDcPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9SurfaceDcPolicyVersion !== 15 ||
+    latestEvidence.d3d9SurfaceDcPolicyVersion !== 16 ||
     latestEvidence.d3d9SurfaceDcPolicyId !==
-      "d3d9-primary-virtual-adapter-v15" ||
+      "d3d9-primary-virtual-adapter-v16" ||
     latestEvidence.d3d9SurfaceDcFailureAtomicity !== true ||
     latestEvidence.d3d9SurfaceDcBrowserOwnsWindowsOrGraphicsState !== false
   ) {
@@ -8149,7 +8275,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "process-owned 10 MHz performance frequency plus policy-bounded deterministic performance-counter progression with atomic LARGE_INTEGER publication" ||
+      "display-owned logical monitor and work-area query with handle-first validation and atomic 40-byte MONITORINFO publication" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
