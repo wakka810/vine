@@ -97,7 +97,7 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-d3d9-initial-render-states-v2.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json).
+[`bgi-browser-d3d9-raster-status-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-raster-status-v1.json).
 The command prepares Chrome for Testing `151.0.7922.34` from the official
 archive and verifies both the 201,068,834-byte archive SHA-256
 `045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c`
@@ -109,8 +109,8 @@ It repeats the complete current session through the first texture's surface
 `GetDC`, stock-brush `FillRect`, `ReleaseDC`, surface retirement, then the
 static-default and dynamic-default texture creations, device slot 26
 `CreateVertexBuffer`, vertex-buffer slot 11／12 `Lock`／`Unlock`, and the exact
-four device slot 57 `SetRenderState` calls before the slot 19 `GetRasterStatus`
-stop. Every summary-evidence
+four device slot 57 `SetRenderState` calls, then completes slot 19
+`GetRasterStatus` before the `QueryPerformanceFrequency` stop. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
@@ -133,11 +133,9 @@ thresholds.
 current manifest is `threshold-passed`, retains no active blocker, and records
 the fixed Chrome artifact, environment qualification, all 17 evaluations, and
 accepted report identity.
-The unchanged fixture has repeated the same heartbeat failure after a quiescent
-host preflight. No downstream primary checkpoint proceeds until a profiled,
-correctness-preserving browser heartbeat／scheduling remediation passes the same
-180-second gate, or a separately evidenced versioned performance-contract
-change is explicitly approved.
+The current raster-status workload passed the same 180-second gate without
+changing the 17 workload thresholds; downstream work therefore proceeds to the
+manifested `QueryPerformanceFrequency` stop.
 
 The canonical commit-bound private target gate is:
 

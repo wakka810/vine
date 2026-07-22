@@ -153,6 +153,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-initial-textures",
         "d3d9-initial-vertex-buffer",
         "d3d9-initial-render-states",
+        "d3d9-raster-status",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -225,6 +226,7 @@ assert(
       "d3d9-initial-textures",
       "d3d9-initial-vertex-buffer",
       "d3d9-initial-render-states",
+      "d3d9-raster-status",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -261,6 +263,7 @@ if (
     "d3d9-initial-textures",
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
+    "d3d9-raster-status",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -290,7 +293,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "winmm-time-get-time" ||
     genericRuntimeCapability === "d3d9-initial-textures" ||
     genericRuntimeCapability === "d3d9-initial-vertex-buffer" ||
-    genericRuntimeCapability === "d3d9-initial-render-states"
+    genericRuntimeCapability === "d3d9-initial-render-states" ||
+    genericRuntimeCapability === "d3d9-raster-status"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -425,7 +429,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9RasterStatusEnabled =
+  genericRuntimeCapability === "d3d9-raster-status";
 const d3d9InitialRenderStatesEnabled =
+  d3d9RasterStatusEnabled ||
   genericRuntimeCapability === "d3d9-initial-render-states";
 const d3d9InitialVertexBufferEnabled =
   d3d9InitialRenderStatesEnabled ||
@@ -656,7 +663,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9InitialRenderStatesEnabled
+      ? d3d9RasterStatusEnabled
+      ? "v86-bgi-d3d9-raster-status"
+      : d3d9InitialRenderStatesEnabled
         ? "v86-bgi-d3d9-initial-render-states"
       : d3d9InitialVertexBufferEnabled
         ? "v86-bgi-d3d9-initial-vertex-buffer"
@@ -4628,6 +4637,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9RasterStatusEnabled) {
+        validateD3d9RasterStatusResult(genericResult);
       } else if (d3d9InitialRenderStatesEnabled) {
         validateD3d9InitialRenderStatesResult(genericResult);
       } else if (d3d9InitialVertexBufferEnabled) {
@@ -4805,6 +4816,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9RasterStatusEnabled
+          ? "bgi D3D9 raster-status polling"
           : d3d9InitialRenderStatesEnabled
             ? "bgi D3D9 initial render-state sequence"
           : d3d9InitialVertexBufferEnabled
@@ -13526,6 +13539,99 @@ function validateD3d9InitialVertexBufferResult(result) {
   ]);
 }
 
+function validateD3d9RasterStatusResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_866);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_921);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0
+    ),
+    36_076
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0
+    ),
+    1_807_863
+  );
+  assert.equal(result.hostDeltas.length, 16_574);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_926);
+
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3DDevice9.GetRasterStatus"
+  );
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected D3D9 raster-status completion count"
+  );
+
+  const first = calls[0];
+  assert.equal(first.sequence, 17_866);
+  assert.equal(first.occurrence, 1);
+  assert.equal(first.trapInstructionCount, 11_808_586);
+  assert.deepEqual(first.arguments, [0x0101_0004, 0, 0x006f_fcf0]);
+  assert.deepEqual(first.result, { kind: "h-result", value: 0 });
+  assert.equal(first.returnAddress, 0x1005_aedd);
+  assert.equal(first.stackPointerAfter - first.stackPointerBefore, 16);
+  assert.equal(first.referenceCount, 5);
+  assert.equal(first.objectRetired, false);
+  assert.equal(first.guestWrites.length, 1);
+  assert.equal(first.guestWrites[0].address, 0x006f_fcf0);
+  assert.deepEqual(first.guestWrites[0].bytes, [0, 0, 0, 0, 1, 0, 0, 0]);
+  assert.equal(first.guestWrites[0].result.bytesWritten, 8);
+  assert.equal(first.guestWrites[0].result.dirtyPages, 1);
+  assert.deepEqual(first.guestWrites[0].result.invalidation, {
+    generation: 34_925,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  });
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "runtime-system-export");
+  assert.equal(endpoint.endpoint.id, 66);
+  assert.equal(endpoint.endpoint.address, 0x7f00_0410);
+  assert.equal(endpoint.endpoint.module, "kernel32.dll");
+  assert.deepEqual(endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "QueryPerformanceFrequency",
+  });
+  assert.equal(endpoint.endpoint.iatAddress, 0x100d_11b0);
+  assert.equal(endpoint.endpoint.disposition, "declared-runtime-export");
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 730);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c4650b7a6e94e160f329dd5b4e6973c6b2b186c3ea8ea067db4ee63263fe85f0"
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_808_626);
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 66);
+  assert.equal(terminal.thunk.address, 0x7f00_0410);
+  assert.equal(terminal.thunk.module, "KERNEL32.dll");
+  assert.equal(terminal.thunk.name, "QueryPerformanceFrequency");
+  assert.equal(terminal.returnAddress, 0x1009_1fd7);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1009_1fd7, 0x006f_fcf0, 0x1006_a1f7, 64, 0, 0, 1, 575]
+  );
+}
+
 function validateD3d9InitialRenderStatesResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15778,6 +15884,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9RasterStatusEnabled
+        ? "vine.v86-bgi-d3d9-raster-status"
         : d3d9InitialRenderStatesEnabled
           ? "vine.v86-bgi-d3d9-initial-render-states"
         : d3d9InitialVertexBufferEnabled

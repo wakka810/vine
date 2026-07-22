@@ -3821,6 +3821,33 @@ diagnosticは0、sequenceはcontiguous、API pairingはbalancedである。
 全体、GPU renderer、draw、Present、Reset、device lossを一般化しない。Runtime／Node／Chromeのsemantic
 evidenceと次の`GetRasterStatus` stopはcurrent checkpoint manifestを正本とする。
 
+## 125. BGI D3D9 raster status
+
+Focused `x86-bgi-first-raster-status-v1` observationを独立に2回取得した。Primary raw traceは
+261,147 bytes／505 records／SHA-256
+`31ae84a21f5a70c4ae25f3234f52bf229b08e06ca309bbac1567509e7573362a`、summaryは179,845 bytes／
+SHA-256 `2d22afec1516f9cb1c2637eb641c6dc54c99f9d9fb3817add90d6fd40f76c724`である。Confirmation raw
+traceは263,079 bytes／510 records／SHA-256
+`491b6e252c957cc676b8d6dda981b15e74b5796ad9f7b327fbe9bd861b5eea7d`、summaryは180,079 bytes／
+SHA-256 `e72d2b789c77f2005408dd4517179858939ac02559679fd11e5b20301f428069`である。両runともtrace
+diagnosticは0、source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のまま変更していない。
+
+両runはcaller RVA `0x0005AEDD`からdevice slot 19 `GetRasterStatus(0, output)`を一回完了し、`S_OK`、
+observed LastError 0、8-byte full output overwriteを示す。Primaryは`InVBlank=FALSE／ScanLine=1200`、
+confirmationは`InVBlank=TRUE／ScanLine=0`であり、具体値はhost scanoutに依存するartifact observationである。
+Immediate consumerはHRESULTを検査し、`InVBlank`で分岐してscanlineを上限比較へ使い、VBlank時は
+`0x81000000`を返す。Outer consumer RVA `0x0006A263`は`S_OK`とそのsentinelの両方を受理し、再sampleして
+`Sleep(0)`でyieldする。このためVineはcaller／hashで分岐せず、versioned policyの安定したnonblank
+`ScanLine=1`を返せる。Native device／output pointerはopaque identityとして扱う。
+
+Node／Chromeはcall sequence 17,866、instruction 11,808,586、arguments
+`0x01010004／0／0x006FFCF0`、return `0x1005AEDD`、output
+`0000000001000000`を一致させる。次stopはinstruction 11,808,626の
+`kernel32.dll!QueryPerformanceFrequency(0x006FFCF0)`、endpoint ID 66／`0x7F000410`、IAT
+`0x100D11B0`、return `0x10091FD7`、reason `endpoint-contract-missing`である。Renderer、draw、Present、
+host／browser scanout importはこのcheckpointで実装済みとしない。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

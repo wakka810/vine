@@ -66,6 +66,7 @@ const supportedObservations = new Set([
   "d3d9-initial-textures",
   "d3d9-initial-vertex-buffer",
   "d3d9-initial-render-states",
+  "d3d9-raster-status",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -826,6 +827,84 @@ const normalizeD3d9PresentParametersSnapshot = (snapshot, sequence, phase) => {
     bytesSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
     fields,
   };
+};
+
+const normalizeD3d9RasterStatusSnapshot = (snapshot, sequence, phase) => {
+  if (
+    snapshot === null ||
+    typeof snapshot !== "object" ||
+    typeof snapshot.pointer !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+    snapshot.size !== 8 ||
+    !Array.isArray(snapshot.bytes) ||
+    snapshot.bytes.length !== 8 ||
+    !snapshot.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff
+    ) ||
+    snapshot.fields === null ||
+    typeof snapshot.fields !== "object" ||
+    !Number.isInteger(snapshot.fields.inVBlank) ||
+    snapshot.fields.inVBlank < 0 ||
+    snapshot.fields.inVBlank > 0xffffffff ||
+    !Number.isInteger(snapshot.fields.scanLine) ||
+    snapshot.fields.scanLine < 0 ||
+    snapshot.fields.scanLine > 0xffffffff
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid D3DRASTER_STATUS ${phase} snapshot`
+    );
+  }
+  const bytes = Uint8Array.from(snapshot.bytes);
+  const view = new DataView(bytes.buffer);
+  const fields = {
+    inVBlank: view.getUint32(0, true),
+    scanLine: view.getUint32(4, true),
+  };
+  if (JSON.stringify(fields) !== JSON.stringify(snapshot.fields)) {
+    throw new Error(
+      `api-leave sequence ${sequence} has inconsistent D3DRASTER_STATUS ${phase} bytes`
+    );
+  }
+  return {
+    pointer: snapshot.pointer,
+    size: snapshot.size,
+    bytes: [...snapshot.bytes],
+    fields,
+  };
+};
+
+const validateInstructionWindow = (
+  window,
+  sequence,
+  label,
+  expectedMaximum
+) => {
+  const entry = window?.entry;
+  if (
+    entry === null ||
+    typeof entry !== "object" ||
+    typeof entry.address !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(entry.address) ||
+    entry.maximumInstructions !== expectedMaximum ||
+    !Array.isArray(entry.instructions) ||
+    entry.instructions.length === 0 ||
+    entry.instructions[0]?.address?.toLowerCase() !==
+      entry.address.toLowerCase() ||
+    !entry.instructions.every(
+      (instruction) =>
+        typeof instruction?.address === "string" &&
+        /^0x[0-9a-f]+$/iu.test(instruction.address) &&
+        typeof instruction.mnemonic === "string" &&
+        typeof instruction.opStr === "string" &&
+        Number.isInteger(instruction.size) &&
+        instruction.size > 0
+    )
+  ) {
+    throw new Error(
+      `api-leave sequence ${sequence} has invalid ${label} instruction window`
+    );
+  }
+  return entry;
 };
 
 const normalizePointerSlotSnapshot = (snapshot, sequence, phase) => {
@@ -2227,6 +2306,226 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const rasterStatusCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-raster-status-complete"
+  );
+  const requiresRasterStatusCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-raster-status" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-raster-status-complete";
+  if (
+    rasterStatusCompletionEvents.length > 1 ||
+    (requiresRasterStatusCompletion &&
+      rasterStatusCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-raster-status observation requires exactly one structured completion"
+    );
+  }
+  const rasterStatusObservations = rasterStatusCompletionEvents.map(
+    (completion) => {
+      if (
+        completion.profile !== "x86-bgi-first-raster-status-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Number.isInteger(completion.threadId) ||
+        !Number.isInteger(completion.sequence) ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== 1
+      ) {
+        throw new Error("d3d9-raster-status completion has invalid structure");
+      }
+      const [snapshot] = completion.calls;
+      const pair = pairsByCallId.get(snapshot?.callId);
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      if (
+        pair === undefined ||
+        snapshot.api !== "GetRasterStatus" ||
+        snapshot.interface !== "IDirect3DDevice9" ||
+        snapshot.vtableSlot !== 19 ||
+        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        JSON.stringify(snapshot.arguments) !==
+          JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== pair.leave.result ||
+        snapshot.lastError !== pair.leave.lastError ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        JSON.stringify(snapshot.d3d9RasterStatus) !==
+          JSON.stringify(pair.leave.d3d9RasterStatus) ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.api !== "GetRasterStatus" ||
+        pair.enter.interface !== "IDirect3DDevice9" ||
+        pair.enter.vtableSlot !== 19 ||
+        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== 0x5aedd ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 2 ||
+        BigInt(pair.enter.arguments[0]) !== 0n ||
+        BigInt(pair.leave.result) !== 0n ||
+        pair.leave.lastError !== 0 ||
+        completion.threadId !== pair.enter.threadId ||
+        completion.sequence !== pair.leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-raster-status completion violates its caller, identity, result, or ordering contract"
+        );
+      }
+
+      const observation = pair.leave.d3d9RasterStatus;
+      if (
+        observation === null ||
+        typeof observation !== "object" ||
+        observation.swapChain !== 0
+      ) {
+        throw new Error(
+          "d3d9-raster-status completion has invalid swap-chain observation"
+        );
+      }
+      const before = normalizeD3d9RasterStatusSnapshot(
+        observation.before,
+        pair.leave.sequence,
+        "before"
+      );
+      const after = normalizeD3d9RasterStatusSnapshot(
+        observation.after,
+        pair.leave.sequence,
+        "after"
+      );
+      if (
+        before.pointer.toLowerCase() !== after.pointer.toLowerCase() ||
+        BigInt(after.pointer) !== BigInt(pair.enter.arguments[1]) ||
+        !(
+          (after.fields.inVBlank === 0 && after.fields.scanLine > 0) ||
+          (after.fields.inVBlank === 1 && after.fields.scanLine === 0)
+        )
+      ) {
+        throw new Error(
+          "d3d9-raster-status completion violates its output pointer or scanout result contract"
+        );
+      }
+
+      const immediate = validateInstructionWindow(
+        observation.immediateConsumer,
+        pair.leave.sequence,
+        "D3D9 raster-status immediate consumer",
+        256
+      );
+      const outer = validateInstructionWindow(
+        observation.outerConsumer,
+        pair.leave.sequence,
+        "D3D9 raster-status outer consumer",
+        128
+      );
+      const imageBase =
+        BigInt(pair.enter.caller.address) - BigInt(pair.enter.caller.rva);
+      const addressAtRva = (rva) =>
+        `0x${(imageBase + BigInt(rva)).toString(16)}`;
+      const instructionIs = (instructions, index, mnemonic, opStr = null) =>
+        instructions[index]?.mnemonic === mnemonic &&
+        (opStr === null || instructions[index]?.opStr?.toLowerCase() === opStr);
+      const immediateInstructions = immediate.instructions;
+      const outerInstructions = outer.instructions;
+      if (
+        immediate.address.toLowerCase() !==
+          pair.enter.caller.address.toLowerCase() ||
+        !instructionIs(immediateInstructions, 0, "test", "eax, eax") ||
+        !instructionIs(immediateInstructions, 1, "jne") ||
+        !instructionIs(
+          immediateInstructions,
+          2,
+          "cmp",
+          "dword ptr [ebp - 0xc], eax"
+        ) ||
+        !instructionIs(immediateInstructions, 3, "je") ||
+        !instructionIs(immediateInstructions, 4, "mov", "eax, 0x81000000") ||
+        !instructionIs(
+          immediateInstructions,
+          9,
+          "call",
+          addressAtRva(0x5aeb0)
+        ) ||
+        !instructionIs(
+          immediateInstructions,
+          10,
+          "mov",
+          "ecx, dword ptr [ebp - 8]"
+        ) ||
+        !instructionIs(immediateInstructions, 11, "cmp", "ecx, eax") ||
+        !instructionIs(immediateInstructions, 12, "ja") ||
+        !instructionIs(immediateInstructions, 13, "mov", "eax, ecx") ||
+        !instructionIs(
+          immediateInstructions,
+          14,
+          "mov",
+          "ecx, dword ptr [ebp + 8]"
+        ) ||
+        !instructionIs(
+          immediateInstructions,
+          15,
+          "mov",
+          "dword ptr [ecx], eax"
+        ) ||
+        !instructionIs(immediateInstructions, 16, "xor", "eax, eax")
+      ) {
+        throw new Error(
+          "d3d9-raster-status completion has an unexpected immediate consumer"
+        );
+      }
+      if (
+        BigInt(outer.address) - imageBase !== 0x6a263n ||
+        !instructionIs(outerInstructions, 0, "add", "esp, 4") ||
+        !instructionIs(outerInstructions, 1, "test", "eax, eax") ||
+        !instructionIs(outerInstructions, 2, "je") ||
+        !instructionIs(outerInstructions, 3, "cmp", "eax, 0x81000000") ||
+        !instructionIs(outerInstructions, 4, "jne") ||
+        !instructionIs(outerInstructions, 27, "call", addressAtRva(0x5aec0)) ||
+        !instructionIs(outerInstructions, 28, "add", "esp, 4") ||
+        !instructionIs(outerInstructions, 42, "push", "0") ||
+        !instructionIs(outerInstructions, 43, "call") ||
+        !instructionIs(outerInstructions, 44, "jmp", addressAtRva(0x6a2b6)) ||
+        !instructionIs(outerInstructions, 49, "call", addressAtRva(0x5aec0))
+      ) {
+        throw new Error(
+          "d3d9-raster-status completion has an unexpected outer polling consumer"
+        );
+      }
+
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pair.enter.threadId,
+        device: completion.device,
+        caller: {
+          module: pair.enter.caller.module,
+          rva: pair.enter.caller.rva,
+        },
+        swapChain: observation.swapChain,
+        result: pair.leave.result,
+        lastError: pair.leave.lastError,
+        status: { before, after },
+        consumer: {
+          immediate: {
+            entryRva: pair.enter.caller.rva,
+            checksHresult: true,
+            checksVBlank: true,
+            consumesScanLine: true,
+            vBlankResult: "0x81000000",
+          },
+          outer: {
+            entryRva: Number(BigInt(outer.address) - imageBase),
+            acceptsSuccessOrVBlank: true,
+            repeatsRasterStatusRead: true,
+            yieldsWithSleepZero: true,
+          },
+        },
+      };
+    }
+  );
+
   const getSurfaceLevels = apiPairing.pairs
     .filter(
       (pair) =>
@@ -2806,6 +3105,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       initialTextureSequences,
       initialVertexBufferSequences,
       initialRenderStateSequences,
+      rasterStatusObservations,
       getSurfaceLevels,
       surfaceDcFlows,
       deviceCalls,

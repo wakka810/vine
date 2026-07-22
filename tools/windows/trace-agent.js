@@ -33,6 +33,9 @@ const focusedD3d9InitialVertexBufferObservation =
 const focusedD3d9InitialRenderStatesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-render-states");
+const focusedD3d9RasterStatusObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-raster-status");
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
@@ -40,7 +43,8 @@ const focusedD3d9DeviceObservation =
   focusedD3d9ResourceObservation ||
   focusedD3d9InitialTexturesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
-  focusedD3d9InitialRenderStatesObservation;
+  focusedD3d9InitialRenderStatesObservation ||
+  focusedD3d9RasterStatusObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -62,6 +66,9 @@ const focusedD3d9InitialVertexBufferCalls = [];
 let focusedD3d9InitialRenderStateDevice = null;
 let focusedD3d9InitialRenderStatesComplete = false;
 const focusedD3d9InitialRenderStateCalls = [];
+let focusedD3d9RasterStatusDevice = null;
+let focusedD3d9RasterStatusComplete = false;
+const focusedD3d9RasterStatusCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2409,6 +2416,35 @@ function snapshotD3d9PresentParameters(pointer) {
   }
 }
 
+function snapshotD3d9RasterStatus(pointer) {
+  const size = 8;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 D3DRASTER_STATUS observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      fields: {
+        inVBlank: view.getUint32(0, true),
+        scanLine: view.getUint32(4, true),
+      },
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotPointerSlot(pointer) {
   const size = 4;
   if (Process.pointerSize !== 4) {
@@ -3659,7 +3695,23 @@ function attachIdirect3ddevice9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (focusedD3d9InitialRenderStatesObservation) {
+          if (focusedD3d9RasterStatusObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            if (
+              focusedD3d9RasterStatusComplete ||
+              focusedD3d9RasterStatusCalls.length !== 0 ||
+              slot !== 19 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              (focusedD3d9RasterStatusDevice !== null &&
+                objectAddress !== focusedD3d9RasterStatusDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9RasterStatusDevice ??= objectAddress;
+          } else if (focusedD3d9InitialRenderStatesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
             if (
@@ -3755,6 +3807,25 @@ function attachIdirect3ddevice9(object) {
                     256,
                   ),
                 };
+          this.traceD3d9RasterStatusOutput =
+            focusedD3d9RasterStatusObservation && slot === 19 ? args[2] : null;
+          this.traceD3d9RasterStatus =
+            this.traceD3d9RasterStatusOutput === null
+              ? null
+              : {
+                  swapChain: args[1].toUInt32(),
+                  before: snapshotD3d9RasterStatus(
+                    this.traceD3d9RasterStatusOutput
+                  ),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    256
+                  ),
+                  outerConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.context.ebp.add(Process.pointerSize).readPointer(),
+                    128
+                  ),
+                };
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -3794,6 +3865,15 @@ function attachIdirect3ddevice9(object) {
                     ),
                   },
                 };
+          const d3d9RasterStatus =
+            this.traceD3d9RasterStatus === null
+              ? null
+              : {
+                  ...this.traceD3d9RasterStatus,
+                  after: snapshotD3d9RasterStatus(
+                    this.traceD3d9RasterStatusOutput
+                  ),
+                };
           const lastError = Number(this.lastError) >>> 0;
           finishCall(
             this.traceFrame,
@@ -3808,6 +3888,7 @@ function attachIdirect3ddevice9(object) {
               ...(d3d9CreateVertexBuffer === null
                 ? {}
                 : { d3d9CreateVertexBuffer }),
+              ...(d3d9RasterStatus === null ? {} : { d3d9RasterStatus }),
             },
             this.lastError,
           );
@@ -3870,6 +3951,21 @@ function attachIdirect3ddevice9(object) {
             });
             maybeCompleteFocusedD3d9InitialRenderStatesObservation();
           }
+          if (focusedD3d9RasterStatusObservation) {
+            focusedD3d9RasterStatusCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              d3d9RasterStatus,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9RasterStatusObservation();
+          }
           if (
             d3d9CreateTexture !== null &&
             !focusedD3d9InitialTexturesObservation &&
@@ -3885,7 +3981,8 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9DeviceObservation &&
             !focusedD3d9InitialTexturesObservation &&
             !focusedD3d9InitialVertexBufferObservation &&
-            !focusedD3d9InitialRenderStatesObservation
+            !focusedD3d9InitialRenderStatesObservation &&
+            !focusedD3d9RasterStatusObservation
           ) {
             focusedD3d9DeviceMethodCaptured = true;
           }
@@ -3976,6 +4073,28 @@ function maybeCompleteFocusedD3d9InitialRenderStatesObservation() {
     calls: focusedD3d9InitialRenderStateCalls,
   });
   if (stopOnEvent === "d3d9-initial-render-states-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9RasterStatusObservation() {
+  if (
+    focusedD3d9RasterStatusComplete ||
+    focusedD3d9RasterStatusCalls.length !== 1
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9RasterStatusObservation, 10);
+    return;
+  }
+  focusedD3d9RasterStatusComplete = true;
+  emit("d3d9-raster-status-complete", {
+    profile: "x86-bgi-first-raster-status-v1",
+    device: focusedD3d9RasterStatusDevice,
+    calls: focusedD3d9RasterStatusCalls,
+  });
+  if (stopOnEvent === "d3d9-raster-status-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

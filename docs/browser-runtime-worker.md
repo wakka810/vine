@@ -247,9 +247,10 @@ texture's level-zero surface; a typed surface HDC; one bounded graphics fill com
 COM／GDI lifetime relations. It also creates one Rust-owned 112-byte logical vertex buffer, exposes
 its guest backing through the exact full-range Lock, consumes the guest write, and returns the backing
 to read-only on Unlock. The device then consumes the exact four fixed-function `SetRenderState`
-settings through Rust-owned typed state and reaches `GetRasterStatus`. The Worker observes
-completions and mirrors checked guest bytes, but owns neither identity, lock state, protection,
-resource content, nor render state. No texture／surface pixel or browser
+settings through Rust-owned typed state and completes the bounded `GetRasterStatus` output before
+reaching `QueryPerformanceFrequency`. The Worker observes completions and mirrors checked guest
+bytes, but owns neither identity, lock state, protection, resource content, render state, nor a
+second raster clock. No texture／surface pixel or browser
 renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 

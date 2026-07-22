@@ -364,17 +364,19 @@ Reached `SetRenderState`はtwo-word／HRESULT ABI、exact order
 `RuntimeGraphicsDevice`はreached valueだけをtyped stateとして所有し、Windows default全体を推測しない。
 Plan／preflight／commitはstale、wrong device、generation exhaustion、unsupported tupleでstateとgenerationを
 partial mutationせず、same-value reapplyはsuccess／zero generation deltaとする。Node／Chromeは四completion、
-call digest、logical values、次のslot 19 `GetRasterStatus` stop、browser-owned render-state tableとrendererが
-未生成であることを比較する。
+call digest、logical values、browser-owned render-state tableとrendererが未生成であることを比較する。続くslot 19
+`GetRasterStatus`はtwo-word／HRESULT ABI、swap chain 0、exact eight-byte output
+`0000000001000000`、LastError／device refcount／logical state不変を固定する。NULL／invalid swap chainは
+`D3DERR_INVALIDCALL`、unwritable output、disabled policy、wrong／retired COM-to-graphics relation、
+display-authority mismatchはguest bytesと全authorityをpartial mutationしない。Native focused evidenceは
+非VBlank scanline 1200とVBlank／scanline 0の両variant、およびcallerがHRESULT、VBlank、scanlineを消費して
+outer loopが`Sleep(0)`でyieldすることを固定する。Hostの具体scanlineはartifact observationでありpolicyへ
+importしない。Node／Chromeはcall 17,866を同じ順序・outputで完了し、次の`QueryPerformanceFrequency` stopと
+memory digestを一致させる。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。Initial observationはsemantic failure 0だがheartbeat P99 30.505 ms、静穏host confirmationも
-33.340 msで25 ms上限を再現した。Profileはmain timer dispatchを直接原因、Worker SHA／writeback／dirty scan／
-JSON crossingを増幅要因として切り分けた。Canonical gateをSHA固定Chrome for Testingへ移し、Updater／CPU／disk／
-QoSを別判定し、Worker fast pathと16,384-instruction slice、background scheduling無効化を適用したversion 2は、
-valid environmentで129 sessions、semantic failure 0、heartbeat P99 6.065 ms／maximum 12.960 ms、slice P99
-0.965 msを記録して17／17を通過した。Heartbeat上限25 msは不変である。旧64 MiB capacity ceilingだけは、live heap
-最大27,945,712 bytes／slope 3,594,890 bytes/minが契約内でもCDP `totalSize`予約78,077,952 bytesを失格にしたため、
-live heap／slope／backing上限を維持したまま96 MiBへversion更新した。
+条件とする。SHA固定Chrome for Testingのvalid environmentで101 sessions、semantic failure 0、heartbeat P99
+10.780 ms／maximum 34.535 ms、slice P99 2.625 msを記録して17／17を通過した。Heartbeat 25 ms、live
+heap／slope／backing storage、96 MiB capacityを含むversioned thresholdsは変更していない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
@@ -387,7 +389,8 @@ Focused initial-texture traceは三callのexact caller RVA／arguments／S_OK、
 直後の`CreateVertexBuffer`をtwo-runで固定する。Focused vertex-buffer traceはCreate／Lock／112-byte caller
 write／Unlockのexact caller RVA、arguments、initial zero content、written content、S_OK／LastError preserve、
 直後の`SetRenderState(22,1)`をtwo-runで固定する。Focused render-state traceは四caller RVA、state／value、
-contiguous same-device／thread relation、S_OK／LastError preserveをtwo-runで固定する。詳細は
+contiguous same-device／thread relation、S_OK／LastError preserveをtwo-runで固定する。Focused raster-status
+traceはslot 19、swap chain 0、full output overwrite、nonblank／VBlankのconsumer分岐をtwo-runで固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

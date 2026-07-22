@@ -27,11 +27,12 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 14;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 15;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
 pub const D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH: u32 = 56;
+pub const D3D9_D3DRASTER_STATUS_BYTE_LENGTH: u32 = 8;
 pub const D3D9_D3DDEVTYPE_HAL: u32 = 1;
 pub const D3D9_D3DCAPS_READ_SCANLINE: u32 = 0x0002_0000;
 pub const D3D9_D3DCAPS2_DYNAMICTEXTURES: u32 = 0x2000_0000;
@@ -262,6 +263,15 @@ pub struct D3d9InitialRenderStatePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9RasterStatusPolicy {
+    pub profile_id: String,
+    pub display_profile_id: String,
+    pub in_v_blank: bool,
+    pub scan_line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -279,14 +289,15 @@ pub struct D3d9CompatibilityPolicy {
     pub surface_dc: Option<D3d9SurfaceDcPolicy>,
     pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
     pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
+    pub raster_status: Option<D3d9RasterStatusPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v14() -> Self {
+    pub fn controlled_v15() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v14".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v15".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -399,6 +410,12 @@ impl D3d9CompatibilityPolicy {
             initial_render_states: Some(D3d9InitialRenderStatePolicy {
                 profile_id: "primary-initial-fixed-function-render-states-v1".to_owned(),
                 settings: controlled_initial_render_state_settings(),
+            }),
+            raster_status: Some(D3d9RasterStatusPolicy {
+                profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
+                display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
+                in_v_blank: false,
+                scan_line: 1,
             }),
         }
     }
@@ -613,6 +630,19 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 initial render-state profile must describe the reached fixed-function startup sequence",
             ));
         }
+        if let Some(raster_status) = self.raster_status.as_ref()
+            && (!valid_policy_id(&raster_status.profile_id)
+                || !valid_policy_id(&raster_status.display_profile_id)
+                || raster_status.in_v_blank
+                || raster_status.scan_line == 0
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-raster-status-profile-invalid",
+                "D3D9 raster-status profile must describe one deterministic nonblank nonzero scanline on a logical device",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_count
                 .as_ref()
@@ -638,6 +668,9 @@ impl D3d9CompatibilityPolicy {
             self.create_device
                 .as_ref()
                 .map(|profile| (profile.adapter, profile.display_profile_id.as_str())),
+            self.raster_status
+                .as_ref()
+                .map(|profile| (0, profile.display_profile_id.as_str())),
         ];
         let mut coherent_profiles = coherent_profiles.into_iter().flatten();
         if let Some(primary) = coherent_profiles.next()
@@ -830,6 +863,22 @@ pub struct D3d9DisplayMode {
     pub height: u32,
     pub refresh_rate: u32,
     pub format: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9RasterStatus {
+    pub in_v_blank: bool,
+    pub scan_line: u32,
+}
+
+impl D3d9RasterStatus {
+    fn to_x86_bytes(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(D3D9_D3DRASTER_STATUS_BYTE_LENGTH as usize);
+        bytes.extend_from_slice(&u32::from(self.in_v_blank).to_le_bytes());
+        bytes.extend_from_slice(&self.scan_line.to_le_bytes());
+        bytes
+    }
 }
 
 impl D3d9DisplayMode {
@@ -1076,6 +1125,7 @@ fn dispatch_d3d9_device_frontend_call(
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
     let expected = match call.frame().vtable_slot {
+        19 => ("GetRasterStatus", 2),
         23 => ("CreateTexture", 8),
         26 => ("CreateVertexBuffer", 6),
         57 => ("SetRenderState", 2),
@@ -1101,11 +1151,58 @@ fn dispatch_d3d9_device_frontend_call(
         );
     }
     match call.frame().vtable_slot {
+        19 => dispatch_get_raster_status(policy, call),
         23 => dispatch_create_texture(policy, call),
         26 => dispatch_create_vertex_buffer(policy, call),
         57 => dispatch_set_render_state(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_get_raster_status(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(raster_policy) = policy.raster_status.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-raster-status",
+            "raster-status-policy-disabled",
+            "D3D9 compatibility policy does not enable GetRasterStatus",
+        );
+    };
+    let swap_chain = call.frame().explicit_arguments[0];
+    let output_pointer = call.frame().explicit_arguments[1];
+    if output_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let back_buffer_count = match call
+        .runtime()
+        .graphics_device_by_com_object(call.frame().object_id)
+    {
+        Ok(device) => device.presentation.back_buffer_count,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if swap_chain >= back_buffer_count {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if let Some((code, message)) =
+        primary_display_authority_fault(&call, &raster_policy.display_profile_id)
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-raster-status",
+            code,
+            message,
+        );
+    }
+    let status = D3d9RasterStatus {
+        in_v_blank: raster_policy.in_v_blank,
+        scan_line: raster_policy.scan_line,
+    };
+    let bytes = status.to_x86_bytes();
+    debug_assert_eq!(bytes.len(), D3D9_D3DRASTER_STATUS_BYTE_LENGTH as usize);
+    complete_d3d9_write(call, GuestAddress(output_pointer), bytes)
 }
 
 fn dispatch_d3d9_texture_frontend_call(
@@ -2482,7 +2579,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            23 | 26 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            19 | 23 | 26 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),

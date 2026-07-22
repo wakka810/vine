@@ -1792,6 +1792,25 @@ impl RuntimeGraphics {
         Ok(())
     }
 
+    pub(super) fn device_by_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeGraphicsDevice, RuntimeStateError> {
+        let device_id = self
+            .device_com_object_index
+            .get(&com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-device-com-object-unknown",
+                    "logical graphics device query requires a live device COM object",
+                )
+            })?;
+        self.validate_device_association(com_object_id, device_id)?;
+        self.device(device_id)
+    }
+
     fn validate_texture_association(
         &self,
         com_object_id: RuntimeComObjectId,
@@ -2331,6 +2350,20 @@ mod tests {
         assert_eq!(device.com_object_id, RuntimeComObjectId(7));
         assert_eq!(device.renderer, None);
         assert_eq!(
+            graphics
+                .device_by_com_object(RuntimeComObjectId(7))
+                .unwrap()
+                .id,
+            device.id
+        );
+        assert_eq!(
+            graphics
+                .device_by_com_object(RuntimeComObjectId(99))
+                .unwrap_err()
+                .code,
+            "graphics-device-com-object-unknown"
+        );
+        assert_eq!(
             graphics.preflight_device_creation(&stale).unwrap_err().code,
             "graphics-device-creation-plan-stale"
         );
@@ -2345,6 +2378,13 @@ mod tests {
             .unwrap();
         graphics.commit_com_object_retirement(retirement);
         assert!(graphics.is_empty());
+        assert_eq!(
+            graphics
+                .device_by_com_object(RuntimeComObjectId(7))
+                .unwrap_err()
+                .code,
+            "graphics-device-com-object-unknown"
+        );
         assert_eq!(
             graphics
                 .preflight_com_object_retirement(&stale_retirement)

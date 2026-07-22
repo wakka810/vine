@@ -691,6 +691,13 @@ export function validateCurrentCheckpoint(manifest) {
     "d3d9SetRenderStateCompletions",
     "d3d9SetRenderStateDeviceReferenceCount",
     "d3d9SetRenderStateGenerationDelta",
+    "d3d9GetRasterStatusCompletions",
+    "d3d9GetRasterStatusSequence",
+    "d3d9GetRasterStatusInstructionCount",
+    "d3d9GetRasterStatusLastError",
+    "d3d9GetRasterStatusGuestWriteBytes",
+    "d3d9GetRasterStatusDeviceReferenceCount",
+    "d3d9GetRasterStatusScanLine",
     "loadLibraryACompletions",
     "loadLibraryASequence",
     "loadLibraryALastError",
@@ -811,12 +818,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 19 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 16_573 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 17_773 ||
+    bgiBrowserEvidence.mappingDeltas !== 16_574 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 17_774 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 87_260 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 55_814 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1149,6 +1156,28 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.d3d9SetRenderStateBrowserOwnsState !== false ||
     bgiBrowserEvidence.d3d9SetRenderStateBrowserRendererCreated !== false ||
     bgiBrowserEvidence.d3d9SetRenderStateOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.d3d9GetRasterStatusCompletions !== 1 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusSequence !== 17_866 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusInstructionCount !== 11_808_586 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusArguments?.join(",") !==
+      "0x01010004,0x00000000,0x006ffcf0" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusResult !== "0x00000000" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusLastError !== 0 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusGuestWriteBytes !== 8 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusOutputAddress !== "0x006ffcf0" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusOutputHex !== "0000000001000000" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusDeviceReferenceCount !== 5 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusObjectRetired !== false ||
+    bgiBrowserEvidence.d3d9GetRasterStatusPolicyProfileId !==
+      "primary-stable-nonblank-scanline-v1" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusDisplayProfileId !==
+      "single-monitor-1920x1080-v1" ||
+    bgiBrowserEvidence.d3d9GetRasterStatusInVBlank !== false ||
+    bgiBrowserEvidence.d3d9GetRasterStatusScanLine !== 1 ||
+    bgiBrowserEvidence.d3d9GetRasterStatusStateMutation !== false ||
+    bgiBrowserEvidence.d3d9GetRasterStatusHostScanoutImported !== false ||
+    bgiBrowserEvidence.d3d9GetRasterStatusBrowserScanoutImported !== false ||
+    bgiBrowserEvidence.d3d9GetRasterStatusOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -1389,10 +1418,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "d3d9-initial-render-states" ||
+      "fixtures/benchmarks/bgi-browser-d3d9-raster-status-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "d3d9-raster-status" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-d3d9-initial-render-states-observation" ||
+      "current-d3d9-raster-status-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -2746,6 +2775,75 @@ export function validateCurrentCheckpoint(manifest) {
   ]) {
     requireSha256(value, `activeRuntimeCheckpoint.d3d9Frontend.${label}`, errors);
   }
+  const d3d9GetRasterStatus = requireRecord(
+    d3d9.getRasterStatus,
+    "activeRuntimeCheckpoint.d3d9Frontend.getRasterStatus",
+    errors
+  );
+  const d3d9NativeRasterStatus = requireRecord(
+    d3d9.nativeRasterStatusEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeRasterStatusEvidence",
+    errors
+  );
+  const d3d9NativeRasterStatusResults = requireOrderedStringArray(
+    d3d9NativeRasterStatus.results,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeRasterStatusEvidence.results",
+    errors
+  );
+  const d3d9NativeRasterStatusLastErrors = requireOrderedIntegerArray(
+    d3d9NativeRasterStatus.lastErrors,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeRasterStatusEvidence.lastErrors",
+    errors
+  );
+  const d3d9NativeRasterStatusInVBlank = Array.isArray(
+    d3d9NativeRasterStatus.observedInVBlank
+  )
+    ? d3d9NativeRasterStatus.observedInVBlank
+    : [];
+  if (!Array.isArray(d3d9NativeRasterStatus.observedInVBlank)) {
+    errors.push(
+      "activeRuntimeCheckpoint.d3d9Frontend.nativeRasterStatusEvidence.observedInVBlank must be an array"
+    );
+  }
+  const d3d9NativeRasterStatusScanLines = requireOrderedIntegerArray(
+    d3d9NativeRasterStatus.observedScanLines,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeRasterStatusEvidence.observedScanLines",
+    errors
+  );
+  const d3d9PrivateRasterStatus = requireRecord(
+    d3d9.privateRuntimeRasterStatusEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeRasterStatusEvidence",
+    errors
+  );
+  const d3d9PrivateRasterStatusArguments = requireOrderedStringArray(
+    d3d9PrivateRasterStatus.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeRasterStatusEvidence.arguments",
+    errors
+  );
+  for (const [value, label] of [
+    [
+      d3d9NativeRasterStatus.primaryTraceSha256,
+      "nativeRasterStatusEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeRasterStatus.primarySummarySha256,
+      "nativeRasterStatusEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativeRasterStatus.confirmationTraceSha256,
+      "nativeRasterStatusEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativeRasterStatus.confirmationSummarySha256,
+      "nativeRasterStatusEvidence.confirmationSummarySha256",
+    ],
+  ]) {
+    requireSha256(
+      value,
+      `activeRuntimeCheckpoint.d3d9Frontend.${label}`,
+      errors
+    );
+  }
   const d3d9GetSurfaceLevel = requireRecord(
     d3d9.getSurfaceLevel,
     "activeRuntimeCheckpoint.d3d9Frontend.getSurfaceLevel",
@@ -2885,7 +2983,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     d3d9.schema !== "vine.d3d9-frontend.v1" ||
-    d3d9.status !== "initial-render-state-gateway-verified" ||
+    d3d9.status !== "raster-status-gateway-verified" ||
     d3d9.stateOwner !== "crates/vine-core/src/d3d9.rs" ||
     d3d9.comAuthority !== "runtime/com.rs::RuntimeCom" ||
     d3d9.sdkVersion !== 32 ||
@@ -2907,12 +3005,14 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 14 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v14" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 15 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v15" ||
     d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-v1" ||
     d3d9CompatibilityPolicy.surfaceDcProfileId !==
       "primary-surface-gdi-dc-v1" ||
+    d3d9CompatibilityPolicy.rasterStatusProfileId !==
+      "primary-stable-nonblank-scanline-v1" ||
     d3d9AdapterCount.slot !== 4 ||
     d3d9AdapterCount.explicitArgumentWords !== 0 ||
     d3d9AdapterCount.returnKind !== "u32" ||
@@ -3874,6 +3974,89 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateInitialRenderStates.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9PrivateInitialRenderStates.nextMethod !== "GetRasterStatus" ||
     d3d9PrivateInitialRenderStates.nextSlot !== 19 ||
+    d3d9GetRasterStatus.slot !== 19 ||
+    d3d9GetRasterStatus.explicitArgumentWords !== 2 ||
+    d3d9GetRasterStatus.returnKind !== "h-result" ||
+    d3d9GetRasterStatus.profileId !== "primary-stable-nonblank-scanline-v1" ||
+    d3d9GetRasterStatus.displayProfileId !== "single-monitor-1920x1080-v1" ||
+    d3d9GetRasterStatus.swapChain !== 0 ||
+    d3d9GetRasterStatus.outputStructure !== "D3DRASTER_STATUS" ||
+    d3d9GetRasterStatus.outputBytes !== 8 ||
+    d3d9GetRasterStatus.inVBlank !== false ||
+    d3d9GetRasterStatus.scanLine !== 1 ||
+    d3d9GetRasterStatus.statusAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    d3d9GetRasterStatus.displayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    d3d9GetRasterStatus.liveDeviceRelation !==
+      "runtime/graphics.rs::RuntimeGraphicsDevice-to-live-COM-object" ||
+    d3d9GetRasterStatus.invalidSwapChainOrNullOutputResult !== "0x8876086c" ||
+    d3d9GetRasterStatus.policyDisabledFault !==
+      "raster-status-policy-disabled" ||
+    d3d9GetRasterStatus.unwritableOutputFaultsBeforeMutation !== true ||
+    d3d9GetRasterStatus.guestWriteAtomic !== true ||
+    d3d9GetRasterStatus.runtimeStateMutation !== false ||
+    d3d9GetRasterStatus.referenceCountMutation !== false ||
+    d3d9GetRasterStatus.lastErrorPolicy !== "preserve" ||
+    d3d9GetRasterStatus.hostScanoutImported !== false ||
+    d3d9GetRasterStatus.browserScanoutImported !== false ||
+    d3d9NativeRasterStatus.traceSchema !== "vine.win32-trace.v2" ||
+    d3d9NativeRasterStatus.profileId !== "x86-bgi-first-raster-status-v1" ||
+    d3d9NativeRasterStatus.primaryTraceBytes !== 261_147 ||
+    d3d9NativeRasterStatus.primaryTraceLines !== 505 ||
+    d3d9NativeRasterStatus.primaryTraceSha256 !==
+      "31ae84a21f5a70c4ae25f3234f52bf229b08e06ca309bbac1567509e7573362a" ||
+    d3d9NativeRasterStatus.primarySummaryBytes !== 179_845 ||
+    d3d9NativeRasterStatus.primarySummarySha256 !==
+      "2d22afec1516f9cb1c2637eb641c6dc54c99f9d9fb3817add90d6fd40f76c724" ||
+    d3d9NativeRasterStatus.confirmationTraceBytes !== 263_079 ||
+    d3d9NativeRasterStatus.confirmationTraceLines !== 510 ||
+    d3d9NativeRasterStatus.confirmationTraceSha256 !==
+      "491b6e252c957cc676b8d6dda981b15e74b5796ad9f7b327fbe9bd861b5eea7d" ||
+    d3d9NativeRasterStatus.confirmationSummaryBytes !== 180_079 ||
+    d3d9NativeRasterStatus.confirmationSummarySha256 !==
+      "e72d2b789c77f2005408dd4517179858939ac02559679fd11e5b20301f428069" ||
+    d3d9NativeRasterStatus.diagnostics !== 0 ||
+    d3d9NativeRasterStatus.callsPerTrace !== 1 ||
+    d3d9NativeRasterStatus.callerRva !== "0x0005aedd" ||
+    d3d9NativeRasterStatus.slot !== 19 ||
+    d3d9NativeRasterStatus.swapChain !== 0 ||
+    d3d9NativeRasterStatusResults.join(",") !== "0x00000000,0x00000000" ||
+    d3d9NativeRasterStatusLastErrors.join(",") !== "0,0" ||
+    d3d9NativeRasterStatusInVBlank.join(",") !== "false,true" ||
+    d3d9NativeRasterStatusScanLines.join(",") !== "1200,0" ||
+    d3d9NativeRasterStatus.outputFullyOverwritten !== true ||
+    d3d9NativeRasterStatus.immediateConsumerChecksHresult !== true ||
+    d3d9NativeRasterStatus.immediateConsumerChecksVBlank !== true ||
+    d3d9NativeRasterStatus.immediateConsumerConsumesScanLine !== true ||
+    d3d9NativeRasterStatus.vBlankResult !== "0x81000000" ||
+    d3d9NativeRasterStatus.outerConsumerRva !== "0x0006a263" ||
+    d3d9NativeRasterStatus.outerConsumerAcceptsSuccessOrVBlank !== true ||
+    d3d9NativeRasterStatus.outerConsumerRepeatsRasterStatusRead !== true ||
+    d3d9NativeRasterStatus.outerConsumerYieldsWithSleepZero !== true ||
+    d3d9NativeRasterStatus.nativeDeviceAndOutputPointersAreOpaqueArtifactIdentity !==
+      true ||
+    d3d9NativeRasterStatus.hostScanoutValuesAreArtifactObservations !== true ||
+    d3d9NativeRasterStatus.sourceExecutableHashUnchanged !== true ||
+    d3d9PrivateRasterStatus.nodeSequence !== 17_866 ||
+    d3d9PrivateRasterStatus.nodeInstructionCount !== 11_808_586 ||
+    d3d9PrivateRasterStatus.chromeSequence !== 17_866 ||
+    d3d9PrivateRasterStatusArguments.join(",") !==
+      "0x01010004,0x00000000,0x006ffcf0" ||
+    d3d9PrivateRasterStatus.returnAddress !== "0x1005aedd" ||
+    d3d9PrivateRasterStatus.result !== "0x00000000" ||
+    d3d9PrivateRasterStatus.lastError !== 0 ||
+    d3d9PrivateRasterStatus.outputAddress !== "0x006ffcf0" ||
+    d3d9PrivateRasterStatus.outputBytes !== 8 ||
+    d3d9PrivateRasterStatus.outputHex !== "0000000001000000" ||
+    d3d9PrivateRasterStatus.inVBlank !== false ||
+    d3d9PrivateRasterStatus.scanLine !== 1 ||
+    d3d9PrivateRasterStatus.deviceReferenceCount !== 5 ||
+    d3d9PrivateRasterStatus.objectRetired !== false ||
+    d3d9PrivateRasterStatus.runtimeStateMutation !== false ||
+    d3d9PrivateRasterStatus.hostScanoutImported !== false ||
+    d3d9PrivateRasterStatus.browserScanoutImported !== false ||
+    d3d9PrivateRasterStatus.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9GetSurfaceLevel.slot !== 18 ||
     d3d9GetSurfaceLevel.explicitArgumentWords !== 2 ||
     d3d9GetSurfaceLevel.returnKind !== "h-result" ||
@@ -4089,6 +4272,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.runtimeSurfaceCreated !== true ||
     d3d9.runtimeVertexBufferCreated !== true ||
     d3d9.runtimeRenderStatesSet !== true ||
+    d3d9.runtimeRasterStatusQueried !== true ||
     d3d9.rendererResourceCreated !== false ||
     d3d9.d3d8Implemented !== false ||
     d3d9.d3d10Or11Implemented !== false ||
@@ -5375,7 +5559,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-d3d9-initial-render-states.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-d3d9-raster-status.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -5837,11 +6021,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_920 ||
-    latestEvidence.writebackDirtyPages !== 36_075 ||
-    latestEvidence.writebackChangedBytes !== 1_807_844 ||
-    latestEvidence.hostDeltaBatches !== 16_573 ||
-    latestEvidence.finalMemoryGeneration !== 34_924
+    latestEvidence.writebackBatches !== 17_921 ||
+    latestEvidence.writebackDirtyPages !== 36_076 ||
+    latestEvidence.writebackChangedBytes !== 1_807_863 ||
+    latestEvidence.hostDeltaBatches !== 16_574 ||
+    latestEvidence.finalMemoryGeneration !== 34_926
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -6176,9 +6360,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterCountGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterCountPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 14 ||
+    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 15 ||
     latestEvidence.d3d9GetAdapterCountPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetAdapterCountProfileId !==
       "single-logical-adapter-v1" ||
     latestEvidence.d3d9GetAdapterCountDisplayProfileId !==
@@ -6260,9 +6444,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterMonitorGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterMonitorPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 14 ||
+    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 15 ||
     latestEvidence.d3d9GetAdapterMonitorPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetAdapterMonitorProfileId !==
       "primary-adapter-monitor-v1" ||
     latestEvidence.d3d9GetAdapterMonitorDisplayProfileId !==
@@ -6382,9 +6566,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 14 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 15 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
@@ -6474,9 +6658,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 14 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 15 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetAdapterIdentifierProfileId !==
       "primary-virtual-adapter-identifier-v1" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
@@ -6580,9 +6764,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetDeviceCapsOtherFieldsZero !== true ||
     latestEvidence.d3d9GetDeviceCapsPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 14 ||
+    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 15 ||
     latestEvidence.d3d9GetDeviceCapsPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetDeviceCapsProfileId !==
       "primary-hal-readscanline-dynamic-textures-ps3-v1" ||
     latestEvidence.d3d9GetDeviceCapsDisplayProfileId !==
@@ -6691,9 +6875,9 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-fullscreen-nonzero-windowed" ||
     latestEvidence.d3d9CheckDeviceTypePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 14 ||
+    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 15 ||
     latestEvidence.d3d9CheckDeviceTypePolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9CheckDeviceTypeProfileId !==
       "primary-hal-x8r8g8b8-windowed-fullscreen-v1" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayProfileId !==
@@ -6789,9 +6973,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CheckDeviceFormatNotAvailableResult !== "0x8876086a" ||
     latestEvidence.d3d9CheckDeviceFormatPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 14 ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 15 ||
     latestEvidence.d3d9CheckDeviceFormatPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9CheckDeviceFormatProfileId !==
       "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
     latestEvidence.d3d9CheckDeviceFormatDisplayProfileId !==
@@ -6878,9 +7062,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateDeviceOutputPointer !== "0x01010004" ||
     latestEvidence.d3d9CreateDevicePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateDevicePolicyVersion !== 14 ||
+    latestEvidence.d3d9CreateDevicePolicyVersion !== 15 ||
     latestEvidence.d3d9CreateDevicePolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9CreateDeviceProfileId !==
       "primary-windowed-hal-device-v1" ||
     latestEvidence.d3d9CreateDeviceDisplayProfileId !==
@@ -7017,9 +7201,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateTextureOutputPointer !== "0x01020004" ||
     latestEvidence.d3d9CreateTexturePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateTexturePolicyVersion !== 14 ||
+    latestEvidence.d3d9CreateTexturePolicyVersion !== 15 ||
     latestEvidence.d3d9CreateTexturePolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9CreateTextureProfileId !==
       "primary-initial-x8r8g8b8-textures-v1" ||
     latestEvidence.d3d9CreateTextureGraphicsAuthority !==
@@ -7079,6 +7263,101 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9InitialTexturesNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest D3D9 CreateTexture evidence is invalid");
+  }
+  for (const field of [
+    "nativeD3d9RasterStatusPrimaryTraceSha256",
+    "nativeD3d9RasterStatusPrimarySummarySha256",
+    "nativeD3d9RasterStatusConfirmationTraceSha256",
+    "nativeD3d9RasterStatusConfirmationSummarySha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors
+    );
+  }
+  if (
+    latestEvidence.nativeD3d9RasterStatusPrimaryTraceBytes !== 261_147 ||
+    latestEvidence.nativeD3d9RasterStatusPrimaryTraceLines !== 505 ||
+    latestEvidence.nativeD3d9RasterStatusPrimaryTraceSha256 !==
+      "31ae84a21f5a70c4ae25f3234f52bf229b08e06ca309bbac1567509e7573362a" ||
+    latestEvidence.nativeD3d9RasterStatusPrimarySummaryBytes !== 179_845 ||
+    latestEvidence.nativeD3d9RasterStatusPrimarySummarySha256 !==
+      "2d22afec1516f9cb1c2637eb641c6dc54c99f9d9fb3817add90d6fd40f76c724" ||
+    latestEvidence.nativeD3d9RasterStatusConfirmationTraceBytes !== 263_079 ||
+    latestEvidence.nativeD3d9RasterStatusConfirmationTraceLines !== 510 ||
+    latestEvidence.nativeD3d9RasterStatusConfirmationTraceSha256 !==
+      "491b6e252c957cc676b8d6dda981b15e74b5796ad9f7b327fbe9bd861b5eea7d" ||
+    latestEvidence.nativeD3d9RasterStatusConfirmationSummaryBytes !== 180_079 ||
+    latestEvidence.nativeD3d9RasterStatusConfirmationSummarySha256 !==
+      "e72d2b789c77f2005408dd4517179858939ac02559679fd11e5b20301f428069" ||
+    latestEvidence.nativeD3d9RasterStatusTraceDiagnostics !== 0 ||
+    latestEvidence.nativeD3d9RasterStatusProfileId !==
+      "x86-bgi-first-raster-status-v1" ||
+    latestEvidence.nativeD3d9RasterStatusCallsPerTrace !== 1 ||
+    latestEvidence.nativeD3d9RasterStatusCallerRva !== "0x0005aedd" ||
+    latestEvidence.nativeD3d9RasterStatusSlot !== 19 ||
+    latestEvidence.nativeD3d9RasterStatusSwapChain !== 0 ||
+    latestEvidence.nativeD3d9RasterStatusResults?.join(",") !==
+      "0x00000000,0x00000000" ||
+    latestEvidence.nativeD3d9RasterStatusLastErrors?.join(",") !== "0,0" ||
+    latestEvidence.nativeD3d9RasterStatusObservedInVBlank?.join(",") !==
+      "false,true" ||
+    latestEvidence.nativeD3d9RasterStatusObservedScanLines?.join(",") !==
+      "1200,0" ||
+    latestEvidence.nativeD3d9RasterStatusOutputFullyOverwritten !== true ||
+    latestEvidence.nativeD3d9RasterStatusImmediateConsumerChecksHresult !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusImmediateConsumerChecksVBlank !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusImmediateConsumerConsumesScanLine !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusVBlankResult !== "0x81000000" ||
+    latestEvidence.nativeD3d9RasterStatusOuterConsumerRva !== "0x0006a263" ||
+    latestEvidence.nativeD3d9RasterStatusOuterConsumerAcceptsSuccessOrVBlank !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusOuterConsumerRepeatsRead !== true ||
+    latestEvidence.nativeD3d9RasterStatusOuterConsumerYieldsWithSleepZero !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusPointersOpaqueArtifactIdentity !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusHostValuesArtifactObservations !==
+      true ||
+    latestEvidence.nativeD3d9RasterStatusExecutableHashUnchanged !== true ||
+    latestEvidence.d3d9GetRasterStatusImplemented !== true ||
+    latestEvidence.d3d9GetRasterStatusNodeSequence !== 17_866 ||
+    latestEvidence.d3d9GetRasterStatusNodeInstructionCount !== 11_808_586 ||
+    latestEvidence.d3d9GetRasterStatusChromeSequence !== 17_866 ||
+    latestEvidence.d3d9GetRasterStatusArguments?.join(",") !==
+      "0x01010004,0x00000000,0x006ffcf0" ||
+    latestEvidence.d3d9GetRasterStatusReturnAddress !== "0x1005aedd" ||
+    latestEvidence.d3d9GetRasterStatusResult !== "0x00000000" ||
+    latestEvidence.d3d9GetRasterStatusLastError !== 0 ||
+    latestEvidence.d3d9GetRasterStatusGuestWriteBytes !== 8 ||
+    latestEvidence.d3d9GetRasterStatusOutputAddress !== "0x006ffcf0" ||
+    latestEvidence.d3d9GetRasterStatusOutputHex !== "0000000001000000" ||
+    latestEvidence.d3d9GetRasterStatusInVBlank !== false ||
+    latestEvidence.d3d9GetRasterStatusScanLine !== 1 ||
+    latestEvidence.d3d9GetRasterStatusDeviceReferenceCount !== 5 ||
+    latestEvidence.d3d9GetRasterStatusObjectRetired !== false ||
+    latestEvidence.d3d9GetRasterStatusPolicySchema !==
+      "vine.d3d9-compatibility-policy" ||
+    latestEvidence.d3d9GetRasterStatusPolicyVersion !== 15 ||
+    latestEvidence.d3d9GetRasterStatusPolicyId !==
+      "d3d9-primary-virtual-adapter-v15" ||
+    latestEvidence.d3d9GetRasterStatusProfileId !==
+      "primary-stable-nonblank-scanline-v1" ||
+    latestEvidence.d3d9GetRasterStatusDisplayProfileId !==
+      "single-monitor-1920x1080-v1" ||
+    latestEvidence.d3d9GetRasterStatusStateAuthority !==
+      "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+    latestEvidence.d3d9GetRasterStatusRuntimeStateMutation !== false ||
+    latestEvidence.d3d9GetRasterStatusFailureAtomicity !== true ||
+    latestEvidence.d3d9GetRasterStatusHostScanoutImported !== false ||
+    latestEvidence.d3d9GetRasterStatusBrowserScanoutImported !== false ||
+    latestEvidence.d3d9GetRasterStatusNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest D3D9 GetRasterStatus evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -7150,9 +7429,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetSurfaceLevelOutputPointer !== "0x01030004" ||
     latestEvidence.d3d9GetSurfaceLevelPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 14 ||
+    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 15 ||
     latestEvidence.d3d9GetSurfaceLevelPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9GetSurfaceLevelProfileId !==
       "primary-texture-level-zero-surface-v1" ||
     latestEvidence.d3d9GetSurfaceLevelGraphicsAuthority !==
@@ -7291,9 +7570,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9SurfaceDcImplemented !== true ||
     latestEvidence.d3d9SurfaceDcPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9SurfaceDcPolicyVersion !== 14 ||
+    latestEvidence.d3d9SurfaceDcPolicyVersion !== 15 ||
     latestEvidence.d3d9SurfaceDcPolicyId !==
-      "d3d9-primary-virtual-adapter-v14" ||
+      "d3d9-primary-virtual-adapter-v15" ||
     latestEvidence.d3d9SurfaceDcFailureAtomicity !== true ||
     latestEvidence.d3d9SurfaceDcBrowserOwnsWindowsOrGraphicsState !== false
   ) {
@@ -7693,7 +7972,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded D3D9 managed vertex-buffer creation and single-lock lifecycle with atomic COM, address-space, graphics, and guest-memory publication" ||
+      "bounded IDirect3DDevice9::GetRasterStatus policy output with live COM-to-graphics device validation and atomic guest-memory publication" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

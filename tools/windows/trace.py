@@ -77,6 +77,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-initial-textures",
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
+    "d3d9-raster-status",
 )
 
 

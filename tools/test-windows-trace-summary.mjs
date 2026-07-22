@@ -2055,6 +2055,282 @@ assert.throws(
   /violates its thread or contiguous ordering contract/,
 );
 
+const makeInstructionWindow = (entry, maximumInstructions, count) => ({
+  entry: {
+    address: `0x${entry.toString(16)}`,
+    maximumInstructions,
+    instructions: Array.from({ length: count }, (_, index) => ({
+      address: `0x${(entry + index).toString(16)}`,
+      mnemonic: "int3",
+      opStr: "",
+      size: 1,
+    })),
+  },
+  directJumpTarget: null,
+});
+const setFixtureInstruction = (window, index, mnemonic, opStr = "") => {
+  window.entry.instructions[index] = {
+    ...window.entry.instructions[index],
+    mnemonic,
+    opStr,
+  };
+};
+const rasterImmediateConsumer = makeInstructionWindow(0x0045_aedd, 256, 51);
+for (const [index, mnemonic, opStr] of [
+  [0, "test", "eax, eax"],
+  [1, "jne", "0x45af0a"],
+  [2, "cmp", "dword ptr [ebp - 0xc], eax"],
+  [3, "je", "0x45aef0"],
+  [4, "mov", "eax, 0x81000000"],
+  [9, "call", "0x45aeb0"],
+  [10, "mov", "ecx, dword ptr [ebp - 8]"],
+  [11, "cmp", "ecx, eax"],
+  [12, "ja", "0x45aefe"],
+  [13, "mov", "eax, ecx"],
+  [14, "mov", "ecx, dword ptr [ebp + 8]"],
+  [15, "mov", "dword ptr [ecx], eax"],
+  [16, "xor", "eax, eax"],
+]) {
+  setFixtureInstruction(rasterImmediateConsumer, index, mnemonic, opStr);
+}
+const rasterOuterConsumer = makeInstructionWindow(0x0046_a263, 128, 51);
+for (const [index, mnemonic, opStr] of [
+  [0, "add", "esp, 4"],
+  [1, "test", "eax, eax"],
+  [2, "je", "0x46a275"],
+  [3, "cmp", "eax, 0x81000000"],
+  [4, "jne", "0x46a41c"],
+  [27, "call", "0x45aec0"],
+  [28, "add", "esp, 4"],
+  [42, "push", "0"],
+  [43, "call", "dword ptr [0x4d12f0]"],
+  [44, "jmp", "0x46a2b6"],
+  [49, "call", "0x45aec0"],
+]) {
+  setFixtureInstruction(rasterOuterConsumer, index, mnemonic, opStr);
+}
+const rasterCaller = {
+  address: "0x45aedd",
+  module: "BGI.exe",
+  rva: 0x5aedd,
+};
+const rasterStatusObservation = {
+  swapChain: 0,
+  before: {
+    pointer: "0x6ffcf0",
+    size: 8,
+    bytes: Array(8).fill(0xcc),
+    fields: { inVBlank: 0xcccc_cccc, scanLine: 0xcccc_cccc },
+  },
+  immediateConsumer: rasterImmediateConsumer,
+  outerConsumer: rasterOuterConsumer,
+  after: {
+    pointer: "0x6ffcf0",
+    size: 8,
+    bytes: [0, 0, 0, 0, 0x7e, 0x04, 0, 0],
+    fields: { inVBlank: 0, scanLine: 1150 },
+  },
+};
+const rasterCompletionCall = {
+  callId: 1,
+  api: "GetRasterStatus",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 19,
+  object: "0x490000",
+  arguments: ["0x0", "0x6ffcf0"],
+  result: "0x0",
+  lastError: 0,
+  caller: rasterCaller,
+  d3d9RasterStatus: rasterStatusObservation,
+};
+const d3d9RasterStatusEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-22T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "f".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-raster-status-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-raster-status"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-raster-status"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: rasterCaller,
+    module: "d3d9.dll",
+    api: "GetRasterStatus",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 19,
+    object: "0x490000",
+    arguments: ["0x0", "0x6ffcf0"],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: rasterCaller,
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "GetRasterStatus",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 19,
+    object: "0x490000",
+    result: "0x0",
+    d3d9RasterStatus: rasterStatusObservation,
+  },
+  {
+    schema,
+    sequence: 6,
+    threadId: 20,
+    kind: "d3d9-raster-status-complete",
+    profile: "x86-bgi-first-raster-status-v1",
+    device: "0x490000",
+    calls: [rasterCompletionCall],
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-22T00:00:01.000Z",
+    reason: "event-d3d9-raster-status-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9RasterStatusSummary = summarizeTrace(
+  encode(d3d9RasterStatusEvents),
+  "d3d9-raster-status-fixture.jsonl"
+);
+assert.deepEqual(d3d9RasterStatusSummary.d3d9.rasterStatusObservations, [
+  {
+    sequence: 6,
+    profile: "x86-bgi-first-raster-status-v1",
+    threadId: 20,
+    device: "0x490000",
+    caller: { module: "BGI.exe", rva: 0x5aedd },
+    swapChain: 0,
+    result: "0x0",
+    lastError: 0,
+    status: {
+      before: rasterStatusObservation.before,
+      after: rasterStatusObservation.after,
+    },
+    consumer: {
+      immediate: {
+        entryRva: 0x5aedd,
+        checksHresult: true,
+        checksVBlank: true,
+        consumesScanLine: true,
+        vBlankResult: "0x81000000",
+      },
+      outer: {
+        entryRva: 0x6a263,
+        acceptsSuccessOrVBlank: true,
+        repeatsRasterStatusRead: true,
+        yieldsWithSleepZero: true,
+      },
+    },
+  },
+]);
+const vBlankRasterStatus = structuredClone(d3d9RasterStatusEvents);
+for (const observation of [
+  vBlankRasterStatus.find(
+    (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+  ).d3d9RasterStatus,
+  vBlankRasterStatus.find(
+    (event) => event.kind === "d3d9-raster-status-complete"
+  ).calls[0].d3d9RasterStatus,
+]) {
+  observation.after.bytes = [1, 0, 0, 0, 0, 0, 0, 0];
+  observation.after.fields = { inVBlank: 1, scanLine: 0 };
+}
+assert.deepEqual(
+  summarizeTrace(encode(vBlankRasterStatus)).d3d9.rasterStatusObservations[0]
+    .status.after.fields,
+  { inVBlank: 1, scanLine: 0 }
+);
+const missingRasterStatusCompletion = d3d9RasterStatusEvents.filter(
+  (event) => event.kind !== "d3d9-raster-status-complete"
+);
+assert.throws(
+  () => summarizeTrace(encode(missingRasterStatusCompletion)),
+  /requires exactly one structured completion/
+);
+const malformedRasterStatusBytes = structuredClone(d3d9RasterStatusEvents);
+malformedRasterStatusBytes.find(
+  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+).d3d9RasterStatus.after.bytes[4] = 0;
+malformedRasterStatusBytes.find(
+  (event) => event.kind === "d3d9-raster-status-complete"
+).calls[0].d3d9RasterStatus.after.bytes[4] = 0;
+assert.throws(
+  () => summarizeTrace(encode(malformedRasterStatusBytes)),
+  /inconsistent D3DRASTER_STATUS after bytes/
+);
+const malformedRasterImmediateConsumer = structuredClone(
+  d3d9RasterStatusEvents
+);
+malformedRasterImmediateConsumer.find(
+  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+).d3d9RasterStatus.immediateConsumer.entry.instructions[4].opStr = "eax, 0";
+malformedRasterImmediateConsumer.find(
+  (event) => event.kind === "d3d9-raster-status-complete"
+).calls[0].d3d9RasterStatus.immediateConsumer.entry.instructions[4].opStr =
+  "eax, 0";
+assert.throws(
+  () => summarizeTrace(encode(malformedRasterImmediateConsumer)),
+  /unexpected immediate consumer/
+);
+
 const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);
 d3d9SurfaceDcEvents[0].arguments.stopOnEvent = "d3d9-surface-get-dc-complete";
 d3d9SurfaceDcEvents[0].arguments.observations = ["d3d9-surface-get-dc"];
