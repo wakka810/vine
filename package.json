@@ -6,7 +6,7 @@
   "scripts": {
     "check": "npm run check:fast && npm run check:fixture-e2e",
     "check:fast": "npm run check:static && npm run check:toolchain-engine && npm run check:rust",
-    "check:static": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:js && npm run check:windows-trace && npm run check:ci-contract",
+    "check:static": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run check:browser-performance-environment && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:js && npm run check:windows-trace && npm run check:ci-contract",
     "check:toolchain-engine": "npm run check:toolchain && npm run check:engine",
     "check:fixture-e2e": "npm run prepare:engine && npm run check:fixture-e2e:prepared",
     "check:fixture-e2e:prepared": "npm run check:execution-engine-contract:prepared && npm run check:fixture-core-e2e:prepared && npm run check:fixture-browser-e2e:prepared",
@@ -24,6 +24,7 @@
     "check:bgi-command-contract": "node tools/test-bgi-checkpoint-command.mjs",
     "check:semantic-call-digest": "node tools/test-semantic-call-digest.mjs",
     "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs && node tools/test-runtime-worker-evidence-level.mjs",
+    "check:browser-performance-environment": "node tools/test-browser-performance-environment.mjs",
     "check:com-foundation": "cargo test -p vine-core --test com_iunknown_foundation --locked && cargo test -p vine-core --test ole32_dispatcher --locked && cargo test -p vine-core --lib runtime::thread::tests::com_apartment --locked && npm run typecheck:runtime:browser-worker && node tools/test-browser-resource-identity.mjs",
     "check:execution-engine-contract:prepared": "node tools/test-execution-engine-contract.mjs",
     "check:win32-policy": "node tools/test-kernel32-compatibility-policy.mjs",
@@ -66,7 +67,7 @@
     "check:runtime:bgi-browser:prepared": "npm run check:runtime:bgi && npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi",
     "check:runtime:bgi-browser": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:bgi-browser:prepared",
     "check:runtime:bgi-browser-benchmark:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi-benchmark-ms 180000",
-    "check:runtime:bgi-browser-benchmark": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:bgi-browser-benchmark:prepared",
+    "check:runtime:bgi-browser-benchmark": "npm run check:toolchain && npm run prepare:engine && npm run prepare:chrome-for-testing && npm run check:runtime:bgi-browser-benchmark:prepared",
     "check:runtime:browser-worker:stress": "npm run build:runtime:browser-worker && node tools/run-browser-runtime-check.mjs --stress-ms 1800000",
     "check:runtime:v86-benchmark:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-v86-browser-benchmark.mjs",
     "check:runtime:v86-benchmark:ci:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-v86-browser-benchmark.mjs --allow-conditional-go",
@@ -74,7 +75,8 @@
     "serve:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs --serve",
     "serve:runtime:browser-worker": "npm run build:runtime:browser-worker && node tools/run-browser-runtime-check.mjs --serve",
     "probe:runtime:pe": "cargo run --quiet --locked -p vine-pe-probe --",
-    "prepare:engine": "node tools/prepare-v86-adapter.mjs"
+    "prepare:engine": "node tools/prepare-v86-adapter.mjs",
+    "prepare:chrome-for-testing": "node tools/prepare-chrome-for-testing.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -74,6 +74,17 @@ reason, the exact evaluation count, and failure IDs. The current decision is
 `failed`, reason `1-of-17-versioned-thresholds-failed`, with failure ID
 `maximum-p99-heartbeat-gap-milliseconds`.
 
+The next report schema is version 3 and qualifies the workload distribution
+with a separate Windows environment observation. The canonical browser is the
+SHA-pinned Chrome for Testing `151.0.7922.34` artifact, not installed Chrome.
+A pre-workload baseline and the entire run record Updater lifecycle, total／
+Chrome-tree／external CPU, physical-disk throughput and busy time, and each live
+Chrome process's priority class, priority-boost setting, and process power-
+throttling masks. An Updater, sustained policy excursion, QoS transition, or
+monitoring gap produces status `invalid-environment`; the 17 workload evaluations
+remain in the report for diagnosis but cannot be accepted. The P99 heartbeat
+limit remains 25 ms.
+
 ## Result
 
 The first clean-profile Chrome run completed 46 sessions with no semantic
@@ -317,6 +328,10 @@ before and after the run.
 npm run check:runtime:bgi-browser-benchmark
 ```
 
+The full command downloads the official pinned archive when absent, verifies
+its SHA-256, extracts it under ignored `.work/toolchain/`, then verifies the
+executable SHA-256 and product version before Chrome starts.
+
 With the toolchain and adapter already prepared:
 
 ```powershell
@@ -324,7 +339,9 @@ npm run check:runtime:bgi-browser-benchmark:prepared
 ```
 
 Both commands require the private BGI file and use a clean temporary Chrome
-profile plus a loopback-only server and DevTools endpoint.
+profile plus a loopback-only server and DevTools endpoint. The prepared command
+also requires the SHA-pinned Chrome artifact to have been prepared already; it
+never falls back to installed Chrome.
 
 ## Non-claims
 

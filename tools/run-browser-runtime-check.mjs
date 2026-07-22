@@ -14,6 +14,12 @@ import {
   classifyBenchmarkDecision,
   EVIDENCE_CLASSIFICATION,
 } from "./evidence-classification.mjs";
+import { loadChromeForTestingArtifact } from "./chrome-for-testing.mjs";
+import {
+  loadBrowserPerformanceEnvironmentPolicy,
+  qualifyBenchmarkDecision,
+  startBrowserPerformanceEnvironmentMonitor,
+} from "./browser-performance-environment.mjs";
 import {
   handleSourceSnapshotHttp,
   registerSourceSnapshot,
@@ -62,6 +68,12 @@ const bgiOracleReportPath = path.join(
 const bgiBenchmarkConfigurationPath = path.join(
   root,
   checkpoint.browserCheckpoint.bgiBenchmarkEvidence.configuration,
+);
+const browserPerformanceEnvironmentPolicyPath = path.join(
+  root,
+  "fixtures",
+  "benchmarks",
+  "browser-performance-environment-windows-v1.json",
 );
 
 function optionValue(name) {
@@ -1270,6 +1282,27 @@ function findChrome() {
   return chrome;
 }
 
+async function resolveChromeSelection() {
+  if (bgiBenchmarkMilliseconds <= 0) {
+    const executablePath = findChrome();
+    return {
+      executablePath,
+      version: await chromeVersion(executablePath),
+      artifact: null,
+    };
+  }
+  assert.equal(process.platform, "win32", "canonical BGI performance acceptance is Windows-only");
+  assert.equal(process.arch, "x64", "canonical BGI performance acceptance requires Windows x64");
+  const artifact = await loadChromeForTestingArtifact(root);
+  const version = await chromeVersion(artifact.executablePath);
+  assert.equal(
+    version,
+    artifact.manifest.executable.productVersion,
+    "Chrome product version differs from the SHA-pinned artifact manifest",
+  );
+  return { executablePath: artifact.executablePath, version, artifact };
+}
+
 async function chromeVersion(chrome) {
   if (process.platform !== "win32") {
     return (await run(chrome, ["--version"])).stdout.trim();
@@ -1347,8 +1380,9 @@ if (serveOnly) {
   let profile = null;
   let chrome = null;
   try {
-    const chromePath = findChrome();
-    const version = await chromeVersion(chromePath);
+    const chromeSelection = await resolveChromeSelection();
+    const chromePath = chromeSelection.executablePath;
+    const version = chromeSelection.version;
     profile = await mkdtemp(path.join(temporaryRoot, "vine-browser-runtime-"));
     chrome = await launchChrome(chromePath, [
       "--headless=new",
@@ -1400,18 +1434,37 @@ if (serveOnly) {
             configuration.sampleIntervalMilliseconds >= 1_000,
           "BGI benchmark sample interval is invalid",
         );
-        const result = await runBgiBenchmark(
-          chrome.browserWebSocketUrl,
-          url,
-          bgiBenchmarkMilliseconds,
-          configuration.sampleIntervalMilliseconds,
+        const environmentPolicy = await loadBrowserPerformanceEnvironmentPolicy(
+          browserPerformanceEnvironmentPolicyPath,
         );
+        const environmentMonitor = await startBrowserPerformanceEnvironmentMonitor({
+          root,
+          rootProcessId: chrome.child.pid,
+          policy: environmentPolicy.value,
+          durationMilliseconds: bgiBenchmarkMilliseconds,
+        });
+        let result;
+        let performanceEnvironment;
+        try {
+          result = await runBgiBenchmark(
+            chrome.browserWebSocketUrl,
+            url,
+            bgiBenchmarkMilliseconds,
+            configuration.sampleIntervalMilliseconds,
+          );
+        } finally {
+          performanceEnvironment = await environmentMonitor.stop();
+        }
         const {
           metrics,
           thresholdEvaluations,
           thresholdFailures,
-          decision,
+          decision: workloadDecision,
         } = summarizeBgiBenchmark(result, configuration);
+        const decision = qualifyBenchmarkDecision(
+          workloadDecision,
+          performanceEnvironment.decision,
+        );
         const sourceAfter = await readFile(bgiPath);
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the benchmark");
         const artifactPaths = {
@@ -1442,17 +1495,42 @@ if (serveOnly) {
         );
         const report = {
           schema: "vine.browser-bgi-benchmark-report",
-          schemaVersion: 2,
+          schemaVersion: 3,
           measuredAt: new Date().toISOString(),
           evidenceClassification: structuredClone(EVIDENCE_CLASSIFICATION),
           decision,
+          workloadDecision,
           environment: {
             host: `${os.platform()} ${os.release()} ${os.arch()}`,
             cpu: os.cpus()[0]?.model ?? "unknown",
             logicalCpus: os.cpus().length,
             totalMemoryBytes: os.totalmem(),
             chrome: version,
+            chromeArtifact:
+              chromeSelection.artifact === null
+                ? null
+                : {
+                    id: chromeSelection.artifact.manifest.id,
+                    version: chromeSelection.artifact.manifest.version,
+                    platform: chromeSelection.artifact.manifest.platform,
+                    manifest: {
+                      path: path.relative(root, chromeSelection.artifact.manifestPath),
+                      ...chromeSelection.artifact.manifestIdentity,
+                    },
+                    archive: chromeSelection.artifact.archiveIdentity,
+                    executable: chromeSelection.artifact.executableIdentity,
+                  },
             node: process.version,
+          },
+          performanceEnvironment: {
+            configuration: {
+              path: path.relative(root, browserPerformanceEnvironmentPolicyPath),
+              bytes: environmentPolicy.bytes.byteLength,
+              sha256: hash(environmentPolicy.bytes),
+              value: environmentPolicy.value,
+            },
+            decision: performanceEnvironment.decision,
+            observation: performanceEnvironment.observation,
           },
           source: {
             repository: {
@@ -1482,11 +1560,12 @@ if (serveOnly) {
         };
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
         await writeFile(path.join(assetsRoot, "bgi-browser-benchmark-report.json"), reportBytes);
-        assert.equal(
-          decision.status,
-          "passed",
-          `BGI benchmark failed (${decision.reason}): ${thresholdFailures}`,
-        );
+        if (decision.status === "invalid-environment") {
+          throw new Error(
+            `BGI benchmark discarded as invalid environment: ${decision.invalidEnvironmentReasonIds.join(",")}`,
+          );
+        }
+        assert.equal(decision.status, "passed", `BGI benchmark failed (${decision.reason}): ${thresholdFailures}`);
         console.log(
           `BGI browser benchmark passed: sessions=${metrics.completedSessions}, ` +
             `p95=${metrics.sessionLatencyMilliseconds.p95.toFixed(2)}ms, ` +

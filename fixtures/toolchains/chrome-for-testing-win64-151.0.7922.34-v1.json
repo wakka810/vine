@@ -1,0 +1,21 @@
+{
+  "schema": "vine.chrome-for-testing-artifact",
+  "schemaVersion": 1,
+  "id": "chrome-for-testing-151.0.7922.34-win64",
+  "version": "151.0.7922.34",
+  "platform": "win64",
+  "source": {
+    "url": "https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.34/win64/chrome-win64.zip",
+    "archive": {
+      "relativePath": "chrome-win64.zip",
+      "bytes": 201068834,
+      "sha256": "045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c"
+    }
+  },
+  "executable": {
+    "relativePath": "chrome-win64/chrome.exe",
+    "bytes": 4024832,
+    "sha256": "409805a16d6416087e6b2f778df1cf8f7bbb267d6b99f6b5bb0a618eace234f2",
+    "productVersion": "151.0.7922.34"
+  }
+}

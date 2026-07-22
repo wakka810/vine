@@ -98,6 +98,13 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
 [`bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json).
+The command prepares Chrome for Testing `151.0.7922.34` from the official
+archive and verifies both the 201,068,834-byte archive SHA-256
+`045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c`
+and the extracted executable SHA-256
+`409805a16d6416087e6b2f778df1cf8f7bbb267d6b99f6b5bb0a618eace234f2`.
+The prepared form refuses installed Chrome and any executable that does not
+match the tracked artifact manifest.
 It repeats the complete current session through the first texture's surface
 `GetDC`, stock-brush `FillRect`, `ReleaseDC`, surface retirement, then the
 static-default and dynamic-default texture creations, device slot 26
@@ -110,6 +117,15 @@ applies versioned latency, heartbeat, heap／backing-storage slope, linear-memor
 and Wasm-crossing thresholds. Its result and non-claims are recorded in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
 because the private executable is never distributed.
+
+On Windows the runner starts a separate low-overhead environment sampler before
+the workload and keeps it active until the 180-second execution ends. The
+versioned policy records system and Chrome-tree CPU, physical-disk throughput／
+busy time, Chrome process priority／priority boost／power-throttling state, and
+Updater lifecycle. Missing coverage, a sustained external CPU／disk excursion,
+an Updater process, or a same-process QoS change classifies the report as
+`invalid-environment`; it is discarded rather than counted as a workload pass or
+failure. These qualification limits do not alter the 17 workload thresholds.
 
 `threshold-blocked` is a required failure outcome, not a soft pass. The current
 manifest must retain the failing threshold ID, full distribution count, exact

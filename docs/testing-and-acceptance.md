@@ -921,6 +921,13 @@ failureはretryやlimit変更で合格化せず、exact failure、artifact、試
 optimizationへ進む。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
+このprivate 180秒gateのbrowserは、public acceptanceと同じChrome for Testing
+`151.0.7922.34`を使い、versionだけでなくofficial archiveとexecutableのSHA-256をtracked manifestで
+固定する。実行前sampleから終了まで、別processがUpdater lifecycle、system／Chrome-tree／external CPU、
+physical disk throughput／busy、Chrome PIDごとのpriority class／priority boost／power throttlingを監視する。
+監視欠測、Updater、versionedな持続CPU／disk excursion、同一processのQoS変化はworkload threshold failureと
+混ぜず`invalid-environment`として破棄する。Heartbeat P99 25 msを含む17 thresholdは不変である。
+
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch
 - timer、paint invalidation、focus、capture
