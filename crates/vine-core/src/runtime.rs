@@ -162,10 +162,14 @@ pub use synchronization::{
 };
 pub use thread::{
     FLS_OUT_OF_INDEXES, LOGICAL_FLS_INDEX_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
-    RUNTIME_FLS_INDEX_LIMIT, RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackScratch,
-    RuntimeCancellation, RuntimeComApartmentModel, RuntimeComApartmentState,
-    RuntimeComInitializationDisposition, RuntimeComInitializationOutcome,
-    RuntimeComUninitializationOutcome, RuntimeFlsSlot, RuntimeThreadId,
+    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE,
+    RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE, RUNTIME_GUEST_THREAD_LIMIT,
+    RUNTIME_GUEST_THREAD_STACK_ARENA_BASE, RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
+    RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackScratch, RuntimeCancellation,
+    RuntimeComApartmentModel, RuntimeComApartmentState, RuntimeComInitializationDisposition,
+    RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome, RuntimeCreateThreadRequest,
+    RuntimeCreateThreadResult, RuntimeFlsSlot, RuntimeGuestThreadBootstrap,
+    RuntimeResumeThreadResult, RuntimeThreadEnvironment, RuntimeThreadId,
     RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
     RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };

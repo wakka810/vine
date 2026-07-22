@@ -14,20 +14,20 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `user32-set-timer`: 18597 calls across 90 API contracts, memory generation 36502 |
+| Runtime diagnostics | `kernel32-create-thread`: 18599 calls across 92 API contracts, memory generation 36513 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!CreateThread(0x00000000, 0x00000000, 0x100a1ee8, 0x20139940, 0x00000004, 0x20139940, 0x00000001)` at instruction 11945954: `endpoint-contract-missing` |
+| Next structured stop | `KERNEL32.dll!SetThreadPriority(0x54010002, 0x00000001)` at instruction 11945977: `endpoint-contract-missing` |
 
-The active semantic report is 50,127 bytes with SHA-256
-`a1f767a7c74a0cdcbaba8ba881d15b3f33ed10119334ea41afe986c8f99bd4f8`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 55,093 bytes with SHA-256
+`d12d10919c4016bb2645bc92d85fd51d1459c3d94f0e690d2ab3dc45b2e02d6c`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
 | ID | Milestone | Status | Evidence boundary |
 |---|---|---|---|
-| `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop; title entry is not complete |
+| `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, and owner-thread SetTimer registration slices pass; logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `bounded-foundation` | One fingerprinted primary asset range is read through the immutable source gateway |
 | `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached, while pixel storage, renderer, draw, and Present are not reached |
@@ -129,6 +129,8 @@ The active semantic report is 50,127 bytes with SHA-256
 - `DINPUT8.dll!DirectInput8Create`
 - `DSOUND.dll!#11`
 - `USER32.dll!SetTimer`
+- `KERNEL32.dll!CreateThread`
+- `KERNEL32.dll!ResumeThread`
 
 ### Reproduce Current Checkpoint
 

@@ -162,6 +162,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "dsound-initial-buffers",
         "dsound-buffer-lock-unlock-play",
         "user32-set-timer",
+        "kernel32-create-thread",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -243,6 +244,7 @@ assert(
       "dsound-initial-buffers",
       "dsound-buffer-lock-unlock-play",
       "user32-set-timer",
+      "kernel32-create-thread",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -288,6 +290,7 @@ if (
     "dsound-initial-buffers",
     "dsound-buffer-lock-unlock-play",
     "user32-set-timer",
+    "kernel32-create-thread",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -302,7 +305,9 @@ if (
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-load-library-a" ||
+    genericRuntimeCapability === "kernel32-create-thread"
+      ? "kernel32-create-thread-v1.json"
+      : genericRuntimeCapability === "kernel32-load-library-a" ||
     genericRuntimeCapability === "user32-get-client-rect" ||
     genericRuntimeCapability === "gdi-window-dc-fill" ||
     genericRuntimeCapability === "user32-set-window-long-a" ||
@@ -461,7 +466,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const setTimerEnabled = genericRuntimeCapability === "user32-set-timer";
+const createThreadEnabled = genericRuntimeCapability === "kernel32-create-thread";
+const setTimerEnabled =
+  createThreadEnabled || genericRuntimeCapability === "user32-set-timer";
 const dsoundBufferTransferEnabled =
   setTimerEnabled ||
   genericRuntimeCapability === "dsound-buffer-lock-unlock-play";
@@ -717,7 +724,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setTimerEnabled
+      ? createThreadEnabled
+      ? "v86-bgi-create-thread"
+      : setTimerEnabled
       ? "v86-bgi-set-timer"
       : dsoundBufferTransferEnabled
       ? "v86-bgi-dsound-buffer-lock-unlock-play"
@@ -4707,6 +4716,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (createThreadEnabled) {
+        validateCreateThreadResult(genericResult);
       } else if (setTimerEnabled) {
         validateSetTimerResult(genericResult);
       } else if (dsoundBufferTransferEnabled) {
@@ -4902,6 +4913,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : createThreadEnabled
+          ? "bgi CreateThread and ResumeThread bootstrap"
           : setTimerEnabled
           ? "bgi SetTimer logical window callback registration"
           : dsoundBufferTransferEnabled
@@ -6080,6 +6093,12 @@ function buildGenericCallRecord(
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
+    ...(completionFrame.createdThread === undefined
+      ? {}
+      : { createdThread: completionFrame.createdThread }),
+    ...(completionFrame.resumedThread === undefined
+      ? {}
+      : { resumedThread: completionFrame.resumedThread }),
     ...(completionFrame.tickCount === undefined
       ? {}
       : { tickCount: completionFrame.tickCount }),
@@ -6148,6 +6167,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : createThreadEnabled
+          ? 79
         : setTimerEnabled
           ? 77
         : dsoundRootEnabled
@@ -6663,6 +6684,22 @@ function applyRuntimeHostDelta(context, delta) {
       operation.regionKind === 9 && !callbackScratchOperation;
     const graphicsResourceOperation = operation.regionKind === 11;
     const audioResourceOperation = operation.regionKind === 12;
+    const guestThreadStackOperation = operation.regionKind === 2;
+    const guestThreadEnvironmentOperation = operation.regionKind === 3;
+    if (guestThreadStackOperation || guestThreadEnvironmentOperation) {
+      assert(
+        createThreadEnabled,
+        "guest-thread mapping requires the CreateThread capability",
+      );
+      assert.equal(operation.address % page.size, 0);
+      assert.equal(operation.byteLength % page.size, 0);
+      if (guestThreadStackOperation) {
+        assert(0x5000_0000 <= operation.address && end <= 0x6000_0000);
+      } else {
+        assert(0x7f03_0000 <= operation.address && end <= 0x7fc3_0000);
+        assert.equal(operation.byteLength, page.size);
+      }
+    }
     if (operation.regionKind === 9) {
       assert(
         (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
@@ -6714,8 +6751,10 @@ function applyRuntimeHostDelta(context, delta) {
           ((d3d9RootFactoryEnabled || dinput8FactoryEnabled || dsoundRootEnabled) &&
             comBackingOperation) ||
           graphicsResourceOperation ||
-          audioResourceOperation,
-        "runtime host reserve is neither a heap, callback scratch, COM backing, graphics resource, nor audio resource",
+          audioResourceOperation ||
+          guestThreadStackOperation ||
+          guestThreadEnvironmentOperation,
+        "runtime host reserve has no enabled subsystem owner",
       );
       assert.deepEqual(operation.protection, {
         read: false,
@@ -14661,6 +14700,187 @@ function validateDsoundBufferLockUnlockPlayResult(result) {
   ]);
 }
 
+function validateCreateThreadResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_599);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_654);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_555,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_945_206,
+  );
+  assert.equal(result.hostDeltas.length, 17_289);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_513);
+  const createCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "CreateThread",
+  );
+  assert.equal(createCalls.length, 1, "unexpected CreateThread completion count");
+  const create = createCalls[0];
+  assert.equal(create.sequence, 18_598);
+  assert.equal(create.occurrence, 1);
+  assert.equal(create.trapInstructionCount, 11_945_954);
+  assert.equal(create.implementationId, "kernel32.create-thread.v1");
+  assert.deepEqual(create.arguments, [0, 0, 0x100a_1ee8, 0x2013_9940, 4, 0x2013_9940]);
+  assert.deepEqual(create.result, { action: "set", value: 0x5401_0002 });
+  assert.equal(create.returnAddress, 0x100a_1fad);
+  assert.equal(create.stackPointerAfter - create.stackPointerBefore, 28);
+  assert.equal(create.lastError, 0);
+  assert.deepEqual(create.guestWrites, [
+    {
+      address: 0x2013_9940,
+      bytes: [1, 32, 0, 0],
+      result: {
+        bytesWritten: 4,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 36_511,
+          dataTlb: true,
+          instructionFetch: true,
+          generatedCode: true,
+        },
+      },
+    },
+  ]);
+  assert(create.createdThread, "CreateThread completion has no thread bootstrap metadata");
+  assert.equal(create.createdThread.handle, 0x5401_0002);
+  assert.deepEqual(create.createdThread.object, {
+    id: 25,
+    key: { kind: "thread", thread_id: 8_193 },
+    kind: "thread",
+    namespace: "vine.runtime-thread-object.v1",
+    closePolicy: "close-handle",
+    waitState: { state: "nonsignaled" },
+    openHandles: 1,
+  });
+  assert.deepEqual(create.createdThread.schedulerState, {
+    state: "suspended",
+    count: 1,
+  });
+  assert.deepEqual(create.createdThread.thread.stack, {
+    threadId: 8_193,
+    addressAllocationId: 57,
+    memoryOwner: 27,
+    reservedRange: { start: 0x5000_0000, byteLength: 0x0010_0000 },
+    committedRange: { start: 0x500f_f000, byteLength: 4_096 },
+    guardPage: { start: 0x500f_e000, byteLength: 4_096 },
+    committedPages: 1,
+    stackTop: 0x5010_0000,
+    initialStackPointer: 0x500f_fff8,
+    returnSentinel: 0x7f01_0010,
+  });
+  assert.deepEqual(create.createdThread.thread.environment, {
+    threadId: 8_193,
+    addressAllocationId: 58,
+    memoryOwner: 28,
+    range: { start: 0x7f03_0000, byteLength: 4_096 },
+    tebAddress: 0x7f03_0000,
+    pebAddress: 0x7ffd_f000,
+  });
+  assert.deepEqual(create.createdThread.thread.guestBootstrap, {
+    threadId: 8_193,
+    entryPoint: 0x100a_1ee8,
+    parameter: 0x2013_9940,
+    initialStackPointer: 0x500f_fff8,
+    fsBase: 0x7f03_0000,
+    returnSentinel: 0x7f01_0010,
+  });
+
+  const resumeCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "ResumeThread",
+  );
+  assert.equal(resumeCalls.length, 1, "unexpected ResumeThread completion count");
+  const resume = resumeCalls[0];
+  assert.equal(resume.sequence, 18_599);
+  assert.equal(resume.occurrence, 1);
+  assert.equal(resume.trapInstructionCount, 11_945_961);
+  assert.deepEqual(resume.arguments, [0x5401_0002]);
+  assert.deepEqual(resume.result, { action: "set", value: 1 });
+  assert.equal(resume.implementationId, "kernel32.resume-thread.v1");
+  assert.equal(resume.returnAddress, 0x100a_1fbd);
+  assert.equal(resume.stackPointerAfter - resume.stackPointerBefore, 8);
+  assert.equal(resume.lastError, 0);
+  assert.deepEqual(resume.guestWrites, []);
+  assert.deepEqual(resume.resumedThread, {
+    handle: 0x5401_0002,
+    threadId: 8_193,
+    previousSuspendCount: 1,
+    schedulerState: { state: "runnable" },
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-3).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_597, symbol: "LeaveCriticalSection", occurrence: 14 },
+      { sequence: 18_598, symbol: "CreateThread", occurrence: 1 },
+      { sequence: 18_599, symbol: "ResumeThread", occurrence: 1 },
+    ],
+  );
+  const creationDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === create.sequence,
+  );
+  assert(creationDelta, "CreateThread host delta is missing");
+  assert.equal(creationDelta.fromGeneration, 36_502);
+  assert.equal(creationDelta.generation, 36_511);
+  assert.equal(creationDelta.mappingOperations, 4);
+  assert.deepEqual(creationDelta.dirtyPages, [
+    { address: 0x2013_9000, owner: 10 },
+    { address: 0x500f_f000, owner: 27 },
+    { address: 0x7f03_0000, owner: 28 },
+  ]);
+  assert.equal(
+    creationDelta.payloadSha256,
+    "1e958a4c95b466754ec28a482c317c674175fb5ec5ce4a389406325684acb054",
+  );
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 139);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_08a0);
+  assert.equal(result.fault.endpoint.endpoint.module, "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetThreadPriority",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_12d4);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "ae690b5dc75ce9ae4c63dd9a0dc169bb88121dd12838c9227b10f74c96f0cd79",
+  );
+  assert.equal(result.terminal.instructionCount, 11_945_977);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 139);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_08a0);
+  assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "SetThreadPriority");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_1b77);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 3), [
+    0x1009_1b77,
+    0x5401_0002,
+    1,
+  ]);
+}
+
 function validateSetTimerResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -17253,10 +17473,28 @@ function buildGenericRuntimeReentryReport({
     (total, writeback) => total + writeback.receipt.changedBytes,
     0,
   );
+  const createThreadCall = createThreadEnabled
+    ? genericResult.supportedCalls.find((call) => call.symbol === "CreateThread")
+    : null;
+  const resumeThreadCall = createThreadEnabled
+    ? genericResult.supportedCalls.find((call) => call.symbol === "ResumeThread")
+    : null;
+  const createThreadDelta = createThreadEnabled
+    ? genericResult.hostDeltas.find(
+        (delta) => delta.sequence === createThreadCall?.sequence,
+      )
+    : null;
+  if (createThreadEnabled) {
+    assert(createThreadCall, "CreateThread report summary has no creation call");
+    assert(resumeThreadCall, "CreateThread report summary has no resume call");
+    assert(createThreadDelta, "CreateThread report summary has no host delta");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : createThreadEnabled
+        ? "vine.v86-bgi-kernel32-create-thread"
         : setTimerEnabled
         ? "vine.v86-bgi-user32-set-timer"
         : dsoundBufferTransferEnabled
@@ -17508,6 +17746,18 @@ function buildGenericRuntimeReentryReport({
         : {}),
       sourceReads: genericResult.sourceReads,
     },
+    ...(createThreadEnabled
+      ? {
+          guestThreadBootstrap: {
+            create: createThreadCall,
+            resume: resumeThreadCall,
+            creationDelta: createThreadDelta,
+            schedulingPolicy: "synchronous-resume-preserves-caller-until-block-or-explicit-schedule",
+            nodeExecutedThreadIds: [8_192],
+            nodeContextSwitches: 0,
+          },
+        }
+      : {}),
     supportedCallCount: genericResult.supportedCalls.length,
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256,

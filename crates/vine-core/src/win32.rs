@@ -5,10 +5,10 @@ use encoding_rs::{EncoderResult, SHIFT_JIS};
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
     ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault,
-    ApiHandlerResult, ApiImmediate, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
-    ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiValueSchema, ApiWriteRequirement,
-    CallbackPolicy, CallingConvention, DispatchOutcome, ExecutionSession, HostCompletion,
-    LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DispatchOutcome,
+    ExecutionSession, HostCompletion, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
@@ -17,10 +17,11 @@ use crate::runtime::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
-    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCriticalSection, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
+    RuntimeSourceReadHostResponse, RuntimeStateErrorClass, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -28,11 +29,12 @@ mod policy;
 pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy, Kernel32GetDriveTypeAPolicy,
-    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
+    Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
+    Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
+    Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
@@ -44,6 +46,8 @@ pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-pr
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
+pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
+pub const RESUME_THREAD_IMPLEMENTATION: &str = "kernel32.resume-thread.v1";
 pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
 pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
@@ -73,7 +77,7 @@ pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
 pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
 pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.source.v1";
-pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.source.v1";
+pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.v2";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
@@ -117,6 +121,7 @@ const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_INVALID_HANDLE: u32 = 6;
+const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
 const ERROR_SHARING_VIOLATION: u32 = 32;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
@@ -167,6 +172,8 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
             handle_set_thread_affinity_mask(policy, contract, frame, session)
         }
+        CREATE_THREAD_IMPLEMENTATION => handle_create_thread(policy, contract, frame, session),
+        RESUME_THREAD_IMPLEMENTATION => handle_resume_thread(contract, frame, session),
         GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
         GET_VERSION_EX_A_IMPLEMENTATION => {
             handle_get_version_ex_a(policy, contract, frame, session)
@@ -292,6 +299,8 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
+        "CreateThread" => create_thread_contract(endpoint)?,
+        "ResumeThread" => resume_thread_contract(endpoint)?,
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
         "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
@@ -435,6 +444,139 @@ fn handle_set_thread_affinity_mask(
         .set_current_thread_affinity_mask(process_mask, requested_mask)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(previous_mask)).with_last_error(preserved_last_error))
+}
+
+fn handle_create_thread(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    const CREATE_SUSPENDED: u32 = 0x0000_0004;
+
+    let thread_policy = policy.create_thread().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-thread-bootstrap",
+            "create-thread-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable guest thread creation",
+                policy.id
+            ),
+        )
+    })?;
+    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
+    let stack_size = required_argument(contract, frame, 1, "stack size")?;
+    let start_address = required_argument(contract, frame, 2, "start address")?;
+    let parameter = required_argument(contract, frame, 3, "thread parameter")?;
+    let creation_flags = required_argument(contract, frame, 4, "creation flags")?;
+    let thread_id_output = required_argument(contract, frame, 5, "thread ID output")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let failed = |last_error| {
+        ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
+            value: 0,
+        })
+        .with_last_error(last_error)
+    };
+
+    if security_attributes != 0
+        || stack_size != 0
+        || start_address == 0
+        || !thread_policy
+            .allowed_creation_flags
+            .contains(&creation_flags)
+    {
+        return Ok(failed(ERROR_INVALID_PARAMETER));
+    }
+    if session.runtime().scheduler().thread_states().len() >= thread_policy.maximum_threads as usize
+    {
+        return Ok(failed(ERROR_NOT_ENOUGH_MEMORY));
+    }
+    frame
+        .argument_bytes
+        .checked_add(4)
+        .and_then(|cleanup| frame.stack_pointer.0.checked_add(cleanup))
+        .ok_or_else(|| {
+            ApiFault::invalid_call(
+                "win32-thread-bootstrap",
+                "create-thread-return-stack-overflow",
+                "CreateThread return cleanup crosses the x86 address limit",
+            )
+        })?;
+
+    let result = match session.create_guest_thread(RuntimeCreateThreadRequest {
+        stack_reserve_bytes: u64::from(thread_policy.default_stack_reserve_bytes),
+        stack_commit_bytes: u64::from(thread_policy.default_stack_commit_bytes),
+        entry_point: GuestAddress(start_address),
+        parameter,
+        thread_id_output: (thread_id_output != 0).then_some(GuestAddress(thread_id_output)),
+        initial_suspend_count: u32::from(creation_flags & CREATE_SUSPENDED != 0),
+    }) {
+        Ok(result) => result,
+        Err(error) if error.class == RuntimeStateErrorClass::ResourceLimit => {
+            return Ok(failed(ERROR_NOT_ENOUGH_MEMORY));
+        }
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
+        {
+            return Ok(failed(ERROR_INVALID_PARAMETER));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let mut immediate = ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
+        value: result.handle.0,
+    })
+    .with_last_error(preserved_last_error);
+    if let (Some(address), Some(write)) = (result.thread_id_output, result.thread_id_write) {
+        immediate = immediate.with_committed_guest_write(ApiGuestWriteReceipt {
+            write: ApiGuestWrite {
+                address,
+                bytes: result.thread_id.0.to_le_bytes().to_vec(),
+            },
+            result: write,
+        });
+    }
+    Ok(immediate)
+}
+
+fn handle_resume_thread(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "thread handle")?);
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if handle.kind() != Ok(RuntimeObjectKind::Thread)
+        || session
+            .runtime()
+            .object_for_handle(handle, RuntimeObjectKind::Thread)
+            .is_err()
+    {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::U32(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE)
+        );
+    }
+    match session.runtime_mut().resume_thread(handle) {
+        Ok(result) => Ok(
+            ApiImmediate::new(ApiReturnValue::U32(result.previous_suspend_count))
+                .with_last_error(preserved_last_error),
+        ),
+        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_get_system_info(
@@ -1811,18 +1953,28 @@ fn handle_set_file_pointer(
 }
 
 fn handle_close_handle(
-    policy: &Kernel32CompatibilityPolicy,
+    _policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    require_source_file_policy(policy)?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "object handle")?);
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if handle.kind() != Ok(RuntimeObjectKind::File)
-        || session.runtime().source_file_for_handle(handle).is_err()
+    let Ok(kind) = handle.kind() else {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
+        );
+    };
+    if !matches!(
+        kind,
+        RuntimeObjectKind::Process
+            | RuntimeObjectKind::Thread
+            | RuntimeObjectKind::Mutex
+            | RuntimeObjectKind::WaitableTimer
+            | RuntimeObjectKind::File
+    ) || session.runtime().object_for_handle(handle, kind).is_err()
     {
         return Ok(
             ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
@@ -3488,6 +3640,40 @@ pub fn set_thread_affinity_mask_contract(
     Ok(contract)
 }
 
+pub fn create_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateThread",
+        vec![
+            opaque_pointer("securityAttributes", true, 4),
+            u32_argument("stackSize"),
+            opaque_pointer("startAddress", false, 1),
+            u32_argument("parameter"),
+            u32_argument("creationFlags"),
+            optional_out_struct("threadId", "DWORD", 4, 4),
+        ],
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
+            nullable: true,
+        },
+        CREATE_THREAD_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn resume_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "ResumeThread",
+        vec![u32_argument("threadHandle")],
+        ApiReturnSchema::U32,
+        RESUME_THREAD_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     kernel32_contract(
         endpoint,
@@ -3843,7 +4029,7 @@ pub fn close_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContrac
     let mut contract = kernel32_contract(
         endpoint,
         "CloseHandle",
-        vec![logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false)],
+        vec![u32_argument("object")],
         ApiReturnSchema::Bool32,
         CLOSE_HANDLE_IMPLEMENTATION,
     )?;

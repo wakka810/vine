@@ -3,13 +3,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use super::{ProcessAddressAllocationId, RuntimeStateError};
-use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
+use crate::memory::{GuestAddress, GuestRange, GuestWriteResult, MemoryOwnerId};
 
 pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
 pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
 pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
+pub const RUNTIME_GUEST_THREAD_LIMIT: usize = 256;
+pub const RUNTIME_GUEST_THREAD_STACK_ARENA_BASE: GuestAddress = GuestAddress(0x5000_0000);
+pub const RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE: u64 = 0x1000_0000;
+pub const RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE: GuestAddress = GuestAddress(0x7f03_0000);
+pub const RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE: u64 = 0x00c0_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -145,6 +150,10 @@ pub struct RuntimeThreadState {
     pub callback_frames: Vec<RuntimeCallbackFrame>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<RuntimeThreadStack>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<RuntimeThreadEnvironment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_bootstrap: Option<RuntimeGuestThreadBootstrap>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -159,6 +168,64 @@ pub struct RuntimeThreadStack {
     pub guard_page: Option<GuestRange>,
     pub committed_pages: usize,
     pub stack_top: GuestAddress,
+    pub initial_stack_pointer: GuestAddress,
+    pub return_sentinel: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeThreadEnvironment {
+    pub thread_id: RuntimeThreadId,
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: GuestRange,
+    pub teb_address: GuestAddress,
+    pub peb_address: GuestAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGuestThreadBootstrap {
+    pub thread_id: RuntimeThreadId,
+    pub entry_point: GuestAddress,
+    pub parameter: u32,
+    pub initial_stack_pointer: GuestAddress,
+    pub fs_base: GuestAddress,
+    pub return_sentinel: GuestAddress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCreateThreadRequest {
+    pub stack_reserve_bytes: u64,
+    pub stack_commit_bytes: u64,
+    pub entry_point: GuestAddress,
+    pub parameter: u32,
+    pub thread_id_output: Option<GuestAddress>,
+    pub initial_suspend_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateThreadResult {
+    pub thread_id: RuntimeThreadId,
+    pub handle: super::RuntimeHandle,
+    pub stack: RuntimeThreadStack,
+    pub environment: RuntimeThreadEnvironment,
+    pub bootstrap: RuntimeGuestThreadBootstrap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id_output: Option<GuestAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id_write: Option<GuestWriteResult>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeResumeThreadResult {
+    pub thread_id: RuntimeThreadId,
+    pub handle: super::RuntimeHandle,
+    pub previous_suspend_count: u32,
+    pub remaining_suspend_count: u32,
+    pub became_runnable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -190,12 +257,27 @@ pub(super) struct RuntimeThreads {
     next_fls_index: u32,
     #[serde(skip)]
     next_callback_frame_id: u64,
+    #[serde(skip)]
+    next_thread_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeThreadMutationPlan {
     previous: Option<RuntimeThreadState>,
     next: RuntimeThreadState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeThreadIdAllocationPlan {
+    expected_next_thread_id: u64,
+    thread_id: RuntimeThreadId,
+    next_thread_id: u64,
+}
+
+impl RuntimeThreadIdAllocationPlan {
+    pub(super) const fn thread_id(self) -> RuntimeThreadId {
+        self.thread_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,6 +363,8 @@ impl RuntimeThreads {
             fls_values: BTreeMap::new(),
             callback_frames: Vec::new(),
             stack: None,
+            environment: None,
+            guest_bootstrap: None,
         };
         Self {
             states: BTreeMap::from([(initial_thread_id, initial)]),
@@ -289,7 +373,12 @@ impl RuntimeThreads {
             next_tls_index: 0,
             next_fls_index: 0,
             next_callback_frame_id: 1,
+            next_thread_id: u64::from(initial_thread_id.0) + 1,
         }
+    }
+
+    pub(super) const fn next_thread_id(&self) -> u64 {
+        self.next_thread_id
     }
 
     pub(super) fn allocated_tls_indices(&self) -> &BTreeSet<u32> {
@@ -525,8 +614,106 @@ impl RuntimeThreads {
                 fls_values: BTreeMap::new(),
                 callback_frames: Vec::new(),
                 stack: None,
+                environment: None,
+                guest_bootstrap: None,
             },
         })
+    }
+
+    pub(super) fn plan_thread_id_allocation(
+        &self,
+    ) -> Result<RuntimeThreadIdAllocationPlan, RuntimeStateError> {
+        if self.states.len() >= RUNTIME_GUEST_THREAD_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-thread-registry",
+                "runtime-thread-capacity-exhausted",
+                format!("runtime thread capacity of {RUNTIME_GUEST_THREAD_LIMIT} is exhausted"),
+            ));
+        }
+        let mut candidate = self.next_thread_id;
+        while candidate <= u64::from(u32::MAX)
+            && self.states.contains_key(&RuntimeThreadId(candidate as u32))
+        {
+            candidate += 1;
+        }
+        let thread_id = u32::try_from(candidate).map(RuntimeThreadId).map_err(|_| {
+            RuntimeStateError::resource_limit(
+                "runtime-thread-registry",
+                "runtime-thread-id-space-exhausted",
+                "logical runtime thread ID space is exhausted",
+            )
+        })?;
+        let next_thread_id = candidate.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-thread-registry",
+                "runtime-thread-id-space-exhausted",
+                "logical runtime thread ID space is exhausted",
+            )
+        })?;
+        Ok(RuntimeThreadIdAllocationPlan {
+            expected_next_thread_id: self.next_thread_id,
+            thread_id,
+            next_thread_id,
+        })
+    }
+
+    pub(super) fn plan_guest_registration(
+        &self,
+        allocation: RuntimeThreadIdAllocationPlan,
+        initial_last_error: u32,
+        stack: RuntimeThreadStack,
+        environment: RuntimeThreadEnvironment,
+        bootstrap: RuntimeGuestThreadBootstrap,
+    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
+        let thread_id = allocation.thread_id;
+        if stack.thread_id != thread_id
+            || environment.thread_id != thread_id
+            || bootstrap.thread_id != thread_id
+            || bootstrap.initial_stack_pointer != stack.initial_stack_pointer
+            || bootstrap.return_sentinel != stack.return_sentinel
+            || bootstrap.fs_base != environment.teb_address
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-bootstrap",
+                "guest-thread-bootstrap-identity-mismatch",
+                "guest thread stack, TEB, and execution bootstrap identities must agree",
+            ));
+        }
+        let mut plan = self.plan_registration(thread_id, initial_last_error)?;
+        plan.next.stack = Some(stack);
+        plan.next.environment = Some(environment);
+        plan.next.guest_bootstrap = Some(bootstrap);
+        Ok(plan)
+    }
+
+    pub(super) fn preflight_guest_registration_commit(
+        &self,
+        allocation: &RuntimeThreadIdAllocationPlan,
+        registration: &RuntimeThreadMutationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.next_thread_id != allocation.expected_next_thread_id
+            || registration.previous.is_some()
+            || registration.next.id != allocation.thread_id
+            || self.states.contains_key(&allocation.thread_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-registry",
+                "guest-thread-registration-plan-stale",
+                "runtime threads changed after guest thread creation preflight",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_guest_registration(
+        &mut self,
+        allocation: RuntimeThreadIdAllocationPlan,
+        registration: RuntimeThreadMutationPlan,
+    ) -> &RuntimeThreadState {
+        debug_assert_eq!(self.next_thread_id, allocation.expected_next_thread_id);
+        debug_assert_eq!(registration.next.id, allocation.thread_id);
+        self.next_thread_id = allocation.next_thread_id;
+        self.commit(registration)
     }
 
     pub(super) fn plan_start(

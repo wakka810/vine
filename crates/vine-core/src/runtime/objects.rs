@@ -181,6 +181,22 @@ pub(super) struct RuntimeCloseHandleObjectMutationPlan {
     outcome: RuntimeCloseHandleObjectMutationOutcome,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeObjectRegistrationPlan {
+    expected_next_object_id: u64,
+    next_object_id: u64,
+    record: RuntimeObjectRecord,
+    handle_entry: RuntimeHandleEntry,
+    slot_key: u32,
+    expected_slot: Option<RuntimeHandleSlot>,
+}
+
+impl RuntimeObjectRegistrationPlan {
+    pub(super) const fn handle(&self) -> RuntimeHandle {
+        self.handle_entry.handle
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RuntimeCloseHandleObjectMutationOutcome {
     Opened(RuntimeHandle),
@@ -237,6 +253,96 @@ impl Default for RuntimeObjectTable {
 }
 
 impl RuntimeObjectTable {
+    pub(super) fn plan_object_and_handle_registration(
+        &self,
+        key: RuntimeObjectKey,
+    ) -> Result<RuntimeObjectRegistrationPlan, RuntimeStateError> {
+        if self.identity_index.contains_key(&key) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-object-identity-duplicate",
+                "runtime object identity is already registered",
+            ));
+        }
+        let id = RuntimeObjectId(self.next_object_id);
+        let next_object_id = self.next_object_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-object",
+                "runtime-object-id-space-exhausted",
+                "runtime object ID space is exhausted",
+            )
+        })?;
+        let kind = key.kind();
+        let handle = self.next_available_handle(kind)?;
+        self.preflight_exact_handle(kind, handle)?;
+        if self.handles.contains_key(&handle.0) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-handle-entry-collision",
+                "free runtime handle slot still has a table entry",
+            ));
+        }
+        let slot_key = runtime_handle_slot_key(kind, handle.slot());
+        Ok(RuntimeObjectRegistrationPlan {
+            expected_next_object_id: self.next_object_id,
+            next_object_id,
+            record: runtime_object_record(id, key, 1),
+            handle_entry: RuntimeHandleEntry {
+                handle,
+                object_id: id,
+                kind,
+            },
+            slot_key,
+            expected_slot: self.slots.get(&slot_key).copied(),
+        })
+    }
+
+    pub(super) fn preflight_object_registration_commit(
+        &self,
+        plan: &RuntimeObjectRegistrationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.next_object_id != plan.expected_next_object_id
+            || self.identity_index.contains_key(&plan.record.key)
+            || self.objects.contains_key(&plan.record.id)
+            || self.handles.contains_key(&plan.handle_entry.handle.0)
+            || self.slots.get(&plan.slot_key).copied() != plan.expected_slot
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-object-registration-plan-stale",
+                "runtime object state changed after registration preflight",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_object_registration(
+        &mut self,
+        plan: RuntimeObjectRegistrationPlan,
+    ) -> (RuntimeObjectId, RuntimeHandle) {
+        debug_assert_eq!(self.next_object_id, plan.expected_next_object_id);
+        debug_assert!(!self.identity_index.contains_key(&plan.record.key));
+        debug_assert!(!self.objects.contains_key(&plan.record.id));
+        debug_assert!(!self.handles.contains_key(&plan.handle_entry.handle.0));
+        debug_assert_eq!(self.slots.get(&plan.slot_key).copied(), plan.expected_slot);
+        self.next_object_id = plan.next_object_id;
+        let id = plan.record.id;
+        let key = plan.record.key.clone();
+        let handle = plan.handle_entry.handle;
+        self.identity_index.insert(key, id);
+        self.objects.insert(id, plan.record);
+        self.handles.insert(handle.0, plan.handle_entry);
+        self.slots.insert(
+            plan.slot_key,
+            RuntimeHandleSlot {
+                generation: handle.generation(),
+                live: true,
+                retired: false,
+            },
+        );
+        (id, handle)
+    }
+
     pub(super) fn plan_close_handle_object_open(
         &self,
         key: RuntimeObjectKey,
@@ -335,49 +441,7 @@ impl RuntimeObjectTable {
                 "runtime object ID space is exhausted",
             )
         })?;
-        let kind = key.kind();
-        let (namespace, close_policy, wait_state) = match kind {
-            RuntimeObjectKind::Process
-            | RuntimeObjectKind::Thread
-            | RuntimeObjectKind::Mutex
-            | RuntimeObjectKind::WaitableTimer
-            | RuntimeObjectKind::File => (
-                match kind {
-                    RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
-                    RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
-                    RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
-                    RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-                    RuntimeObjectKind::File => RUNTIME_SOURCE_FILE_NAMESPACE,
-                    RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
-                },
-                RuntimeHandleClosePolicy::CloseHandle,
-                matches!(
-                    kind,
-                    RuntimeObjectKind::Process
-                        | RuntimeObjectKind::Thread
-                        | RuntimeObjectKind::WaitableTimer
-                )
-                .then_some(RuntimeWaitState::Nonsignaled),
-            ),
-            RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
-                if kind == RuntimeObjectKind::PrivateHeap {
-                    LOGICAL_PRIVATE_HEAP_NAMESPACE
-                } else {
-                    LOGICAL_LOADED_MODULE_NAMESPACE
-                },
-                RuntimeHandleClosePolicy::SubsystemOwned,
-                None,
-            ),
-        };
-        let record = RuntimeObjectRecord {
-            id,
-            key: key.clone(),
-            kind,
-            namespace: namespace.to_owned(),
-            close_policy,
-            wait_state,
-            open_handles: 0,
-        };
+        let record = runtime_object_record(id, key.clone(), 0);
         self.objects.insert(id, record);
         self.identity_index.insert(key, id);
         Ok(id)
@@ -404,16 +468,9 @@ impl RuntimeObjectTable {
         &mut self,
         key: RuntimeObjectKey,
     ) -> Result<(RuntimeObjectId, RuntimeHandle), RuntimeStateError> {
-        let handle = self.next_available_handle(key.kind())?;
-        let previous_next_object_id = self.next_object_id;
-        let id = self.register_object(key.clone())?;
-        if let Err(error) = self.insert_exact_handle(id, handle) {
-            self.objects.remove(&id);
-            self.identity_index.remove(&key);
-            self.next_object_id = previous_next_object_id;
-            return Err(error);
-        }
-        Ok((id, handle))
+        let plan = self.plan_object_and_handle_registration(key)?;
+        self.preflight_object_registration_commit(&plan)?;
+        Ok(self.commit_object_registration(plan))
     }
 
     pub(super) fn open_handle(
@@ -978,6 +1035,56 @@ impl RuntimeObjectTable {
     }
 }
 
+fn runtime_object_record(
+    id: RuntimeObjectId,
+    key: RuntimeObjectKey,
+    open_handles: usize,
+) -> RuntimeObjectRecord {
+    let kind = key.kind();
+    let (namespace, close_policy, wait_state) = match kind {
+        RuntimeObjectKind::Process
+        | RuntimeObjectKind::Thread
+        | RuntimeObjectKind::Mutex
+        | RuntimeObjectKind::WaitableTimer
+        | RuntimeObjectKind::File => (
+            match kind {
+                RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
+                RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
+                RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
+                RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+                RuntimeObjectKind::File => RUNTIME_SOURCE_FILE_NAMESPACE,
+                RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
+            },
+            RuntimeHandleClosePolicy::CloseHandle,
+            matches!(
+                kind,
+                RuntimeObjectKind::Process
+                    | RuntimeObjectKind::Thread
+                    | RuntimeObjectKind::WaitableTimer
+            )
+            .then_some(RuntimeWaitState::Nonsignaled),
+        ),
+        RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
+            if kind == RuntimeObjectKind::PrivateHeap {
+                LOGICAL_PRIVATE_HEAP_NAMESPACE
+            } else {
+                LOGICAL_LOADED_MODULE_NAMESPACE
+            },
+            RuntimeHandleClosePolicy::SubsystemOwned,
+            None,
+        ),
+    };
+    RuntimeObjectRecord {
+        id,
+        key,
+        kind,
+        namespace: namespace.to_owned(),
+        close_policy,
+        wait_state,
+        open_handles,
+    }
+}
+
 const fn runtime_handle_slot_key(kind: RuntimeObjectKind, slot: u16) -> u32 {
     (kind.handle_tag() as u32) << 16 | slot as u32
 }
@@ -1049,6 +1156,43 @@ mod tests {
             .expect_err("dangling handle collision must fail");
         assert_eq!(error.code, "runtime-handle-entry-collision");
         assert_eq!(objects, before, "failed registration must be atomic");
+    }
+
+    #[test]
+    fn object_and_handle_registration_plan_is_pure_and_rejects_stale_commit() {
+        let mut objects = RuntimeObjectTable::default();
+        let before = objects.clone();
+        let stale = objects
+            .plan_object_and_handle_registration(RuntimeObjectKey::Thread { thread_id: 0x2000 })
+            .expect("thread object registration plan");
+        assert_eq!(
+            objects, before,
+            "registration planning must not mutate tables"
+        );
+        assert_eq!(stale.handle(), RuntimeHandle(0x5401_0001));
+
+        objects
+            .register_object_and_open_handle(RuntimeObjectKey::Process { process_id: 0x1000 })
+            .expect("intervening process object registration");
+        let before_stale_preflight = objects.clone();
+        assert_eq!(
+            objects
+                .preflight_object_registration_commit(&stale)
+                .expect_err("intervening object identity must stale the plan")
+                .code,
+            "runtime-object-registration-plan-stale"
+        );
+        assert_eq!(objects, before_stale_preflight);
+
+        let fresh = objects
+            .plan_object_and_handle_registration(RuntimeObjectKey::Thread { thread_id: 0x2000 })
+            .expect("fresh thread registration plan");
+        objects
+            .preflight_object_registration_commit(&fresh)
+            .expect("fresh registration preflight");
+        let (object_id, handle) = objects.commit_object_registration(fresh);
+        assert_eq!(object_id, RuntimeObjectId(2));
+        assert_eq!(handle, RuntimeHandle(0x5401_0001));
     }
 
     #[test]

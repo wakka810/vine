@@ -895,18 +895,19 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 17 ||
-    bgiMappingOperations.commit !== 68 ||
+    bgiMappingOperations.reserve !== 19 ||
+    bgiMappingOperations.commit !== 70 ||
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_288 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_800 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_289 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_803 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_022 ||
-    JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_028 ||
+    JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
+      JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
@@ -1605,6 +1606,73 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.graphicsSurfacePixelStorageCreatedBySurfaceDcSlice !== false
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
+  }
+  requireSha256(
+    bgiBrowserEvidence.createThreadCreationDeltaPayloadSha256,
+    "browserCheckpoint.bgiRuntimeEvidence.createThreadCreationDeltaPayloadSha256",
+    errors,
+  );
+  if (
+    bgiBrowserEvidence.createThreadCompletions !== 1 ||
+    bgiBrowserEvidence.createThreadSequence !== 18_598 ||
+    bgiBrowserEvidence.createThreadInstructionCount !== 11_945_954 ||
+    bgiBrowserEvidence.createThreadArguments?.join(",") !==
+      "0x00000000,0x00000000,0x100a1ee8,0x20139940,0x00000004,0x20139940" ||
+    bgiBrowserEvidence.createThreadResult !== "0x54010002" ||
+    bgiBrowserEvidence.createThreadReturnAddress !== "0x100a1fad" ||
+    bgiBrowserEvidence.createThreadLastError !== 0 ||
+    bgiBrowserEvidence.createThreadGuestWriteBytes !== 4 ||
+    bgiBrowserEvidence.createThreadOutputAddress !== "0x20139940" ||
+    bgiBrowserEvidence.createThreadOutputHex !== "01200000" ||
+    bgiBrowserEvidence.createThreadImplementationId !== "kernel32.create-thread.v1" ||
+    bgiBrowserEvidence.createThreadHandleNamespace !==
+      "vine.runtime-thread-object.v1" ||
+    bgiBrowserEvidence.createThreadObjectId !== 25 ||
+    bgiBrowserEvidence.createThreadId !== 8_193 ||
+    bgiBrowserEvidence.createThreadStackAddressAllocationId !== 57 ||
+    bgiBrowserEvidence.createThreadStackMemoryOwner !== 27 ||
+    bgiBrowserEvidence.createThreadStackReserveBase !== "0x50000000" ||
+    bgiBrowserEvidence.createThreadStackReserveBytes !== 1_048_576 ||
+    bgiBrowserEvidence.createThreadStackCommitBase !== "0x500ff000" ||
+    bgiBrowserEvidence.createThreadStackCommitBytes !== 4_096 ||
+    bgiBrowserEvidence.createThreadStackGuardPage !== "0x500fe000" ||
+    bgiBrowserEvidence.createThreadStackTop !== "0x50100000" ||
+    bgiBrowserEvidence.createThreadInitialStackPointer !== "0x500ffff8" ||
+    bgiBrowserEvidence.createThreadReturnSentinel !== "0x7f010010" ||
+    bgiBrowserEvidence.createThreadEnvironmentAddressAllocationId !== 58 ||
+    bgiBrowserEvidence.createThreadEnvironmentMemoryOwner !== 28 ||
+    bgiBrowserEvidence.createThreadTebAddress !== "0x7f030000" ||
+    bgiBrowserEvidence.createThreadPebAddress !== "0x7ffdf000" ||
+    bgiBrowserEvidence.createThreadEntryPoint !== "0x100a1ee8" ||
+    bgiBrowserEvidence.createThreadParameter !== "0x20139940" ||
+    bgiBrowserEvidence.createThreadInitialSuspendCount !== 1 ||
+    bgiBrowserEvidence.createThreadCreationDeltaFromGeneration !== 36_502 ||
+    bgiBrowserEvidence.createThreadCreationDeltaGeneration !== 36_511 ||
+    bgiBrowserEvidence.createThreadCreationDeltaMappingOperations !== 4 ||
+    bgiBrowserEvidence.createThreadCreationDeltaDirtyPages !== 3 ||
+    bgiBrowserEvidence.createThreadCreationDeltaControlBytes !== 264 ||
+    bgiBrowserEvidence.createThreadCreationDeltaPayloadBytes !== 12_288 ||
+    bgiBrowserEvidence.createThreadCreationDeltaPayloadSha256 !==
+      "1e958a4c95b466754ec28a482c317c674175fb5ec5ce4a389406325684acb054" ||
+    bgiBrowserEvidence.resumeThreadCompletions !== 1 ||
+    bgiBrowserEvidence.resumeThreadSequence !== 18_599 ||
+    bgiBrowserEvidence.resumeThreadInstructionCount !== 11_945_961 ||
+    bgiBrowserEvidence.resumeThreadArguments?.join(",") !== "0x54010002" ||
+    bgiBrowserEvidence.resumeThreadResult !== 1 ||
+    bgiBrowserEvidence.resumeThreadReturnAddress !== "0x100a1fbd" ||
+    bgiBrowserEvidence.resumeThreadLastError !== 0 ||
+    bgiBrowserEvidence.resumeThreadGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.resumeThreadImplementationId !== "kernel32.resume-thread.v1" ||
+    bgiBrowserEvidence.resumeThreadId !== 8_193 ||
+    bgiBrowserEvidence.resumeThreadPreviousSuspendCount !== 1 ||
+    bgiBrowserEvidence.resumeThreadFinalSchedulerState !== "runnable" ||
+    bgiBrowserEvidence.guestThreadSchedulingPolicy !==
+      "synchronous-resume-preserves-caller-until-block-or-explicit-schedule" ||
+    bgiBrowserEvidence.guestThreadBrowserOwnsWindowsState !== false ||
+    bgiBrowserEvidence.guestThreadNodeChromeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.guestThreadExecutedBeforeNextStop !== false
+  ) {
+    errors.push("browser BGI guest-thread bootstrap evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -4769,7 +4837,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    threads.schema !== "vine.runtime-thread-registry.v5" ||
+    threads.schema !== "vine.runtime-thread-registry.v6" ||
     threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
     threads.mutableCollectionVisibility !== "private" ||
     threads.serializedRuntimeField !== "threads" ||
@@ -4778,15 +4846,15 @@ export function validateCurrentCheckpoint(manifest) {
       "allocatedTlsIndices,flsSlots" ||
     !Array.isArray(threads.serializedRuntimeCompatibilityFields) ||
     threads.serializedRuntimeCompatibilityFields.join(",") !==
-      "nextTlsIndex,nextFlsIndex,nextCallbackFrameId" ||
+      "nextTlsIndex,nextFlsIndex,nextCallbackFrameId,nextThreadId" ||
     threads.serializationAdapter !== "runtime-state-borrowed-compatibility-view" ||
     !Array.isArray(threads.processWideState) ||
     threads.processWideState.join(",") !==
-      "tls-index-registry,fls-slot-registry,tls-index-allocator,fls-index-allocator,callback-frame-id-allocator" ||
+      "tls-index-registry,fls-slot-registry,tls-index-allocator,fls-index-allocator,callback-frame-id-allocator,thread-id-allocator" ||
     threads.crossSubsystemMutation !==
       "thread-resource-plan-aggregate-lifecycle-scheduler-preflight-infallible-commit" ||
     threads.subsystemTests < 8 ||
-    threads.crossSubsystemAtomicTests < 4 ||
+    threads.crossSubsystemAtomicTests < 6 ||
     threads.directRecordMutationFromAggregate !== false ||
     threads.directResourceMutationFromAggregate !== false ||
     threads.resourceAllocatorFailureMutationFree !== true ||
@@ -4795,9 +4863,19 @@ export function validateCurrentCheckpoint(manifest) {
     threads.comApartmentPlanCommit !== true ||
     threads.comApartmentOverflowMutationFree !== true ||
     threads.comApartmentThreadExitCleanup !== true ||
+    threads.firstApiCreatedThreadId !== 8_193 ||
+    threads.nextThreadIdAfterReachedCreate !== 8_194 ||
+    threads.maximumThreads !== 256 ||
+    threads.dynamicStackArenaBase !== "0x50000000" ||
+    threads.dynamicStackArenaBytes !== 0x1000_0000 ||
+    threads.dynamicEnvironmentArenaBase !== "0x7f030000" ||
+    threads.dynamicEnvironmentArenaBytes !== 0x00c0_0000 ||
+    threads.dynamicThreadStackAndEnvironmentPlanCommit !== true ||
+    threads.dynamicThreadExitReleasesStackAndEnvironment !== true ||
+    threads.dynamicThreadAddressReuseVerified !== true ||
     !Array.isArray(threads.perThreadState) ||
     threads.perThreadState.join(",") !==
-      "last-error,tls-values,fls-values,callback-frames,stack-metadata,logical-affinity-mask,com-apartment" ||
+      "last-error,tls-values,fls-values,callback-frames,stack-metadata,environment-metadata,guest-bootstrap,logical-affinity-mask,com-apartment" ||
     threads.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime thread subsystem boundary is invalid");
@@ -4808,7 +4886,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    scheduler.schema !== "vine.runtime-scheduler.v2" ||
+    scheduler.schema !== "vine.runtime-scheduler.v3" ||
     scheduler.stateOwner !== "runtime/scheduler.rs::RuntimeScheduler" ||
     scheduler.mutableCollectionVisibility !== "private" ||
     scheduler.serializedRuntimeField !== "scheduler" ||
@@ -4833,6 +4911,9 @@ export function validateCurrentCheckpoint(manifest) {
     scheduler.directHostRequestMutationFromAggregate !== false ||
     scheduler.hostRequestCancellationPlan !== true ||
     scheduler.hostCompletionPreflightBeforeRemoval !== true ||
+    scheduler.positiveSuspendCountOwnedByScheduler !== true ||
+    scheduler.resumeToRunnablePlanCommit !== true ||
+    scheduler.synchronousResumePreemptsCaller !== false ||
     scheduler.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime scheduler subsystem boundary is invalid");
@@ -4972,7 +5053,7 @@ export function validateCurrentCheckpoint(manifest) {
         addressSpace.heapSlotAllocationCount +
         addressSpace.largeHeapSlotAllocationCount ||
     addressPurposes.join(",") !==
-      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,com-endpoint,graphics-resource-arena,graphics-resource,audio-resource-arena,audio-resource" ||
+      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,thread-environment,com-endpoint,graphics-resource-arena,graphics-resource,audio-resource-arena,audio-resource" ||
     addressSpace.heapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapAddressAllocationPermanent !== true ||
@@ -4995,7 +5076,10 @@ export function validateCurrentCheckpoint(manifest) {
     addressSpace.mappingDeltaAllocationIdWidthBits !== 64 ||
     addressSpace.browserMirrorValidatesAllocationId !== true ||
     addressSpace.processEnvironmentReservationCommit !==
-      "memory-runtime-atomic-plan"
+      "memory-runtime-atomic-plan" ||
+    addressSpace.dynamicThreadStackRegistered !== true ||
+    addressSpace.dynamicThreadEnvironmentRegistered !== true ||
+    addressSpace.dynamicThreadReleaseAndReuseVerified !== true
   ) {
     errors.push("active process address-space allocator boundary is invalid");
   }
@@ -5034,12 +5118,17 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.loadLibraryA",
     errors,
   );
+  const createThread = requireRecord(
+    kernel32Policy.createThread,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.createThread",
+    errors,
+  );
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-d3dx-runtime-module-v1" ||
+    kernel32Policy.id !== "kernel32-create-thread-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json" ||
+      "fixtures/runtime-policies/kernel32-create-thread-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -5092,6 +5181,15 @@ export function validateCurrentCheckpoint(manifest) {
     loadLibraryA.generalSearch !== false ||
     loadLibraryA.dllMainCallbacks !== false ||
     loadLibraryA.unload !== false ||
+    createThread.defaultStackReserveBytes !== 1_048_576 ||
+    createThread.defaultStackCommitBytes !== 4_096 ||
+    createThread.allowedCreationFlags?.join(",") !== "0,4" ||
+    createThread.maximumThreads !== 256 ||
+    createThread.threadAuthority !== "runtime/thread.rs::RuntimeThreads" ||
+    createThread.schedulerAuthority !== "runtime/scheduler.rs::RuntimeScheduler" ||
+    createThread.objectAuthority !== "runtime/objects.rs::RuntimeObjectTable" ||
+    createThread.memoryAuthority !== "rust-guest-memory" ||
+    createThread.browserOwnsWindowsThreadState !== false ||
     kernel32Policy.threadAffinityProcessMask !== 1 ||
     systemInfo.processorArchitecture !== 0 ||
     systemInfo.pageSize !== 4096 ||
@@ -5951,7 +6049,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-user32-set-timer.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-kernel32-create-thread.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6413,11 +6511,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_652 ||
-    latestEvidence.writebackDirtyPages !== 37_551 ||
-    latestEvidence.writebackChangedBytes !== 2_945_186 ||
-    latestEvidence.hostDeltaBatches !== 17_288 ||
-    latestEvidence.finalMemoryGeneration !== 36_502
+    latestEvidence.writebackBatches !== 18_654 ||
+    latestEvidence.writebackDirtyPages !== 37_555 ||
+    latestEvidence.writebackChangedBytes !== 2_945_206 ||
+    latestEvidence.hostDeltaBatches !== 17_289 ||
+    latestEvidence.finalMemoryGeneration !== 36_513
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8340,10 +8438,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "df0edbfbc34388c1837bc93223787f5ba8faabac7c4c30b015ff3b1d2d8121ee" ||
+      "bfc8c1e4811d3587474e2bbad777d89ab182a5417bd963cc1229b86d7b590fdc" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "4e54af4735dfaab564f6eed4779693851ab8ca3bd8f234ea97a1f771906b397c" ||
+      "ae690b5dc75ce9ae4c63dd9a0dc169bb88121dd12838c9227b10f74c96f0cd79" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -8711,6 +8809,154 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setTimerNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest SetTimer registration evidence is invalid");
+  }
+  for (const field of [
+    "nativeCreateThreadPrimaryTraceSha256",
+    "nativeCreateThreadConfirmationTraceSha256",
+    "createThreadOracleSourceSha256",
+    "createThreadOracleExecutableSha256",
+    "createThreadDeltaPayloadSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeCreateThreadPrimaryTraceBytes !== 1_780_985 ||
+    latestEvidence.nativeCreateThreadPrimaryTraceLines !== 886 ||
+    latestEvidence.nativeCreateThreadPrimaryTraceSha256 !==
+      "326bdfe6341df2596ae0ce888cc051fdd957805d30a2a477295c1d3fe3339261" ||
+    latestEvidence.nativeCreateThreadConfirmationTraceBytes !== 1_780_897 ||
+    latestEvidence.nativeCreateThreadConfirmationTraceLines !== 889 ||
+    latestEvidence.nativeCreateThreadConfirmationTraceSha256 !==
+      "dc2f8fa5f4138ef04640a92a1cc9134d8b3fc0bba4e88939e8a76550ef393792" ||
+    latestEvidence.nativeCreateThreadTraceDiagnostics !== 0 ||
+    latestEvidence.nativeCreateThreadHookErrors !== 0 ||
+    latestEvidence.nativeCreateThreadProfile !==
+      "x86-bgi-suspended-create-resume-v1" ||
+    latestEvidence.nativeCreateThreadCallerReturnRva !== "0x000a1fad" ||
+    latestEvidence.nativeCreateThreadArguments?.join(",") !==
+      "0x00000000,0x00000000,bgi+0x000a1ee8,0x20139940,0x00000004,0x20139940" ||
+    latestEvidence.nativeCreateThreadResultNonNull !== true ||
+    latestEvidence.nativeCreateThreadOutputTidNonzero !== true ||
+    latestEvidence.nativeCreateThreadOutputAliasesParameter !== true ||
+    latestEvidence.nativeCreateThreadLastError !== 0 ||
+    latestEvidence.nativeCreateThreadConsumer !==
+      "store-handle-test-nonzero-resume-and-test-not-minus-one" ||
+    latestEvidence.nativeResumeThreadCallerReturnRva !== "0x000a1fbd" ||
+    latestEvidence.nativeResumeThreadResult !== 1 ||
+    latestEvidence.nativeResumeThreadLastError !== 0 ||
+    latestEvidence.nativeCreateThreadWorkerParameterMatches !== true ||
+    latestEvidence.nativeCreateThreadWorkerObservesTidAndHandle !== true ||
+    latestEvidence.nativeCreateThreadExecutableHashUnchanged !== true ||
+    latestEvidence.createThreadOracleArchitecture !== "coff-i386" ||
+    latestEvidence.createThreadOracleSourceBytes !== 8_552 ||
+    latestEvidence.createThreadOracleSourceSha256 !==
+      "8a983c11d492872926a4197462e524e4f0b154832655e5ed15a4f9ba430647e7" ||
+    latestEvidence.createThreadOracleExecutableBytes !== 8_192 ||
+    latestEvidence.createThreadOracleExecutableSha256 !==
+      "1172ed1294e8d39327540052722f81fd24a2868dcadad0ff1056ec52dde2b014" ||
+    latestEvidence.createThreadOracleLastErrorSentinel !== 23_130 ||
+    latestEvidence.createThreadOracleSuspendedWorkerStartsAfterResume !== true ||
+    latestEvidence.createThreadOracleResumePreviousSuspendCount !== 1 ||
+    latestEvidence.createThreadOracleImmediateWorkerStarts !== true ||
+    latestEvidence.createThreadOracleSuccessPreservesLastError !== true ||
+    latestEvidence.createThreadOracleOversizedStackResult !== "0x00000000" ||
+    latestEvidence.createThreadOracleOversizedStackLastError !== 87 ||
+    latestEvidence.createThreadOracleOversizedStackOutputPreserved !== true ||
+    latestEvidence.createThreadOracleInvalidResumeResult !== "0xffffffff" ||
+    latestEvidence.createThreadOracleInvalidResumeLastError !== 6 ||
+    latestEvidence.createThreadImplemented !== true ||
+    latestEvidence.createThreadImplementationId !== "kernel32.create-thread.v1" ||
+    latestEvidence.resumeThreadImplemented !== true ||
+    latestEvidence.resumeThreadImplementationId !== "kernel32.resume-thread.v1" ||
+    latestEvidence.closeHandleImplementationId !== "kernel32.close-handle.v2" ||
+    latestEvidence.createThreadPolicySchema !== "vine.kernel32-compatibility-policy" ||
+    latestEvidence.createThreadPolicySchemaVersion !== 2 ||
+    latestEvidence.createThreadPolicyId !== "kernel32-create-thread-v1" ||
+    latestEvidence.createThreadDefaultStackReserveBytes !== 1_048_576 ||
+    latestEvidence.createThreadDefaultStackCommitBytes !== 4_096 ||
+    latestEvidence.createThreadAllowedCreationFlags?.join(",") !== "0,4" ||
+    latestEvidence.createThreadMaximumThreads !== 256 ||
+    latestEvidence.createThreadStateAuthority !==
+      "runtime/thread.rs::RuntimeThreads" ||
+    latestEvidence.createThreadSchedulerAuthority !==
+      "runtime/scheduler.rs::RuntimeScheduler" ||
+    latestEvidence.createThreadObjectAuthority !==
+      "runtime/objects.rs::RuntimeObjectTable" ||
+    latestEvidence.createThreadAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    latestEvidence.createThreadMemoryAuthority !== "rust-guest-memory" ||
+    latestEvidence.createThreadSequence !== 18_598 ||
+    latestEvidence.createThreadInstructionCount !== 11_945_954 ||
+    latestEvidence.createThreadArguments?.join(",") !==
+      "0x00000000,0x00000000,0x100a1ee8,0x20139940,0x00000004,0x20139940" ||
+    latestEvidence.createThreadReturnAddress !== "0x100a1fad" ||
+    latestEvidence.createThreadResult !== "0x54010002" ||
+    latestEvidence.createThreadLastError !== 0 ||
+    latestEvidence.createThreadGuestWriteBytes !== 4 ||
+    latestEvidence.createThreadOutputAddress !== "0x20139940" ||
+    latestEvidence.createThreadOutputHex !== "01200000" ||
+    latestEvidence.createThreadThreadId !== 8_193 ||
+    latestEvidence.createThreadObjectId !== 25 ||
+    latestEvidence.createThreadHandleNamespace !==
+      "vine.runtime-thread-object.v1" ||
+    latestEvidence.createThreadStackAddressAllocationId !== 57 ||
+    latestEvidence.createThreadStackMemoryOwner !== 27 ||
+    latestEvidence.createThreadStackReserveBase !== "0x50000000" ||
+    latestEvidence.createThreadStackReserveBytes !== 1_048_576 ||
+    latestEvidence.createThreadStackCommitBase !== "0x500ff000" ||
+    latestEvidence.createThreadStackCommitBytes !== 4_096 ||
+    latestEvidence.createThreadStackGuardPage !== "0x500fe000" ||
+    latestEvidence.createThreadStackTop !== "0x50100000" ||
+    latestEvidence.createThreadInitialStackPointer !== "0x500ffff8" ||
+    latestEvidence.createThreadReturnSentinel !== "0x7f010010" ||
+    latestEvidence.createThreadEnvironmentAddressAllocationId !== 58 ||
+    latestEvidence.createThreadEnvironmentMemoryOwner !== 28 ||
+    latestEvidence.createThreadTebAddress !== "0x7f030000" ||
+    latestEvidence.createThreadPebAddress !== "0x7ffdf000" ||
+    latestEvidence.createThreadEntryPoint !== "0x100a1ee8" ||
+    latestEvidence.createThreadParameter !== "0x20139940" ||
+    latestEvidence.createThreadInitialSchedulerState !== "suspended" ||
+    latestEvidence.createThreadInitialSuspendCount !== 1 ||
+    latestEvidence.createThreadDeltaFromGeneration !== 36_502 ||
+    latestEvidence.createThreadDeltaGeneration !== 36_511 ||
+    latestEvidence.createThreadDeltaMappingOperations !== 4 ||
+    latestEvidence.createThreadDeltaDirtyPages !== 3 ||
+    latestEvidence.createThreadDeltaControlBytes !== 264 ||
+    latestEvidence.createThreadDeltaPayloadBytes !== 12_288 ||
+    latestEvidence.createThreadDeltaPayloadSha256 !==
+      "1e958a4c95b466754ec28a482c317c674175fb5ec5ce4a389406325684acb054" ||
+    latestEvidence.resumeThreadSequence !== 18_599 ||
+    latestEvidence.resumeThreadInstructionCount !== 11_945_961 ||
+    latestEvidence.resumeThreadArguments?.join(",") !== "0x54010002" ||
+    latestEvidence.resumeThreadReturnAddress !== "0x100a1fbd" ||
+    latestEvidence.resumeThreadResult !== 1 ||
+    latestEvidence.resumeThreadLastError !== 0 ||
+    latestEvidence.resumeThreadGuestWriteBytes !== 0 ||
+    latestEvidence.resumeThreadThreadId !== 8_193 ||
+    latestEvidence.resumeThreadPreviousSuspendCount !== 1 ||
+    latestEvidence.resumeThreadFinalSchedulerState !== "runnable" ||
+    latestEvidence.createThreadSchedulingPolicy !==
+      "synchronous-resume-preserves-caller-until-block-or-explicit-schedule" ||
+    latestEvidence.createThreadNodeExecutedThreadIds?.join(",") !== "8192" ||
+    latestEvidence.createThreadChromeRegisteredThreadIds?.join(",") !==
+      "8192,8193" ||
+    latestEvidence.createThreadChromeExecutedThreadIds?.join(",") !== "8192" ||
+    latestEvidence.createThreadContextSwitchesBeforeNextStop !== 0 ||
+    latestEvidence.createThreadDynamicExitReleasesMappings !== true ||
+    latestEvidence.createThreadDynamicAddressReuseVerified !== true ||
+    latestEvidence.createThreadFailureAtomicity !== true ||
+    latestEvidence.createThreadBrowserOwnsWindowsState !== false ||
+    latestEvidence.createThreadNodeCompletions !== 1 ||
+    latestEvidence.createThreadChromeCompletions !== 1 ||
+    latestEvidence.resumeThreadNodeCompletions !== 1 ||
+    latestEvidence.resumeThreadChromeCompletions !== 1 ||
+    latestEvidence.createThreadNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest CreateThread and ResumeThread evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -9325,7 +9571,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned live-window SetTimer registration identity, owner-thread relation, bounded interval and TIMERPROC metadata, replacement generation, and process teardown" ||
+      "Rust-owned guest-thread identity, stack and TEB bootstrap, typed handle, suspended scheduler lane, resume transition, Worker CPU-context registration, and exit-time mapping release" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

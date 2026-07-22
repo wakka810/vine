@@ -117,6 +117,7 @@ pub enum ProcessAddressAllocationPurpose {
     PrivateHeapLargeSlot,
     GuestImage,
     ThreadStack,
+    ThreadEnvironment,
     ProcessEnvironment,
     ComEndpoint,
     GraphicsResourceArena,

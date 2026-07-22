@@ -1333,6 +1333,59 @@ impl BrowserRuntime {
                                 ).map_err(error_string)?,
                             });
                         }
+                        if completion.implementation_id == vine_core::CREATE_THREAD_IMPLEMENTATION
+                            && let RegisterUpdate::Set(handle) = completion.eax
+                            && handle != 0
+                        {
+                            let handle = RuntimeHandle(handle);
+                            let object = self
+                                .runtime
+                                .object_for_handle(handle, RuntimeObjectKind::Thread)
+                                .map_err(error_string)?;
+                            let vine_core::RuntimeObjectKey::Thread { thread_id } = &object.key
+                            else {
+                                return Err(
+                                    "CreateThread completion resolved to a non-thread identity"
+                                        .to_owned(),
+                                );
+                            };
+                            let thread_id = RuntimeThreadId(*thread_id);
+                            metadata["createdThread"] = json!({
+                                "handle": handle,
+                                "object": object,
+                                "thread": self.runtime.thread_state(thread_id).map_err(error_string)?,
+                                "schedulerState": self
+                                    .runtime
+                                    .scheduler_state_for_thread(thread_id)
+                                    .map_err(error_string)?,
+                            });
+                        }
+                        if completion.implementation_id == vine_core::RESUME_THREAD_IMPLEMENTATION {
+                            let handle =
+                                RuntimeHandle(completion.frame.argument_u32(0).ok_or_else(
+                                    || "ResumeThread completion has no thread handle".to_owned(),
+                                )?);
+                            if let Ok(object) = self
+                                .runtime
+                                .object_for_handle(handle, RuntimeObjectKind::Thread)
+                                && let vine_core::RuntimeObjectKey::Thread { thread_id } =
+                                    &object.key
+                            {
+                                let thread_id = RuntimeThreadId(*thread_id);
+                                metadata["resumedThread"] = json!({
+                                    "handle": handle,
+                                    "threadId": thread_id,
+                                    "previousSuspendCount": match completion.eax {
+                                        RegisterUpdate::Set(value) => value,
+                                        RegisterUpdate::Preserve => u32::MAX,
+                                    },
+                                    "schedulerState": self
+                                        .runtime
+                                        .scheduler_state_for_thread(thread_id)
+                                        .map_err(error_string)?,
+                                });
+                            }
+                        }
                         if matches!(
                             completion.implementation_id.as_str(),
                             "user32.load-icon-a.v1" | "user32.load-image-a.v1"
@@ -1892,36 +1945,46 @@ impl BrowserRuntime {
         }))
     }
 
-    fn finish_thread(&mut self, exit_code: u32) -> Result<Value, String> {
-        let controlled = self.controlled_guest_thread.as_ref().ok_or_else(|| {
-            "additional guest thread exit is unavailable for this workload".to_owned()
-        })?;
+    fn finish_thread(
+        &mut self,
+        exit_code: u32,
+    ) -> Result<(Value, Option<vine_core::MemoryDeltaBuffers>), String> {
         let thread_id = self.runtime.current_thread_id();
-        if thread_id != controlled.thread_id {
-            return Err("guest thread exit belongs to an unexpected runtime thread".to_owned());
-        }
-        if exit_code != controlled.expected_exit_code {
-            return Err(format!(
-                "controlled guest thread returned {exit_code}, expected {}",
-                controlled.expected_exit_code
-            ));
-        }
-        let marker_bytes = self
-            .memory
-            .read(controlled.marker_address, 4)
-            .map_err(error_string)?;
-        let marker_value = u32::from_le_bytes(
-            marker_bytes
-                .as_slice()
-                .try_into()
-                .map_err(|_| "controlled thread marker length mismatch".to_owned())?,
-        );
-        if marker_value != controlled.marker_value {
-            return Err(format!(
-                "controlled guest thread marker is {marker_value:#010x}, expected {:#010x}",
-                controlled.marker_value
-            ));
-        }
+        let controlled = self
+            .controlled_guest_thread
+            .as_ref()
+            .filter(|controlled| controlled.thread_id == thread_id);
+        let marker_value = if let Some(controlled) = controlled {
+            if exit_code != controlled.expected_exit_code {
+                return Err(format!(
+                    "controlled guest thread returned {exit_code}, expected {}",
+                    controlled.expected_exit_code
+                ));
+            }
+            let marker_bytes = self
+                .memory
+                .read(controlled.marker_address, 4)
+                .map_err(error_string)?;
+            let marker_value = u32::from_le_bytes(
+                marker_bytes
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "controlled thread marker length mismatch".to_owned())?,
+            );
+            if marker_value != controlled.marker_value {
+                return Err(format!(
+                    "controlled guest thread marker is {marker_value:#010x}, expected {:#010x}",
+                    controlled.marker_value
+                ));
+            }
+            Some(marker_value)
+        } else {
+            let thread = self.runtime.thread_state(thread_id).map_err(error_string)?;
+            if thread.guest_bootstrap.is_none() {
+                return Err("guest thread exit has no runtime bootstrap authority".to_owned());
+            }
+            None
+        };
         let cancellation = self
             .runtime
             .request_current_thread_exit(exit_code)
@@ -1935,18 +1998,16 @@ impl BrowserRuntime {
             return Err("controlled guest thread exit discarded pending work".to_owned());
         }
         self.runtime
-            .complete_current_thread_exit()
+            .complete_current_guest_thread_exit(&mut self.memory)
             .map_err(error_string)?;
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(thread_id)
             .map_err(error_string)?;
-        Ok(json!({
+        let mut metadata = json!({
             "kind": "thread-exit",
             "threadId": thread_id.0,
             "exitCode": exit_code,
-            "markerAddress": controlled.marker_address.0,
-            "markerValue": marker_value,
             "scheduler": {
                 "state": "terminated",
                 "exitCode": match scheduler {
@@ -1954,7 +2015,23 @@ impl BrowserRuntime {
                     _ => return Err("controlled guest thread did not reach terminated scheduler state".to_owned()),
                 },
             },
-        }))
+        });
+        if let (Some(controlled), Some(marker_value)) = (controlled, marker_value) {
+            metadata["markerAddress"] = json!(controlled.marker_address.0);
+            metadata["markerValue"] = json!(marker_value);
+        }
+        let delta = if controlled.is_none() {
+            Some(
+                self.memory
+                    .pending_delta()
+                    .map_err(error_string)?
+                    .encode_binary()
+                    .map_err(error_string)?,
+            )
+        } else {
+            None
+        };
+        Ok((metadata, delta))
     }
 
     fn cancel(&mut self, exit_code: u32) -> Result<Value, String> {
@@ -3038,8 +3115,11 @@ pub extern "C" fn vine_bridge_schedule_next_thread() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_finish_thread(exit_code: u32) -> u32 {
     run_bridge(|bridge| {
-        let metadata = bridge.runtime_mut()?.finish_thread(exit_code)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+        let (metadata, delta) = bridge.runtime_mut()?.finish_thread(exit_code)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
     })
 }
 

@@ -1,0 +1,386 @@
+use vine_core::{
+    ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, MappingOperation, MemoryLimits,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose,
+    ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCreateThreadRequest,
+    RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWaitState,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH, install_initial_thread_stack,
+    install_runtime_return_sentinels,
+};
+
+const PROCESS_ID: u32 = 4096;
+const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
+const ENTRY: GuestAddress = GuestAddress(0x1000_0000);
+const OUTPUT: GuestAddress = GuestAddress(0x2000_0000);
+
+#[test]
+fn suspended_guest_thread_materializes_stack_teb_handle_and_resumes() {
+    let (mut memory, mut runtime) = prepared_runtime();
+    let result = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: OUTPUT.0,
+                thread_id_output: Some(OUTPUT),
+                initial_suspend_count: 1,
+            },
+        )
+        .expect("create suspended guest thread");
+    let delta = memory.pending_delta().expect("guest thread creation delta");
+    assert_eq!(delta.mapping_operations.len(), 4);
+    memory.acknowledge_delta(delta.generation).unwrap();
+
+    assert_eq!(result.thread_id, RuntimeThreadId(8193));
+    assert_eq!(result.handle, RuntimeHandle(0x5401_0002));
+    assert_eq!(result.thread_id_output, Some(OUTPUT));
+    assert_eq!(result.thread_id_write.as_ref().unwrap().bytes_written, 4);
+    assert_eq!(read_u32(&memory, OUTPUT), result.thread_id.0);
+    assert_eq!(
+        result.stack.reserved_range.start(),
+        GuestAddress(0x5000_0000)
+    );
+    assert_eq!(result.stack.reserved_range.byte_length(), 0x0010_0000);
+    assert_eq!(result.stack.committed_range.byte_length(), GUEST_PAGE_SIZE);
+    assert_eq!(
+        result.stack.initial_stack_pointer.0,
+        result.stack.stack_top.0 - 8
+    );
+    assert_eq!(
+        read_u32(&memory, result.stack.initial_stack_pointer),
+        result.stack.return_sentinel.0
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.stack.initial_stack_pointer.0 + 4)
+        ),
+        OUTPUT.0
+    );
+    assert_eq!(result.environment.teb_address, GuestAddress(0x7f03_0000));
+    assert_eq!(read_u32(&memory, result.environment.teb_address), u32::MAX);
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x04)
+        ),
+        result.stack.stack_top.0
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x08)
+        ),
+        result.stack.committed_range.start().0
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x18)
+        ),
+        result.environment.teb_address.0
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x20)
+        ),
+        PROCESS_ID
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x24)
+        ),
+        result.thread_id.0
+    );
+    assert_eq!(
+        read_u32(
+            &memory,
+            GuestAddress(result.environment.teb_address.0 + 0x30)
+        ),
+        result.environment.peb_address.0
+    );
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(result.thread_id)
+            .unwrap(),
+        SchedulerThreadState::Suspended { count: 1 }
+    );
+    assert_eq!(
+        runtime
+            .object_for_handle(result.handle, RuntimeObjectKind::Thread)
+            .unwrap()
+            .open_handles,
+        1
+    );
+
+    let resumed = runtime.resume_thread(result.handle).expect("resume thread");
+    assert_eq!(resumed.previous_suspend_count, 1);
+    assert_eq!(resumed.remaining_suspend_count, 0);
+    assert!(resumed.became_runnable);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(result.thread_id)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    let already_runnable = runtime
+        .resume_thread(result.handle)
+        .expect("resume runnable thread");
+    assert_eq!(already_runnable.previous_suspend_count, 0);
+    assert!(!already_runnable.became_runnable);
+
+    let retired_stack_address = result.stack.reserved_range.start();
+    let retired_stack_allocation = result.stack.address_allocation_id;
+    let retired_teb_address = result.environment.teb_address;
+    let retired_teb_allocation = result.environment.address_allocation_id;
+    runtime
+        .select_thread(result.thread_id)
+        .expect("select dynamically created thread");
+    runtime
+        .request_current_thread_exit(0x1357_9bdf)
+        .expect("request dynamically created thread exit");
+    runtime
+        .complete_current_guest_thread_exit(&mut memory)
+        .expect("retire dynamically created thread backing");
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(result.thread_id)
+            .unwrap(),
+        SchedulerThreadState::Terminated {
+            exit_code: 0x1357_9bdf
+        }
+    );
+    assert_eq!(
+        runtime
+            .object_wait_state(result.handle, RuntimeObjectKind::Thread)
+            .unwrap(),
+        RuntimeWaitState::Signaled {
+            exit_code: 0x1357_9bdf
+        }
+    );
+    assert!(memory.read(retired_stack_address, 1).is_err());
+    assert!(memory.read(retired_teb_address, 1).is_err());
+    assert!(
+        runtime
+            .process_address_space_allocator()
+            .allocation(retired_stack_allocation)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .process_address_space_allocator()
+            .allocation(retired_teb_allocation)
+            .is_err()
+    );
+    let retirement_delta = memory
+        .pending_delta()
+        .expect("guest thread retirement delta");
+    assert_eq!(retirement_delta.mapping_operations.len(), 2);
+    assert!(
+        retirement_delta
+            .mapping_operations
+            .iter()
+            .all(|operation| matches!(operation, MappingOperation::Release { .. }))
+    );
+    memory
+        .acknowledge_delta(retirement_delta.generation)
+        .expect("acknowledge guest thread retirement delta");
+
+    runtime
+        .close_handle(result.handle)
+        .expect("close thread handle");
+    assert!(
+        runtime
+            .object_for_handle(result.handle, RuntimeObjectKind::Thread)
+            .is_err()
+    );
+    runtime
+        .select_thread(INITIAL_THREAD_ID)
+        .expect("restore surviving initial thread");
+    let replacement = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: 0,
+                thread_id_output: None,
+                initial_suspend_count: 0,
+            },
+        )
+        .expect("reuse retired guest thread address ranges");
+    assert_eq!(replacement.thread_id, RuntimeThreadId(8194));
+    assert_eq!(
+        replacement.stack.reserved_range.start(),
+        retired_stack_address
+    );
+    assert_eq!(replacement.environment.teb_address, retired_teb_address);
+}
+
+#[test]
+fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generation() {
+    let (mut memory, mut runtime) = prepared_runtime();
+    let runtime_before = runtime.clone();
+    let memory_before = memory.current_reflection().unwrap();
+    let invalid_output = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: 0,
+                thread_id_output: Some(GuestAddress(0x3000_0000)),
+                initial_suspend_count: 1,
+            },
+        )
+        .expect_err("unmapped thread ID output must fail");
+    assert_eq!(invalid_output.code, "guest-page-fault");
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.current_reflection().unwrap(), memory_before);
+
+    let runtime_before = runtime.clone();
+    let memory_before = memory.current_reflection().unwrap();
+    let quota = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x1000_0000,
+                stack_commit_bytes: 0x1000_0000,
+                entry_point: ENTRY,
+                parameter: 0,
+                thread_id_output: Some(OUTPUT),
+                initial_suspend_count: 1,
+            },
+        )
+        .expect_err("physical page quota must fail before commit");
+    assert_eq!(quota.code, "physical-page-quota-exceeded");
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.current_reflection().unwrap(), memory_before);
+    assert_eq!(read_u32(&memory, OUTPUT), 0);
+
+    let result = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: 0,
+                thread_id_output: Some(OUTPUT),
+                initial_suspend_count: 1,
+            },
+        )
+        .expect("retry after rejected plans");
+    assert_eq!(result.thread_id, RuntimeThreadId(8193));
+    assert_eq!(result.handle, RuntimeHandle(0x5401_0002));
+    assert_eq!(
+        result.stack.reserved_range.start(),
+        GuestAddress(0x5000_0000)
+    );
+    assert_eq!(result.environment.teb_address, GuestAddress(0x7f03_0000));
+}
+
+fn prepared_runtime() -> (GuestMemory, RuntimeState) {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let mut runtime = RuntimeState::new(runtime_bootstrap()).unwrap();
+    let callback_allocation = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+        .unwrap()
+        .clone();
+    let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation).unwrap();
+    let initial_stack = install_initial_thread_stack(
+        &mut memory,
+        &sentinels.process_entry_return,
+        0x0010_0000,
+        GUEST_PAGE_SIZE,
+    )
+    .unwrap();
+    runtime
+        .register_initial_thread_stack(&initial_stack)
+        .unwrap();
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .install_controlled_process_environment_with_command_line_and_ansi("thread-test.exe")
+        .unwrap();
+    install_page(
+        &mut memory,
+        ENTRY,
+        PageProtection {
+            read: true,
+            write: false,
+            execute: true,
+        },
+    );
+    install_page(
+        &mut memory,
+        OUTPUT,
+        PageProtection {
+            read: true,
+            write: true,
+            execute: false,
+        },
+    );
+    runtime.start_initial_thread().unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    (memory, runtime)
+}
+
+fn install_page(memory: &mut GuestMemory, address: GuestAddress, protection: PageProtection) {
+    let owner = memory.create_owner(MemoryOwnerKind::Anonymous).unwrap();
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Anonymous, address, GUEST_PAGE_SIZE)
+        .unwrap();
+    memory.commit(owner, range, protection).unwrap();
+    if protection.execute {
+        memory
+            .write_initialization(owner, address, &[0x90])
+            .unwrap();
+    }
+    memory.seal_owner(owner).unwrap();
+}
+
+fn read_u32(memory: &GuestMemory, address: GuestAddress) -> u32 {
+    u32::from_le_bytes(memory.read(address, 4).unwrap().try_into().unwrap())
+}
+
+fn runtime_bootstrap() -> RuntimeBootstrap {
+    let mut startup_info = vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH];
+    startup_info[..4].copy_from_slice(&(X86_STARTUP_INFO_W_BYTE_LENGTH as u32).to_le_bytes());
+    RuntimeBootstrap {
+        process_id: RuntimeProcessId(PROCESS_ID),
+        initial_thread_id: INITIAL_THREAD_ID,
+        initial_last_error: 0x5a5a,
+        address_space: ProcessAddressSpaceLayout::vine_v1(),
+        clock: RuntimeClockState {
+            wall_clock_file_time: 134_282_016_000_000_000,
+            tick_count: 3_600_000,
+            performance_counter: 12_345_678_901,
+            performance_frequency: 10_000_000,
+        },
+        startup_info: RuntimeStartupInfo {
+            profile_id: "runtime-guest-thread-test-v1".to_owned(),
+            bytes: startup_info,
+        },
+        process_image_path_a: RuntimeProcessImagePathA {
+            source_authority: "runtime-guest-thread-test".to_owned(),
+            bytes_with_nul: b"C:\\Vine\\thread-test.exe\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        initial_current_directory_a: RuntimeCurrentDirectoryA {
+            source_authority: "runtime-guest-thread-process-bootstrap".to_owned(),
+            bytes_with_nul: b"C:\\Vine\0".to_vec(),
+            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
+        },
+        encoded_pointer_namespace: vine_core::LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
+        encoded_pointer_token_prefix: 0xec01_0000,
+    }
+}

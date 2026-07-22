@@ -56,6 +56,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-source-file-read-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-create-thread-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();

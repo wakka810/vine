@@ -37,6 +37,20 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
+const bgiProfileOverride = optionValue("--bgi-profile");
+const bgiPolicyOverride = optionValue("--bgi-policy");
+assert(
+  (bgiProfileOverride === null && bgiPolicyOverride === null) ||
+    (bgiMode && bgiBenchmarkMilliseconds === 0),
+  "BGI profile overrides require a non-benchmark BGI check",
+);
+assert.equal(
+  bgiProfileOverride === null,
+  bgiPolicyOverride === null,
+  "--bgi-profile and --bgi-policy must be provided together",
+);
+const bgiProfile =
+  bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
 const runtimeProtocol = "vine.browser-runtime-worker.v7";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -46,9 +60,10 @@ assert.equal(
 const bgiPath = path.resolve(
   process.env.VINE_BGI_EXE ?? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
 );
-const bgiPolicyPath = path.join(
+const bgiPolicyPath = path.resolve(
   root,
-  checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
+  bgiPolicyOverride ??
+    checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
 const sourceManifestPath = path.join(
   root,
@@ -62,7 +77,7 @@ const sourceObjectPath = bgiMode
 const bgiOracleReportPath = path.join(
   root,
   ".work",
-  bgiProfileOutputDirectory(checkpoint.activeRuntimeCheckpoint.profile),
+  bgiProfileOutputDirectory(bgiProfile),
   "report.json",
 );
 const bgiBenchmarkConfigurationPath = path.join(
@@ -527,7 +542,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
-    assert.deepEqual(evidence.report.registeredThreadIds, [8192]);
+    assert.deepEqual(
+      evidence.report.registeredThreadIds,
+      bgiProfile === "kernel32-create-thread" && scenario === "success"
+        ? [8192, 8193]
+        : [8192],
+    );
     assert.deepEqual(evidence.report.executedThreadIds, [8192]);
     assert.equal(evidence.report.contextSwitches, 0);
     assert.deepEqual(evidence.report.initialCurrentDirectory, {

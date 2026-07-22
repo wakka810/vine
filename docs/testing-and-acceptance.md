@@ -483,6 +483,22 @@ Rust-owned timer snapshot、guest write 0、LastError preserve、同じterminal 
 `KERNEL32.dll!CreateThread` stopを要求する。Clock expiry、`WM_TIMER`／TIMERPROC delivery、`KillTimer`、NULL HWND、
 allocated ID、general intervalsはこのcheckpointのacceptance claimに含めない。
 
+Reached `CreateThread` gateはNULL security attributes、default stack、mapped executable start、opaque parameter、
+optional DWORD output、flags `0`／`CREATE_SUSPENDED`を固定する。Focused native two-run evidenceはsuspended
+creationのnon-NULL handle／nonzero output TID／LastError preserve、直後の`ResumeThread` previous count 1、workerへ
+同じparameterが渡ること、callerがhandleを保存してresume result `0xFFFFFFFF`だけをfailure扱いすることを確認する。
+Controlled COFF-i386 oracleはsuspended／immediate start、success LastError preserve、oversized stackのNULL／
+ERROR_INVALID_PARAMETER／output preserve、invalid `ResumeThread`の`0xFFFFFFFF`／ERROR_INVALID_HANDLEを固定する。
+
+Rust testsはTID／object／handle、stack reserve／commit／guard、TEB／PEB fields、entry frame、scheduler suspend／resume、
+output writeを一つのtransactionとして検査し、unmapped outputとpage quota failureが全allocator／mapping／registryを
+不変にすることを要求する。Dynamic entry returnはthread objectをsignalし、stack／TEB mappingとaddress allocationを
+releaseし、同じaddressを再利用できなければならない。Node／Chrome gateはsequence 18,598のCreateThread、18,599の
+ResumeThread、Chrome CPU context registration、caller-only execution、same semantic digest／terminal memory、続く
+`SetThreadPriority` stopを要求する。Synchronous resumeはcallerを即時preemptせず、blockまたはexplicit scheduleまで
+child contextをreadyに保つ。Priority semantics、DLL thread notification、TLS／FLS cleanup callback、last-thread process
+exit、simultaneous guest executionはclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

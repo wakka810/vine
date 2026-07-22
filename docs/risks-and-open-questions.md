@@ -28,7 +28,7 @@ checkpointで偶然動いたことだけではResolvedにしない。
 |---|---|---|---|
 | Q-PLATFORM | Supported Chrome tier、cross-origin isolation／SABを必須にするか | Chrome、専用Runtime Worker、same-origin localhost Vine serverがactive baseline。SABは測定済みtransport requirementが出るまでoptional | Local-host smoke、storage／audio capability matrix、lifecycle E2E、fallback cost |
 | Q-MEMORY | Execute protection、guard／exception delivery、self-modifying code、snapshot policy | Rust page metadataとadapter fetch checkがauthority、mapping invalidationはexplicit | Compiler／SEH fixture、write-to-code、guard delivery、snapshot identity／memory-ceiling test |
-| Q-THREADS | Required SEH／VEH／APCとadvanced thread behavior | Multiple guest CPU contextとhost-wait schedulingは成立。高度なWindows delivery semanticsは未確定 | Primary thread traceとcontrolled create／block／wake／timeout／cancel／exception fixture |
+| Q-THREADS | Required SEH／VEH／APCとadvanced thread behavior | Reached CreateThread／ResumeThread、dynamic stack／TEB／CPU bootstrap、multiple guest context、host-wait schedulingは成立。priorityと高度なWindows delivery semanticsは未確定 | Primary priority／wait traceとcontrolled block／wake／timeout／cancel／exception fixture |
 | Q-LOADER | Required PE／DLL feature setとdeterministic module resolution | Mapped image、import／export、module graph、process attach／detach foundationは成立 | 到達dynamic load／unload、TLS／delay import、alias／manifest、search order、failure unwind trace |
 | Q-ABI | ABI metadata生成と到達Win32／COM／variadic support band | Generic checked dispatchとexplicit unsupported stopがbaseline | Nested structure、callback、union、size-versioned API、COM class use、caller consumer、format grammar fixture |
 | Q-VFS | Windows path／share／mappingの残るrequired subsetとsource snapshot lifecycle | Read-only manifest／path／share／cursor／pending read、same-origin object service、実asset read、wrong-root／cancelは成立。Rust VFSがsemantics authority | Replacement／TOCTOU、large-corpus streaming、server restart、broader path／share、mapped file test |
@@ -66,6 +66,11 @@ Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacemen
 Rust authorityとして成立した。残るriskは登録の可否ではなく、browser task timingをguest-visible clockへ直接
 流入させずにexpiry、`WM_TIMER`／TIMERPROC選択、replacement／`KillTimer` race、background catch-upをschedulerと
 message queueで順序付けることである。
+
+Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
+Worker context registrationはRust authorityを保って成立した。残るthread riskはcreation feasibilityではなく、
+直後のpriority contract、caller block時のselection、DLL／TLS lifecycle、last-thread semantics、corpus-relevant
+fairnessである。Synchronous resumeはnative caller orderingを保つため即時preemptしない。
 
 ## 5. Scope reduction／no-go trigger
 

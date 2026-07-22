@@ -183,6 +183,10 @@ assert.equal(
   bgiProfileOutputDirectory("user32-set-timer"),
   "v86-bgi-set-timer",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-create-thread"),
+  "v86-bgi-create-thread",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

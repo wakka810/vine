@@ -23,9 +23,10 @@ use crate::runtime::{
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeAudioDevice,
     RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
-    RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
-    RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeDynamicEndpoint,
+    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
+    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeWindowCreationCallbackAction,
@@ -517,6 +518,8 @@ pub struct ApiGuestWrite {
 pub struct ApiImmediate {
     pub return_value: ApiReturnValue,
     pub guest_writes: Vec<ApiGuestWrite>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub committed_guest_writes: Vec<ApiGuestWriteReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<u32>,
 }
@@ -526,12 +529,18 @@ impl ApiImmediate {
         Self {
             return_value,
             guest_writes: Vec::new(),
+            committed_guest_writes: Vec::new(),
             last_error: None,
         }
     }
 
     pub fn with_guest_write(mut self, address: GuestAddress, bytes: Vec<u8>) -> Self {
         self.guest_writes.push(ApiGuestWrite { address, bytes });
+        self
+    }
+
+    pub fn with_committed_guest_write(mut self, receipt: ApiGuestWriteReceipt) -> Self {
+        self.committed_guest_writes.push(receipt);
         self
     }
 
@@ -1032,6 +1041,13 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn runtime_mut(&mut self) -> &mut RuntimeState {
         self.runtime
+    }
+
+    pub fn create_guest_thread(
+        &mut self,
+        request: RuntimeCreateThreadRequest,
+    ) -> Result<RuntimeCreateThreadResult, RuntimeStateError> {
+        self.runtime.create_guest_thread(self.memory, request)
     }
 
     pub fn begin_guest_callback(
@@ -2520,9 +2536,17 @@ fn complete_immediate_in_memory(
             .with_endpoint(&contract.endpoint)
         })?,
     };
-    validate_guest_writes(contract, &frame, &immediate.guest_writes)?;
+    let mut declared_guest_writes = immediate.guest_writes.clone();
+    declared_guest_writes.extend(
+        immediate
+            .committed_guest_writes
+            .iter()
+            .map(|receipt| receipt.write.clone()),
+    );
+    validate_guest_writes(contract, &frame, &declared_guest_writes)?;
 
-    let mut guest_writes = Vec::with_capacity(immediate.guest_writes.len());
+    let mut guest_writes = immediate.committed_guest_writes;
+    guest_writes.reserve(immediate.guest_writes.len());
     for write in immediate.guest_writes {
         let result = memory
             .write(write.address, &write.bytes)

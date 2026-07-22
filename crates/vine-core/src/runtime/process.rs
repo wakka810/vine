@@ -95,6 +95,8 @@ pub struct RuntimeEnvironmentStrings {
 pub struct RuntimeProcessEnvironment {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub range: RuntimeAddressRange,
+    pub initial_teb_address: GuestAddress,
+    pub peb_address: GuestAddress,
     pub command_line: RuntimeCommandLine,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub environment_strings: Option<RuntimeEnvironmentStrings>,
@@ -212,6 +214,8 @@ pub(super) struct RuntimePerformanceCounterSamplePlan {
 pub(super) struct RuntimeProcessEnvironmentPlan {
     previous_lifecycle: RuntimeProcessLifecycleState,
     range: RuntimeAddressRange,
+    initial_teb_address: GuestAddress,
+    peb_address: GuestAddress,
     command_line: RuntimeCommandLine,
     environment_strings: Option<RuntimeEnvironmentStrings>,
 }
@@ -895,6 +899,8 @@ impl RuntimeProcessState {
         Ok(RuntimeProcessEnvironmentPlan {
             previous_lifecycle: self.lifecycle,
             range,
+            initial_teb_address: environment.teb_address,
+            peb_address: environment.peb_address,
             command_line: RuntimeCommandLine {
                 source_authority: "rtl-user-process-parameters-command-line".to_owned(),
                 wide_buffer_address: parameters.command_line_buffer_address,
@@ -940,6 +946,8 @@ impl RuntimeProcessState {
         self.environment = Some(RuntimeProcessEnvironment {
             address_allocation_id: allocation.id,
             range: plan.range,
+            initial_teb_address: plan.initial_teb_address,
+            peb_address: plan.peb_address,
             command_line: plan.command_line,
             environment_strings: plan.environment_strings,
         });
@@ -1617,6 +1625,8 @@ mod tests {
         process.environment = Some(RuntimeProcessEnvironment {
             address_allocation_id: ProcessAddressAllocationId(37),
             range: RuntimeAddressRange::new(GuestAddress(0x7ffd_c000), 0x4000).unwrap(),
+            initial_teb_address: GuestAddress(0x7ffd_c000),
+            peb_address: GuestAddress(0x7ffd_f000),
             command_line: RuntimeCommandLine {
                 source_authority: "process-unit-test".to_owned(),
                 wide_buffer_address: GuestAddress(0x7ffd_d100),

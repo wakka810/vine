@@ -17,6 +17,8 @@ const focusedSetWindowPosSizeObservation =
   selectedObservations.has("set-window-pos-size");
 const focusedSetTimerObservation =
   selectedObservations.size === 1 && selectedObservations.has("set-timer");
+const focusedCreateThreadObservation =
+  selectedObservations.size === 1 && selectedObservations.has("create-thread");
 const focusedD3d9CreateDeviceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-create-device");
@@ -248,6 +250,13 @@ const setTimerMainModuleCalls = [];
 const setTimerCallbackCalls = [];
 const killTimerMainModuleCalls = [];
 const attachedTimerProcedures = new Set();
+let createThreadCompletionRecorded = false;
+let createThreadDrainCheckScheduled = false;
+const createThreadMainModuleCalls = [];
+const createThreadLifecycleCalls = [];
+const createThreadStartCalls = [];
+const trackedCreateThreadHandles = new Map();
+const attachedThreadProcedures = new Set();
 let loadIconAOracleScheduled = false;
 let loadIconAOracleCall = null;
 let loadIconAOracleComplete = false;
@@ -2945,6 +2954,12 @@ const hooks = {
     ["CoCreateInstance", []],
   ],
 };
+
+if (focusedCreateThreadObservation) {
+  hooks["kernel32.dll"] = hooks["kernel32.dll"].filter(
+    ([name]) => name !== "CreateThread",
+  );
+}
 
 if (selectedObservations.has("create-window-ex-a")) {
   hooks["user32.dll"] = hooks["user32.dll"].filter(
@@ -7833,6 +7848,336 @@ function attachKillTimerHook(module) {
       setImmediate(maybeCompleteSetTimerObservation);
     },
   });
+}
+
+function attachCreatedThreadProcedure(startRoutine) {
+  if (startRoutine.isNull()) {
+    return;
+  }
+  const key = startRoutine.toString().toLowerCase();
+  if (attachedThreadProcedures.has(key)) {
+    return;
+  }
+  attachedThreadProcedures.add(key);
+  Interceptor.attach(startRoutine, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      const relatedCall = createThreadMainModuleCalls.find(
+        (call) =>
+          call.createdThreadId === threadId &&
+          call.startRoutine.toLowerCase() === key,
+      );
+      const record = {
+        startRoutine: startRoutine.toString(),
+        startRoutineIdentity: describeCaller(startRoutine),
+        caller: describeCaller(this.returnAddress),
+        threadId,
+        parameter: args[0].toString(),
+        parameterBytes: snapshotBoundedRawBytes(args[0], 32, 32),
+        relatedCreateThreadCallId: relatedCall?.callId ?? null,
+        lastErrorBefore: Number(this.lastError) >>> 0,
+      };
+      this.createdThreadProcedureCall = record;
+      createThreadStartCalls.push(record);
+      setImmediate(maybeCompleteCreateThreadObservation);
+    },
+    onLeave(result) {
+      const record = this.createdThreadProcedureCall;
+      if (record === null || record === undefined) {
+        return;
+      }
+      record.result = result.toUInt32();
+      record.lastErrorAfter = Number(this.lastError) >>> 0;
+      setImmediate(maybeCompleteCreateThreadObservation);
+    },
+  });
+}
+
+function attachCreateThreadHook(module) {
+  const name = "CreateThread";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.securityAttributes = args[0];
+      this.stackSize = args[1].toUInt32();
+      this.startRoutine = args[2];
+      this.parameter = args[3];
+      this.creationFlags = args[4].toUInt32();
+      this.threadIdOutput = args[5];
+      this.threadIdBefore = snapshotOptionalU32(this.threadIdOutput);
+      this.parameterBytesBefore = snapshotBoundedRawBytes(
+        this.parameter,
+        32,
+        32,
+      );
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          48,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          12,
+          20,
+        ),
+      };
+      attachCreatedThreadProcedure(this.startRoutine);
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.securityAttributes.toString(),
+            this.stackSize,
+            this.startRoutine.toString(),
+            this.parameter.toString(),
+            this.creationFlags,
+            this.threadIdOutput.toString(),
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          createThread: {
+            securityAttributes: this.securityAttributes.toString(),
+            stackSize: this.stackSize,
+            startRoutine: this.startRoutine.toString(),
+            startRoutineIdentity: describeCaller(this.startRoutine),
+            parameter: this.parameter.toString(),
+            parameterBytesBefore: this.parameterBytesBefore,
+            creationFlags: this.creationFlags,
+            threadIdOutput: this.threadIdOutput.toString(),
+            threadIdBefore: this.threadIdBefore,
+            parameterAliasesThreadIdOutput: this.parameter.equals(
+              this.threadIdOutput,
+            ),
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const threadIdAfter = snapshotOptionalU32(this.threadIdOutput);
+      const parameterBytesAfter = snapshotBoundedRawBytes(
+        this.parameter,
+        32,
+        32,
+      );
+      const handle = result.toString();
+      const call = {
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        caller: this.traceFrame.caller,
+        threadId: this.traceFrame.threadId,
+        securityAttributes: this.securityAttributes.toString(),
+        stackSize: this.stackSize,
+        startRoutine: this.startRoutine.toString(),
+        startRoutineIdentity: describeCaller(this.startRoutine),
+        parameter: this.parameter.toString(),
+        parameterBytesBefore: this.parameterBytesBefore,
+        parameterBytesAfter,
+        creationFlags: this.creationFlags,
+        threadIdOutput: this.threadIdOutput.toString(),
+        threadIdBefore: this.threadIdBefore,
+        threadIdAfter,
+        parameterAliasesThreadIdOutput: this.parameter.equals(
+          this.threadIdOutput,
+        ),
+        handle,
+        handleNonzero: !result.isNull(),
+        createdThreadId:
+          threadIdAfter.isNull || threadIdAfter.error !== undefined
+            ? null
+            : threadIdAfter.value,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      };
+      createThreadMainModuleCalls.push(call);
+      if (!result.isNull()) {
+        trackedCreateThreadHandles.set(handle.toLowerCase(), call);
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: handle,
+          createThread: call,
+        },
+        this.lastError,
+      );
+      setImmediate(maybeCompleteCreateThreadObservation);
+    },
+  });
+}
+
+function attachCreatedThreadLifecycleHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const handle = args[0].toString().toLowerCase();
+      const relatedCall = trackedCreateThreadHandles.get(handle) ?? null;
+      if (relatedCall === null) {
+        this.traceFrame = null;
+        return;
+      }
+      this.handle = handle;
+      this.relatedCall = relatedCall;
+      this.output = name === "GetExitCodeThread" ? args[1] : null;
+      this.outputBefore =
+        this.output === null ? null : snapshotOptionalU32(this.output);
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          32,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          8,
+          16,
+        ),
+      };
+      const extraArgument =
+        name === "SetThreadAffinityMask" || name === "WaitForSingleObject"
+          ? args[1].toUInt32()
+          : null;
+      this.extraArgument = extraArgument;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments:
+            extraArgument === null ? [handle] : [handle, extraArgument],
+          lastErrorBefore: this.lastErrorBefore,
+          createdThreadLifecycle: {
+            relatedCreateThreadCallId: relatedCall.callId,
+            handle,
+            extraArgument,
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const record = {
+        callId: this.traceFrame.callId,
+        api: name,
+        caller: this.traceFrame.caller,
+        threadId: this.traceFrame.threadId,
+        relatedCreateThreadCallId: this.relatedCall.callId,
+        handle: this.handle,
+        extraArgument: this.extraArgument,
+        outputBefore: this.outputBefore,
+        outputAfter:
+          this.output === null ? null : snapshotOptionalU32(this.output),
+        result: result.toUInt32(),
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      };
+      createThreadLifecycleCalls.push(record);
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          createdThreadLifecycle: record,
+        },
+        this.lastError,
+      );
+      setImmediate(maybeCompleteCreateThreadObservation);
+    },
+  });
+}
+
+function maybeCompleteCreateThreadObservation() {
+  if (createThreadCompletionRecorded) {
+    return;
+  }
+  const targetCall = createThreadMainModuleCalls.find(
+    (call) => call.caller.rva === 0x000a1fad,
+  );
+  if (targetCall === undefined || targetCall.createdThreadId === null) {
+    return;
+  }
+  const targetLifecycleCalls = createThreadLifecycleCalls.filter(
+    (call) => call.relatedCreateThreadCallId === targetCall.callId,
+  );
+  const targetStartCalls = createThreadStartCalls.filter(
+    (call) =>
+      call.relatedCreateThreadCallId === targetCall.callId ||
+      (call.threadId === targetCall.createdThreadId &&
+        call.startRoutine.toLowerCase() === targetCall.startRoutine.toLowerCase()),
+  );
+  if (
+    !targetLifecycleCalls.some((call) => call.api === "ResumeThread") ||
+    targetStartCalls.length === 0
+  ) {
+    return;
+  }
+  if (createThreadDrainCheckScheduled) {
+    return;
+  }
+  createThreadDrainCheckScheduled = true;
+  const expectedLifecycleCount = createThreadLifecycleCalls.length;
+  const expectedStartCount = createThreadStartCalls.length;
+  setTimeout(() => {
+    createThreadDrainCheckScheduled = false;
+    if (
+      createThreadCompletionRecorded ||
+      createThreadLifecycleCalls.length !== expectedLifecycleCount ||
+      createThreadStartCalls.length !== expectedStartCount
+    ) {
+      maybeCompleteCreateThreadObservation();
+      return;
+    }
+    createThreadCompletionRecorded = true;
+    emit("create-thread-complete", {
+      profile: "x86-bgi-create-suspended-thread-v1",
+      targetCall,
+      mainModuleCalls: createThreadMainModuleCalls.map((call) => ({ ...call })),
+      lifecycleCalls: createThreadLifecycleCalls.map((call) => ({ ...call })),
+      startCalls: createThreadStartCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "create-thread-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 100);
 }
 
 function attachGetMonitorInfoAHook(module) {
@@ -17206,6 +17551,30 @@ Process.attachModuleObserver({
       selectedObservations.has("get-system-info")
     ) {
       scheduleGetSystemInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      focusedCreateThreadObservation
+    ) {
+      for (const [name, attach] of [
+        ["CreateThread", attachCreateThreadHook],
+        ["ResumeThread", attachCreatedThreadLifecycleHook],
+        ["SuspendThread", attachCreatedThreadLifecycleHook],
+        ["SetThreadAffinityMask", attachCreatedThreadLifecycleHook],
+        ["WaitForSingleObject", attachCreatedThreadLifecycleHook],
+        ["GetExitCodeThread", attachCreatedThreadLifecycleHook],
+        ["CloseHandle", attachCreatedThreadLifecycleHook],
+      ]) {
+        try {
+          attach(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
+      }
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&

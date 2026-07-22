@@ -239,8 +239,8 @@ export interface SessionReport {
   threadExits: Array<{
     threadId: number;
     exitCode: number;
-    markerAddress: number;
-    markerValue: number;
+    markerAddress?: number;
+    markerValue?: number;
   }>;
   executionState: ExecutionState;
   executionTransitionCount: number;

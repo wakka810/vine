@@ -4395,3 +4395,50 @@ cancel／watchdogを通した。Browser reportは43,910 bytes／SHA-256
 `0, 0, 0x100A1EE8, 0x20139940, 4, 0x20139940, 1`で、API contract確定前の最後のwordはtrailing observationとして
 扱う。Logical clock expiry、`WM_TIMER`／TIMERPROC delivery、`KillTimer`、NULL-window／allocated-ID variant、browser
 task timerはこのcheckpointで実装済みとしない。
+
+## 133. BGI guest thread creation and resume
+
+Focused `create-thread` observationを独立に2回取得した。Primary raw traceは1,780,985 bytes／886 records／
+SHA-256 `326bdfe6341df2596ae0ce888cc051fdd957805d30a2a477295c1d3fe3339261`、confirmationは
+1,780,897 bytes／889 records／SHA-256
+`dc2f8fa5f4138ef04640a92a1cc9134d8b3fc0bba4e88939e8a76550ef393792`で、diagnostics／hook errorsは0である。
+Raw traceは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGI callerはRVA `0x000A1FAD`へ戻るcallで、NULL security attributes、stack size 0、start RVA
+`0x000A1EE8`、parameter `0x20139940`、`CREATE_SUSPENDED`、thread-ID output `0x20139940`を渡す。
+`CreateThread`はnon-NULL handleを返し、同じoutputへnonzero native TIDを書き、LastError 0を保存する。
+Callerはhandleを保存してnonzeroを検査し、RVA `0x000A1FBD`へ戻る`ResumeThread(handle)`を直ちに呼ぶ。
+Resume resultは1、LastErrorは0で、callerは`0xFFFFFFFF`だけをfailureとして検査する。Worker start routineは
+同じparameter pointerを受け取り、そのpointed bytesからcreated TIDとhandleのrelationを観測する。Native handle／
+TIDと実行開始時刻はartifact identityであり、Vineのlogical identity／scheduler orderingへimportしない。
+
+Controlled COFF-i386 oracleはsource 8,552 bytes／SHA-256
+`8a983c11d492872926a4197462e524e4f0b154832655e5ed15a4f9ba430647e7`、executable 8,192 bytes／SHA-256
+`1172ed1294e8d39327540052722f81fd24a2868dcadad0ff1056ec52dde2b014`である。Suspended creationはresume前に
+worker effectを生まず、`ResumeThread`は1を返してworkerを開始する。Flags 0のcreationもworkerを開始する。
+両success pathはLastError sentinel `0x5A5A`を保存する。Oversized stack requestはNULL／
+ERROR_INVALID_PARAMETER 87となりoutputを保存し、invalid handleの`ResumeThread`は`0xFFFFFFFF`／
+ERROR_INVALID_HANDLE 6となる。
+
+Runtimeはmonotonic logical TID、thread object／handle、one-MiB stack reserve／one-page commit／guard、one-page
+TEB、process PEB relation、entry／parameter／ESP／FS bootstrap、scheduler suspended lane、optional outputを一つの
+cross-owner transactionでpublishする。`ResumeThread`はRust-owned suspend countを1から0へ進める。Workerはcompletion
+snapshotからopaque v86 CPU contextを登録するだけでWindows thread stateを所有しない。Synchronous resume後は
+callerを即時preemptせず、blockまたはexplicit scheduler switchまでchild contextをreadyに保持する。Dynamic entry
+returnはthreadをsignalし、stack／TEB mappingとaddress allocationをgeneric release deltaでretireする。
+
+Nodeは18,599 supported calls、18,654 writebacks／37,555 dirty pages／2,945,206 changed bytes、17,289 host
+deltas、generation 36,513、semantic SHA-256
+`bfc8c1e4811d3587474e2bbad777d89ab182a5417bd963cc1229b86d7b590fdc`、terminal memory SHA-256
+`ae690b5dc75ce9ae4c63dd9a0dc169bb88121dd12838c9227b10f74c96f0cd79`を通した。Node reportは55,093 bytes／
+SHA-256 `d12d10919c4016bb2645bc92d85fd51d1459c3d94f0e690d2ab3dc45b2e02d6c`である。Chrome Runtime Workerもsame
+ordered semantics／terminal memoryを再現し、19,354 slices、19,352 writebacks／39,173 pages、17,289 mapping
+deltas／18,803 dirty pages、generation 27→37,213、55,613 Wasm crossings、58,028 success transitions、clean
+cancel／watchdogを通した。Browser reportは43,943 bytes／SHA-256
+`86388766ffd07511b95dd31ef0227041329eef2edb84a43e963ce5db90c8f66a`である。
+
+次stopはinstruction 11,945,977、`KERNEL32.dll!SetThreadPriority` endpoint ID 139／address `0x7F0008A0`／IAT
+`0x100D12D4`／return `0x10091B77`の`api-endpoint-contract-missing`である。Argumentsはcreated logical handle
+`0x54010002`とpriority `1`である。Thread priority、DLL thread attach／detach、TLS／FLS cleanup callbacks、natural
+last-thread process exit、simultaneous multi-core guest executionはこのcheckpointで実装済みとしない。

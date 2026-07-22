@@ -15,7 +15,8 @@ use crate::environment::InitialProcessEnvironment;
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, MemoryInvalidation, MemoryOwnerId, MemoryRegionKind, PageProtection,
+    GuestRange, MemoryAccess, MemoryInvalidation, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    PageProtection,
 };
 use crate::module_graph::{RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleId};
 use crate::module_images::{
@@ -100,7 +101,8 @@ use super::modules::{
 };
 use super::objects::{
     RuntimeCloseHandleObjectMutationPlan, RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable, RuntimeWaitState,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectRegistrationPlan,
+    RuntimeObjectTable, RuntimeWaitState,
 };
 use super::process::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
@@ -125,12 +127,15 @@ use super::synchronization::{
     RuntimeMutexNameA, RuntimeMutexRetirementPlan,
 };
 use super::thread::{
+    RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE, RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
+    RUNTIME_GUEST_THREAD_STACK_ARENA_BASE, RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
     RuntimeCallbackFrame, RuntimeCallbackFrameId, RuntimeCallbackFrameIdPlan,
     RuntimeCallbackScratch, RuntimeCancellation, RuntimeComApartmentModel,
     RuntimeComApartmentState, RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome,
-    RuntimeFlsSlot, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan,
-    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads,
-    RuntimeTlsValue,
+    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeFlsSlot,
+    RuntimeGuestThreadBootstrap, RuntimeResumeThreadResult, RuntimeThreadEnvironment,
+    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
 };
 use super::timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
@@ -321,6 +326,41 @@ impl RuntimeGraphicsSurfaceDcAcquisitionPlan {
 }
 
 pub const RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
+const X86_TEB_EXCEPTION_LIST_OFFSET: usize = 0x00;
+const X86_TEB_STACK_BASE_OFFSET: usize = 0x04;
+const X86_TEB_STACK_LIMIT_OFFSET: usize = 0x08;
+const X86_TEB_SELF_POINTER_OFFSET: usize = 0x18;
+const X86_TEB_PROCESS_ID_OFFSET: usize = 0x20;
+const X86_TEB_THREAD_ID_OFFSET: usize = 0x24;
+const X86_TEB_PEB_POINTER_OFFSET: usize = 0x30;
+const X86_TEB_INITIALIZATION_BYTES: usize = X86_TEB_PEB_POINTER_OFFSET + 4;
+
+fn validate_guest_thread_stack_sizes(
+    reserve_bytes: u64,
+    commit_bytes: u64,
+) -> Result<(), RuntimeStateError> {
+    if reserve_bytes == 0
+        || commit_bytes == 0
+        || commit_bytes > reserve_bytes
+        || !reserve_bytes.is_multiple_of(GUEST_PAGE_SIZE)
+        || !commit_bytes.is_multiple_of(GUEST_PAGE_SIZE)
+        || reserve_bytes > u64::from(u32::MAX)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-thread-stack",
+            "guest-thread-stack-layout-invalid",
+            "guest thread reserve and commit must be page-aligned, nonzero x86 sizes with commit no larger than reserve",
+        ));
+    }
+    if reserve_bytes > commit_bytes && reserve_bytes - commit_bytes < GUEST_PAGE_SIZE {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-thread-stack",
+            "guest-thread-stack-guard-unavailable",
+            "a growable guest thread stack requires one page between its commit and reserve limits",
+        ));
+    }
+    Ok(())
+}
 
 fn callback_scratch_for_depth(
     depth: usize,
@@ -529,6 +569,7 @@ struct RuntimeStateSnapshot<'a> {
     next_tls_index: u32,
     next_fls_index: u32,
     next_callback_frame_id: u64,
+    next_thread_id: u64,
     next_host_request_id: u64,
     next_wait_registration_id: u64,
 }
@@ -576,6 +617,7 @@ impl Serialize for RuntimeKernel {
             next_tls_index: self.threads.next_tls_index(),
             next_fls_index: self.threads.next_fls_index(),
             next_callback_frame_id: self.threads.next_callback_frame_id(),
+            next_thread_id: self.threads.next_thread_id(),
             next_host_request_id: self.scheduler.next_host_request_id(),
             next_wait_registration_id: self.scheduler.next_wait_registration_id(),
         }
@@ -1489,6 +1531,8 @@ impl RuntimeKernel {
             guard_page: stack.guard_page,
             committed_pages: stack.committed_pages,
             stack_top: stack.stack_top,
+            initial_stack_pointer: stack.initial_esp,
+            return_sentinel: stack.entry_return_address,
         };
         let thread_plan = self
             .threads
@@ -2120,6 +2164,466 @@ impl RuntimeKernel {
         self.scheduler.commit_lane(scheduler_plan);
         self.messages.commit_register_thread(thread_id);
         Ok(handle)
+    }
+
+    pub fn create_guest_thread(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeCreateThreadRequest,
+    ) -> Result<RuntimeCreateThreadResult, RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !self.scheduler.current_state()?.is_executable()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-bootstrap",
+                "guest-thread-creation-lifecycle-state-invalid",
+                "guest thread creation requires a running process and executable caller thread",
+            ));
+        }
+        validate_guest_thread_stack_sizes(request.stack_reserve_bytes, request.stack_commit_bytes)?;
+        memory
+            .validate_access(request.entry_point, 1, MemoryAccess::Execute)
+            .map_err(RuntimeStateError::from_memory)?;
+        if let Some(output) = request.thread_id_output {
+            memory
+                .validate_access(output, 4, MemoryAccess::Write)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+
+        let process_environment = self.process.environment().cloned().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-thread-bootstrap",
+                "process-environment-unregistered",
+                "guest thread creation requires the registered process PEB authority",
+            )
+        })?;
+        let return_sentinel = self
+            .current_thread()?
+            .stack
+            .as_ref()
+            .map(|stack| stack.return_sentinel)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-thread-bootstrap",
+                    "thread-return-sentinel-unregistered",
+                    "guest thread creation requires the process entry return sentinel",
+                )
+            })?;
+        memory
+            .validate_access(return_sentinel, 1, MemoryAccess::Execute)
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let thread_id_plan = self.threads.plan_thread_id_allocation()?;
+        let thread_id = thread_id_plan.thread_id();
+        let guard_pages = u32::from(request.stack_reserve_bytes > request.stack_commit_bytes);
+        let stack_usable_bytes = request
+            .stack_reserve_bytes
+            .checked_sub(u64::from(guard_pages) * GUEST_PAGE_SIZE)
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-thread-stack",
+                    "guest-thread-stack-guard-underflow",
+                    "guest thread stack reserve cannot contain its growth guard",
+                )
+            })?;
+        let address_space = self.address_space_allocator.plan_reservations(vec![
+            (
+                None,
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::ThreadStack,
+                    owner: format!("runtime-thread-{}-stack", thread_id.0),
+                    preferred_address: None,
+                    search_range: RuntimeAddressRange::new(
+                        RUNTIME_GUEST_THREAD_STACK_ARENA_BASE,
+                        RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
+                    )?,
+                    reserve_size: stack_usable_bytes,
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages,
+                    classification: ProcessAddressAllocationClassification::Stack,
+                    lifetime: ProcessAddressAllocationLifetime::Thread,
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            ),
+            (
+                None,
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::ThreadEnvironment,
+                    owner: format!("runtime-thread-{}-environment", thread_id.0),
+                    preferred_address: None,
+                    search_range: RuntimeAddressRange::new(
+                        RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE,
+                        RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
+                    )?,
+                    reserve_size: GUEST_PAGE_SIZE,
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages: 0,
+                    classification: ProcessAddressAllocationClassification::ProcessEnvironment,
+                    lifetime: ProcessAddressAllocationLifetime::Thread,
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            ),
+        ])?;
+        let [stack_allocation, environment_allocation] = address_space.allocations() else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-bootstrap",
+                "guest-thread-address-plan-shape-invalid",
+                "guest thread address plan did not contain stack and TEB allocations",
+            ));
+        };
+        let stack_allocation = stack_allocation.clone();
+        let environment_allocation = environment_allocation.clone();
+        if stack_allocation.range.byte_length != request.stack_reserve_bytes
+            || environment_allocation.range.byte_length != GUEST_PAGE_SIZE
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-bootstrap",
+                "guest-thread-address-plan-size-invalid",
+                "guest thread address allocator changed the requested stack or TEB size",
+            ));
+        }
+
+        let stack_top = GuestAddress(
+            u32::try_from(stack_allocation.range.end_exclusive()?).map_err(|_| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-thread-stack",
+                    "guest-thread-stack-top-unrepresentable",
+                    "planned guest thread stack top does not fit an x86 address",
+                )
+            })?,
+        );
+        let commit_bytes_u32 = u32::try_from(request.stack_commit_bytes).map_err(|_| {
+            RuntimeStateError::invalid_input(
+                "runtime-thread-stack",
+                "guest-thread-stack-commit-unrepresentable",
+                "guest thread stack commit does not fit x86 address accounting",
+            )
+        })?;
+        let committed_base =
+            GuestAddress(stack_top.0.checked_sub(commit_bytes_u32).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-thread-stack",
+                    "guest-thread-stack-commit-underflow",
+                    "planned guest thread stack commit underflowed its top",
+                )
+            })?);
+        let committed_range = GuestRange::new(committed_base, request.stack_commit_bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        let reserved_range = GuestRange::new(
+            stack_allocation.range.base,
+            stack_allocation.range.byte_length,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+        let environment_range = GuestRange::new(
+            environment_allocation.range.base,
+            environment_allocation.range.byte_length,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+        let initial_stack_pointer = GuestAddress(stack_top.0.checked_sub(8).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-thread-stack",
+                "guest-thread-initial-frame-underflow",
+                "guest thread stack cannot contain its entry frame",
+            )
+        })?);
+        let guard_page = (guard_pages != 0)
+            .then(|| {
+                committed_base
+                    .0
+                    .checked_sub(GUEST_PAGE_SIZE as u32)
+                    .map(GuestAddress)
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-thread-stack",
+                            "guest-thread-stack-guard-underflow",
+                            "guest thread stack guard underflowed x86 address accounting",
+                        )
+                    })
+            })
+            .transpose()?
+            .map(|base| GuestRange::new(base, GUEST_PAGE_SIZE))
+            .transpose()
+            .map_err(RuntimeStateError::from_memory)?;
+        let committed_pages = usize::try_from(request.stack_commit_bytes / GUEST_PAGE_SIZE)
+            .map_err(|_| {
+                RuntimeStateError::resource_limit(
+                    "runtime-thread-stack",
+                    "guest-thread-stack-page-count-unrepresentable",
+                    "guest thread committed stack pages do not fit host accounting",
+                )
+            })?;
+
+        memory
+            .preflight_growth(
+                2,
+                2,
+                committed_pages.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-thread-bootstrap",
+                        "guest-thread-physical-page-count-overflow",
+                        "guest thread physical page count overflowed host accounting",
+                    )
+                })?,
+                "runtime-thread-bootstrap",
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .preflight_fixed_reservation(
+                reserved_range.start(),
+                reserved_range.byte_length(),
+                "runtime-thread-bootstrap",
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .preflight_fixed_reservation(
+                environment_range.start(),
+                environment_range.byte_length(),
+                "runtime-thread-bootstrap",
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let mut transaction = memory.begin_transaction();
+        let stack_owner = transaction
+            .create_owner(MemoryOwnerKind::Anonymous)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .reserve_fixed_for_address_allocation(
+                stack_allocation.id.0,
+                stack_owner,
+                MemoryRegionKind::Stack,
+                reserved_range.start(),
+                reserved_range.byte_length(),
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .commit(
+                stack_owner,
+                committed_range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let mut initial_frame = Vec::with_capacity(8);
+        initial_frame.extend_from_slice(&return_sentinel.0.to_le_bytes());
+        initial_frame.extend_from_slice(&request.parameter.to_le_bytes());
+        transaction
+            .write_initialization(stack_owner, initial_stack_pointer, &initial_frame)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .seal_owner(stack_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let environment_owner = transaction
+            .create_owner(MemoryOwnerKind::Anonymous)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .reserve_fixed_for_address_allocation(
+                environment_allocation.id.0,
+                environment_owner,
+                MemoryRegionKind::ThreadEnvironmentBlock,
+                environment_range.start(),
+                environment_range.byte_length(),
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .commit(
+                environment_owner,
+                environment_range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let teb_address = environment_range.start();
+        let mut teb = [0_u8; X86_TEB_INITIALIZATION_BYTES];
+        teb[X86_TEB_EXCEPTION_LIST_OFFSET..X86_TEB_EXCEPTION_LIST_OFFSET + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+        teb[X86_TEB_STACK_BASE_OFFSET..X86_TEB_STACK_BASE_OFFSET + 4]
+            .copy_from_slice(&stack_top.0.to_le_bytes());
+        teb[X86_TEB_STACK_LIMIT_OFFSET..X86_TEB_STACK_LIMIT_OFFSET + 4]
+            .copy_from_slice(&committed_base.0.to_le_bytes());
+        teb[X86_TEB_SELF_POINTER_OFFSET..X86_TEB_SELF_POINTER_OFFSET + 4]
+            .copy_from_slice(&teb_address.0.to_le_bytes());
+        teb[X86_TEB_PROCESS_ID_OFFSET..X86_TEB_PROCESS_ID_OFFSET + 4]
+            .copy_from_slice(&self.process.id().0.to_le_bytes());
+        teb[X86_TEB_THREAD_ID_OFFSET..X86_TEB_THREAD_ID_OFFSET + 4]
+            .copy_from_slice(&thread_id.0.to_le_bytes());
+        teb[X86_TEB_PEB_POINTER_OFFSET..X86_TEB_PEB_POINTER_OFFSET + 4]
+            .copy_from_slice(&process_environment.peb_address.0.to_le_bytes());
+        transaction
+            .write_initialization(environment_owner, teb_address, &teb)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .seal_owner(environment_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let stack = RuntimeThreadStack {
+            thread_id,
+            address_allocation_id: stack_allocation.id,
+            memory_owner: stack_owner,
+            reserved_range,
+            committed_range,
+            guard_page,
+            committed_pages,
+            stack_top,
+            initial_stack_pointer,
+            return_sentinel,
+        };
+        let environment = RuntimeThreadEnvironment {
+            thread_id,
+            address_allocation_id: environment_allocation.id,
+            memory_owner: environment_owner,
+            range: environment_range,
+            teb_address,
+            peb_address: process_environment.peb_address,
+        };
+        let bootstrap = RuntimeGuestThreadBootstrap {
+            thread_id,
+            entry_point: request.entry_point,
+            parameter: request.parameter,
+            initial_stack_pointer,
+            fs_base: teb_address,
+            return_sentinel,
+        };
+        let thread_plan = self.threads.plan_guest_registration(
+            thread_id_plan,
+            0,
+            stack.clone(),
+            environment.clone(),
+            bootstrap.clone(),
+        )?;
+        let scheduler_state = if request.initial_suspend_count == 0 {
+            SchedulerThreadState::Runnable
+        } else {
+            SchedulerThreadState::Suspended {
+                count: request.initial_suspend_count,
+            }
+        };
+        let scheduler_plan = self
+            .scheduler
+            .plan_registration(thread_id, scheduler_state)?;
+        self.messages.preflight_register_thread(thread_id)?;
+        let object_plan: RuntimeObjectRegistrationPlan = self
+            .objects
+            .plan_object_and_handle_registration(RuntimeObjectKey::Thread {
+                thread_id: thread_id.0,
+            })?;
+        let handle = object_plan.handle();
+        let thread_id_write = request
+            .thread_id_output
+            .map(|output| transaction.write(output, &thread_id.0.to_le_bytes()))
+            .transpose()
+            .map_err(RuntimeStateError::from_memory)?;
+
+        self.address_space_allocator
+            .preflight_reservations_commit(&address_space)?;
+        self.threads
+            .preflight_guest_registration_commit(&thread_id_plan, &thread_plan)?;
+        self.scheduler.preflight_lane_commit(&scheduler_plan)?;
+        self.objects
+            .preflight_object_registration_commit(&object_plan)?;
+
+        self.address_space_allocator
+            .commit_reservations(address_space);
+        self.threads
+            .commit_guest_registration(thread_id_plan, thread_plan);
+        self.scheduler.commit_lane(scheduler_plan);
+        let (_, committed_handle) = self.objects.commit_object_registration(object_plan);
+        debug_assert_eq!(committed_handle, handle);
+        self.messages.commit_register_thread(thread_id);
+        transaction.commit_transaction();
+
+        Ok(RuntimeCreateThreadResult {
+            thread_id,
+            handle,
+            stack,
+            environment,
+            bootstrap,
+            thread_id_output: request.thread_id_output,
+            thread_id_write,
+        })
+    }
+
+    pub fn resume_thread(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeResumeThreadResult, RuntimeStateError> {
+        let object = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Thread)?;
+        let RuntimeObjectKey::Thread { thread_id } = object.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-suspend",
+                "thread-handle-object-key-invalid",
+                "thread handle resolved to a different object identity",
+            ));
+        };
+        let thread_id = RuntimeThreadId(thread_id);
+        let thread = self.threads.state(thread_id)?;
+        if thread.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-suspend",
+                "thread-resume-lifecycle-state-invalid",
+                "ResumeThread requires a live runtime thread",
+            ));
+        }
+        let state = self.scheduler.state(thread_id)?;
+        let (previous_suspend_count, remaining_suspend_count, became_runnable, plan) = match state {
+            SchedulerThreadState::Suspended { count } if count != 0 => {
+                let remaining = count - 1;
+                let next = if remaining == 0 {
+                    SchedulerThreadState::Runnable
+                } else {
+                    SchedulerThreadState::Suspended { count: remaining }
+                };
+                (
+                    count,
+                    remaining,
+                    remaining == 0,
+                    Some(self.scheduler.plan_transition(thread_id, next)?),
+                )
+            }
+            SchedulerThreadState::Suspended { .. } => {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-thread-suspend",
+                    "thread-suspend-count-zero",
+                    "suspended scheduler state contains a zero suspend count",
+                ));
+            }
+            SchedulerThreadState::Runnable
+            | SchedulerThreadState::WaitingHost { .. }
+            | SchedulerThreadState::WaitingObject { .. }
+            | SchedulerThreadState::WaitingMessage
+            | SchedulerThreadState::InCallback { .. } => (0, 0, false, None),
+            SchedulerThreadState::Initialized
+            | SchedulerThreadState::Terminating { .. }
+            | SchedulerThreadState::Terminated { .. } => {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-thread-suspend",
+                    "thread-resume-scheduler-state-invalid",
+                    "ResumeThread requires an initialized live execution lane",
+                ));
+            }
+        };
+        if let Some(plan) = plan {
+            self.scheduler.preflight_lane_commit(&plan)?;
+            self.scheduler.commit_lane(plan);
+        }
+        Ok(RuntimeResumeThreadResult {
+            thread_id,
+            handle,
+            previous_suspend_count,
+            remaining_suspend_count,
+            became_runnable,
+        })
     }
 
     pub fn select_thread(&mut self, thread_id: RuntimeThreadId) -> Result<(), RuntimeStateError> {
@@ -5164,6 +5668,69 @@ impl RuntimeKernel {
         self.objects.commit_wait_state_updates(wait_updates);
         self.commit_thread_exit_completion(completion);
         self.commit_waiter_wakes(wake_completions);
+        Ok(())
+    }
+
+    pub fn complete_current_guest_thread_exit(
+        &mut self,
+        memory: &mut GuestMemory,
+    ) -> Result<(), RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let thread = self.thread_state(thread_id)?.clone();
+        if thread.guest_bootstrap.is_none() {
+            return self.complete_current_thread_exit();
+        }
+        let stack = thread.stack.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-thread-bootstrap",
+                "guest-thread-stack-missing-at-exit",
+                "dynamically created guest thread lost its stack authority before exit",
+            )
+        })?;
+        let environment = thread.environment.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-thread-bootstrap",
+                "guest-thread-environment-missing-at-exit",
+                "dynamically created guest thread lost its TEB authority before exit",
+            )
+        })?;
+        let completion = self.plan_thread_exit_completion(thread_id)?;
+        let wait_updates = self.objects.plan_wait_state_updates(&[(
+            RuntimeObjectKey::Thread {
+                thread_id: completion.thread_id.0,
+            },
+            RuntimeWaitState::Signaled {
+                exit_code: completion.exit_code,
+            },
+        )])?;
+        let wake_completions = self.plan_waiter_wakes(&wait_updates, &[completion.thread_id])?;
+        let address_releases = self.address_space_allocator.plan_releases(&[
+            stack.address_allocation_id,
+            environment.address_allocation_id,
+        ])?;
+
+        let mut transaction = memory.begin_transaction();
+        transaction
+            .release_region(stack.memory_owner, stack.reserved_range.start())
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .destroy_owner(stack.memory_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .release_region(environment.memory_owner, environment.range.start())
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .destroy_owner(environment.memory_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.address_space_allocator
+            .preflight_releases(&address_releases)?;
+
+        self.objects.commit_wait_state_updates(wait_updates);
+        self.commit_thread_exit_completion(completion);
+        self.commit_waiter_wakes(wake_completions);
+        self.address_space_allocator
+            .commit_releases(address_releases);
+        transaction.commit_transaction();
         Ok(())
     }
 

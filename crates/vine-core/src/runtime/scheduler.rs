@@ -12,6 +12,9 @@ use super::{
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum SchedulerThreadState {
     Initialized,
+    Suspended {
+        count: u32,
+    },
     Runnable,
     WaitingHost {
         request_id: u64,
@@ -285,6 +288,20 @@ impl RuntimeScheduler {
         debug_assert_eq!(self.threads.get(&plan.thread_id).copied(), plan.previous);
         let previous = self.threads.insert(plan.thread_id, plan.next);
         debug_assert_eq!(previous, plan.previous);
+    }
+
+    pub(super) fn preflight_lane_commit(
+        &self,
+        plan: &RuntimeSchedulerLanePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.threads.get(&plan.thread_id).copied() != plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-scheduler",
+                "thread-scheduler-plan-stale",
+                "runtime scheduler lane changed after transition preflight",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn plan_selection(

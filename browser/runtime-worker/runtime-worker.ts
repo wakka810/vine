@@ -93,9 +93,46 @@ interface ThreadExitMetadata {
   kind: "thread-exit";
   threadId: number;
   exitCode: number;
-  markerAddress: number;
-  markerValue: number;
+  markerAddress?: number;
+  markerValue?: number;
   scheduler: { state: "terminated"; exitCode: number };
+}
+
+type CreatedThreadSchedulerState =
+  | { state: "suspended"; count: number }
+  | { state: "runnable" };
+
+interface CreatedThreadMetadata {
+  handle: number;
+  thread: {
+    id: number;
+    lifecycle: { state: "running" };
+    stack?: {
+      threadId: number;
+      initialStackPointer: number;
+      returnSentinel: number;
+    };
+    environment?: {
+      threadId: number;
+      tebAddress: number;
+    };
+    guestBootstrap?: {
+      threadId: number;
+      entryPoint: number;
+      parameter: number;
+      initialStackPointer: number;
+      fsBase: number;
+      returnSentinel: number;
+    };
+  };
+  schedulerState: CreatedThreadSchedulerState;
+}
+
+interface ResumedThreadMetadata {
+  handle: number;
+  threadId: number;
+  previousSuspendCount: number;
+  schedulerState: CreatedThreadSchedulerState;
 }
 
 interface GuestCallbackMetadata {
@@ -133,6 +170,8 @@ interface CompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  createdThread?: CreatedThreadMetadata;
+  resumedThread?: ResumedThreadMetadata;
 }
 
 interface ApiFaultMetadata {
@@ -206,6 +245,8 @@ interface HostCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  createdThread?: CreatedThreadMetadata;
+  resumedThread?: ResumedThreadMetadata;
 }
 
 interface SourceManifest {
@@ -244,6 +285,8 @@ interface CallbackCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  createdThread?: CreatedThreadMetadata;
+  resumedThread?: ResumedThreadMetadata;
 }
 
 interface InitialThreadStackGrowthMetadata {
@@ -1116,11 +1159,27 @@ class BrowserRuntimeSession {
       case "api-complete": {
         const resumeState = this.#takeApiResumeState();
         this.#applyOptionalDelta(output);
+        if (metadata.createdThread !== undefined) {
+          this.#registerCreatedThread(metadata.createdThread);
+        }
         if (this.#requirePrepared().workload === "private-bgi") {
           this.#recordBgiCompletion(metadata);
         }
         engine.applyCpuResume(metadata.completion);
         this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
+        const runnableThreadId =
+          metadata.createdThread?.schedulerState.state === "runnable"
+            ? metadata.createdThread.thread.id
+            : metadata.resumedThread?.schedulerState.state === "runnable" &&
+                metadata.resumedThread.previousSuspendCount > 0
+              ? metadata.resumedThread.threadId
+              : null;
+        if (runnableThreadId !== null) {
+          invariant(
+            this.#threadContexts.has(runnableThreadId),
+            "runnable API-created guest thread has no CPU context",
+          );
+        }
         this.#execution.transition(resumeState, {
           cause: "synchronous-api-complete",
           threadId: this.#currentThreadId,
@@ -1239,6 +1298,16 @@ class BrowserRuntimeSession {
       isCreateWaitableTimer === (metadata.waitableTimer !== undefined),
       "BGI waitable timer completion metadata mismatch",
     );
+    const isCreateThread = completion.implementationId === "kernel32.create-thread.v1";
+    invariant(
+      isCreateThread === (metadata.createdThread !== undefined),
+      "BGI CreateThread completion metadata mismatch",
+    );
+    const isResumeThread = completion.implementationId === "kernel32.resume-thread.v1";
+    invariant(
+      isResumeThread === (metadata.resumedThread !== undefined),
+      "BGI ResumeThread completion metadata mismatch",
+    );
     const isIconLoad =
       completion.implementationId === "user32.load-icon-a.v1" ||
       completion.implementationId === "user32.load-image-a.v1";
@@ -1307,6 +1376,12 @@ class BrowserRuntimeSession {
       ...(metadata.waitableTimer === undefined
         ? {}
         : { waitableTimer: metadata.waitableTimer }),
+      ...(metadata.createdThread === undefined
+        ? {}
+        : { createdThread: metadata.createdThread }),
+      ...(metadata.resumedThread === undefined
+        ? {}
+        : { resumedThread: metadata.resumedThread }),
       ...(metadata.icon === undefined ? {} : { icon: metadata.icon }),
       ...(metadata.cursor === undefined ? {} : { cursor: metadata.cursor }),
       ...(metadata.windowClass === undefined
@@ -1613,35 +1688,89 @@ class BrowserRuntimeSession {
     this.#status("running", `Callback returned; depth ${metadata.remainingDepth}`);
   }
 
+  #registerCreatedThread(created: CreatedThreadMetadata): void {
+    const { thread, schedulerState } = created;
+    const stack = thread.stack;
+    const environment = thread.environment;
+    const bootstrap = thread.guestBootstrap;
+    invariant(
+      Number.isInteger(created.handle) &&
+        created.handle > 0 &&
+        Number.isInteger(thread.id) &&
+        thread.id > 0 &&
+        thread.id <= 0xffff_ffff &&
+        thread.lifecycle.state === "running" &&
+        !this.#threadContexts.has(thread.id),
+      "CreateThread returned an invalid or duplicate logical thread identity",
+    );
+    invariant(
+      stack !== undefined &&
+        environment !== undefined &&
+        bootstrap !== undefined &&
+        stack.threadId === thread.id &&
+        environment.threadId === thread.id &&
+        bootstrap.threadId === thread.id &&
+        bootstrap.initialStackPointer === stack.initialStackPointer &&
+        bootstrap.fsBase === environment.tebAddress &&
+        bootstrap.returnSentinel === stack.returnSentinel &&
+        bootstrap.returnSentinel === this.#requirePrepared().entrySentinel,
+      "CreateThread stack, TEB, and CPU bootstrap metadata disagree",
+    );
+    invariant(
+      schedulerState.state === "runnable" ||
+        (schedulerState.state === "suspended" && schedulerState.count > 0),
+      "CreateThread returned an invalid scheduler state",
+    );
+    this.#threadContexts.set(
+      thread.id,
+      this.#requireEngine().createCpuContext({
+        entryPoint: bootstrap.entryPoint,
+        initialStackPointer: bootstrap.initialStackPointer,
+        fsBase: bootstrap.fsBase,
+      }),
+    );
+    this.#threadExecutionStates.set(thread.id, "ready");
+    this.#report.registeredThreadIds.push(thread.id);
+  }
+
   async #completeThread(exitCode: number): Promise<void> {
     const threadId = this.#currentThreadId;
     const preparedThread = this.#requirePrepared().additionalThreads?.find(
       (thread) => thread.threadId === threadId,
     );
-    invariant(preparedThread !== undefined, "guest thread exit has no prepared bootstrap record");
     this.#execution.transition("thread-exit", {
       cause: "guest-thread-entry-return",
       threadId,
     });
-    const metadata = this.#requireBridge().finishThread<ThreadExitMetadata>(exitCode).metadata;
+    const output = this.#requireBridge().finishThread<ThreadExitMetadata>(exitCode);
+    const metadata = output.metadata;
     invariant(metadata.kind === "thread-exit", "invalid guest thread exit metadata");
     invariant(metadata.threadId === threadId, "Rust exited a different guest thread");
     invariant(
-      metadata.exitCode === preparedThread.expectedExitCode &&
-        metadata.scheduler.state === "terminated" &&
+      metadata.scheduler.state === "terminated" &&
         metadata.scheduler.exitCode === metadata.exitCode,
       "guest thread exit code or scheduler state mismatch",
     );
-    invariant(
-      metadata.markerAddress === preparedThread.markerAddress &&
-        metadata.markerValue === preparedThread.expectedMarkerValue,
-      "guest thread marker was not reconciled before exit",
-    );
+    if (preparedThread !== undefined) {
+      invariant(
+        metadata.exitCode === preparedThread.expectedExitCode &&
+          metadata.markerAddress === preparedThread.markerAddress &&
+          metadata.markerValue === preparedThread.expectedMarkerValue,
+        "controlled guest thread exit evidence mismatch",
+      );
+    } else {
+      invariant(
+        metadata.markerAddress === undefined && metadata.markerValue === undefined,
+        "dynamic guest thread exit unexpectedly returned controlled marker evidence",
+      );
+    }
+    this.#applyOptionalDelta(output);
     this.#report.threadExits.push({
       threadId,
       exitCode: metadata.exitCode,
-      markerAddress: metadata.markerAddress,
-      markerValue: metadata.markerValue,
+      ...(metadata.markerAddress === undefined
+        ? {}
+        : { markerAddress: metadata.markerAddress, markerValue: metadata.markerValue }),
     });
     this.#threadContexts.delete(threadId);
     this.#threadResumeStates.delete(threadId);

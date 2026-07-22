@@ -115,6 +115,7 @@ band, and one callback-free runtime-system module catalog:
 | `kernel32-large-heap-allocation-v1` | stdin, stdout, stderr | preceding schema-v2 options | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-source-file-read-v1` | stdin, stdout, stderr | preceding schema-v2 options + exact read-only `OPEN_EXISTING`／share-read／measured flags, 32 KiB path and 1 MiB read bounds | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-d3dx-runtime-module-v1` | stdin, stdout, stderr | preceding schema-v2 options + `d3dx9_43.dll` logical runtime-system module／`D3DXCreateEffect` export, 260-byte ASCII basename bound | same bounded allocation/free/size variants |
+| `kernel32-create-thread-v1` | stdin, stdout, stderr | preceding schema-v2 options + 1 MiB reserve／4 KiB commit, flags `0`／`CREATE_SUSPENDED`, maximum 256 threads | same bounded allocation/free/size variants |
 
 Unlisted selectors, file classifications, file access／share／creation／flags, overlapped reads, and high-DWORD size／seek variants remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -445,6 +446,21 @@ fixtures cover reset-mode／name／security／disabled-policy rejection, object
 capacity failure, initial nonsignaled state, last close, and process teardown
 without loading BGI evidence. Detailed evidence is in
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md).
+
+`CreateThread` uses one six-argument semantic handler selected by the optional
+`createThread` policy object. The active policy contains only default reserve／commit
+sizes, allowed creation flags, and a process thread-count bound; it contains no TID,
+handle, guest pointer, callsite, start routine, parameter, or next-stop identity.
+Reached compatibility accepts NULL security attributes, stack size zero, a non-NULL
+mapped executable start address, flags `0` or `CREATE_SUSPENDED`, and an optional
+writable DWORD output. Unsupported parameter shapes return NULL／87 before mutation;
+capacity exhaustion returns NULL／8. Success preserves LastError.
+
+`ResumeThread` is not policy-selected. It resolves a typed live thread handle, returns
+the previous positive suspend count, and preserves LastError; invalid／non-suspended
+handles return `0xFFFFFFFF`／6. Rust owns the suspend counter and scheduler transition.
+The policy does not authorize host threads, parallel Workers, native TIDs, thread
+priority, DLL thread callbacks, arbitrary stack sizes, or additional creation flags.
 
 `LoadLibraryA` uses one policy-backed one-argument semantic handler for
 Vine-provided runtime-system modules. The policy contains only a bounded ASCII

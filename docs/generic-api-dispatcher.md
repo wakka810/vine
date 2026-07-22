@@ -170,6 +170,16 @@ not keep subsystem collections as flat fields or mutate their maps directly:
 - `ProcessAddressSpaceAllocator` owns address-range identity, while
   `GuestMemory` remains byte and mapping authority.
 
+Reached `CreateThread`／`ResumeThread` remain ordinary catalogued Kernel32 contracts;
+the dispatcher does not add a thread-specific transport. `CreateThread` returns one
+committed completion containing the logical handle, optional output write receipt,
+and immutable thread／stack／TEB／scheduler snapshot produced by the Rust transaction.
+The Worker consumes that snapshot only to create an opaque execution-engine context.
+`ResumeThread` publishes the Rust-owned scheduler transition, while deterministic
+cooperative scheduling keeps the caller selected until it blocks or an explicit
+thread switch is requested. Dynamic entry return uses the existing thread-exit
+completion plus a generic binary memory delta to release stack／TEB mappings.
+
 The kernel exposes the existing API surface and coordinates owner-local
 `plan -> preflight -> commit` transactions. Existing diagnostic JSON is emitted
 through borrowed compatibility views; it is not a second mutable authority.

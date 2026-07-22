@@ -44,6 +44,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-large-heap-allocation-v1.json",
   "fixtures/runtime-policies/kernel32-source-file-read-v1.json",
   "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json",
+  "fixtures/runtime-policies/kernel32-create-thread-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -98,6 +99,16 @@ for (const relative of policyFiles) {
         threadAffinity.processMask > 0 &&
         threadAffinity.processMask <= 0xffffffff,
     );
+  }
+  const createThread = policy.createThread ?? null;
+  if (createThread !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert.deepEqual(createThread, {
+      defaultStackReserveBytes: 1024 * 1024,
+      defaultStackCommitBytes: 4096,
+      allowedCreationFlags: [0, 4],
+      maximumThreads: 256,
+    });
   }
   const systemInfo = policy.systemInfo ?? null;
   if (systemInfo !== null) {
