@@ -246,14 +246,6 @@ interface CallbackCompletionMetadata {
   gdi?: RuntimeGdiSnapshot;
 }
 
-interface WritebackMetadata {
-  kind: "writeback-reconciled";
-  receipt: {
-    generation: number;
-    touchedPages: number;
-  };
-}
-
 interface InitialThreadStackGrowthMetadata {
   kind: "initial-thread-stack-growth";
   growth: {
@@ -1785,13 +1777,10 @@ class BrowserRuntimeSession {
       return;
     }
     // The bridge copies these engine-owned views synchronously before execution can resume.
-    const metadata = this.#requireBridge().reconcileWritebackPages<WritebackMetadata>(
+    this.#generation = this.#requireBridge().reconcileWritebackPages(
       this.#generation,
       pages,
-    ).metadata;
-    invariant(metadata.kind === "writeback-reconciled", "invalid writeback receipt metadata");
-    invariant(metadata.receipt.touchedPages === pages.length, "writeback page count mismatch");
-    this.#generation = BigInt(metadata.receipt.generation);
+    );
     this.#report.writebackBatches += 1;
     this.#report.writebackPages += pages.length;
   }
@@ -1821,13 +1810,7 @@ class BrowserRuntimeSession {
   #applyAuthoritativeDelta(delta: ReturnType<typeof decodeHostDelta>): void {
     this.#requireEngine().applyMemoryDelta(delta);
     try {
-      const receipt = this.#requireBridge().acknowledge<{
-        kind: "acknowledged";
-        generation: number;
-        dirtyPages: number;
-      }>(delta.generation).metadata;
-      invariant(receipt.kind === "acknowledged", "invalid memory acknowledgement receipt");
-      invariant(BigInt(receipt.generation) === delta.generation, "acknowledged generation mismatch");
+      this.#requireBridge().acknowledgeFast(delta.generation);
       this.#generation = delta.generation;
     } catch {
       this.#rebuildMirrorFromAuthority();

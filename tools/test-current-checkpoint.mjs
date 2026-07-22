@@ -29,12 +29,10 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(
-  manifest.browserCheckpoint.bgiBenchmarkBlocker.id,
-  "d3d9-initial-render-states-heartbeat-threshold-v2",
-);
-assert.ok(rendered.includes("| Active blocker |"));
-assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.resumeCondition));
+assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
+assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
+assert.ok(!rendered.includes("| Active blocker |"));
+assert.equal(manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus, "valid");
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
   assert.ok(rendered.includes(`\`${milestone.status}\``));
@@ -149,37 +147,10 @@ assert.ok(
   ),
 );
 
-const missingStructuredBenchmarkBlocker = structuredClone(manifest);
-delete missingStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker;
+const unexpectedStructuredBenchmarkBlocker = structuredClone(manifest);
+unexpectedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker = {};
 assert.ok(
-  validateCurrentCheckpoint(missingStructuredBenchmarkBlocker).some((error) =>
-    error.includes("structured performance blocker"),
-  ),
-);
-
-const mismatchedStructuredBenchmarkBlocker = structuredClone(manifest);
-mismatchedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker.firstFailure.observed =
-  25;
-assert.ok(
-  validateCurrentCheckpoint(mismatchedStructuredBenchmarkBlocker).some((error) =>
-    error.includes("structured performance blocker"),
-  ),
-);
-
-const mismatchedConfirmedBenchmarkBlocker = structuredClone(manifest);
-mismatchedConfirmedBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.observed =
-  25;
-assert.ok(
-  validateCurrentCheckpoint(mismatchedConfirmedBenchmarkBlocker).some((error) =>
-    error.includes("structured performance blocker"),
-  ),
-);
-
-const missingHostQuiescenceEvidence = structuredClone(manifest);
-delete missingHostQuiescenceEvidence.browserCheckpoint.bgiBenchmarkBlocker.evidence
-  .hostQuiescenceObservation;
-assert.ok(
-  validateCurrentCheckpoint(missingHostQuiescenceEvidence).some((error) =>
+  validateCurrentCheckpoint(unexpectedStructuredBenchmarkBlocker).some((error) =>
     error.includes("structured performance blocker"),
   ),
 );

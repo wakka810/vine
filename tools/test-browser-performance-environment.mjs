@@ -119,8 +119,21 @@ for (const index of [1, 2, 3]) {
 assert(evaluate(diskSamples).reasonIds.includes("sustained-physical-disk-throughput"));
 
 const qosSamples = makeSamples();
-qosSamples[4].browserProcesses[0].powerThrottlingStateMask = 1;
+for (let index = 4; index < qosSamples.length; index += 1) {
+  qosSamples[index].browserProcesses[0].powerThrottlingStateMask = 1;
+}
 assert(evaluate(qosSamples).reasonIds.includes("chrome-qos-changed"));
+
+const warmupQosPolicy = structuredClone(syntheticPolicy);
+warmupQosPolicy.warmupSamples = 5;
+const warmupQos = evaluateBrowserPerformanceEnvironment(
+  warmupQosPolicy,
+  { samples: qosSamples, errors: [] },
+  qosSamples.length * warmupQosPolicy.sampleIntervalMilliseconds,
+);
+assert.equal(warmupQos.status, "valid");
+assert.equal(warmupQos.qosChanges.length, 1);
+assert.equal(warmupQos.qosChanges[0].sampleIndex, 4);
 
 const workloadDecision = {
   classification: "repeated-distribution-threshold",

@@ -8,21 +8,21 @@ use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDeferredCall, ApiDirection,
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
-    CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackReceipt,
-    D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
-    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
-    GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget,
-    InitialThreadStack, Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
-    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
-    RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
-    WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
+    CpuWritebackReceipt, D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession, ExportTarget,
+    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy,
+    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding,
+    ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
+    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_gdi32_api, dispatch_kernel32_api_with_policy,
     dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
@@ -65,6 +65,7 @@ struct Bridge {
     metadata: Vec<u8>,
     control: Vec<u8>,
     payload: Vec<u8>,
+    fast_writeback_receipt: Option<CpuWritebackFastReceipt>,
     runtime: Option<BrowserRuntime>,
 }
 
@@ -75,6 +76,7 @@ impl Bridge {
             metadata: Vec::new(),
             control: Vec::new(),
             payload: Vec::new(),
+            fast_writeback_receipt: None,
             runtime: None,
         }
     }
@@ -83,6 +85,7 @@ impl Bridge {
         self.metadata.clear();
         self.control.clear();
         self.payload.clear();
+        self.fast_writeback_receipt = None;
     }
 
     fn set_output(
@@ -199,6 +202,49 @@ impl Bridge {
         self.runtime
             .as_mut()
             .ok_or_else(|| "browser runtime has not been prepared".to_owned())
+    }
+
+    fn reconcile_writeback_input(
+        &mut self,
+        control_length: usize,
+        payload_length: usize,
+    ) -> Result<(), String> {
+        let total = control_length
+            .checked_add(payload_length)
+            .ok_or_else(|| "writeback input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total)
+            .ok_or_else(|| "writeback input exceeds the bridge buffer".to_owned())?;
+        let (control, payload) = input.split_at(control_length);
+        let (metadata, _) = self
+            .runtime
+            .as_mut()
+            .ok_or_else(|| "browser runtime has not been prepared".to_owned())?
+            .reconcile_writeback(control, payload)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
+    fn reconcile_writeback_input_fast(
+        &mut self,
+        control_length: usize,
+        payload_length: usize,
+    ) -> Result<(), String> {
+        let total = control_length
+            .checked_add(payload_length)
+            .ok_or_else(|| "writeback input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total)
+            .ok_or_else(|| "writeback input exceeds the bridge buffer".to_owned())?;
+        let (control, payload) = input.split_at(control_length);
+        let receipt = self
+            .runtime
+            .as_mut()
+            .ok_or_else(|| "browser runtime has not been prepared".to_owned())?
+            .reconcile_writeback_fast(control, payload)?;
+        self.fast_writeback_receipt = Some(receipt);
+        Ok(())
     }
 }
 
@@ -740,15 +786,20 @@ impl BrowserRuntime {
     }
 
     fn acknowledge(&mut self, generation: u64) -> Result<Value, String> {
-        self.memory
-            .acknowledge_delta(generation)
-            .map_err(error_string)?;
-        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
+        self.acknowledge_fast(generation)?;
         Ok(json!({
             "kind": "acknowledged",
             "generation": generation,
             "dirtyPages": 0,
         }))
+    }
+
+    fn acknowledge_fast(&mut self, generation: u64) -> Result<(), String> {
+        self.memory
+            .acknowledge_delta(generation)
+            .map_err(error_string)?;
+        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
+        Ok(())
     }
 
     fn reconcile_writeback(
@@ -767,6 +818,19 @@ impl BrowserRuntime {
             "dirtyPages": 0,
         });
         Ok((metadata, receipt))
+    }
+
+    fn reconcile_writeback_fast(
+        &mut self,
+        control: &[u8],
+        payload: &[u8],
+    ) -> Result<CpuWritebackFastReceipt, String> {
+        let receipt = self
+            .memory
+            .reconcile_cpu_writeback_binary_fast(control, payload)
+            .map_err(error_string)?;
+        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
+        Ok(receipt)
     }
 
     fn advance_mapping_fixture(
@@ -1419,9 +1483,7 @@ impl BrowserRuntime {
             return Ok(None);
         }
         self.memory
-            .pending_delta()
-            .map_err(error_string)?
-            .encode_binary()
+            .pending_delta_binary()
             .map(Some)
             .map_err(error_string)
     }
@@ -2716,23 +2778,71 @@ pub extern "C" fn vine_bridge_acknowledge(generation_low: u32, generation_high: 
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_path_abi_version() -> u32 {
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_acknowledge_fast_v1(
+    generation_low: u32,
+    generation_high: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let generation = u64::from(generation_low) | (u64::from(generation_high) << 32);
+        bridge.runtime_mut()?.acknowledge_fast(generation)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_reconcile_writeback(control_length: u32, payload_length: u32) -> u32 {
     run_bridge(|bridge| {
-        let control_length = control_length as usize;
-        let payload_length = payload_length as usize;
-        let total = control_length
-            .checked_add(payload_length)
-            .ok_or_else(|| "writeback input length overflowed".to_owned())?;
-        let input = bridge
-            .input
-            .get(..total)
-            .ok_or_else(|| "writeback input exceeds the bridge buffer".to_owned())?
-            .to_vec();
-        let (control, payload) = input.split_at(control_length);
-        let (metadata, _) = bridge
-            .runtime_mut()?
-            .reconcile_writeback(control, payload)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+        bridge.reconcile_writeback_input(control_length as usize, payload_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_reconcile_writeback_fast_v1(
+    control_length: u32,
+    payload_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.reconcile_writeback_input_fast(control_length as usize, payload_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_writeback_generation_low_v1() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_writeback_receipt
+            .map_or(0, |receipt| receipt.generation as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_writeback_generation_high_v1() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_writeback_receipt
+            .map_or(0, |receipt| (receipt.generation >> 32) as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_writeback_touched_pages_v1() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_writeback_receipt
+            .map_or(0, |receipt| receipt.touched_pages as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_writeback_changed_pages_v1() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_writeback_receipt
+            .map_or(0, |receipt| receipt.changed_pages as u32)
     })
 }
 

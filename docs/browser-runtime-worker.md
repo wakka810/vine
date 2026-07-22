@@ -49,7 +49,10 @@ Rust/Wasm runtime core          ExecutionEngine adapter
 materialized bytes, import endpoints, initial stack, `RuntimeState`, decoded API
 frames, suspended calls, request identity, scheduler policy, and callback stack.
 Its raw buffer ABI keeps JSON metadata separate from `VINERF01`, `VINEDL01`,
-and `VINEWB01` page payloads and has no Wasm imports. TypeScript does not become
+and `VINEWB01` page payloads and has no Wasm imports. Fast ABI version 1 handles
+hot acknowledgement and CPU writeback receipts as scalar exports, so those
+crossings do not copy the whole bridge input or serialize／parse JSON; faults
+still return the normal structured metadata. TypeScript does not become
 guest byte, pointer, handle, LastError, wait, message, module, or scheduler
 authority.
 

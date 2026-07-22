@@ -367,13 +367,14 @@ partial mutationせず、same-value reapplyはsuccess／zero generation deltaと
 call digest、logical values、次のslot 19 `GetRasterStatus` stop、browser-owned render-state tableとrendererが
 未生成であることを比較する。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。Initial observationはsemantic failure 0だがheartbeat P99 30.505 msが25 ms上限を超え、16／17
-のみ通過した。15-sample／18.499-second preflightでhost CPU mean 12.267%、P95／maximum 17%、25%超sample 0を
-確認した静穏hostでも、unchanged confirmationはsemantic failure 0／heartbeat P99 33.340 ms、25 ms超601／
-23,815 samplesで同じfailure IDを再現したため`threshold-blocked`である。このpreflight値はversioned thresholdでは
-なくhost observationである。Retryをpass evidenceにせず、profiledでcorrectness-preservingなbrowser heartbeat／
-scheduling remediation後にunchanged gateを通すか、別evidenceに基づくversioned performance-contract変更を
-明示判断するまでacceptしない。
+条件とする。Initial observationはsemantic failure 0だがheartbeat P99 30.505 ms、静穏host confirmationも
+33.340 msで25 ms上限を再現した。Profileはmain timer dispatchを直接原因、Worker SHA／writeback／dirty scan／
+JSON crossingを増幅要因として切り分けた。Canonical gateをSHA固定Chrome for Testingへ移し、Updater／CPU／disk／
+QoSを別判定し、Worker fast pathと16,384-instruction slice、background scheduling無効化を適用したversion 2は、
+valid environmentで129 sessions、semantic failure 0、heartbeat P99 6.065 ms／maximum 12.960 ms、slice P99
+0.965 msを記録して17／17を通過した。Heartbeat上限25 msは不変である。旧64 MiB capacity ceilingだけは、live heap
+最大27,945,712 bytes／slope 3,594,890 bytes/minが契約内でもCDP `totalSize`予約78,077,952 bytesを失格にしたため、
+live heap／slope／backing上限を維持したまま96 MiBへversion更新した。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

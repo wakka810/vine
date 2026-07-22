@@ -1,6 +1,7 @@
 import {
+  cpuWritebackControlByteLength,
   type DirtyMirrorPage,
-  encodeCpuWritebackControl,
+  encodeCpuWritebackControlInto,
   memoryPageSize,
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
@@ -134,7 +135,17 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     sourceManifestLength: number,
   ): number;
   vine_bridge_acknowledge(low: number, high: number): number;
+  vine_bridge_fast_path_abi_version(): number;
+  vine_bridge_acknowledge_fast_v1(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
+  vine_bridge_reconcile_writeback_fast_v1(
+    controlLength: number,
+    payloadLength: number,
+  ): number;
+  vine_bridge_fast_writeback_generation_low_v1(): number;
+  vine_bridge_fast_writeback_generation_high_v1(): number;
+  vine_bridge_fast_writeback_touched_pages_v1(): number;
+  vine_bridge_fast_writeback_changed_pages_v1(): number;
   vine_bridge_advance_mapping_fixture(stage: number): number;
   vine_bridge_current_reflection(): number;
   vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
@@ -167,12 +178,23 @@ function splitU64(value: bigint): [number, number] {
   return [Number(value & 0xffff_ffffn), Number((value >> 32n) & 0xffff_ffffn)];
 }
 
+function combineU64(low: number, high: number): bigint {
+  return BigInt(low >>> 0) | (BigInt(high >>> 0) << 32n);
+}
+
+const emptyBridgeOutput = new Uint8Array(0);
+
 export class RuntimeBridge {
   readonly #exports: RuntimeBridgeExports;
+  readonly #metadataDecoder = new TextDecoder();
   #callCount = 0;
 
   private constructor(exports: RuntimeBridgeExports) {
     this.#exports = exports;
+    invariant(
+      this.#exports.vine_bridge_fast_path_abi_version() === 1,
+      "unsupported runtime bridge fast-path ABI",
+    );
   }
 
   static async instantiate(url: URL): Promise<RuntimeBridge> {
@@ -223,6 +245,16 @@ export class RuntimeBridge {
     return this.#invoke(() => this.#exports.vine_bridge_acknowledge(low, high));
   }
 
+  acknowledgeFast(generation: bigint): void {
+    invariant(
+      generation >= 0n && generation <= 0xffff_ffff_ffff_ffffn,
+      "64-bit bridge value is out of range",
+    );
+    const low = Number(generation & 0xffff_ffffn);
+    const high = Number((generation >> 32n) & 0xffff_ffffn);
+    this.#checkFastResult(this.#exports.vine_bridge_acknowledge_fast_v1(low, high));
+  }
+
   reconcileWriteback<T = Record<string, unknown>>(
     control: Uint8Array,
     payload: Uint8Array,
@@ -233,21 +265,29 @@ export class RuntimeBridge {
     );
   }
 
-  reconcileWritebackPages<T = Record<string, unknown>>(
+  reconcileWritebackPages(
     generation: bigint,
     pages: DirtyMirrorPage[],
-  ): BridgeOutput<T> {
-    const control = encodeCpuWritebackControl(generation, pages);
+  ): bigint {
+    const controlLength = cpuWritebackControlByteLength(pages.length);
     const payloadLength = pages.length * memoryPageSize;
-    const input = this.#resizeInput(control.byteLength + payloadLength);
-    input.set(control, 0);
-    let offset = control.byteLength;
+    const input = this.#resizeInput(controlLength + payloadLength);
+    encodeCpuWritebackControlInto(input, generation, pages);
+    let offset = controlLength;
     for (const page of pages) {
       input.set(page.bytes, offset);
       offset += page.bytes.byteLength;
     }
-    return this.#invoke(() =>
-      this.#exports.vine_bridge_reconcile_writeback(control.byteLength, payloadLength),
+    this.#checkFastResult(
+      this.#exports.vine_bridge_reconcile_writeback_fast_v1(controlLength, payloadLength),
+    );
+    const touchedPages = this.#exports.vine_bridge_fast_writeback_touched_pages_v1();
+    const changedPages = this.#exports.vine_bridge_fast_writeback_changed_pages_v1();
+    invariant(touchedPages === pages.length, "writeback page count mismatch");
+    invariant(changedPages <= touchedPages, "writeback changed-page count mismatch");
+    return combineU64(
+      this.#exports.vine_bridge_fast_writeback_generation_low_v1(),
+      this.#exports.vine_bridge_fast_writeback_generation_high_v1(),
     );
   }
 
@@ -391,6 +431,13 @@ export class RuntimeBridge {
     };
   }
 
+  #checkFastResult(status: number): void {
+    this.#callCount += 1;
+    if (status !== 0) {
+      throw new Error(this.#readMetadataError());
+    }
+  }
+
   #readMetadataError(): string {
     const metadata = this.#readJson<{ message?: unknown }>();
     return typeof metadata.message === "string" ? metadata.message : "runtime bridge input failed";
@@ -402,10 +449,13 @@ export class RuntimeBridge {
       this.#exports.vine_bridge_metadata_len(),
     );
     invariant(bytes.byteLength > 0, "runtime bridge returned empty metadata");
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+    return JSON.parse(this.#metadataDecoder.decode(bytes)) as T;
   }
 
   #copyOutput(pointer: number, length: number): Uint8Array {
+    if (length === 0) {
+      return emptyBridgeOutput;
+    }
     return Uint8Array.from(new Uint8Array(this.#exports.memory.buffer, pointer, length));
   }
 }

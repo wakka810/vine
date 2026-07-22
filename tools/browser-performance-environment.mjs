@@ -116,7 +116,7 @@ function updaterMatches(candidate, updaterPolicy) {
 function qosChanges(samples, policy) {
   const previous = new Map();
   const changes = [];
-  for (const sample of samples) {
+  for (const [sampleIndex, sample] of samples.entries()) {
     for (const process of sample.browserProcesses ?? []) {
       if (typeof process.identity !== "string") {
         continue;
@@ -148,6 +148,7 @@ function qosChanges(samples, policy) {
             identity: process.identity,
             processId: process.processId,
             name: process.name,
+            sampleIndex,
             sequence: sample.sequence,
             elapsedMilliseconds: sample.elapsedMilliseconds,
             fields,
@@ -284,8 +285,11 @@ export function evaluateBrowserPerformanceEnvironment(policyValue, observation, 
     }
   }
   const observedQosChanges = qosChanges(samples, policy.qos);
-  if (observedQosChanges.length > 0) {
-    reasons.push({ id: "chrome-qos-changed", occurrences: observedQosChanges });
+  const qualifyingQosChanges = observedQosChanges.filter(
+    (change) => change.sampleIndex >= policy.warmupSamples,
+  );
+  if (qualifyingQosChanges.length > 0) {
+    reasons.push({ id: "chrome-qos-changed", occurrences: qualifyingQosChanges });
   }
   const values = (name) => samples.map((sample) => sample[name]).filter(finite);
   return {

@@ -89,7 +89,7 @@ worker.postMessage({
     workload: "private-bgi",
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
-    instructionBudget: scenario === "watchdog" ? 4 : 1024,
+    instructionBudget: scenario === "watchdog" ? 4 : 16_384,
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
     watchdogWallMilliseconds: 20_000,
   },

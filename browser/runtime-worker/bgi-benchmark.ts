@@ -224,7 +224,7 @@ function runSession(sessionId: number): Promise<SessionReport> {
       workload: "private-bgi",
       executableUrl: "./private/BGI.exe",
       policyUrl: "./private/kernel32-policy.json",
-      instructionBudget: 1024,
+      instructionBudget: 16_384,
       watchdogInstructionLimit: 20_000_000,
       watchdogWallMilliseconds: 20_000,
     },

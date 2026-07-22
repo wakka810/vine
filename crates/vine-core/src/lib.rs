@@ -118,12 +118,12 @@ pub use imports::{
 pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
     CPU_WRITEBACK_BINARY_VERSION, CacheEffects, CpuWritebackBatch, CpuWritebackBuffers,
-    CpuWritebackPage, CpuWritebackReceipt, DirtyPage, GUEST_PAGE_SIZE, GuestAddress, GuestMemory,
-    GuestMemoryError, GuestMemoryErrorClass, GuestMemoryTransaction, GuestPageReconciliation,
-    GuestRange, GuestWriteResult, ImageMemoryLayout, MEMORY_DELTA_BINARY_VERSION,
-    MEMORY_REFLECTION_BINARY_VERSION, MappingOperation, MemoryAccess, MemoryDelta,
-    MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
+    CpuWritebackFastReceipt, CpuWritebackPage, CpuWritebackReceipt, DirtyPage, GUEST_PAGE_SIZE,
+    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestMemoryTransaction,
+    GuestPageReconciliation, GuestRange, GuestWriteResult, ImageMemoryLayout,
+    MEMORY_DELTA_BINARY_VERSION, MEMORY_REFLECTION_BINARY_VERSION, MappingOperation, MemoryAccess,
+    MemoryDelta, MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation,
+    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
     MemoryReflectionPage, MemoryRegionKind, MemoryRegionSnapshot, MemoryStats,
     MemoryTransactionStats, PageProtection,
 };

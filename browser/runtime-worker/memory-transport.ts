@@ -330,6 +330,28 @@ export function encodeCpuWritebackControl(
   const headerBytes = 32;
   const descriptorBytes = 8;
   const control = new Uint8Array(headerBytes + pages.length * descriptorBytes);
+  encodeCpuWritebackControlInto(control, generation, pages);
+  return control;
+}
+
+export function cpuWritebackControlByteLength(pageCount: number): number {
+  invariant(Number.isSafeInteger(pageCount) && pageCount >= 0, "invalid writeback page count");
+  return 32 + pageCount * 8;
+}
+
+export function encodeCpuWritebackControlInto(
+  control: Uint8Array,
+  generation: bigint,
+  pages: DirtyMirrorPage[],
+): void {
+  const headerBytes = 32;
+  const descriptorBytes = 8;
+  const controlLength = cpuWritebackControlByteLength(pages.length);
+  invariant(
+    control.byteLength >= controlLength,
+    "writeback control destination length mismatch",
+  );
+  control.fill(0, 0, controlLength);
   control.set(cpuWritebackMagic, 0);
   const controlView = view(control);
   controlView.setUint32(8, 1, true);
@@ -343,7 +365,6 @@ export function encodeCpuWritebackControl(
     controlView.setUint32(offset, page.address, true);
     controlView.setUint32(offset + 4, page.owner, true);
   });
-  return control;
 }
 
 export function encodeCpuWriteback(

@@ -393,6 +393,7 @@ export class V86Mirror implements ExecutionEngine {
   #wasm!: V86Exports;
   readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
+  readonly #writableMappings: MirrorMapping[] = [];
   readonly #reservations = new Map<number, MirrorReservation>();
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
   readonly #borrowedDirtyPages: DirtyMirrorPage[] = [];
@@ -625,6 +626,7 @@ export class V86Mirror implements ExecutionEngine {
       dirty: Boolean(this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty),
     }));
     this.#mappings.clear();
+    this.#writableMappings.length = 0;
     this.#installFreshAdapter(poolBytes);
     for (const page of pages.sort((left, right) => left.address - right.address)) {
       this.#mapPage(
@@ -666,6 +668,7 @@ export class V86Mirror implements ExecutionEngine {
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
     const state = this.saveState().words;
     this.#mappings.clear();
+    this.#writableMappings.length = 0;
     this.#reservations.clear();
     this.#pageTables.clear();
     this.#freePhysicalPages.length = 0;
@@ -891,17 +894,12 @@ export class V86Mirror implements ExecutionEngine {
   #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
     const dirtyMappings = this.#dirtyMappingsScratch;
     dirtyMappings.length = 0;
-    for (const mapping of this.#mappings.values()) {
-      if (!mapping.protection.write) {
-        continue;
-      }
+    for (const mapping of this.#writableMappings) {
       const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
       if ((pte & pageFlags.dirty) !== 0) {
         dirtyMappings.push(mapping);
       }
     }
-    dirtyMappings.sort((left, right) => left.address - right.address);
-
     const dirty = copyBytes ? [] : this.#borrowedDirtyPages;
     dirty.length = 0;
     for (const mapping of dirtyMappings) {
@@ -931,7 +929,9 @@ export class V86Mirror implements ExecutionEngine {
         dirty.push(page);
       }
     }
-    this.#wasm.full_clear_tlb();
+    if (dirtyMappings.length > 0) {
+      this.#wasm.full_clear_tlb();
+    }
     return dirty;
   }
 
@@ -1266,14 +1266,18 @@ export class V86Mirror implements ExecutionEngine {
         (protection.write ? pageFlags.writable : 0),
       true,
     );
-    this.#mappings.set(address, {
+    const mapping = {
       address,
       ...(addressAllocationId === undefined ? {} : { addressAllocationId }),
       owner,
       protection: { ...protection },
       physicalBase,
       pteAddress,
-    });
+    };
+    this.#mappings.set(address, mapping);
+    if (mapping.protection.write) {
+      this.#trackWritableMapping(mapping);
+    }
     invariant(
       this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
       "v86 rejected mapped execute permission",
@@ -1283,6 +1287,11 @@ export class V86Mirror implements ExecutionEngine {
   #updateProtection(address: number, protection: MemoryProtection): void {
     const mapping = this.#mappings.get(address)!;
     const dirty = this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty;
+    invariant(
+      protection.write || dirty === 0,
+      "mirror write protection changed while the CPU page was still dirty",
+    );
+    const wasWritable = mapping.protection.write;
     this.#physicalView.setUint32(
       mapping.pteAddress,
       mapping.physicalBase |
@@ -1293,6 +1302,11 @@ export class V86Mirror implements ExecutionEngine {
       true,
     );
     mapping.protection = { ...protection };
+    if (wasWritable && !protection.write) {
+      this.#untrackWritableMapping(mapping);
+    } else if (!wasWritable && protection.write) {
+      this.#trackWritableMapping(mapping);
+    }
     invariant(
       this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
       "v86 rejected protected execute permission",
@@ -1301,6 +1315,9 @@ export class V86Mirror implements ExecutionEngine {
 
   #unmapPage(address: number): void {
     const mapping = this.#mappings.get(address)!;
+    if (mapping.protection.write) {
+      this.#untrackWritableMapping(mapping);
+    }
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
     invariant(
       this.#wasm.vine_set_page_executable(address, 0) === 0,
@@ -1316,6 +1333,39 @@ export class V86Mirror implements ExecutionEngine {
       this.#pageTables.delete(directoryIndex);
       this.#releasePage(table);
     }
+  }
+
+  #trackWritableMapping(mapping: MirrorMapping): void {
+    let lower = 0;
+    let upper = this.#writableMappings.length;
+    while (lower < upper) {
+      const middle = (lower + upper) >>> 1;
+      if (this.#writableMappings[middle]!.address < mapping.address) {
+        lower = middle + 1;
+      } else {
+        upper = middle;
+      }
+    }
+    invariant(
+      this.#writableMappings[lower]?.address !== mapping.address,
+      "writable mirror mapping is already indexed",
+    );
+    this.#writableMappings.splice(lower, 0, mapping);
+  }
+
+  #untrackWritableMapping(mapping: MirrorMapping): void {
+    let lower = 0;
+    let upper = this.#writableMappings.length;
+    while (lower < upper) {
+      const middle = (lower + upper) >>> 1;
+      if (this.#writableMappings[middle]!.address < mapping.address) {
+        lower = middle + 1;
+      } else {
+        upper = middle;
+      }
+    }
+    invariant(this.#writableMappings[lower] === mapping, "writable mirror mapping index is stale");
+    this.#writableMappings.splice(lower, 1);
   }
 
   #initializeCpu(prepared: ExecutionBootstrap): void {

@@ -97,7 +97,7 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json).
+[`bgi-browser-d3d9-initial-render-states-v2.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json).
 The command prepares Chrome for Testing `151.0.7922.34` from the official
 archive and verifies both the 201,068,834-byte archive SHA-256
 `045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c`
@@ -123,14 +123,16 @@ the workload and keeps it active until the 180-second execution ends. The
 versioned policy records system and Chrome-tree CPU, physical-disk throughput／
 busy time, Chrome process priority／priority boost／power-throttling state, and
 Updater lifecycle. Missing coverage, a sustained external CPU／disk excursion,
-an Updater process, or a same-process QoS change classifies the report as
-`invalid-environment`; it is discarded rather than counted as a workload pass or
-failure. These qualification limits do not alter the 17 workload thresholds.
+an Updater process, or a post-warm-up same-process QoS change classifies the
+report as `invalid-environment`; it is discarded rather than counted as a
+workload pass or failure. Target-creation QoS changes in the first five samples
+remain recorded. These qualification limits do not alter the 17 workload
+thresholds.
 
-`threshold-blocked` is a required failure outcome, not a soft pass. The current
-manifest must retain the failing threshold ID, full distribution count, exact
-first／confirmation report and Node A/B identities, attempted isolation evidence, protected
-threshold／retry invariants, and resume condition.
+`threshold-blocked` remains a required failure outcome, not a soft pass. The
+current manifest is `threshold-passed`, retains no active blocker, and records
+the fixed Chrome artifact, environment qualification, all 17 evaluations, and
+accepted report identity.
 The unchanged fixture has repeated the same heartbeat failure after a quiescent
 host preflight. No downstream primary checkpoint proceeds until a profiled,
 correctness-preserving browser heartbeat／scheduling remediation passes the same

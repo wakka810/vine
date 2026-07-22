@@ -54,6 +54,12 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
     assert_eq!(buffers.page_bytes.len(), 7 * GUEST_PAGE_SIZE as usize);
     assert!(!buffers.control.windows(5).any(|window| window == b"bytes"));
 
+    let (mut fast_memory, fast_reflection, _) = reflected_fixture();
+    assert_eq!(fast_reflection.invalidation.generation, base_generation);
+    let fast_receipt = fast_memory
+        .reconcile_cpu_writeback_binary_fast(&buffers.control, &buffers.page_bytes)
+        .expect("fast CPU writeback");
+
     let receipt = memory
         .reconcile_cpu_writeback_binary(&buffers.control, &buffers.page_bytes)
         .expect("CPU writeback");
@@ -66,6 +72,19 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
     assert_eq!(receipt.changed_bytes, 6);
     assert_eq!(receipt.transferred_bytes, 7 * GUEST_PAGE_SIZE);
     assert_eq!(receipt.content_sha256.len(), 64);
+    assert_eq!(fast_receipt.from_generation, receipt.from_generation);
+    assert_eq!(fast_receipt.generation, receipt.generation);
+    assert_eq!(fast_receipt.touched_pages, receipt.touched_pages);
+    assert_eq!(fast_receipt.changed_pages, receipt.changed_pages);
+    assert_eq!(fast_receipt.unchanged_pages, receipt.unchanged_pages);
+    assert_eq!(fast_receipt.executable_pages, receipt.executable_pages);
+    assert_eq!(fast_receipt.changed_bytes, receipt.changed_bytes);
+    assert_eq!(fast_receipt.transferred_bytes, receipt.transferred_bytes);
+    assert_eq!(fast_memory.stats(), memory.stats());
+    assert_eq!(
+        fast_memory.current_reflection().unwrap().content_sha256,
+        memory.current_reflection().unwrap().content_sha256,
+    );
     assert_eq!(memory.stats().generation, receipt.generation);
     assert_eq!(memory.stats().acknowledged_generation, receipt.generation);
     assert_eq!(memory.stats().dirty_pages, 0);

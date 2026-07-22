@@ -55,6 +55,17 @@ assert(
     .includes('"v86-bgi-'),
   "browser BGI oracle directory must be derived from the active profile",
 );
+const browserRunner = fs.readFileSync(
+  path.join(root, "tools", "run-browser-runtime-check.mjs"),
+  "utf8",
+);
+for (const flag of [
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+]) {
+  assert(browserRunner.includes(`"${flag}"`), `BGI performance runner omitted ${flag}`);
+}
 
 const active = planBgiCheckpointCommand([], manifest, root);
 assert.deepEqual(active.selection, {

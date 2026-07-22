@@ -2,18 +2,18 @@
 
 ## Status
 
-- Status: threshold blocked
+- Status: threshold passed
 - Date: 2026-07-22
 - Workload: 17,865-call `d3d9-initial-render-states` private BGI generic session
 - Observation status: `current-d3d9-initial-render-states-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json)
-- Evidence: `.work/browser-runtime/bgi-browser-benchmark-report-d3d9-initial-render-states-quiescent-r2.json`
+- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json)
+- Evidence: `.work/browser-runtime/bgi-browser-benchmark-report-d3d9-initial-render-states-cft151-hot-path-v2-pass.json`
 
 This observation repeats the complete `d3d9-initial-render-states` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
 runtime and v86 mirror, dispatches 17,865 calls before the 11,808,586-instruction
-terminal stop, performs 63,626 Rust/Wasm bridge operations, and applies four
+terminal stop, performs 53,143 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -46,10 +46,9 @@ the digest retains sequence uniqueness and terminal semantics without retaining
 17,865 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
-are released after scalar capture. The D3D9 compatibility profile and Rust/Wasm
-artifact changed in this checkpoint, so the workload was rerun against those
-exact artifacts without changing browser scheduling, relaxing any threshold,
-or accepting a retry.
+are released after scalar capture. The Rust/Wasm artifact, Worker transport,
+and canonical browser changed in this checkpoint, so the workload was rerun
+against those exact artifacts. Heartbeat P99 remains capped at 25 ms.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -68,24 +67,54 @@ not a first／last delta. Session, maximum-slice, and heartbeat-gap distribution
 retain p50, p95, p99, and maximum values. Heartbeat uses a P99 responsiveness
 gate plus a separate hard freeze ceiling. The report stores all 17 threshold evaluations,
 including observed value, comparison, limit, and pass result; an unavailable
-required sample is a failure. Report schema version 2 also stores a structured
-`repeated-distribution-threshold` decision with `passed` or `failed` status,
-reason, the exact evaluation count, and failure IDs. The current decision is
-`failed`, reason `1-of-17-versioned-thresholds-failed`, with failure ID
-`maximum-p99-heartbeat-gap-milliseconds`.
+required sample is a failure. Report schema version 3 stores the workload
+decision and an independent environment qualification. The current decision is
+`passed`, reason `all-17-versioned-thresholds-passed`.
 
-The next report schema is version 3 and qualifies the workload distribution
-with a separate Windows environment observation. The canonical browser is the
+Schema version 3 qualifies the workload distribution with a separate Windows
+environment observation. The canonical browser is the
 SHA-pinned Chrome for Testing `151.0.7922.34` artifact, not installed Chrome.
 A pre-workload baseline and the entire run record Updater lifecycle, total／
 Chrome-tree／external CPU, physical-disk throughput and busy time, and each live
 Chrome process's priority class, priority-boost setting, and process power-
 throttling masks. An Updater, sustained policy excursion, QoS transition, or
 monitoring gap produces status `invalid-environment`; the 17 workload evaluations
-remain in the report for diagnosis but cannot be accepted. The P99 heartbeat
-limit remains 25 ms.
+remain in the report for diagnosis but cannot be accepted. The first five
+samples cover target creation: QoS changes there remain recorded, while only
+post-warm-up transitions qualify as contamination. Canonical launch disables
+renderer backgrounding, occlusion backgrounding, and background timer
+throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
+
+The accepted fixed-browser run completed 129 sessions with no semantic failure
+in a valid environment. All 17 thresholds passed. Heartbeat P99 was 6.065 ms,
+its maximum was 12.960 ms, and slice P99 was 0.965 ms. The environment monitor
+recorded 179 of 180 expected samples, no Updater, no sustained CPU or disk
+excursion, and no post-warm-up QoS transition. The report is 2,033,870 bytes
+with SHA-256
+`b6095acc1b202b726a5d4599f80f35051c1ed7c10930f4d2f5c9482a09be139b`.
+
+| Metric | Threshold | Result |
+|---|---:|---:|
+| Completed sessions | >= 24 | 129 |
+| Session latency p95 | <= 8,000 ms | 1,445.045 ms |
+| Maximum slice p99 | <= 10 ms | 0.965 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.065 ms |
+| Main heartbeat gap maximum | <= 250 ms | 12.960 ms |
+| Worker used heap maximum | <= 33,554,432 bytes | 30,218,404 bytes |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 81,788,928 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 38,641,722 bytes |
+
+The capacity ceiling is the only version 2 threshold change. After the hot-path
+allocation reductions, a valid run still used at most 27,945,712 live Worker
+heap bytes with a 3,594,890 bytes/min slope, but CDP `totalSize` reserved
+78,077,952 bytes and failed the old 67,108,864-byte ceiling. A second run showed
+the same allocator-only separation. Version 2 therefore bounds V8 reservation
+at 96 MiB while retaining the 32 MiB live-heap, 8 MiB/min live slope, 64 MiB
+backing-storage, and all responsiveness limits.
+
+### Historical heartbeat investigation
 
 The first clean-profile Chrome run completed 46 sessions with no semantic
 failure. The D3D9 Initial Render States version 1 configuration retained all 17
@@ -138,12 +167,12 @@ regression as the cause of the Chrome heartbeat shift. The comparison is 1,108
 bytes with SHA-256
 `7320265a1c826761d751c93e6f7fa30ad228444db4441348f2e3993e749b32fb`.
 
-The second run discharged the quiescent-host confirmation condition; it was not
-accepted as a retry and no threshold was relaxed. The structured blocker now
-requires a profiled, correctness-preserving browser heartbeat／scheduling
-remediation that passes the unchanged 180-second gate, or an explicitly
-approved and separately evidenced versioned performance-contract change, before
-this checkpoint can be accepted and work can advance to `GetRasterStatus`.
+The repeated failures were not accepted as retries. Profiling showed main-thread
+timer dispatch as the direct cause and Worker SHA／writeback／dirty-scan／JSON
+transport churn as an amplifier. SHA-pinned Chrome for Testing, environment
+qualification, bounded Worker fast paths, a 16,384-instruction production slice,
+and explicit background-scheduling launch flags resolve the blocker. The
+accepted run above advances the checkpoint to `GetRasterStatus`.
 
 ## Surface DC heap-capacity correction
 

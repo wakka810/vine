@@ -1299,6 +1299,9 @@ export function validateCurrentCheckpoint(manifest) {
     "decisionReason",
     "runtimeProfile",
     "observationStatus",
+    "chromeArtifactId",
+    "environmentPolicy",
+    "environmentStatus",
   ]) {
     requireString(
       bgiBenchmarkEvidence[field],
@@ -1327,6 +1330,11 @@ export function validateCurrentCheckpoint(manifest) {
     "executionEngineLinearMemoryBytes",
     "thresholdFailures",
     "thresholdEvaluationCount",
+    "environmentSamples",
+    "updaterEvents",
+    "sustainedEnvironmentExcursions",
+    "qosChangesObserved",
+    "qosChangesAfterWarmup",
     "runtimeWorkerBytes",
     "benchmarkMainBytes",
     "runtimeCoreWasmBytes",
@@ -1356,6 +1364,10 @@ export function validateCurrentCheckpoint(manifest) {
   }
   for (const field of [
     "configurationSha256",
+    "chromeManifestSha256",
+    "chromeArchiveSha256",
+    "chromeExecutableSha256",
+    "environmentPolicySha256",
     "runtimeCoreWasmSha256",
     "runtimeWorkerSha256",
     "benchmarkMainSha256",
@@ -1368,15 +1380,28 @@ export function validateCurrentCheckpoint(manifest) {
       errors,
     );
   }
+  const benchmarkEnvironmentReasonIds = requireStringArray(
+    bgiBenchmarkEvidence.environmentReasonIds,
+    "browserCheckpoint.bgiBenchmarkEvidence.environmentReasonIds",
+    errors,
+  );
   if (
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
-    bgiBenchmarkEvidence.schemaVersion !== 2 ||
+    bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json" ||
+      "fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v2.json" ||
     bgiBenchmarkEvidence.runtimeProfile !== "d3d9-initial-render-states" ||
     bgiBenchmarkEvidence.observationStatus !==
       "current-d3d9-initial-render-states-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
+    bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
+    bgiBenchmarkEvidence.environmentPolicy !==
+      "fixtures/benchmarks/browser-performance-environment-windows-v1.json" ||
+    bgiBenchmarkEvidence.environmentStatus !== "valid" ||
+    benchmarkEnvironmentReasonIds.length !== 0 ||
+    bgiBenchmarkEvidence.updaterEvents !== 0 ||
+    bgiBenchmarkEvidence.sustainedEnvironmentExcursions !== 0 ||
+    bgiBenchmarkEvidence.qosChangesAfterWarmup !== 0 ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
     bgiBenchmarkEvidence.decisionReason !==
@@ -1402,6 +1427,12 @@ export function validateCurrentCheckpoint(manifest) {
     browser.bgiBenchmark === "threshold-blocked" ||
     browser.bgiBenchmarkBlocker !== undefined
   ) {
+    if (
+      browser.bgiBenchmark === "threshold-passed" &&
+      browser.bgiBenchmarkBlocker !== undefined
+    ) {
+      errors.push("passed browser benchmark must not retain a structured performance blocker");
+    }
     const benchmarkBlocker = requireRecord(
       browser.bgiBenchmarkBlocker,
       "browserCheckpoint.bgiBenchmarkBlocker",

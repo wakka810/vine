@@ -1389,6 +1389,13 @@ if (serveOnly) {
       ...(process.platform === "linux"
         ? ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
         : []),
+      ...(bgiBenchmarkMilliseconds > 0
+        ? [
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+          ]
+        : []),
       "--disable-background-networking",
       "--disable-breakpad",
       "--disable-component-update",
