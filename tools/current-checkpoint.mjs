@@ -703,6 +703,15 @@ export function validateCurrentCheckpoint(manifest) {
     "getMonitorInfoAInstructionCount",
     "getMonitorInfoALastError",
     "getMonitorInfoAGuestWriteBytes",
+    "directInput8CreateCompletions",
+    "directInput8CreateSequence",
+    "directInput8CreateInstructionCount",
+    "directInput8CreateLastError",
+    "directInput8CreateGuestWriteBytes",
+    "directInput8CreateObjectId",
+    "directInput8CreateInterfaceId",
+    "directInput8CreateReferenceCount",
+    "directInput8CreateBackingBytes",
     "loadLibraryACompletions",
     "loadLibraryASequence",
     "loadLibraryALastError",
@@ -818,17 +827,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 12 ||
-    bgiMappingOperations.commit !== 58 ||
-    bgiMappingOperations.protect !== 19 ||
+    bgiMappingOperations.reserve !== 13 ||
+    bgiMappingOperations.commit !== 60 ||
+    bgiMappingOperations.protect !== 21 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_146 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_346 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_147 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_349 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 57_539 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 57_542 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1234,6 +1243,27 @@ export function validateCurrentCheckpoint(manifest) {
       "vine.logical-monitor.v1" ||
     bgiBrowserEvidence.getMonitorInfoAWorkRect?.join(",") !== "0,0,1920,1032" ||
     bgiBrowserEvidence.getMonitorInfoAOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.directInput8CreateCompletions !== 1 ||
+    bgiBrowserEvidence.directInput8CreateSequence !== 18_442 ||
+    bgiBrowserEvidence.directInput8CreateInstructionCount !== 11_825_212 ||
+    bgiBrowserEvidence.directInput8CreateArguments?.join(",") !==
+      "0x10000000,0x00000800,0x100d22b8,0x10151800,0x00000000" ||
+    bgiBrowserEvidence.directInput8CreateResult !== "0x00000000" ||
+    bgiBrowserEvidence.directInput8CreateLastError !== 0 ||
+    bgiBrowserEvidence.directInput8CreateGuestWriteBytes !== 4 ||
+    bgiBrowserEvidence.directInput8CreateOutputAddress !== "0x10151800" ||
+    bgiBrowserEvidence.directInput8CreatePointer !== "0x01060004" ||
+    bgiBrowserEvidence.directInput8CreateImplementationId !==
+      "dinput8.direct-input-8-create.v1" ||
+    bgiBrowserEvidence.directInput8CreateClassIdentity !==
+      "dinput8.idirectinput8a-root.v1" ||
+    bgiBrowserEvidence.directInput8CreateObjectId !== 9 ||
+    bgiBrowserEvidence.directInput8CreateInterfaceId !== 18 ||
+    bgiBrowserEvidence.directInput8CreateReferenceCount !== 1 ||
+    bgiBrowserEvidence.directInput8CreateBackingAddress !== "0x01060000" ||
+    bgiBrowserEvidence.directInput8CreateBackingBytes !== 8_192 ||
+    bgiBrowserEvidence.directInput8CreateBrowserOwnsComState !== false ||
+    bgiBrowserEvidence.directInput8CreateOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -1474,10 +1504,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "user32-get-monitor-info-a" ||
+      "fixtures/benchmarks/bgi-browser-dinput8-root-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "dinput8-api-contract" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-get-monitor-info-a-observation" ||
+      "current-dinput8-root-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -1969,7 +1999,8 @@ export function validateCurrentCheckpoint(manifest) {
           test !==
             "d3d9_dispatcher::d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables" &&
           test !==
-            "runtime::kernel::tests::d3d9_device_and_texture_commit_guest_com_and_graphics_state_as_one_lifetime",
+            "runtime::kernel::tests::d3d9_device_and_texture_commit_guest_com_and_graphics_state_as_one_lifetime" &&
+          !test.startsWith("dinput8_dispatcher::"),
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
@@ -1998,6 +2029,10 @@ export function validateCurrentCheckpoint(manifest) {
         test ===
           "runtime::kernel::tests::d3d9_device_and_texture_commit_guest_com_and_graphics_state_as_one_lifetime",
     ).length !== 1 ||
+    representativeAtomicTests
+      .filter((test) => test.startsWith("dinput8_dispatcher::"))
+      .join(",") !==
+      "dinput8_dispatcher::direct_input_8_create_installs_owned_identity_and_stops_at_reached_enum_devices,dinput8_dispatcher::factory_oracle_variants_clear_output_without_allocating_com_state,dinput8_dispatcher::factory_can_publish_iunknown_and_preserves_failure_atomicity,dinput8_dispatcher::factory_catalog_fixes_the_five_word_hresult_contract" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -5633,7 +5668,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-get-monitor-info-a.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-dinput8-root.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6095,11 +6130,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_496 ||
-    latestEvidence.writebackDirtyPages !== 36_660 ||
-    latestEvidence.writebackChangedBytes !== 1_816_970 ||
-    latestEvidence.hostDeltaBatches !== 17_146 ||
-    latestEvidence.finalMemoryGeneration !== 36_073
+    latestEvidence.writebackBatches !== 18_497 ||
+    latestEvidence.writebackDirtyPages !== 36_661 ||
+    latestEvidence.writebackChangedBytes !== 1_816_996 ||
+    latestEvidence.hostDeltaBatches !== 17_147 ||
+    latestEvidence.finalMemoryGeneration !== 36_100
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -7663,6 +7698,113 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest logical monitor-information evidence is invalid");
   }
   for (const field of [
+    "nativeDirectInput8RootPrimaryTraceSha256",
+    "nativeDirectInput8RootConfirmationTraceSha256",
+    "directInput8CreateOracleSourceSha256",
+    "directInput8CreateOracleExecutableSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeDirectInput8RootPrimaryTraceBytes !== 234_028 ||
+    latestEvidence.nativeDirectInput8RootPrimaryTraceLines !== 698 ||
+    latestEvidence.nativeDirectInput8RootPrimaryTraceSha256 !==
+      "3fc837713e87b990da6576e19e9bd13e965581e2ab971437fab995a1e9fffe84" ||
+    latestEvidence.nativeDirectInput8RootConfirmationTraceBytes !== 232_973 ||
+    latestEvidence.nativeDirectInput8RootConfirmationTraceLines !== 695 ||
+    latestEvidence.nativeDirectInput8RootConfirmationTraceSha256 !==
+      "5216fa3642e2324fec4412579b9847a244585c3a4301c321a3a860e1ddac6c5c" ||
+    latestEvidence.nativeDirectInput8RootProfile !==
+      "x86-bgi-direct-input-8-root-v1" ||
+    latestEvidence.nativeDirectInput8RootFactoryCallsPerTrace !== 1 ||
+    latestEvidence.nativeDirectInput8RootEnumDevicesCallsPerTrace !== 1 ||
+    latestEvidence.nativeDirectInput8RootFactoryCallerRva !== "0x0005c234" ||
+    latestEvidence.nativeDirectInput8RootFactoryArguments?.join(",") !==
+      "main-module-hinstance,0x00000800,IID_IDirectInput8A,non-null-output,0x00000000" ||
+    latestEvidence.nativeDirectInput8RootIidBytes?.join(",") !==
+      "48,128,121,191,58,72,162,77,170,153,93,100,237,54,151,0" ||
+    latestEvidence.nativeDirectInput8RootFactoryResult !== "0x00000000" ||
+    latestEvidence.nativeDirectInput8RootFactoryOutputNonNull !== true ||
+    latestEvidence.nativeDirectInput8RootFactoryLastErrorBefore !== 0 ||
+    latestEvidence.nativeDirectInput8RootFactoryLastErrorAfter !== 122 ||
+    latestEvidence.nativeDirectInput8RootFactoryConsumer !==
+      "test-hresult-sign-call-helper-and-use-root-interface" ||
+    latestEvidence.nativeDirectInput8RootFirstMethod !== "EnumDevices" ||
+    latestEvidence.nativeDirectInput8RootFirstMethodSlot !== 4 ||
+    latestEvidence.nativeDirectInput8RootFirstMethodCallerRva !== "0x0005c1ce" ||
+    latestEvidence.nativeDirectInput8RootFirstMethodArguments?.join(",") !==
+      "0x00000004,0x1005bef0,0x00000000,0x00000001" ||
+    latestEvidence.nativeDirectInput8RootFirstMethodResult !== "0x00000000" ||
+    latestEvidence.nativeDirectInput8RootFirstMethodLastError !== 0 ||
+    latestEvidence.nativeDirectInput8RootExecutableHashUnchanged !== true ||
+    latestEvidence.directInput8CreateOracleArchitecture !== "coff-i386" ||
+    latestEvidence.directInput8CreateOracleSourceBytes !== 6_196 ||
+    latestEvidence.directInput8CreateOracleSourceSha256 !==
+      "718ebcf0e4fda1985c0ed77b5f4e3f3c8aa4bcbe40ba86743fb1cd8094587595" ||
+    latestEvidence.directInput8CreateOracleExecutableBytes !== 5_120 ||
+    latestEvidence.directInput8CreateOracleExecutableSha256 !==
+      "f1b98b895b09193b186e52377e8c7dceb91995a61c6998fc4fa8e59a2d06d5c9" ||
+    latestEvidence.directInput8CreateOracleValidIids?.join(",") !==
+      "IID_IDirectInput8A,IID_IUnknown" ||
+    latestEvidence.directInput8CreateOracleValidResult !== "0x00000000" ||
+    latestEvidence.directInput8CreateOracleUnknownIidResult !== "0x80004002" ||
+    latestEvidence.directInput8CreateOracleOldVersionResult !== "0x80070481" ||
+    latestEvidence.directInput8CreateOracleNewVersionResult !== "0x8007047e" ||
+    latestEvidence.directInput8CreateOracleFailuresClearOutput !== true ||
+    latestEvidence.directInput8CreateNativeAggregationObserved !==
+      "success-with-null-output" ||
+    latestEvidence.directInput8CreateAggregationPolicy !==
+      "class-e-noaggregation-before-mutation" ||
+    latestEvidence.directInput8CreateSuccessLastErrorPolicy !==
+      "preserve-caller-last-error" ||
+    latestEvidence.directInput8CreateImplemented !== true ||
+    latestEvidence.directInput8CreateSequence !== 18_442 ||
+    latestEvidence.directInput8CreateInstructionCount !== 11_825_212 ||
+    latestEvidence.directInput8CreateArguments?.join(",") !==
+      "0x10000000,0x00000800,0x100d22b8,0x10151800,0x00000000" ||
+    latestEvidence.directInput8CreateReturnAddress !== "0x1005c234" ||
+    latestEvidence.directInput8CreateResult !== "0x00000000" ||
+    latestEvidence.directInput8CreateLastError !== 0 ||
+    latestEvidence.directInput8CreateGuestWriteBytes !== 4 ||
+    latestEvidence.directInput8CreateOutputAddress !== "0x10151800" ||
+    latestEvidence.directInput8CreateOutputPointer !== "0x01060004" ||
+    latestEvidence.directInput8CreateImplementationId !==
+      "dinput8.direct-input-8-create.v1" ||
+    latestEvidence.directInput8CreateStateAuthority !==
+      "runtime/com.rs::RuntimeCom" ||
+    latestEvidence.directInput8CreateClassIdentity !==
+      "dinput8.idirectinput8a-root.v1" ||
+    latestEvidence.directInput8CreateInterface !== "IDirectInput8A" ||
+    latestEvidence.directInput8CreateInterfaceIidBytes?.join(",") !==
+      "48,128,121,191,58,72,162,77,170,153,93,100,237,54,151,0" ||
+    latestEvidence.directInput8CreateVtableSlots !== 11 ||
+    latestEvidence.directInput8CreateObjectId !== 9 ||
+    latestEvidence.directInput8CreateInterfaceId !== 18 ||
+    latestEvidence.directInput8CreateReferenceCount !== 1 ||
+    latestEvidence.directInput8CreateBackingAddress !== "0x01060000" ||
+    latestEvidence.directInput8CreateBackingBytes !== 8_192 ||
+    latestEvidence.directInput8CreateHostDeltaFromGeneration !== 36_073 ||
+    latestEvidence.directInput8CreateHostDeltaGeneration !== 36_099 ||
+    latestEvidence.directInput8CreateHostDeltaMappingOperations !== 5 ||
+    latestEvidence.directInput8CreateHostDeltaDirtyPages?.join(",") !==
+      "0x01060000:22,0x01061000:22,0x10151000:1" ||
+    latestEvidence.directInput8CreateSupportsIunknown !== true ||
+    latestEvidence.directInput8CreateGuestComAtomicity !== true ||
+    latestEvidence.directInput8CreateFailureAtomicity !== true ||
+    latestEvidence.directInput8CreateBrowserOwnsComState !== false ||
+    latestEvidence.directInput8CreateDeviceEnumerationImplemented !== false ||
+    latestEvidence.directInput8CreateBrowserInputImported !== false ||
+    latestEvidence.directInput8CreateNodeCompletions !== 1 ||
+    latestEvidence.directInput8CreateChromeCompletions !== 1 ||
+    latestEvidence.directInput8CreateNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest DirectInput 8 root-factory evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -8275,7 +8417,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "display-owned logical monitor and work-area query with handle-first validation and atomic 40-byte MONITORINFO publication" ||
+      "DirectInput 8 root factory with exact five-word HRESULT ABI and atomic guest-memory/COM identity publication" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

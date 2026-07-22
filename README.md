@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `user32-get-monitor-info-a`: 18441 calls across 87 API contracts, memory generation 36073 |
+| Runtime diagnostics | `dinput8-api-contract`: 18442 calls across 88 API contracts, memory generation 36100 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (127 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (128 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `dinput8.dll!DirectInput8Create(0x10000000, 0x00000800, 0x100d22b8, 0x10151800, 0x00000000)` at instruction 11825212: `endpoint-contract-missing` |
+| Next structured stop | `IDirectInput8A::EnumDevices(0x00000004, 0x1005bef0, 0x00000000, 0x00000001)` at instruction 11825229: `com-method-unsupported` |
 
-The active semantic report is 50,161 bytes with SHA-256
-`ac57d5a0619b1688499be4bac30cacab1b261c38b4d092c3b78d7622c29e7790`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 53,845 bytes with SHA-256
+`298349d459d4d4cd2d92ad807fc6cc261c3719b49d1ddc86273b7abf364e5db3`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -126,6 +126,7 @@ The active semantic report is 50,161 bytes with SHA-256
 - `USER32.dll!MonitorFromWindow`
 - `USER32.dll!GetMonitorInfoA`
 - `WINMM.dll!timeGetTime`
+- `DINPUT8.dll!DirectInput8Create`
 
 ### Reproduce Current Checkpoint
 

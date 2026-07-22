@@ -36,6 +36,8 @@ const focusedD3d9InitialRenderStatesObservation =
 const focusedD3d9RasterStatusObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-raster-status");
+const focusedDinput8RootObservation =
+  selectedObservations.size === 1 && selectedObservations.has("dinput8-root");
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
@@ -69,6 +71,10 @@ const focusedD3d9InitialRenderStateCalls = [];
 let focusedD3d9RasterStatusDevice = null;
 let focusedD3d9RasterStatusComplete = false;
 const focusedD3d9RasterStatusCalls = [];
+let focusedDinput8RootObject = null;
+let focusedDinput8RootComplete = false;
+let focusedDinput8FactoryCall = null;
+const focusedDinput8RootCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2650,7 +2656,7 @@ const hooks = {
   ],
   "gdiplus.dll": [["GdiplusStartup", []]],
   "d3d9.dll": [["Direct3DCreate9", [null]]],
-  "dinput8.dll": [["DirectInput8Create", []]],
+  "dinput8.dll": [["DirectInput8Create", [null, null, null, null, null]]],
   "dsound.dll": [
     ["DirectSoundCreate", []],
     ["DirectSoundCreate8", []],
@@ -2910,6 +2916,20 @@ const idirect3d9Methods = [
   [14, "GetDeviceCaps", 3],
   [15, "GetAdapterMonitor", 1],
   [16, "CreateDevice", 6],
+];
+
+const idirectinput8aMethods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "CreateDevice", 3],
+  [4, "EnumDevices", 4],
+  [5, "GetDeviceStatus", 1],
+  [6, "RunControlPanel", 2],
+  [7, "Initialize", 2],
+  [8, "FindDevice", 3],
+  [9, "EnumDevicesBySemantics", 5],
+  [10, "ConfigureDevices", 4],
 ];
 
 const idirect3ddevice9Methods = [
@@ -4083,6 +4103,168 @@ function attachIdirect3ddevice9(object) {
       object: object.toString(),
       error: error.message,
     });
+  }
+}
+
+function attachIdirectinput8a(object) {
+  if (object.isNull()) {
+    return;
+  }
+  try {
+    const vtable = object.readPointer();
+    const vtableKey = `IDirectInput8A:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      return;
+    }
+    observedVtables.add(vtableKey);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirectinput8aMethods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirectInput8A:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          const caller = describeCaller(this.returnAddress);
+          if (
+            focusedDinput8RootObservation &&
+            (focusedDinput8RootComplete ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase())
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          const objectAddress = args[0].toString();
+          const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
+            args[index + 1].toString(),
+          );
+          this.traceObject = objectAddress;
+          this.traceArguments = arguments_;
+          this.traceDinput8CreateDevice =
+            slot === 3
+              ? {
+                  deviceGuid: snapshotBoundedRawBytes(args[1], 16, 16),
+                  deviceOutput: {
+                    before: snapshotPointerSlot(args[2]),
+                  },
+                  outerUnknown: args[3].toString(),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    96,
+                  ),
+                }
+              : null;
+          this.traceDinput8CreateDeviceOutput = slot === 3 ? args[2] : null;
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirectInput8A",
+              vtableSlot: slot,
+              object: objectAddress,
+              arguments: arguments_,
+            },
+            this.returnAddress,
+          );
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          const lastError = this.lastError;
+          const dinput8CreateDevice =
+            this.traceDinput8CreateDevice === null
+              ? null
+              : {
+                  ...this.traceDinput8CreateDevice,
+                  deviceOutput: {
+                    ...this.traceDinput8CreateDevice.deviceOutput,
+                    after: snapshotPointerSlot(
+                      this.traceDinput8CreateDeviceOutput,
+                    ),
+                  },
+                };
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirectInput8A",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+              ...(dinput8CreateDevice === null
+                ? {}
+                : { dinput8CreateDevice }),
+            },
+            lastError,
+          );
+          if (
+            focusedDinput8RootObservation &&
+            focusedDinput8RootCalls.length === 0
+          ) {
+            focusedDinput8RootCalls.push({
+              callId: this.traceFrame.callId,
+              caller: this.traceFrame.caller,
+              returnAddress: this.returnAddress.toString(),
+              api: name,
+              interface: "IDirectInput8A",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              signedResult: result.toInt32(),
+              lastError: Number(lastError) >>> 0,
+              ...(dinput8CreateDevice === null
+                ? {}
+                : { dinput8CreateDevice }),
+            });
+            setImmediate(maybeCompleteFocusedDinput8RootObservation);
+          }
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirectInput8A",
+      object: object.toString(),
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirectInput8A",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
+function maybeCompleteFocusedDinput8RootObservation() {
+  if (
+    focusedDinput8RootComplete ||
+    focusedDinput8FactoryCall === null ||
+    focusedDinput8RootCalls.length !== 1
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedDinput8RootObservation, 10);
+    return;
+  }
+  focusedDinput8RootComplete = true;
+  emit("dinput8-root-complete", {
+    profile: "x86-bgi-direct-input-8-root-v1",
+    rootObject: focusedDinput8RootObject,
+    factory: focusedDinput8FactoryCall,
+    firstRootCall: focusedDinput8RootCalls[0],
+  });
+  if (stopOnEvent === "dinput8-root-complete") {
+    recv("vine-trace-stop", () => {}).wait();
   }
 }
 
@@ -7489,6 +7671,14 @@ function attachHook(module, name, decoders) {
       const isMainModuleCaller =
         caller.module !== null &&
         caller.module.toLowerCase() === Process.mainModule.name.toLowerCase();
+      const tracesDinput8Factory =
+        (focusedDinput8RootObservation ||
+          selectedVtables.has("idirectinput8a")) &&
+        (!focusedDinput8RootObservation ||
+          (!focusedDinput8RootComplete &&
+            focusedDinput8FactoryCall === null)) &&
+        name === "DirectInput8Create" &&
+        isMainModuleCaller;
       const recordsInitializeCriticalSectionConsumer =
         selectedObservations.has("critical-section") &&
         name === "InitializeCriticalSection" &&
@@ -8041,6 +8231,29 @@ function attachHook(module, name, decoders) {
       const arguments_ = decoders.map((decoder, index) =>
         decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
       );
+      this.traceDinput8Factory = tracesDinput8Factory
+        ? {
+            instance: args[0].toString(),
+            version: args[1].toUInt32(),
+            iid: snapshotBoundedRawBytes(args[2], 16, 16),
+            output: {
+              address: args[3].toString(),
+              before: snapshotPointerSlot(args[3]),
+            },
+            outerUnknown: args[4].toString(),
+            lastErrorBefore: Number(this.lastError) >>> 0,
+            immediateConsumer: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              96,
+            ),
+          }
+        : null;
+      this.traceDinput8FactoryOutput = tracesDinput8Factory
+        ? args[3]
+        : null;
+      this.traceDinput8FactoryArguments = tracesDinput8Factory
+        ? arguments_
+        : null;
       this.traceThreadAffinityPrimaryCall =
         focusedSetThreadAffinityMaskObservation && isMainModuleCaller
           ? ++setThreadAffinityMaskPrimaryCalls
@@ -8517,7 +8730,12 @@ function attachHook(module, name, decoders) {
           }
         : null;
       const observation =
-        this.traceHeapAllocation !== null
+        this.traceDinput8Factory !== null
+          ? {
+              lastErrorBefore: this.traceDinput8Factory.lastErrorBefore,
+              directInput8Create: this.traceDinput8Factory,
+            }
+        : this.traceHeapAllocation !== null
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               heapAllocation: this.traceHeapAllocation,
@@ -9021,7 +9239,18 @@ function attachHook(module, name, decoders) {
               this.lastError = lastError;
               return currentDirectory;
             })();
+      const directInput8Create =
+        this.traceDinput8Factory === null
+          ? null
+          : {
+              ...this.traceDinput8Factory,
+              output: {
+                ...this.traceDinput8Factory.output,
+                after: snapshotPointerSlot(this.traceDinput8FactoryOutput),
+              },
+            };
       const observation = {
+        ...(directInput8Create === null ? {} : { directInput8Create }),
         ...(this.traceHeapAllocation === null
           ? {}
           : {
@@ -9376,6 +9605,32 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (
+        directInput8Create !== null &&
+        result.toInt32() >= 0 &&
+        typeof directInput8Create.output.after.value === "string" &&
+        directInput8Create.output.after.value !== "0x0"
+      ) {
+        const rootObject = directInput8Create.output.after.value.toLowerCase();
+        if (focusedDinput8RootObservation) {
+          focusedDinput8RootObject = rootObject;
+          focusedDinput8FactoryCall = {
+            callId: this.traceFrame.callId,
+            caller: this.traceFrame.caller,
+            returnAddress: this.returnAddress.toString(),
+            arguments: this.traceDinput8FactoryArguments,
+            result: result.toString(),
+            signedResult: result.toInt32(),
+            lastErrorBefore: directInput8Create.lastErrorBefore,
+            lastError: Number(lastError) >>> 0,
+            directInput8Create,
+          };
+        }
+        attachIdirectinput8a(ptr(rootObject));
+        if (focusedDinput8RootObservation) {
+          setImmediate(maybeCompleteFocusedDinput8RootObservation);
+        }
+      }
       if (
         this.traceSourceFileCreate !== null &&
         result.toUInt32() !== 0xffffffff

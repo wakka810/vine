@@ -3951,15 +3951,66 @@ same ordered semantics／digest／memory／stopを再現し、19,191 slices、19
 execution transitions、terminal pending work 0を通した。Browser reportは43,930 bytes／SHA-256
 `42f42b4e1eb57413b8fa5c61faad1e11a0002056130a0d772fe12623cfbd6572`である。
 
-同じ180-second／17-threshold gateはvalid environmentで二回ともsemantic failure 0、16／17 passとなった。
-Heartbeat P99だけが33.480／33.865 msで25 ms ceilingを超え、maximumは43.990／44.550 msで250 ms ceiling内、
-二回目は79 sessionsを完了した。旧performance-frequency stopと新monitor-info stopのsame-host Node三回比較は
-中央値27,192.873／26,989.812 ms（新path -0.747%）で、追加API costはshiftを説明しない。Thresholdを変更せず、
-retryをacceptanceに使わず、exact reports／A/B／resume conditionをcurrent manifestのstructured feasibility
-blockerへ保存した。次stopはinstruction 11,825,212の
-`dinput8.dll!DirectInput8Create(0x10000000,0x00000800,0x100D22B8,0x10151800,0)`、endpoint ID 2／
-`0x7F000010`、IAT `0x100D1050`、return `0x1005C234`、reason `endpoint-contract-missing`である。
-DirectInput identity／device behaviorとhost／browser display importは実装済みとしない。
+同じ180-second／17-threshold gateの先行二runはsemantic failure 0、16／17 passで、Heartbeat P99だけが
+33.480／33.865 msとなった。旧performance-frequency stopとのsame-host Node三回比較は新path -0.747%で、
+追加API costはshiftを説明しなかった。Thresholdを変更せず、retryをacceptanceに使わず、exact reports／A/B／
+resume conditionをstructured feasibility blockerへ保存した。その後、明示的にquiescentなhostで同じfixture、
+pinned Chrome、runtime artifact、17 thresholdsを変更せず127 sessions／semantic failure 0／17-of-17 passを得て
+blockerを解除した。Accepted reportは2,033,566 bytes／SHA-256
+`151750896f8b7e874acb67d3d30334e6b812fb4eb64efd28ebce39d445078b0d`である。これによりinstruction
+11,825,212の`dinput8.dll!DirectInput8Create`へ進んだ。この時点ではDirectInput identity／device behaviorを
+実装済みとしなかった。
+
+## 128. BGI DirectInput 8 root factory and identity
+
+Focused `dinput8-root` observationを独立に2回取得した。Primary raw traceは234,028 bytes／698 records／
+SHA-256 `3fc837713e87b990da6576e19e9bd13e965581e2ab971437fab995a1e9fffe84`、confirmationは
+232,973 bytes／695 records／SHA-256
+`5216fa3642e2324fec4412579b9847a244585c3a4301c321a3a860e1ddac6c5c`である。両runともprofile
+`x86-bgi-direct-input-8-root-v1`でfactoryと直後のfirst methodを一回ずつ捕捉した。Raw traceは`.work/`に
+保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のまま変更していない。
+
+Factoryはcaller RVA `0x0005C234`からmain HINSTANCE、version `0x0800`、
+IID bytes `30 80 79 BF 3A 48 A2 4D AA 99 5D 64 ED 36 97 00` (`IID_IDirectInput8A`)、
+non-NULL output、NULL outerで呼ばれる。NativeはS_OK／non-NULL rootを返し、LastErrorはentry 0から122へ
+変わる。CallerはHRESULTのsignを検査してhelperへ進むため、opaque pointer値やLastError 122はpolicyへ
+importしない。最初のroot callはcaller RVA `0x0005C1CE`のslot 4 `EnumDevices(4,0x1005BEF0,0,1)`で、
+S_OK／LastError 0を返す。
+
+Controlled x86／COFF-i386 oracle sourceは6,196 bytes／SHA-256
+`718ebcf0e4fda1985c0ed77b5f4e3f3c8aa4bcbe40ba86743fb1cd8094587595`、executableは5,120 bytes／
+SHA-256 `f1b98b895b09193b186e52377e8c7dceb91995a61c6998fc4fa8e59a2d06d5c9`である。Version `0x0800`の
+`IID_IDirectInput8A`／`IID_IUnknown`はS_OK、unknown IIDは`E_NOINTERFACE`、`0x0700`は
+`0x80070481`、`0x0900`は`0x8007047E`となり、failure outputはNULLである。Native non-NULL aggregationは
+S_OK／NULL outputという矛盾した形を観測したため、Vineはsilent successを採らず
+`CLASS_E_NOAGGREGATION`をmutation前に返す。Primary outerはNULLであり、このbounded policy差は到達pathを
+変えない。Vine successはcaller LastErrorを保存する。
+
+Runtimeはfive-word stdcall／HRESULT catalogを`dinput8.rs`に置き、`RuntimeCom`をroot object、canonical
+IUnknown、`IDirectInput8A` interface、refcount、8 KiB backing、11-slot vtableの単一authorityとする。
+`ExecutionSession`はCOM installとguest outputを全span／capacity preflight後に一transactionでcommitし、
+failure時はguest bytes、COM allocator、identity、mapping、generationを部分更新しない。IUnknown three slotsは
+shared implementationを使い、残るslotsはexact argument widthを持つtyped unsupported endpointである。
+BrowserはCOM state、input state、device identityを所有しない。
+
+Nodeはfactoryをsequence 18,442／instruction 11,825,212で完了し、output `0x01060004`、object ID 9、
+interface ID 18、refcount 1、backing `0x01060000`／8,192 bytesをpublishした。18,442 supported calls、
+18,497 writebacks／36,661 dirty pages／1,816,996 changed bytes、17,147 host deltas、generation 36,100、
+semantic SHA-256 `a7b449fc05fa1740d568fe199913239d9544d55bb1b644138b852fe45866da08`、final memory
+SHA-256 `442d3f326e8f247cdb82e9cf7efd625ef4d7732e90c04827bd69a860d620e6c1`を固定した。Summary reportは
+53,845 bytes／SHA-256 `298349d459d4d4cd2d92ad807fc6cc261c3719b49d1ddc86273b7abf364e5db3`である。
+Chrome Runtime Workerも同じdigest／memory／stopを再現し、19,192 slices、19,190 writebacks／38,273 pages、
+17,147 mapping deltas／18,349 dirty pages、generation 27→36,795、55,142 Wasm crossings、57,542 execution
+transitions、clean cancel／watchdogを通した。Browser reportは44,578 bytes／SHA-256
+`518d55eb7cd2c77c9a61d71074bdc01dc61e0cafeabbd9bcfcb556bb27c77519`である。
+
+同じ180-second／17-threshold gateはvalid environmentで128 sessions、semantic failure 0、session P95
+1,445.050 ms、slice P99 2.170 ms、heartbeat P99 6.050 ms、17-of-17 passを得た。Reportは2,037,763
+bytes／SHA-256 `a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0a`である。次stopはinstruction
+11,825,229、endpoint `0x01061070`、return `0x1005C1CE`の
+`IDirectInput8A::EnumDevices(this=0x01060004,4,0x1005BEF0,0,1)`、reason `com-method-unsupported`である。
+Device enumeration／callback／device create／acquire／state、DOM inputはまだ実装済みとしない。
 
 ## 121. BGI shared multimedia tick sample
 

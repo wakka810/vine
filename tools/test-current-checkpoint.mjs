@@ -959,6 +959,35 @@ assert.ok(
   ),
 );
 
+const browserOwnedDirectInputComState = structuredClone(manifest);
+browserOwnedDirectInputComState.browserCheckpoint.bgiRuntimeEvidence.directInput8CreateBrowserOwnsComState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDirectInputComState).some((error) =>
+    error.includes("browser BGI authority or teardown evidence"),
+  ),
+);
+
+const partialDirectInputPublication = structuredClone(manifest);
+partialDirectInputPublication.activeRuntimeCheckpoint.latestEvidence.directInput8CreateFailureAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialDirectInputPublication).some((error) =>
+    error.includes("DirectInput 8 root-factory evidence"),
+  ),
+);
+
+const missingDirectInputBoundaryTest = structuredClone(manifest);
+missingDirectInputBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests =
+  missingDirectInputBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests.filter(
+    (test) => !test.includes("factory_can_publish_iunknown"),
+  );
+assert.ok(
+  validateCurrentCheckpoint(missingDirectInputBoundaryTest).some((error) =>
+    error.includes("runtime kernel responsibility boundary"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v4";

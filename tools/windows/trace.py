@@ -12,7 +12,7 @@ from pathlib import Path
 import frida
 
 TRACE_SCHEMA = "vine.win32-trace.v2"
-SUPPORTED_VTABLES = ("idirect3d9",)
+SUPPORTED_VTABLES = ("idirect3d9", "idirectinput8a")
 SUPPORTED_OBSERVATIONS = (
     "startup-info",
     "heap-set-information",
@@ -81,6 +81,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
     "d3d9-raster-status",
+    "dinput8-root",
 )
 
 

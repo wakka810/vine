@@ -38,14 +38,15 @@ use vine_core::{
     TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, UnsupportedPoint,
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
-    d3d9_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_gdi32_api,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, encode_pointer_contract,
-    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_gdi32_api, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, encode_pointer_contract, gdi32_contract_for_endpoint,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -198,6 +199,7 @@ enum GenericRuntimeCapability {
     D3d9RasterStatus,
     QueryPerformanceFrequency,
     GetMonitorInfoA,
+    Dinput8Factory,
 }
 
 struct GenericRuntimeProcess {
@@ -2333,6 +2335,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9RasterStatus
                     | GenericRuntimeCapability::QueryPerformanceFrequency
                     | GenericRuntimeCapability::GetMonitorInfoA
+                    | GenericRuntimeCapability::Dinput8Factory
             )
         ) {
             let loader = kernel32_policy
@@ -2964,6 +2967,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = dinput8_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     winmm_contract_for_endpoint(endpoint).map_err(api_fault)
 }
 
@@ -2975,7 +2981,16 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let requested_capability = enabled_capability;
+    let dinput8_factory_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::Dinput8Factory)
+    );
+    let requested_capability = match enabled_capability {
+        Some(GenericRuntimeCapability::Dinput8Factory) => {
+            Some(GenericRuntimeCapability::GetMonitorInfoA)
+        }
+        capability => capability,
+    };
     let user32_capability = if matches!(
         requested_capability,
         Some(
@@ -3010,7 +3025,7 @@ fn run_v86_generic_runtime_session(
     } else {
         requested_capability
     };
-    let endpoint_capability = match enabled_capability {
+    let endpoint_capability = match requested_capability {
         Some(
             GenericRuntimeCapability::LoadIconA
             | GenericRuntimeCapability::LoadCursorA
@@ -3478,7 +3493,17 @@ fn run_v86_generic_runtime_session(
         let Some(contract) = generic_runtime_contract_for_endpoint(endpoint.clone())? else {
             continue;
         };
-        if runtime_capability_enables_endpoint(requested_capability, endpoint) {
+        let endpoint_enabled = if endpoint.matches(
+            "dinput8.dll",
+            &ApiSymbol::Name {
+                name: "DirectInput8Create".to_owned(),
+            },
+        ) {
+            dinput8_factory_enabled
+        } else {
+            runtime_capability_enables_endpoint(requested_capability, endpoint)
+        };
+        if endpoint_enabled {
             contracts.push(contract);
         }
     }
@@ -4111,6 +4136,8 @@ fn run_v86_generic_runtime_session(
                             dispatch_winmm_api_with_policy(&winmm_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
                             dispatch_d3d9_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("dinput8.dll") {
+                            dispatch_dinput8_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 &kernel32_policy,
@@ -4886,7 +4913,8 @@ fn run_v86_generic_runtime_session(
                         57 => d3d9_policy.initial_render_states.is_some(),
                         _ => true,
                     };
-                    if d3d9_frontend_enabled
+                    if target.object.class_identity.starts_with("d3d9.")
+                        && d3d9_frontend_enabled
                         && matches!(
                             requested_capability,
                             Some(
@@ -11469,6 +11497,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::QueryPerformanceFrequency
                 }
                 "user32-get-monitor-info-a" => GenericRuntimeCapability::GetMonitorInfoA,
+                "dinput8-api-contract" => GenericRuntimeCapability::Dinput8Factory,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

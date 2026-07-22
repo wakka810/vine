@@ -401,13 +401,36 @@ Owner modelはinvalid／non-contained work rect、duplicate configure、stale id
 変更しない。Node／Chromeはsequence 18,439のexact 40 bytes、続く二metric、18,441-call digest、final memory、
 `DirectInput8Create` stopを一致させる。
 
-このcurrent workloadの180-second gateはvalid environmentで二回ともsemantic failure 0かつ16／17 passだが、
-heartbeat P99だけが33.480／33.865 msで25 ms ceilingを超えた。Unchanged confirmationでも再現し、旧
-performance-frequency stopとのNode三回A/Bでは新pathが中央値0.747%速いためAPI cost regressionを支持しない。
-Failure report、environment qualification、A/B、保持するauthority／threshold invariant、再開条件をmanifestの
-structured feasibility blockerへ保存する。Retry passやthreshold緩和でacceptせず、isolated／explicitly
-quiescent hostのunchanged gate、またはevidence付きbrowser scheduling remediationで17／17を通すまで
-`GetMonitorInfoA` checkpointをacceptして`DirectInput8Create`へ進めない。
+このcurrent workloadの180-second gateは、先行二runがsemantic failure 0かつ16／17 passでheartbeat P99だけ
+33.480／33.865 msとなったため、failure report、environment qualification、Node三回A/B、authority／threshold
+invariant、再開条件をstructured feasibility blockerへ保存した。その後、明示的にquiescentなhostで同じ
+configuration、pinned Chrome、runtime artifact、17 thresholdsを変更せず再実行し、127 sessions、heartbeat P99
+6.065 ms、17／17 passを得た。Accepted reportは2,033,566 bytes／SHA-256
+`151750896f8b7e874acb67d3d30334e6b812fb4eb64efd28ebce39d445078b0d`であり、blockerを解除して
+`DirectInput8Create`へ進む。先行failureはhistorical diagnosticsとして保持し、threshold変更や単純retry passの
+根拠にはしない。
+
+Reached `DirectInput8Create`はfive-word／HRESULT ABI、version `0x0800`、NULL outer、required writable
+four-byte output、`IID_IDirectInput8A`／`IID_IUnknown`を固定する。NULL／read-only output、unknown IID、old／new
+version、aggregation、COM capacity exhaustionはconcrete HRESULTでoutputとCOM allocator／identity／mapping／
+generationをpartial mutationしない。Successは`RuntimeCom`のcanonical IUnknownと`IDirectInput8A` identity、
+refcount 1、8 KiB backing、exact 11-slot vtableをguest outputと同じtransactionでpublishする。BrowserはCOM
+stateを所有しない。Native non-NULL aggregationのS_OK／NULL outputはsilent successとして模倣せず、
+`CLASS_E_NOAGGREGATION`をmutation前に返すbounded policy差を明示する。
+
+Focused native two-run evidenceはfactory caller、exact arguments／IID、S_OK／non-NULL output、HRESULT consumerと、
+直後のslot 4 `EnumDevices(4, callback, 0, 1)`を固定する。Controlled COFF-i386 oracleはvalid two-IID、unknown
+IID、version `0x0700／0x0800／0x0900`、failure output clearingを検査する。Rust dispatcher testsはidentity／
+vtable／Release retirement、all negative variants、IUnknown publication、resource exhaustion、catalog ABIを固定する。
+Node／Chromeはsequence 18,442、root pointer／object／interface relation、atomic host delta、18,442-call digest、
+final memory、`IDirectInput8A::EnumDevices` COM stop、clean cancel／watchdogを一致させる。
+
+Current DirectInput root workloadの180-second gateは、同じversioned 17 thresholdsを変更せずvalid environmentで
+128 sessions、semantic failure 0、session P95 1,445.050 ms、slice P99 2.170 ms、heartbeat P99 6.050 ms、
+17／17 passを得た。Accepted reportは2,037,763 bytes／SHA-256
+`a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0a`である。これはroot factory／COM
+identityの成立性を受け入れるが、enumeration callback、device identity、acquire／state、DOM inputをclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

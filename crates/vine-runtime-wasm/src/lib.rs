@@ -23,10 +23,10 @@ use vine_core::{
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
     RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    complete_kernel32_source_read, d3d9_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_gdi32_api, dispatch_kernel32_api_with_policy,
-    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    gdi32_contract_for_endpoint, install_controlled_initial_stack,
+    complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_gdi32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, gdi32_contract_for_endpoint, install_controlled_initial_stack,
     install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
     install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
     kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
@@ -1145,6 +1145,8 @@ impl BrowserRuntime {
                             dispatch_winmm_api_with_policy(winmm_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
                             dispatch_d3d9_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("dinput8.dll") {
+                            dispatch_dinput8_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 kernel32_policy,
@@ -1405,6 +1407,10 @@ impl BrowserRuntime {
         return_address: GuestAddress,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let d3d9_policy = self.d3d9_policy.as_deref();
+        let routes_to_d3d9 = self
+            .runtime
+            .resolve_com_method(endpoint_address)
+            .is_ok_and(|target| target.object.class_identity.starts_with("d3d9."));
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
             let trap = ComCallTrap {
@@ -1413,9 +1419,9 @@ impl BrowserRuntime {
                 return_address,
                 call_site: return_address,
             };
-            match d3d9_policy {
-                Some(policy) => dispatch_d3d9_com_call(policy, trap, &mut session),
-                None => session.dispatch_com_call(trap),
+            match (routes_to_d3d9, d3d9_policy) {
+                (true, Some(policy)) => dispatch_d3d9_com_call(policy, trap, &mut session),
+                _ => session.dispatch_com_call(trap),
             }
         };
         match outcome {
@@ -2308,6 +2314,9 @@ fn bgi_contract_for_endpoint(
         return Ok(Some(contract));
     }
     if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    if let Some(contract) = dinput8_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
     winmm_contract_for_endpoint(endpoint)

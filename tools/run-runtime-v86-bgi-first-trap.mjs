@@ -156,6 +156,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-raster-status",
         "kernel32-query-performance-frequency",
         "user32-get-monitor-info-a",
+        "dinput8-api-contract",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -230,6 +231,8 @@ assert(
       "d3d9-initial-render-states",
       "d3d9-raster-status",
       "kernel32-query-performance-frequency",
+      "user32-get-monitor-info-a",
+      "dinput8-api-contract",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -269,6 +272,7 @@ if (
     "d3d9-raster-status",
     "kernel32-query-performance-frequency",
     "user32-get-monitor-info-a",
+    "dinput8-api-contract",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -301,7 +305,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-initial-render-states" ||
     genericRuntimeCapability === "d3d9-raster-status" ||
     genericRuntimeCapability === "kernel32-query-performance-frequency" ||
-    genericRuntimeCapability === "user32-get-monitor-info-a"
+    genericRuntimeCapability === "user32-get-monitor-info-a" ||
+    genericRuntimeCapability === "dinput8-api-contract"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -436,7 +441,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const dinput8FactoryEnabled =
+  genericRuntimeCapability === "dinput8-api-contract";
 const getMonitorInfoAEnabled =
+  dinput8FactoryEnabled ||
   genericRuntimeCapability === "user32-get-monitor-info-a";
 const queryPerformanceFrequencyEnabled =
   getMonitorInfoAEnabled ||
@@ -676,7 +684,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getMonitorInfoAEnabled
+      ? dinput8FactoryEnabled
+      ? "v86-bgi-dinput8-api-contract"
+      : getMonitorInfoAEnabled
       ? "v86-bgi-get-monitor-info-a"
       : queryPerformanceFrequencyEnabled
       ? "v86-bgi-query-performance-frequency"
@@ -4654,6 +4664,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (dinput8FactoryEnabled) {
+        validateDinput8FactoryResult(genericResult);
       } else if (getMonitorInfoAEnabled) {
         validateGetMonitorInfoAResult(genericResult);
       } else if (queryPerformanceFrequencyEnabled) {
@@ -4837,6 +4849,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dinput8FactoryEnabled
+          ? "bgi DirectInput8 root factory and identity"
           : getMonitorInfoAEnabled
           ? "bgi GetMonitorInfoA logical primary monitor"
           : queryPerformanceFrequencyEnabled
@@ -6068,6 +6082,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : dinput8FactoryEnabled
+          ? 75
         : getMonitorInfoAEnabled
           ? 74
         : queryPerformanceFrequencyEnabled
@@ -6579,8 +6595,8 @@ function applyRuntimeHostDelta(context, delta) {
     if (operation.regionKind === 9) {
       assert(
         (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
-          (d3d9RootFactoryEnabled && comBackingOperation),
-        "runtime-owned mapping is neither callback scratch nor D3D9 COM backing",
+          ((d3d9RootFactoryEnabled || dinput8FactoryEnabled) && comBackingOperation),
+        "runtime-owned mapping is neither callback scratch nor COM backing",
       );
       if (comBackingOperation) {
         assert.equal(operation.address % page.size, 0);
@@ -6590,7 +6606,7 @@ function applyRuntimeHostDelta(context, delta) {
           assert.equal(
             operation.byteLength,
             page.size * 2,
-            "D3D9 COM backing reserve/release must cover exactly two pages",
+            "COM backing reserve/release must cover exactly two pages",
           );
         }
       }
@@ -6611,11 +6627,11 @@ function applyRuntimeHostDelta(context, delta) {
         operation.address === 0x0050_1000 &&
         operation.byteLength === 0x1_0000;
       assert(
-        operation.regionKind === 7 ||
+          operation.regionKind === 7 ||
           (enumDisplayMonitorsEnabled && callbackScratchReserve) ||
-          (d3d9RootFactoryEnabled && comBackingOperation) ||
+          ((d3d9RootFactoryEnabled || dinput8FactoryEnabled) && comBackingOperation) ||
           graphicsResourceOperation,
-        "runtime host reserve is neither a heap, callback scratch, D3D9 COM backing, nor graphics resource",
+        "runtime host reserve is neither a heap, callback scratch, COM backing, nor graphics resource",
       );
       assert.deepEqual(operation.protection, {
         read: false,
@@ -6815,6 +6831,8 @@ function validateGenericComEndpoint(actual, endpoint) {
         ? "d3d9.idirect3dsurface9.v1"
       : target.interface.name === "IDirect3DVertexBuffer9"
         ? "d3d9.idirect3dvertexbuffer9.v1"
+      : target.interface.name === "IDirectInput8A"
+        ? "dinput8.idirectinput8a-root.v1"
         : null;
   assert(expectedClassIdentity, `unexpected generic COM interface ${target.interface.name}`);
   assert.equal(target.method.slot, endpoint.vtableSlot);
@@ -6888,6 +6906,8 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
         ? "d3d9-idirect3dtexture9-method"
       : interfaceName === "IDirect3DSurface9"
         ? "d3d9-idirect3dsurface9-method"
+      : interfaceName === "IDirectInput8A"
+        ? "com-method-dispatch"
         : "d3d9-idirect3dvertexbuffer9-method",
   );
   assert.equal(
@@ -13710,6 +13730,133 @@ function validateGetMonitorInfoAResult(result) {
   ]);
 }
 
+function validateDinput8FactoryResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_442);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_497);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_661,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_816_996,
+  );
+  assert.equal(result.hostDeltas.length, 17_147);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_100);
+
+  const factory = result.supportedCalls.at(-1);
+  assert(factory, "DirectInput8Create completion is missing");
+  assert.equal(factory.sequence, 18_442);
+  assert.equal(factory.occurrence, 1);
+  assert.equal(factory.trapInstructionCount, 11_825_212);
+  assert.equal(factory.module.toLowerCase(), "dinput8.dll");
+  assert.equal(factory.symbol, "DirectInput8Create");
+  assert.deepEqual(factory.arguments, [
+    0x1000_0000,
+    0x0000_0800,
+    0x100d_22b8,
+    0x1015_1800,
+    0,
+  ]);
+  assert.deepEqual(factory.result, { action: "set", value: 0 });
+  assert.equal(factory.implementationId, "dinput8.direct-input-8-create.v1");
+  assert.equal(factory.returnAddress, 0x1005_c234);
+  assert.equal(factory.stackPointerAfter, factory.stackPointerBefore + 24);
+  assert.equal(factory.lastError, 0);
+  assert.equal(factory.guestWrites.length, 1);
+  assert.equal(factory.guestWrites[0].address, 0x1015_1800);
+  assert.deepEqual(factory.guestWrites[0].bytes, [4, 0, 6, 1]);
+  assert.deepEqual(factory.guestWrites[0].result, {
+    bytesWritten: 4,
+    dirtyPages: 1,
+    invalidation: {
+      generation: 36_099,
+      dataTlb: true,
+      instructionFetch: true,
+      generatedCode: true,
+    },
+  });
+
+  const factoryDelta = result.hostDeltas.at(-1);
+  assert(factoryDelta, "DirectInput8Create host delta is missing");
+  assert.equal(factoryDelta.sequence, 18_442);
+  assert.equal(factoryDelta.fromGeneration, 36_073);
+  assert.equal(factoryDelta.generation, 36_099);
+  assert.equal(factoryDelta.mappingOperations, 5);
+  assert.deepEqual(factoryDelta.dirtyPages, [
+    { address: 0x0106_0000, owner: 22 },
+    { address: 0x0106_1000, owner: 22 },
+    { address: 0x1015_1000, owner: 1 },
+  ]);
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "dinput8.idirectinput8a-root.v1");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.object.backing.range.base, 0x0106_0000);
+  assert.equal(endpoint.target.object.backing.range.byteLength, page.size * 2);
+  assert.equal(endpoint.target.interface.name, "IDirectInput8A");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0106_0004);
+  assert.equal(
+    endpoint.target.interface.guestPointer,
+    Buffer.from(factory.guestWrites[0].bytes).readUInt32LE(0),
+  );
+  assert.equal(endpoint.target.interface.objectId, endpoint.target.object.id);
+  assert.equal(endpoint.target.object.interfaceIds[1], endpoint.target.interface.id);
+  assert.equal(Object.keys(endpoint.target.interface.methods).length, 11);
+  assert.equal(endpoint.target.interface.methods["3"].name, "CreateDevice");
+  assert.equal(endpoint.target.interface.methods["3"].explicitArgumentWords, 3);
+  assert.equal(endpoint.target.interface.methods["10"].name, "ConfigureDevices");
+  assert.equal(endpoint.target.interface.methods["10"].explicitArgumentWords, 4);
+  assert.equal(endpoint.target.method.slot, 4);
+  assert.equal(endpoint.target.method.name, "EnumDevices");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 4);
+  assert.equal(result.fault.capabilityCluster, "com-method-dispatch");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_c1ce);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirectInput8A");
+  assert.equal(result.fault.fault.target.vtableSlot, 4);
+  assert.equal(result.fault.fault.target.method, "EnumDevices");
+  assert.equal(result.fault.memory.physicalPages, 732);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "442d3f326e8f247cdb82e9cf7efd625ef4d7732e90c04827bd69a860d620e6c1",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_825_229);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 4);
+  assert.equal(terminal.returnAddress, 0x1005_c1ce);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_c1ce,
+    0x0106_0004,
+    4,
+    0x1005_bef0,
+    0,
+    1,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -16198,6 +16345,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dinput8FactoryEnabled
+        ? "vine.v86-bgi-dinput8-api-contract"
         : getMonitorInfoAEnabled
         ? "vine.v86-bgi-get-monitor-info-a"
         : queryPerformanceFrequencyEnabled

@@ -4,17 +4,17 @@
 
 - Status: threshold passed
 - Date: 2026-07-22
-- Workload: 18,441-call `user32-get-monitor-info-a` private BGI generic session
-- Observation status: `current-get-monitor-info-a-observation`
+- Workload: 18,442-call `dinput8-api-contract` private BGI generic session
+- Observation status: `current-dinput8-root-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json`](../fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-dinput8-root-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-root-v1.json)
 - Accepted evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
-- Historical diagnostic failures: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`, `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
+- Historical monitor diagnostic failures: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`, `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
 
-This observation repeats the complete `user32-get-monitor-info-a` BGI
+This observation repeats the complete `dinput8-api-contract` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 18,441 calls before the 11,825,212-instruction
-`dinput8.dll!DirectInput8Create` terminal stop, performs 55,138 Rust/Wasm bridge
+runtime and v86 mirror, dispatches 18,442 calls before the 11,825,229-instruction
+slot 4 `IDirectInput8A::EnumDevices` terminal stop, performs 55,142 Rust/Wasm bridge
 operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
@@ -38,7 +38,11 @@ status `0000000001000000`. Execution then reads the process-owned 10 MHz
 10,000-tick increments while the caller repeats its raster-polling loop. It then
 publishes the Rust-owned 40-byte primary `MONITORINFO` with monitor rect
 `(0,0)-(1920,1080)`, work rect `(0,0)-(1920,1032)`, and primary flag, followed
-by the reached frame／caption metrics. The successful resource path
+by the reached frame／caption metrics. Execution then completes
+`DirectInput8Create`, atomically publishing one Rust-owned root
+COM object, canonical IUnknown／`IDirectInput8A` identities, refcount 1, exact
+11-slot vtable, and four-byte guest pointer. The next `EnumDevices(4, callback,
+0, 1)` call remains typed unsupported. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
@@ -51,7 +55,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-18,441 detailed call objects or canonical strings on every repetition. Each
+18,442 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The Rust/Wasm artifact, Worker transport,
@@ -95,37 +99,40 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The unchanged canonical gate passed on clean commit `03dbd77` in the explicitly
-quiescent-host condition required by the recorded blocker. It completed 127
-sessions and passed all 17 thresholds without changing the configuration,
-Chrome artifact, launch flags, runtime artifacts, or limits. The report is
-2,033,566 bytes with SHA-256
-`151750896f8b7e874acb67d3d30334e6b812fb4eb64efd28ebce39d445078b0d`.
+The canonical DirectInput root gate completed 128 sessions and passed all 17
+versioned thresholds without changing the Chrome artifact, launch flags, or
+limits. Every session reproduced the exact 18,442-call semantic digest and
+`IDirectInput8A::EnumDevices` stop with zero semantic failure. The report is
+2,037,763 bytes with SHA-256
+`a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0a`.
 
-The environment monitor recorded 179 samples against a minimum of 153, no
+The environment monitor recorded 180 samples against a minimum of 153, no
 Updater, no sustained CPU or disk excursion, and no post-warm-up QoS transition.
-Total CPU mean／maximum were 8.412%／17.135%; browser-tree CPU mean／maximum were
-6.982%／10.230%; external CPU mean／maximum were 1.802%／10.456%. This satisfies
-the predeclared quiescent-host resume condition and removes the structured
-performance blocker.
+Total CPU mean／maximum were 8.407%／17.199%; browser-tree CPU mean／maximum were
+6.967%／9.100%; external CPU mean／maximum were 1.827%／13.048%. The independent
+environment decision is `valid`.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 127 |
+| Completed sessions | >= 24 | 128 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 1,455.940 ms |
-| Maximum slice p99 | <= 10 ms | 1.470 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.065 ms |
-| Main heartbeat gap maximum | <= 250 ms | 36.820 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 2,838,216 bytes |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,034,096 bytes |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 81,526,784 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 40,376,174 bytes |
+| Session latency p95 | <= 8,000 ms | 1,445.050 ms |
+| Maximum slice p99 | <= 10 ms | 2.170 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.050 ms |
+| Main heartbeat gap maximum | <= 250 ms | 27.980 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,103,820 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 261,222.68 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,030,388 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 1,915,764.89 bytes/min |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 76,767,232 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 48,211,996 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 3,425,876.40 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-Before the quiescent run, two unchanged fixed-browser diagnostics completed with
+The preceding monitor checkpoint required an explicitly quiescent-host
+confirmation. Before that accepted run, two unchanged fixed-browser diagnostics completed with
 no semantic failure and valid policy observations but passed only 16 of 17
 thresholds. Their heartbeat P99 values were 33.480 ms and 33.865 ms while
 external CPU averaged 6.169% and 6.388%. The first run retained 21,643 heartbeat
@@ -141,12 +148,12 @@ were 27,192.873 ms and 26,989.812 ms respectively, a `-0.747%` change. The
 it does not support the added monitor-info work as the cause of the Chrome
 heartbeat shift.
 
-The accepted run used the same Worker, Rust/Wasm, v86, configuration, and pinned
+The accepted monitor run used the same Worker, Rust/Wasm, v86, configuration, and pinned
 Chrome hashes as both failures; subsequent commits only captured the already
 measured implementation and its evidence. The shift to heartbeat P99 6.065 ms
 coincides with external CPU mean falling to 1.802%, so no repository scheduling
-remediation is justified. The manifest now advances to `DirectInput8Create`
-while preserving all authority, source immutability, and threshold invariants.
+remediation was justified. That historical blocker was resolved before the
+current DirectInput root run; it was not reopened or bypassed by this result.
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
@@ -373,8 +380,9 @@ any threshold.
 | Chrome | Chrome for Testing `151.0.7922.34` |
 | Node.js | `v24.18.0` |
 
-The reports record base implementation commit `005717c00fb408dea5bf2942d94c92e6fb6fb85d`
-and `dirty: true` for the benchmark implementation under test.
+The current report records base implementation commit
+`78b694f768d7994727905a10b74c7922660561d2` and `dirty: true` for the grouped
+DirectInput implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
 
@@ -382,12 +390,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,686,138 | `d9ae4163a254d35d40e2e87f6d258a196d1e605ad3a8d380b6d55eb6d7a70dd6` |
+| Rust runtime core Wasm | 3,702,615 | `a407e641e98d62a3ba36f02990d69239b8df62fae91807bdedee263835961458` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
 | BGI benchmark bundle | 10,355 | `02115b91f77250831c7ed41f87153d69f2c420bca42fd0f62133ccff1a28bb55` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| GetMonitorInfoA version 1 configuration | 1,179 | `bed535ea5dafbd53e2b70d7e70e39cb74475f5993c2e2f23a0c0ba3706fb82f7` |
+| DirectInput root version 1 configuration | 1,165 | `4236b86d5aaf14295c989ec4f1811d7ac843662b74954cacda6c7fbb53514007` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte
@@ -447,8 +455,10 @@ never falls back to installed Chrome.
   limited to the reached initial-window indices. Monitor coverage is one logical
   primary 40-byte `MONITORINFO`; multiple displays, negative origins, taskbar
   movement, `MONITORINFOEXA`, native screen import, and browser display topology
-  are not measured. DirectInput is only the next structured stop and has no
-  implemented identity or input behavior in this workload. Large-heap coverage is one exact 64 MiB reserve and the pages reached
+  are not measured. DirectInput coverage is limited to the root factory,
+  canonical IUnknown／`IDirectInput8A` identity, refcount, backing, and exact
+  vtable. Device enumeration is the next structured stop; callbacks, device
+  identities, acquire／state, and DOM input remain unimplemented. Large-heap coverage is one exact 64 MiB reserve and the pages reached
   during startup; multiple／arbitrary large allocations and long-lived page growth are
   not measured. No general z-order／resize／activation, queued window message, DOM
   window, bitmap／cursor rendering, hotspot, active cursor, or browser resource is measured.

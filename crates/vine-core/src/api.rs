@@ -6,8 +6,8 @@ use crate::callbacks::{
     CALLBACK_SCRATCH_ARENA_BASE, CALLBACK_SCRATCH_ARENA_SIZE, CALLBACK_SCRATCH_SLOT_SIZE,
 };
 use crate::com::{
-    ComCallTrap, ComDispatchOutcome, ComHResult, ComObjectSpec, InstalledComObject,
-    dispatch_com_call, install_com_object,
+    ComCallTrap, ComDispatchOutcome, ComGuestWriteReceipt, ComHResult, ComObjectSpec,
+    InstalledComObject, dispatch_com_call, install_com_object,
 };
 use crate::environment::InitialProcessEnvironment;
 use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId, RuntimeExportCatalog};
@@ -1569,6 +1569,23 @@ impl<'a> ExecutionSession<'a> {
         spec: ComObjectSpec,
     ) -> Result<InstalledComObject, RuntimeStateError> {
         install_com_object(self.memory, self.runtime, spec)
+    }
+
+    pub(crate) fn install_com_object_with_guest_writes<F>(
+        &mut self,
+        spec: ComObjectSpec,
+        build_guest_writes: F,
+    ) -> Result<(InstalledComObject, Vec<ComGuestWriteReceipt>), RuntimeStateError>
+    where
+        F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+    {
+        crate::com::install_com_object_with_guest_writes(
+            self.memory,
+            self.runtime,
+            None,
+            spec,
+            build_guest_writes,
+        )
     }
 
     pub fn dispatch_com_call(&mut self, trap: ComCallTrap) -> ComDispatchOutcome {

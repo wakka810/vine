@@ -159,6 +159,10 @@ assert.equal(
   bgiProfileOutputDirectory("d3d9-root-factory-and-identity"),
   "v86-bgi-d3d9-root-factory-and-identity",
 );
+assert.equal(
+  bgiProfileOutputDirectory("dinput8-api-contract"),
+  "v86-bgi-dinput8-api-contract",
+);
 assert.throws(() => bgiProfileOutputDirectory("dsound-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

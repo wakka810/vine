@@ -97,7 +97,7 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-query-performance-frequency-v1.json`](../fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json).
+[`bgi-browser-dinput8-root-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-root-v1.json).
 The command prepares Chrome for Testing `151.0.7922.34` from the official
 archive and verifies both the 201,068,834-byte archive SHA-256
 `045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c`
@@ -112,7 +112,8 @@ static-default and dynamic-default texture creations, device slot 26
 four device slot 57 `SetRenderState` calls, then completes slot 19
 `GetRasterStatus`, reads the 10 MHz performance frequency, and advances the
 deterministic performance counter through the reached raster-polling loop before
-the `GetMonitorInfoA` stop. Every summary-evidence
+publishing `GetMonitorInfoA`, creating the Rust-owned `IDirectInput8A` root, and
+stopping at slot 4 `EnumDevices`. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,

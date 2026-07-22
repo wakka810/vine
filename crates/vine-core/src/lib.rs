@@ -5,6 +5,7 @@ mod bootstrap;
 mod callbacks;
 mod com;
 mod d3d9;
+mod dinput8;
 mod dll;
 mod dynamic_exports;
 mod environment;
@@ -85,6 +86,13 @@ pub use d3d9::{
     direct3d_create9_contract, direct3d9_object_spec, direct3ddevice9_object_spec,
     direct3dsurface9_object_spec, direct3dtexture9_object_spec, direct3dvertexbuffer9_object_spec,
     dispatch_d3d9_api, dispatch_d3d9_com_call,
+};
+pub use dinput8::{
+    DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DIERR_BETADIRECTINPUTVERSION,
+    DINPUT8_DIERR_OLDDIRECTINPUTVERSION, DINPUT8_DIRECT_INPUT_8_CREATE_IMPLEMENTATION,
+    DINPUT8_IDIRECTINPUT8A_CLASS_IDENTITY, DINPUT8_IDIRECTINPUT8A_IID, DINPUT8_VERSION,
+    dinput8_contract_for_endpoint, direct_input_8_create_contract, direct_input8a_object_spec,
+    dispatch_dinput8_api,
 };
 pub use dynamic_exports::{
     DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
