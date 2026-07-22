@@ -2,7 +2,7 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-22T08:26:25.227Z",
+  "recordedAt": "2026-07-22T08:41:16.630Z",
   "repository": {
     "implementationCommit": "54d293b5eb370840e1a3895a0f7f04266ee070a2",
     "implementationTree": "67bd189565d7a2cd8c70d01adc289e3d315e5cc8",
@@ -217,19 +217,17 @@
   },
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
-    "status": "threshold-blocked",
+    "status": "threshold-passed",
     "configuration": "fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json",
     "benchmarkClassification": "repeated-distribution-threshold",
-    "decisionStatus": "failed",
-    "decisionReason": "1-of-17-versioned-thresholds-failed",
+    "decisionStatus": "passed",
+    "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
     "durationMilliseconds": 180000,
-    "completedSessions": 79,
+    "completedSessions": 127,
     "failedSessions": 0,
-    "thresholdFailureIds": [
-      "maximum-p99-heartbeat-gap-milliseconds"
-    ],
-    "reportSha256": "1850519d8de4ed97c6d4a5ae4d43c8a2aca95ebec26dc672919e0d35b4dc0c0c"
+    "thresholdFailureIds": [],
+    "reportSha256": "151750896f8b7e874acb67d3d30334e6b812fb4eb64efd28ebce39d445078b0d"
   },
-  "payloadSha256": "b16175157ffaf64b6125223adae779d95a057c5a2467a8832316d2cac1474735"
+  "payloadSha256": "9b91224315c756572aa299be6f5fef2250c0bf7e8e00bbcd779cc0b9c330ecfb"
 }

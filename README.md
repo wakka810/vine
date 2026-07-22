@@ -16,8 +16,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `user32-get-monitor-info-a`: 18441 calls across 87 API contracts, memory generation 36073 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-blocked` (79 sessions) |
-| Active blocker | `user32-get-monitor-info-a-heartbeat-threshold-v1`: `maximum-p99-heartbeat-gap-milliseconds`; Run the unchanged 180-second gate on an isolated or explicitly quiescent host; if heartbeat P99 still exceeds 25 ms, profile and remediate browser scheduling without moving Rust authority or changing thresholds. Accept GetMonitorInfoA and advance to DirectInput8Create only after all 17 thresholds pass. |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (127 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `dinput8.dll!DirectInput8Create(0x10000000, 0x00000800, 0x100d22b8, 0x10151800, 0x00000000)` at instruction 11825212: `endpoint-contract-missing` |
 

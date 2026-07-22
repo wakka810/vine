@@ -2,14 +2,14 @@
 
 ## Status
 
-- Status: threshold blocked
+- Status: threshold passed
 - Date: 2026-07-22
 - Workload: 18,441-call `user32-get-monitor-info-a` private BGI generic session
 - Observation status: `current-get-monitor-info-a-observation`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json`](../fixtures/benchmarks/bgi-browser-get-monitor-info-a-v1.json)
-- First evidence: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`
-- Confirmation evidence: `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
+- Accepted evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
+- Historical diagnostic failures: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`, `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
 
 This observation repeats the complete `user32-get-monitor-info-a` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
@@ -77,7 +77,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current decision is
-`failed`, reason `1-of-17-versioned-thresholds-failed`.
+`passed`, reason `all-17-versioned-thresholds-passed`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -95,41 +95,45 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-Two unchanged fixed-browser runs completed with no semantic failure in valid
-environments. Both passed 16 of 17 thresholds and failed only heartbeat P99:
-33.480 ms and 33.865 ms against the unchanged 25 ms ceiling. Their maximum gaps
-remained below the separate 250 ms freeze ceiling. The first report is 1,644,990
-bytes with SHA-256
-`5b4618c71bf6978a2a72f3e945c89dbc745d9548c981db5be09190d35cd9b468`;
-the confirmation report is 1,553,219 bytes with SHA-256
-`1850519d8de4ed97c6d4a5ae4d43c8a2aca95ebec26dc672919e0d35b4dc0c0c`.
+The unchanged canonical gate passed on clean commit `03dbd77` in the explicitly
+quiescent-host condition required by the recorded blocker. It completed 127
+sessions and passed all 17 thresholds without changing the configuration,
+Chrome artifact, launch flags, runtime artifacts, or limits. The report is
+2,033,566 bytes with SHA-256
+`151750896f8b7e874acb67d3d30334e6b812fb4eb64efd28ebce39d445078b0d`.
 
-The confirmation environment monitor recorded 178 samples against a minimum of
-153, no Updater, no sustained CPU or disk excursion, and no post-warm-up QoS
-transition. Total CPU mean／maximum were 12.860%／23.852%; external CPU
-mean／maximum were 6.388%／17.592%. Environment qualification therefore does not
-discard the failure as a contaminated run.
+The environment monitor recorded 179 samples against a minimum of 153, no
+Updater, no sustained CPU or disk excursion, and no post-warm-up QoS transition.
+Total CPU mean／maximum were 8.412%／17.135%; browser-tree CPU mean／maximum were
+6.982%／10.230%; external CPU mean／maximum were 1.802%／10.456%. This satisfies
+the predeclared quiescent-host resume condition and removes the structured
+performance blocker.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 79 |
+| Completed sessions | >= 24 | 127 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 2,615.540 ms |
-| Maximum slice p99 | <= 10 ms | 4.165 ms |
-| Main heartbeat gap p99 | <= 25 ms | **33.865 ms (failed)** |
-| Main heartbeat gap maximum | <= 250 ms | 44.550 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,357,792 bytes |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,413,804 bytes |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 81,788,928 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 44,215,006 bytes |
+| Session latency p95 | <= 8,000 ms | 1,455.940 ms |
+| Maximum slice p99 | <= 10 ms | 1.470 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.065 ms |
+| Main heartbeat gap maximum | <= 250 ms | 36.820 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 2,838,216 bytes |
+| Worker used heap maximum | <= 33,554,432 bytes | 27,034,096 bytes |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 81,526,784 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 40,376,174 bytes |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The first run retained 21,643 heartbeat samples; 645 exceeded 25 ms and 457
-exceeded 30 ms. The confirmation retained 21,371 samples; 657 exceeded 25 ms
-and 488 exceeded 30 ms. This is a repeated distribution shift, not one maximum
-outlier. A same-host three-run Node A/B compared the preceding
+Before the quiescent run, two unchanged fixed-browser diagnostics completed with
+no semantic failure and valid policy observations but passed only 16 of 17
+thresholds. Their heartbeat P99 values were 33.480 ms and 33.865 ms while
+external CPU averaged 6.169% and 6.388%. The first run retained 21,643 heartbeat
+samples; 645 exceeded 25 ms and 457 exceeded 30 ms. The confirmation retained
+21,371 samples; 657 exceeded 25 ms and 488 exceeded 30 ms. Those reports remain
+historical diagnostics and were not accepted by retry or threshold change.
+
+A same-host three-run Node A/B compared the preceding
 `kernel32-query-performance-frequency` stop with the current stop. Their medians
 were 27,192.873 ms and 26,989.812 ms respectively, a `-0.747%` change. The
 1,059-byte A/B report has SHA-256
@@ -137,13 +141,12 @@ were 27,192.873 ms and 26,989.812 ms respectively, a `-0.747%` change. The
 it does not support the added monitor-info work as the cause of the Chrome
 heartbeat shift.
 
-Neither failure is accepted by retry or threshold change. The current manifest
-records a structured feasibility blocker with the exact reports, attempted
-diagnostics, protected Rust／memory／source invariants, required authority, and
-resume condition. Resume requires the unchanged 180-second gate to pass on an
-isolated or explicitly quiescent host, or a separately profiled browser-
-scheduling remediation that preserves the same 17 thresholds. Until then this
-checkpoint does not advance to `DirectInput8Create`.
+The accepted run used the same Worker, Rust/Wasm, v86, configuration, and pinned
+Chrome hashes as both failures; subsequent commits only captured the already
+measured implementation and its evidence. The shift to heartbeat P99 6.065 ms
+coincides with external CPU mean falling to 1.802%, so no repository scheduling
+remediation is justified. The manifest now advances to `DirectInput8Create`
+while preserving all authority, source immutability, and threshold invariants.
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
