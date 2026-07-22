@@ -9,10 +9,11 @@ use crate::runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
     ProcessAddressAllocationRequest, RUNTIME_COM_IUNKNOWN_IID,
-    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeComBacking, RuntimeComIid,
-    RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration,
-    RuntimeComMethodImplementation, RuntimeComMethodRegistration, RuntimeComMethodTarget,
-    RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
+    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeAudioDevice,
+    RuntimeAudioDeviceCreateRequest, RuntimeComBacking, RuntimeComIid, RuntimeComInterfaceId,
+    RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration, RuntimeComMethodImplementation,
+    RuntimeComMethodRegistration, RuntimeComMethodTarget, RuntimeComObjectId,
+    RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
     RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan,
     RuntimeGraphicsVertexBuffer, RuntimeGraphicsVertexBufferCreateRequest,
     RuntimeGraphicsVertexBufferLock, RuntimeGraphicsVertexBufferLockRequest,
@@ -564,6 +565,71 @@ pub(crate) fn install_com_object_with_guest_writes<F>(
 where
     F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
 {
+    let (installed, audio, guest_writes) = install_com_object_with_guest_writes_internal(
+        memory,
+        runtime,
+        parent_interface_id,
+        spec,
+        None,
+        build_guest_writes,
+    )?;
+    debug_assert!(audio.is_none());
+    Ok((installed, guest_writes))
+}
+
+pub(crate) fn install_audio_device_com_object_with_guest_writes<F>(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    spec: ComObjectSpec,
+    audio_request: RuntimeAudioDeviceCreateRequest,
+    build_guest_writes: F,
+) -> Result<
+    (
+        InstalledComObject,
+        RuntimeAudioDevice,
+        Vec<ComGuestWriteReceipt>,
+    ),
+    RuntimeStateError,
+>
+where
+    F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+{
+    let (installed, audio, guest_writes) = install_com_object_with_guest_writes_internal(
+        memory,
+        runtime,
+        None,
+        spec,
+        Some(audio_request),
+        build_guest_writes,
+    )?;
+    let audio = audio.ok_or_else(|| {
+        RuntimeStateError::runtime_defect(
+            "runtime-audio",
+            "audio-device-installation-result-missing",
+            "audio device installation committed no logical device",
+        )
+    })?;
+    Ok((installed, audio, guest_writes))
+}
+
+fn install_com_object_with_guest_writes_internal<F>(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeKernel,
+    parent_interface_id: Option<RuntimeComInterfaceId>,
+    spec: ComObjectSpec,
+    audio_request: Option<RuntimeAudioDeviceCreateRequest>,
+    build_guest_writes: F,
+) -> Result<
+    (
+        InstalledComObject,
+        Option<RuntimeAudioDevice>,
+        Vec<ComGuestWriteReceipt>,
+    ),
+    RuntimeStateError,
+>
+where
+    F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+{
     validate_object_spec(&spec)?;
     let reservation = runtime.plan_com_address_reservation(com_address_allocation_request())?;
     let allocation = reservation.allocation.clone();
@@ -654,6 +720,9 @@ where
         object: planned_result.object,
         interfaces: planned_result.interfaces,
     };
+    let audio_plan = audio_request
+        .map(|request| runtime.plan_audio_device_creation(request))
+        .transpose()?;
     let additional_writes = build_guest_writes(&planned_installation)?;
     let mut guest_writes = Vec::with_capacity(additional_writes.len());
     for (address, bytes) in additional_writes {
@@ -666,14 +735,23 @@ where
             result,
         });
     }
-    let result = runtime.commit_com_installation(reservation, registration)?;
+    let (result, audio) = if let Some(audio_plan) = audio_plan {
+        let (result, audio) =
+            runtime.commit_com_audio_device_installation(reservation, registration, audio_plan)?;
+        (result, Some(audio))
+    } else {
+        (
+            runtime.commit_com_installation(reservation, registration)?,
+            None,
+        )
+    };
     transaction.commit_transaction();
     let installed = InstalledComObject {
         object: result.object,
         interfaces: result.interfaces,
     };
     debug_assert_eq!(installed, planned_installation);
-    Ok((installed, guest_writes))
+    Ok((installed, audio, guest_writes))
 }
 
 fn com_address_allocation_request() -> ProcessAddressAllocationRequest {

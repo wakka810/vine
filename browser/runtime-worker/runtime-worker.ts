@@ -1212,7 +1212,6 @@ class BrowserRuntimeSession {
   ): void {
     const endpoint = metadata.endpoint;
     invariant(endpoint !== undefined, "BGI completion omitted its endpoint identity");
-    invariant(endpoint.symbol.kind === "name", "BGI reached an ordinal API completion");
     invariant(
       metadata.memory?.generation === Number(this.#generation) &&
         metadata.memory.acknowledgedGeneration <= Number(this.#generation),
@@ -1286,7 +1285,10 @@ class BrowserRuntimeSession {
     const call = {
       sequence,
       module: endpoint.module,
-      symbol: endpoint.symbol.name,
+      symbol:
+        endpoint.symbol.kind === "ordinal"
+          ? `#${endpoint.symbol.ordinal}`
+          : endpoint.symbol.name,
       arguments: frame.arguments.flatMap(({ words }) => words),
       result: completion.eax,
       implementationId: completion.implementationId,

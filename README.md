@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `dinput8-enum-devices`: 18452 calls across 88 API contracts, memory generation 36120 |
+| Runtime diagnostics | `dsound-root-and-cooperative-level`: 18454 calls across 89 API contracts, memory generation 36149 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (127 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `dsound.dll!#11(0x00000000, 0x100feb10, 0x00000000)` at instruction 11921739: `endpoint-contract-missing` |
+| Next structured stop | `IDirectSound8::CreateSoundBuffer(0x100feae8, 0x100feb18, 0x00000000)` at instruction 11921781: `com-method-unsupported` |
 
-The active semantic report is 50,056 bytes with SHA-256
-`4a9a079d1b7b8728d4cba82e649e0fd48b9476390765a0dec7e6306028bafff3`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 54,158 bytes with SHA-256
+`b17523544fa8891d36de94ce907fd8e85767ac7d19e2e11d3a99ab2d323c04fa`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -32,7 +32,7 @@ The active semantic report is 50,056 bytes with SHA-256
 | `immutable-source-asset-access` | Immutable source asset access | `bounded-foundation` | One fingerprinted primary asset range is read through the immutable source gateway |
 | `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached, while pixel storage, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
-| `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound or WinMM playback is not reached |
+| `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 root creation and priority cooperative setup are reached, while buffer creation, playback, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Controlled same-session persistent byte passes; writable overlay, restart, and load are not implemented |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
 | `full-play-long-run` | Full play and long run | `not-reached` | No route, ending, or long-run primary acceptance is claimed |
@@ -127,6 +127,7 @@ The active semantic report is 50,056 bytes with SHA-256
 - `USER32.dll!GetMonitorInfoA`
 - `WINMM.dll!timeGetTime`
 - `DINPUT8.dll!DirectInput8Create`
+- `DSOUND.dll!#11`
 
 ### Reproduce Current Checkpoint
 

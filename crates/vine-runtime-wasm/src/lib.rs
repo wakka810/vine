@@ -10,23 +10,25 @@ use vine_core::{
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
     CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
-    ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
-    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
-    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress,
+    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory,
+    GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
+    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
+    RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
+    WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
     dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
-    dispatch_gdi32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, gdi32_contract_for_endpoint,
+    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
     install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
@@ -326,6 +328,7 @@ struct BrowserRuntime {
     mapping_fixture: BrowserMappingFixture,
     d3d9_policy: Option<Box<D3d9CompatibilityPolicy>>,
     dinput8_policy: Option<Box<Dinput8CompatibilityPolicy>>,
+    dsound_policy: Option<Box<DsoundCompatibilityPolicy>>,
     target: BrowserRuntimeTarget,
 }
 
@@ -477,6 +480,7 @@ impl BrowserRuntime {
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: Some(Box::new(d3d9_policy)),
                 dinput8_policy: None,
+                dsound_policy: None,
                 target: BrowserRuntimeTarget::ControlledFixture,
             },
             metadata,
@@ -525,6 +529,8 @@ impl BrowserRuntime {
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
         dinput8_policy.validate().map_err(api_fault_string)?;
+        let dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
+        dsound_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
             .configure_display_profile(
@@ -665,6 +671,7 @@ impl BrowserRuntime {
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: Some(Box::new(d3d9_policy)),
                 dinput8_policy: Some(Box::new(dinput8_policy)),
+                dsound_policy: Some(Box::new(dsound_policy)),
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
@@ -782,6 +789,7 @@ impl BrowserRuntime {
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: None,
                 dinput8_policy: None,
+                dsound_policy: None,
                 target: BrowserRuntimeTarget::ControlledSourceRead {
                     kernel32_policy: Box::new(kernel32_policy),
                 },
@@ -1153,6 +1161,8 @@ impl BrowserRuntime {
                             dispatch_d3d9_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("dinput8.dll") {
                             dispatch_dinput8_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("dsound.dll") {
+                            dispatch_dsound_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 kernel32_policy,
@@ -1414,6 +1424,7 @@ impl BrowserRuntime {
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let d3d9_policy = self.d3d9_policy.as_deref();
         let dinput8_policy = self.dinput8_policy.as_deref();
+        let dsound_policy = self.dsound_policy.as_deref();
         let class_identity = self
             .runtime
             .resolve_com_method(endpoint_address)
@@ -1425,6 +1436,9 @@ impl BrowserRuntime {
         let routes_to_dinput8 = class_identity
             .as_deref()
             .is_some_and(|identity| identity.starts_with("dinput8."));
+        let routes_to_dsound = class_identity
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("dsound."));
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
             let trap = ComCallTrap {
@@ -1433,19 +1447,26 @@ impl BrowserRuntime {
                 return_address,
                 call_site: return_address,
             };
-            match (
-                routes_to_d3d9,
-                routes_to_dinput8,
-                d3d9_policy,
-                dinput8_policy,
-            ) {
-                (true, false, Some(policy), _) => {
+            if routes_to_d3d9 {
+                if let Some(policy) = d3d9_policy {
                     dispatch_d3d9_com_call(policy, trap, &mut session)
+                } else {
+                    session.dispatch_com_call(trap)
                 }
-                (false, true, _, Some(policy)) => {
+            } else if routes_to_dinput8 {
+                if let Some(policy) = dinput8_policy {
                     dispatch_dinput8_com_call(policy, trap, &mut session)
+                } else {
+                    session.dispatch_com_call(trap)
                 }
-                _ => session.dispatch_com_call(trap),
+            } else if routes_to_dsound {
+                if let Some(policy) = dsound_policy {
+                    dispatch_dsound_com_call(policy, trap, &mut session)
+                } else {
+                    session.dispatch_com_call(trap)
+                }
+            } else {
+                session.dispatch_com_call(trap)
             }
         };
         match outcome {
@@ -2341,6 +2362,9 @@ fn bgi_contract_for_endpoint(
         return Ok(Some(contract));
     }
     if let Some(contract) = dinput8_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    if let Some(contract) = dsound_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
     winmm_contract_for_endpoint(endpoint)

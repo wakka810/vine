@@ -31,6 +31,12 @@ use super::address_space::{
     ProcessAddressReleasePlan, ProcessAddressReservationBatchPlan, ProcessAddressReservationPlan,
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
+use super::audio::{
+    RuntimeAudio, RuntimeAudioComRetirementPlan, RuntimeAudioCooperativeLevelPlan,
+    RuntimeAudioCooperativeLevelRequest, RuntimeAudioCooperativeLevelResult,
+    RuntimeAudioCooperativeLevelUpdateRequest, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
+    RuntimeAudioDeviceCreationPlan, RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
+};
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
     RuntimeComInterfaceRecord, RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectId,
@@ -242,6 +248,7 @@ impl RuntimeCallbackMutationPlan {
 pub(crate) struct RuntimeComReleasePlan {
     com: RuntimeComMutationPlan,
     address_space: Option<ProcessAddressReleasePlan>,
+    audio: Option<RuntimeAudioComRetirementPlan>,
     graphics: Option<RuntimeGraphicsComRetirementPlan>,
     gdi: Option<RuntimeGdiComRetirementGuard>,
     memory_retirements: Vec<(MemoryOwnerId, GuestRange)>,
@@ -377,6 +384,7 @@ pub struct RuntimeKernel {
     messages: RuntimeMessages,
     displays: RuntimeDisplays,
     input: RuntimeInput,
+    audio: RuntimeAudio,
     user32: RuntimeUser32,
     gdi: RuntimeGdi,
     graphics: RuntimeGraphics,
@@ -467,6 +475,8 @@ struct RuntimeStateSnapshot<'a> {
     displays: &'a RuntimeDisplays,
     input: &'a RuntimeInput,
     #[serde(skip_serializing_if = "Option::is_none")]
+    audio: Option<&'a RuntimeAudio>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     user32: Option<&'a RuntimeUser32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<&'a RuntimeGdi>,
@@ -512,6 +522,7 @@ impl Serialize for RuntimeKernel {
             messages: &self.messages,
             displays: &self.displays,
             input: &self.input,
+            audio: (!self.audio.is_empty()).then_some(&self.audio),
             user32: (!self.user32.is_empty()).then_some(&self.user32),
             gdi: (!self.gdi.is_empty()).then_some(&self.gdi),
             graphics: (!self.graphics.is_empty()).then_some(&self.graphics),
@@ -631,6 +642,7 @@ impl RuntimeKernel {
             messages: RuntimeMessages::new(bootstrap.initial_thread_id),
             displays: RuntimeDisplays::default(),
             input: RuntimeInput::default(),
+            audio: RuntimeAudio::default(),
             user32: RuntimeUser32::default(),
             gdi: RuntimeGdi::default(),
             graphics: RuntimeGraphics::default(),
@@ -1018,6 +1030,33 @@ impl RuntimeKernel {
         Ok(result)
     }
 
+    pub(crate) fn plan_audio_device_creation(
+        &self,
+        request: RuntimeAudioDeviceCreateRequest,
+    ) -> Result<RuntimeAudioDeviceCreationPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_device_creation(request)
+    }
+
+    pub(crate) fn commit_com_audio_device_installation(
+        &mut self,
+        reservation: ProcessAddressReservationPlan,
+        com: RuntimeComMutationPlan,
+        audio: RuntimeAudioDeviceCreationPlan,
+    ) -> Result<(RuntimeComRegistrationResult, RuntimeAudioDevice), RuntimeStateError> {
+        self.address_space_allocator
+            .preflight_reservation_commit(&reservation)?;
+        self.com.preflight(&com)?;
+        let result = com.registration_result();
+        validate_com_installation_allocation(&reservation.allocation, &result)?;
+        self.audio
+            .preflight_device_creation(&audio, result.object.id)?;
+        self.address_space_allocator.commit_reservation(reservation);
+        self.com.commit(com);
+        let device = self.audio.commit_device_creation(audio, result.object.id);
+        Ok((result, device))
+    }
+
     pub(crate) fn plan_com_query_interface(
         &self,
         interface_id: RuntimeComInterfaceId,
@@ -1053,6 +1092,9 @@ impl RuntimeKernel {
             .iter()
             .map(|retirement| retirement.object_id)
             .collect::<BTreeSet<_>>();
+        let audio = self
+            .audio
+            .plan_com_object_retirements(&retired_object_ids)?;
         let graphics = self
             .graphics
             .plan_com_object_retirements(&retired_object_ids)?;
@@ -1143,6 +1185,7 @@ impl RuntimeKernel {
         Ok(RuntimeComReleasePlan {
             com,
             address_space,
+            audio,
             graphics,
             gdi,
             memory_retirements,
@@ -1172,6 +1215,9 @@ impl RuntimeKernel {
         if let Some(graphics) = &plan.graphics {
             self.graphics.preflight_com_object_retirement(graphics)?;
         }
+        if let Some(audio) = &plan.audio {
+            self.audio.preflight_com_object_retirement(audio)?;
+        }
         if let Some(gdi) = &plan.gdi {
             self.gdi.preflight_com_object_retirements(gdi)?;
         }
@@ -1190,6 +1236,9 @@ impl RuntimeKernel {
         }
         if let Some(graphics) = plan.graphics {
             self.graphics.commit_com_object_retirement(graphics);
+        }
+        if let Some(audio) = plan.audio {
+            self.audio.commit_com_object_retirement(audio);
         }
         Ok(result)
     }
@@ -3450,6 +3499,57 @@ impl RuntimeKernel {
         self.gdi.surfaces()
     }
 
+    pub(crate) fn plan_audio_cooperative_level(
+        &self,
+        request: RuntimeAudioCooperativeLevelRequest,
+    ) -> Result<RuntimeAudioCooperativeLevelPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        let target = self.resolve_audio_window_target(request.window_handle)?;
+        self.audio
+            .plan_cooperative_level(RuntimeAudioCooperativeLevelUpdateRequest {
+                device_com_object_id: request.device_com_object_id,
+                target,
+                level: request.level,
+            })
+    }
+
+    pub(crate) fn preflight_audio_cooperative_level(
+        &self,
+        plan: &RuntimeAudioCooperativeLevelPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_cooperative_level(plan)?;
+        let state = plan.next_state();
+        let target = self.resolve_audio_window_target(state.window_handle)?;
+        if target.window_id != state.window_id || target.owner_thread_id != state.owner_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-cooperative-window-plan-stale",
+                "logical audio cooperative window changed after planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_audio_cooperative_level(
+        &mut self,
+        plan: RuntimeAudioCooperativeLevelPlan,
+    ) -> Result<RuntimeAudioCooperativeLevelResult, RuntimeStateError> {
+        self.preflight_audio_cooperative_level(&plan)?;
+        Ok(self.audio.commit_cooperative_level(plan))
+    }
+
+    pub fn audio_device(
+        &self,
+        id: RuntimeAudioDeviceId,
+    ) -> Result<&RuntimeAudioDevice, RuntimeStateError> {
+        self.audio.device(id)
+    }
+
+    pub fn audio_devices(&self) -> &BTreeMap<RuntimeAudioDeviceId, RuntimeAudioDevice> {
+        self.audio.devices()
+    }
+
     pub(crate) fn plan_graphics_device_creation(
         &self,
         request: RuntimeGraphicsDeviceCreateRequest,
@@ -3798,6 +3898,45 @@ impl RuntimeKernel {
         self.graphics.surfaces()
     }
 
+    fn resolve_audio_window_target(
+        &self,
+        window_handle: u32,
+    ) -> Result<RuntimeAudioWindowTarget, RuntimeStateError> {
+        let window = self.user32.window(window_handle).map_err(|_| {
+            RuntimeStateError::not_found(
+                "runtime-audio",
+                "audio-window-handle-unknown",
+                format!("logical audio HWND {window_handle:#010x} is not live"),
+            )
+        })?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-window-lifecycle-state-invalid",
+                "logical audio cooperative state requires a created window",
+            ));
+        }
+        if window.creation.parent != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-window-not-top-level",
+                "logical audio cooperative state requires a top-level window",
+            ));
+        }
+        if window.creation.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-window-thread-mismatch",
+                "logical audio cooperative state requires the window owner guest thread",
+            ));
+        }
+        Ok(RuntimeAudioWindowTarget {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id: window.creation.owner_thread_id,
+        })
+    }
+
     fn resolve_graphics_window_target(
         &self,
         window_handle: u32,
@@ -4091,6 +4230,23 @@ impl RuntimeKernel {
                 "runtime-gdi",
                 "gdi-operation-state-invalid",
                 "GDI operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_audio_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-operation-state-invalid",
+                "audio operation requires a running process and active current thread",
             ));
         }
         Ok(())
@@ -5501,7 +5657,7 @@ mod tests {
     use super::*;
     use crate::com::{
         COM_S_OK, ComCallTrap, ComDispatchOutcome, ComFaultClass, ComReturnValue,
-        install_com_object,
+        install_audio_device_com_object_with_guest_writes, install_com_object,
     };
     use crate::d3d9::{
         D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DCULL_NONE,
@@ -5513,6 +5669,10 @@ mod tests {
         D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID,
         D3D9_IDIRECT3DVERTEXBUFFER9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
         dispatch_d3d9_com_call,
+    };
+    use crate::dsound::{
+        DSOUND_DSSCL_PRIORITY, DSOUND_IDIRECTSOUND8_IID, DsoundCompatibilityPolicy,
+        direct_sound8_object_spec, dispatch_dsound_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
@@ -7566,6 +7726,81 @@ mod tests {
         assert!(memory.read(device_interface.guest_pointer, 4).is_err());
         assert!(memory.read(texture_interface.guest_pointer, 4).is_err());
         assert!(memory.read(surface_interface.guest_pointer, 4).is_err());
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+    }
+
+    #[test]
+    fn direct_sound_cooperative_level_commits_the_live_window_relation() {
+        let mut runtime = d3d9_fixture_runtime();
+        let window = seed_created_d3d9_window(&mut runtime);
+        let mut memory = d3d9_fixture_memory();
+        let (installed, device, guest_writes) = install_audio_device_com_object_with_guest_writes(
+            &mut memory,
+            &mut runtime,
+            direct_sound8_object_spec(),
+            RuntimeAudioDeviceCreateRequest {
+                frontend: super::super::RuntimeAudioFrontend::DirectSound8,
+                selector: super::super::RuntimeAudioDeviceSelector::DefaultPlayback,
+            },
+            |_| Ok(Vec::new()),
+        )
+        .expect("install DirectSound root and logical audio device");
+        assert!(guest_writes.is_empty());
+        assert_eq!(device.com_object_id, installed.object.id);
+        let interface = installed
+            .interfaces
+            .iter()
+            .find(|interface| interface.iid == DSOUND_IDIRECTSOUND8_IID)
+            .expect("IDirectSound8 interface")
+            .clone();
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                interface.guest_pointer.0,
+                window.handle,
+                DSOUND_DSSCL_PRIORITY,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let completion = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_dsound_com_call(
+                &DsoundCompatibilityPolicy::controlled_v1(),
+                ComCallTrap {
+                    endpoint_address: interface.methods[&6].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("SetCooperativeLevel did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(completion.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(
+            completion.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 16)
+        );
+        assert!(completion.guest_writes.is_empty());
+        let device = runtime
+            .audio_device(device.id)
+            .expect("logical audio device");
+        let cooperative = device
+            .cooperative
+            .expect("committed DirectSound cooperative state");
+        assert_eq!(cooperative.window_id, window.id);
+        assert_eq!(cooperative.window_handle, window.handle);
+        assert_eq!(cooperative.owner_thread_id, RuntimeThreadId(0x2000));
+        assert_eq!(
+            cooperative.level,
+            super::super::RuntimeAudioCooperativeLevel::Priority
+        );
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
     }
 

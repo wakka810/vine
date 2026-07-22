@@ -83,6 +83,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-raster-status",
     "dinput8-root",
     "dinput8-enum-devices",
+    "dsound-root",
 )
 
 

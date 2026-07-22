@@ -1015,6 +1015,53 @@ assert.ok(
   ),
 );
 
+const browserOwnedDirectSoundState = structuredClone(manifest);
+browserOwnedDirectSoundState.browserCheckpoint.bgiRuntimeEvidence.directSoundCreate8BrowserOwnsComOrAudioState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDirectSoundState).some((error) =>
+    error.includes("browser BGI authority or teardown evidence"),
+  ),
+);
+
+const partialDirectSoundPublication = structuredClone(manifest);
+partialDirectSoundPublication.activeRuntimeCheckpoint.latestEvidence.directSoundCreate8GuestComAudioAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialDirectSoundPublication).some((error) =>
+    error.includes("DirectSound 8 root and cooperative-level evidence"),
+  ),
+);
+
+const browserOwnedDirectSoundCooperativeState = structuredClone(manifest);
+browserOwnedDirectSoundCooperativeState.activeRuntimeCheckpoint.latestEvidence.directSoundSetCooperativeLevelBrowserAudioImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDirectSoundCooperativeState).some((error) =>
+    error.includes("DirectSound 8 root and cooperative-level evidence"),
+  ),
+);
+
+const partialDirectSoundCooperativeCommit = structuredClone(manifest);
+partialDirectSoundCooperativeCommit.activeRuntimeCheckpoint.latestEvidence.directSoundSetCooperativeLevelFailureAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialDirectSoundCooperativeCommit).some((error) =>
+    error.includes("DirectSound 8 root and cooperative-level evidence"),
+  ),
+);
+
+const missingDirectSoundBoundaryTest = structuredClone(manifest);
+missingDirectSoundBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests =
+  missingDirectSoundBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests.filter(
+    (test) => !test.includes("factory_resource_exhaustion_rolls_back_guest_com_and_audio_state"),
+  );
+assert.ok(
+  validateCurrentCheckpoint(missingDirectSoundBoundaryTest).some((error) =>
+    error.includes("runtime kernel responsibility boundary"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v4";

@@ -21,8 +21,9 @@ use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, ProcessAddressAllocationClassification,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeCallbackFrameId,
-    RuntimeCallbackScratch, RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
+    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeAudioDevice,
+    RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
+    RuntimeDynamicEndpoint, RuntimeGuestImport, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
     RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
@@ -1584,6 +1585,31 @@ impl<'a> ExecutionSession<'a> {
             self.runtime,
             None,
             spec,
+            build_guest_writes,
+        )
+    }
+
+    pub(crate) fn install_audio_device_com_object_with_guest_writes<F>(
+        &mut self,
+        spec: ComObjectSpec,
+        request: RuntimeAudioDeviceCreateRequest,
+        build_guest_writes: F,
+    ) -> Result<
+        (
+            InstalledComObject,
+            RuntimeAudioDevice,
+            Vec<ComGuestWriteReceipt>,
+        ),
+        RuntimeStateError,
+    >
+    where
+        F: FnOnce(&InstalledComObject) -> Result<Vec<(GuestAddress, Vec<u8>)>, RuntimeStateError>,
+    {
+        crate::com::install_audio_device_com_object_with_guest_writes(
+            self.memory,
+            self.runtime,
+            spec,
+            request,
             build_guest_writes,
         )
     }

@@ -262,6 +262,13 @@ address allocation、関連logical resource retirementをpreflightしてから�
 API resourceは別namespaceの非所有associationであり、COM refcount authorityを持たない。詳細は
 [com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
+Mutable logical audio device、buffer、cooperative window relation、cursor／clock、notification registrationは
+private `runtime/audio.rs::RuntimeAudio`が所有する。DirectSound COM identity／refcountは`RuntimeCom`、windowの
+liveness／owner-thread relationは`RuntimeUser32`がそれぞれ正本であり、aggregateは全ownerとGuestMemoryを
+preflightしてからaudio planをtargeted commitする。Browser側の`AudioContext`／`AudioNode`／AudioWorklet resource、
+user activation、device lifecycleは別namespaceのadapter stateであり、DirectSound device／buffer／cursorの
+第二の正本にしない。
+
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
 images、import bindings、runtime export tableはprivate
 `runtime/modules.rs::RuntimeModules`だけが所有する。既存`process.modules`／root `moduleGraph`

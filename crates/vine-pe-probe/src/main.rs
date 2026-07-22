@@ -15,21 +15,21 @@ use vine_core::{
     ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
     CallbackReturnSentinel, ComCallCompletion, ComCallTrap, ComDispatchOutcome, ComFault,
     CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
-    DynamicExportThunk, ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult, ImageMaterialization,
-    ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
-    InitialProcessEnvironment, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex, RuntimeObjectKind,
-    RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
+    DsoundCompatibilityPolicy, DynamicExportThunk, ExecutionSession, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult,
+    ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk,
+    ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport,
+    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHeapAllocation, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
+    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex,
+    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
@@ -40,9 +40,10 @@ use vine_core::{
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_gdi32_api,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, encode_pointer_contract,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
     gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
     get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
     get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
@@ -202,6 +203,7 @@ enum GenericRuntimeCapability {
     GetMonitorInfoA,
     Dinput8Factory,
     Dinput8EnumDevices,
+    DsoundRootAndCooperativeLevel,
 }
 
 struct GenericRuntimeProcess {
@@ -2339,6 +2341,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GetMonitorInfoA
                     | GenericRuntimeCapability::Dinput8Factory
                     | GenericRuntimeCapability::Dinput8EnumDevices
+                    | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
             )
         ) {
             let loader = kernel32_policy
@@ -2973,6 +2976,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = dinput8_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = dsound_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     winmm_contract_for_endpoint(endpoint).map_err(api_fault)
 }
 
@@ -2987,16 +2993,27 @@ fn run_v86_generic_runtime_session(
     let dinput8_factory_enabled = matches!(
         enabled_capability,
         Some(
-            GenericRuntimeCapability::Dinput8Factory | GenericRuntimeCapability::Dinput8EnumDevices
+            GenericRuntimeCapability::Dinput8Factory
+                | GenericRuntimeCapability::Dinput8EnumDevices
+                | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
         )
     );
     let dinput8_enum_devices_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::Dinput8EnumDevices)
+        Some(
+            GenericRuntimeCapability::Dinput8EnumDevices
+                | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+        )
+    );
+    let dsound_root_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::DsoundRootAndCooperativeLevel)
     );
     let requested_capability = match enabled_capability {
         Some(
-            GenericRuntimeCapability::Dinput8Factory | GenericRuntimeCapability::Dinput8EnumDevices,
+            GenericRuntimeCapability::Dinput8Factory
+            | GenericRuntimeCapability::Dinput8EnumDevices
+            | GenericRuntimeCapability::DsoundRootAndCooperativeLevel,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3329,6 +3346,8 @@ fn run_v86_generic_runtime_session(
         dinput8_policy.enum_devices = None;
     }
     dinput8_policy.validate().map_err(api_fault)?;
+    let dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
+    dsound_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
         Some(
@@ -3514,6 +3533,8 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             dinput8_factory_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("dsound.dll") {
+            dsound_root_enabled
         } else {
             runtime_capability_enables_endpoint(requested_capability, endpoint)
         };
@@ -4152,6 +4173,8 @@ fn run_v86_generic_runtime_session(
                             dispatch_d3d9_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("dinput8.dll") {
                             dispatch_dinput8_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("dsound.dll") {
+                            dispatch_dsound_api(contract, frame, session)
                         } else {
                             dispatch_kernel32_api_with_policy(
                                 &kernel32_policy,
@@ -4964,6 +4987,10 @@ fn run_v86_generic_runtime_session(
                         && dinput8_enum_devices_enabled
                     {
                         dispatch_dinput8_com_call(&dinput8_policy, trap, &mut session)
+                    } else if target.object.class_identity.starts_with("dsound.")
+                        && dsound_root_enabled
+                    {
+                        dispatch_dsound_com_call(&dsound_policy, trap, &mut session)
                     } else {
                         session.dispatch_com_call(trap)
                     }
@@ -11517,6 +11544,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-get-monitor-info-a" => GenericRuntimeCapability::GetMonitorInfoA,
                 "dinput8-api-contract" => GenericRuntimeCapability::Dinput8Factory,
                 "dinput8-enum-devices" => GenericRuntimeCapability::Dinput8EnumDevices,
+                "dsound-root-and-cooperative-level" => {
+                    GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

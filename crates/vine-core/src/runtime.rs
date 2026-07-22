@@ -5,6 +5,7 @@
 //! its compatibility name for existing callers.
 
 mod address_space;
+mod audio;
 mod com;
 mod displays;
 mod files;
@@ -33,6 +34,12 @@ pub use address_space::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
     validate_process_address_mapping_allocation,
 };
+pub use audio::{
+    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT, RuntimeAudioCooperativeLevel,
+    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState, RuntimeAudioDevice,
+    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
+};
+pub(crate) use audio::{RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest};
 pub use com::{
     RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,
     RUNTIME_COM_MAX_METHODS_PER_INTERFACE, RuntimeCom, RuntimeComBacking, RuntimeComIid,

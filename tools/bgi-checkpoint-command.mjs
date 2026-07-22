@@ -21,6 +21,7 @@ export function bgiProfileOutputDirectory(profile) {
     !profile.startsWith("winmm-") &&
     !profile.startsWith("d3d9-") &&
     !profile.startsWith("dinput8-") &&
+    !profile.startsWith("dsound-") &&
     !profile.startsWith("gdi-")
   ) {
     throw new Error(`BGI profile must be baseline or a runtime capability: ${profile}`);
