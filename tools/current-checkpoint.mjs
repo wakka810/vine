@@ -818,12 +818,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 19 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 16_574 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 17_774 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_145 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_345 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 55_814 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 57_530 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1178,6 +1178,38 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.d3d9GetRasterStatusHostScanoutImported !== false ||
     bgiBrowserEvidence.d3d9GetRasterStatusBrowserScanoutImported !== false ||
     bgiBrowserEvidence.d3d9GetRasterStatusOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.queryPerformanceFrequencyCompletions !== 1 ||
+    bgiBrowserEvidence.queryPerformanceFrequencySequence !== 17_867 ||
+    bgiBrowserEvidence.queryPerformanceFrequencyInstructionCount !== 11_808_626 ||
+    bgiBrowserEvidence.queryPerformanceFrequencyArguments?.join(",") !==
+      "0x006ffcf0" ||
+    bgiBrowserEvidence.queryPerformanceFrequencyResult !== "0x00000001" ||
+    bgiBrowserEvidence.queryPerformanceFrequencyLastError !== 0 ||
+    bgiBrowserEvidence.queryPerformanceFrequencyGuestWriteBytes !== 8 ||
+    bgiBrowserEvidence.queryPerformanceFrequencyOutputAddress !== "0x006ffcf0" ||
+    bgiBrowserEvidence.queryPerformanceFrequencyOutputHex !== "8096980000000000" ||
+    bgiBrowserEvidence.queryPerformanceFrequencyValue !== 10_000_000 ||
+    bgiBrowserEvidence.queryPerformanceFrequencyImplementationId !==
+      "kernel32.query-performance-frequency.v1" ||
+    bgiBrowserEvidence.queryPerformanceFrequencyStateMutation !== false ||
+    bgiBrowserEvidence.queryPerformanceFrequencyHostClockImported !== false ||
+    bgiBrowserEvidence.queryPerformanceFrequencyBrowserClockImported !== false ||
+    bgiBrowserEvidence.queryPerformanceFrequencyOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.queryPerformanceCounterCompletions !== 301 ||
+    bgiBrowserEvidence.queryPerformanceCounterFirstSequence !== 5 ||
+    bgiBrowserEvidence.queryPerformanceCounterSecondSequence !== 17_868 ||
+    bgiBrowserEvidence.queryPerformanceCounterLastSequence !== 18_437 ||
+    bgiBrowserEvidence.queryPerformanceCounterFirstValue !== "12345678901" ||
+    bgiBrowserEvidence.queryPerformanceCounterSecondValue !== "12345688901" ||
+    bgiBrowserEvidence.queryPerformanceCounterLastValue !== "12348678901" ||
+    bgiBrowserEvidence.queryPerformanceCounterIncrementPerRead !== 10_000 ||
+    bgiBrowserEvidence.queryPerformanceCounterImplementationId !==
+      "kernel32.query-performance-counter.v1" ||
+    bgiBrowserEvidence.queryPerformanceCounterStateAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    bgiBrowserEvidence.queryPerformanceCounterHostClockImported !== false ||
+    bgiBrowserEvidence.queryPerformanceCounterBrowserClockImported !== false ||
+    bgiBrowserEvidence.queryPerformanceCounterOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -1418,10 +1450,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-d3d9-raster-status-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "d3d9-raster-status" ||
+      "fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "kernel32-query-performance-frequency" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-d3d9-raster-status-observation" ||
+      "current-query-performance-frequency-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -4779,6 +4811,12 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.osVersionInfoAHostVersionImported !== false ||
     kernel32Policy.osVersionInfoABrowserVersionImported !== false ||
     kernel32Policy.tickCountIncrementPerRead !== 1 ||
+    kernel32Policy.performanceCounterFrequency !== 10_000_000 ||
+    kernel32Policy.performanceCounterIncrementPerRead !== 10_000 ||
+    kernel32Policy.performanceCounterAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    kernel32Policy.performanceCounterHostClockImported !== false ||
+    kernel32Policy.performanceCounterBrowserClockImported !== false ||
     !Array.isArray(heapAllocator.allowedFlags) ||
     heapAllocator.allowedFlags.join(",") !== "0,8" ||
     heapAllocator.minimumAllocationBytes !== 1 ||
@@ -5559,7 +5597,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-d3d9-raster-status.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-query-performance-frequency.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6021,11 +6059,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 17_921 ||
-    latestEvidence.writebackDirtyPages !== 36_076 ||
-    latestEvidence.writebackChangedBytes !== 1_807_863 ||
-    latestEvidence.hostDeltaBatches !== 16_574 ||
-    latestEvidence.finalMemoryGeneration !== 34_926
+    latestEvidence.writebackBatches !== 18_493 ||
+    latestEvidence.writebackDirtyPages !== 36_650 ||
+    latestEvidence.writebackChangedBytes !== 1_816_818 ||
+    latestEvidence.hostDeltaBatches !== 17_145 ||
+    latestEvidence.finalMemoryGeneration !== 36_069
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -7360,6 +7398,145 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest D3D9 GetRasterStatus evidence is invalid");
   }
   for (const field of [
+    "nativeQueryPerformanceFrequencyPrimaryTraceSha256",
+    "nativeQueryPerformanceFrequencyPrimarySummarySha256",
+    "nativeQueryPerformanceFrequencyConfirmationTraceSha256",
+    "nativeQueryPerformanceFrequencyConfirmationSummarySha256",
+    "nativeQueryPerformanceCounterPrimaryTraceSha256",
+    "nativeQueryPerformanceCounterPrimarySummarySha256",
+    "nativeQueryPerformanceCounterConfirmationTraceSha256",
+    "nativeQueryPerformanceCounterConfirmationSummarySha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeQueryPerformanceFrequencyPrimaryTraceBytes !== 186_666 ||
+    latestEvidence.nativeQueryPerformanceFrequencyPrimaryTraceLines !== 469 ||
+    latestEvidence.nativeQueryPerformanceFrequencyPrimaryTraceSha256 !==
+      "d8d40e8dece88280ab1d35283b143359a447d3608b4abc5bf80e705198d86790" ||
+    latestEvidence.nativeQueryPerformanceFrequencyPrimarySummaryBytes !== 36_690 ||
+    latestEvidence.nativeQueryPerformanceFrequencyPrimarySummarySha256 !==
+      "5a7b742f190a59cd9d50df2deca1283e3f88356fc98de88119815e97964177ab" ||
+    latestEvidence.nativeQueryPerformanceFrequencyConfirmationTraceBytes !==
+      185_056 ||
+    latestEvidence.nativeQueryPerformanceFrequencyConfirmationTraceLines !== 464 ||
+    latestEvidence.nativeQueryPerformanceFrequencyConfirmationTraceSha256 !==
+      "1d3b500b87d2482ffbce59f0363c1506e81683b89aba476adc53184fad637a03" ||
+    latestEvidence.nativeQueryPerformanceFrequencyConfirmationSummaryBytes !==
+      36_866 ||
+    latestEvidence.nativeQueryPerformanceFrequencyConfirmationSummarySha256 !==
+      "5e144ad4a2b037ddc1ebc15a9151134df430b0d9fff18237cdeaa060c45fc40d" ||
+    latestEvidence.nativeQueryPerformanceFrequencyTraceDiagnostics !== 0 ||
+    latestEvidence.nativeQueryPerformanceFrequencyProfile !==
+      "x86-bgi-query-performance-frequency-v1" ||
+    latestEvidence.nativeQueryPerformanceFrequencyOracleProfile !==
+      "x86-stable-performance-frequency-v1" ||
+    latestEvidence.nativeQueryPerformanceFrequencyOracleCallsPerTrace !== 3 ||
+    latestEvidence.nativeQueryPerformanceFrequencyOracleAllSucceeded !== true ||
+    latestEvidence.nativeQueryPerformanceFrequencyOracleAllPreservedLastError !==
+      true ||
+    latestEvidence.nativeQueryPerformanceFrequencyOracleGuardsPreserved !== true ||
+    latestEvidence.nativeQueryPerformanceFrequencyValue !== 10_000_000 ||
+    latestEvidence.nativeQueryPerformanceFrequencyStableAcrossCallsAndRuns !== true ||
+    latestEvidence.nativeQueryPerformanceFrequencyCallerRva !== "0x00091fd7" ||
+    latestEvidence.nativeQueryPerformanceFrequencyConsumer !==
+      "fallback-to-1000-on-failure-and-store-frequency-for-counter-ratio" ||
+    latestEvidence.nativeQueryPerformanceFrequencyExecutableHashUnchanged !== true ||
+    latestEvidence.nativeQueryPerformanceCounterPrimaryTraceBytes !== 241_192 ||
+    latestEvidence.nativeQueryPerformanceCounterPrimaryTraceLines !== 477 ||
+    latestEvidence.nativeQueryPerformanceCounterPrimaryTraceSha256 !==
+      "976b08a862fb847f55460ad0c4c6fa00b50c71dcd250beda60310c5fd60f0398" ||
+    latestEvidence.nativeQueryPerformanceCounterPrimarySummaryBytes !== 38_763 ||
+    latestEvidence.nativeQueryPerformanceCounterPrimarySummarySha256 !==
+      "9d13cdace9dc15366319fa8570efc451d66481a81779acbf3f733515623cedf0" ||
+    latestEvidence.nativeQueryPerformanceCounterConfirmationTraceBytes !== 284_763 ||
+    latestEvidence.nativeQueryPerformanceCounterConfirmationTraceLines !== 477 ||
+    latestEvidence.nativeQueryPerformanceCounterConfirmationTraceSha256 !==
+      "7f77b57c662d2bcacb3c5db417bb7de07412df1388eea390eb1a9a5b1c1f71d9" ||
+    latestEvidence.nativeQueryPerformanceCounterConfirmationSummaryBytes !==
+      39_582 ||
+    latestEvidence.nativeQueryPerformanceCounterConfirmationSummarySha256 !==
+      "0fd05c7688e7330b9644ad9d908e2e1ecddb15a4f7513e57a3e5f8cd9134e32a" ||
+    latestEvidence.nativeQueryPerformanceCounterTraceDiagnostics !== 0 ||
+    latestEvidence.nativeQueryPerformanceCounterProfile !==
+      "x86-bgi-query-performance-counter-progression-v1" ||
+    latestEvidence.nativeQueryPerformanceCounterOracleProfile !==
+      "x86-monotonic-performance-counter-v1" ||
+    latestEvidence.nativeQueryPerformanceCounterOracleCallsPerTrace !== 4 ||
+    latestEvidence.nativeQueryPerformanceCounterOracleDeltasPrimary?.join(",") !==
+      "4396,4020,3984" ||
+    latestEvidence.nativeQueryPerformanceCounterOracleDeltasConfirmation?.join(",") !==
+      "3791,3117,3349" ||
+    latestEvidence.nativeQueryPerformanceCounterOracleStrictlyIncreasing !== true ||
+    latestEvidence.nativeQueryPerformanceCounterOracleAllSucceeded !== true ||
+    latestEvidence.nativeQueryPerformanceCounterOracleAllPreservedLastError !== true ||
+    latestEvidence.nativeQueryPerformanceCounterOracleGuardsPreserved !== true ||
+    latestEvidence.nativeQueryPerformanceCounterInitialCallerRva !== "0x000a88fa" ||
+    latestEvidence.nativeQueryPerformanceCounterTargetCallerRva !== "0x00092017" ||
+    latestEvidence.nativeQueryPerformanceCounterTargetSampleDelta !== 17_953 ||
+    latestEvidence.nativeQueryPerformanceCounterTargetSampleDeltaMillisecondsAtFrequency !==
+      1.7953 ||
+    latestEvidence.nativeQueryPerformanceCounterConsumer !==
+      "divide-counter-by-frequency-with-get-tick-count-fallback-on-failure" ||
+    latestEvidence.nativeQueryPerformanceCounterExecutableHashUnchanged !== true ||
+    latestEvidence.queryPerformanceFrequencyImplemented !== true ||
+    latestEvidence.queryPerformanceFrequencySequence !== 17_867 ||
+    latestEvidence.queryPerformanceFrequencyInstructionCount !== 11_808_626 ||
+    latestEvidence.queryPerformanceFrequencyArguments?.join(",") !== "0x006ffcf0" ||
+    latestEvidence.queryPerformanceFrequencyReturnAddress !== "0x10091fd7" ||
+    latestEvidence.queryPerformanceFrequencyResult !== "0x00000001" ||
+    latestEvidence.queryPerformanceFrequencyLastError !== 0 ||
+    latestEvidence.queryPerformanceFrequencyGuestWriteBytes !== 8 ||
+    latestEvidence.queryPerformanceFrequencyOutputHex !== "8096980000000000" ||
+    latestEvidence.queryPerformanceFrequencyValue !== 10_000_000 ||
+    latestEvidence.queryPerformanceFrequencyImplementationId !==
+      "kernel32.query-performance-frequency.v1" ||
+    latestEvidence.queryPerformanceFrequencyStateAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    latestEvidence.queryPerformanceFrequencyRuntimeStateMutation !== false ||
+    latestEvidence.queryPerformanceFrequencyFailureAtomicity !== true ||
+    latestEvidence.queryPerformanceFrequencyHostClockImported !== false ||
+    latestEvidence.queryPerformanceFrequencyBrowserClockImported !== false ||
+    latestEvidence.queryPerformanceFrequencyNodeChromeOrderedSemanticsMatched !== true ||
+    latestEvidence.queryPerformanceCounterCallCount !== 301 ||
+    latestEvidence.queryPerformanceCounterFirstSequence !== 5 ||
+    latestEvidence.queryPerformanceCounterFirstInstructionCount !== 34 ||
+    latestEvidence.queryPerformanceCounterFirstArguments?.join(",") !== "0x006fffe4" ||
+    latestEvidence.queryPerformanceCounterFirstReturnAddress !== "0x100a88fa" ||
+    latestEvidence.queryPerformanceCounterFirstResult !== "0x00000001" ||
+    latestEvidence.queryPerformanceCounterFirstLastError !== 87 ||
+    latestEvidence.queryPerformanceCounterFirstValue !== "12345678901" ||
+    latestEvidence.queryPerformanceCounterSecondSequence !== 17_868 ||
+    latestEvidence.queryPerformanceCounterSecondInstructionCount !== 11_808_693 ||
+    latestEvidence.queryPerformanceCounterSecondArguments?.join(",") !== "0x006ffd40" ||
+    latestEvidence.queryPerformanceCounterSecondReturnAddress !== "0x10092017" ||
+    latestEvidence.queryPerformanceCounterSecondLastError !== 0 ||
+    latestEvidence.queryPerformanceCounterSecondValue !== "12345688901" ||
+    latestEvidence.queryPerformanceCounterLastSequence !== 18_437 ||
+    latestEvidence.queryPerformanceCounterLastInstructionCount !== 11_824_434 ||
+    latestEvidence.queryPerformanceCounterLastArguments?.join(",") !== "0x006ffd48" ||
+    latestEvidence.queryPerformanceCounterLastReturnAddress !== "0x10092017" ||
+    latestEvidence.queryPerformanceCounterLastValue !== "12348678901" ||
+    latestEvidence.queryPerformanceCounterLastGuestWriteGeneration !== 36_067 ||
+    latestEvidence.queryPerformanceCounterIncrementPerRead !== 10_000 ||
+    latestEvidence.queryPerformanceCounterImplementationId !==
+      "kernel32.query-performance-counter.v1" ||
+    latestEvidence.queryPerformanceCounterStateAuthority !==
+      "runtime/process.rs::RuntimeProcessState" ||
+    latestEvidence.queryPerformanceCounterMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    latestEvidence.queryPerformanceCounterRangeFailureAtomicity !== true ||
+    latestEvidence.queryPerformanceCounterHostClockImported !== false ||
+    latestEvidence.queryPerformanceCounterBrowserClockImported !== false ||
+    latestEvidence.queryPerformanceCounterNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest high-resolution performance-clock evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -7972,7 +8149,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "bounded IDirect3DDevice9::GetRasterStatus policy output with live COM-to-graphics device validation and atomic guest-memory publication" ||
+      "process-owned 10 MHz performance frequency plus policy-bounded deterministic performance-counter progression with atomic LARGE_INTEGER publication" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

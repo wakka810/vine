@@ -62,6 +62,8 @@ SUPPORTED_OBSERVATIONS = (
     "swap-mouse-button",
     "time-get-dev-caps",
     "time-get-time",
+    "query-performance-frequency",
+    "query-performance-counter",
     "get-version-ex-a",
     "get-cp-info",
     "processor-feature",

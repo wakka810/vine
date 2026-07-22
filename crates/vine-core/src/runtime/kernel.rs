@@ -547,6 +547,27 @@ impl RuntimeKernel {
                 "runtime process and initial thread IDs must be nonzero",
             ));
         }
+        if bootstrap.clock.performance_frequency == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-clock",
+                "performance-frequency-zero",
+                "runtime performance-counter frequency must be nonzero",
+            ));
+        }
+        if bootstrap.clock.performance_frequency > i64::MAX as u64 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-clock",
+                "performance-frequency-range-invalid",
+                "runtime performance-counter frequency must fit a nonnegative LARGE_INTEGER",
+            ));
+        }
+        if bootstrap.clock.performance_counter > i64::MAX as u64 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-clock",
+                "performance-counter-range-invalid",
+                "runtime performance counter must fit a nonnegative LARGE_INTEGER",
+            ));
+        }
         if bootstrap.startup_info.profile_id.is_empty()
             || bootstrap.startup_info.bytes.len() != X86_STARTUP_INFO_W_BYTE_LENGTH
         {
@@ -1821,6 +1842,16 @@ impl RuntimeKernel {
     pub fn sample_tick_count(&mut self, increment_per_read: u32) -> Result<u32, RuntimeStateError> {
         let plan = self.process.plan_tick_count_sample(increment_per_read)?;
         self.process.commit_tick_count_sample(plan)
+    }
+
+    pub fn sample_performance_counter(
+        &mut self,
+        increment_per_read: u64,
+    ) -> Result<u64, RuntimeStateError> {
+        let plan = self
+            .process
+            .plan_performance_counter_sample(increment_per_read)?;
+        self.process.commit_performance_counter_sample(plan)
     }
 
     pub fn startup_info(&self) -> &RuntimeStartupInfo {
@@ -5517,6 +5548,7 @@ mod tests {
                 wall_clock_file_time: 134_282_016_000_000_000,
                 tick_count: 3_600_000,
                 performance_counter: 12_345_678_901,
+                performance_frequency: 10_000_000,
             },
             startup_info: RuntimeStartupInfo {
                 profile_id: "runtime-heap-slot-atomicity-test".to_owned(),
@@ -5565,6 +5597,7 @@ mod tests {
                 wall_clock_file_time: 134_282_016_000_000_000,
                 tick_count: 3_600_000,
                 performance_counter: 12_345_678_901,
+                performance_frequency: 10_000_000,
             },
             startup_info: RuntimeStartupInfo {
                 profile_id: "runtime-system-module-object-atomicity-test".to_owned(),
@@ -5650,6 +5683,7 @@ mod tests {
                 wall_clock_file_time: 134_282_016_000_000_000,
                 tick_count: 3_600_000,
                 performance_counter: 12_345_678_901,
+                performance_frequency: 10_000_000,
             },
             startup_info: RuntimeStartupInfo {
                 profile_id: "runtime-host-request-serialization-test".to_owned(),
@@ -7662,6 +7696,7 @@ mod tests {
                 wall_clock_file_time: 134_282_016_000_000_000,
                 tick_count: 3_600_000,
                 performance_counter: 12_345_678_901,
+                performance_frequency: 10_000_000,
             },
             startup_info: RuntimeStartupInfo {
                 profile_id: "d3d9-create-device-transaction-test".to_owned(),

@@ -154,6 +154,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-initial-vertex-buffer",
         "d3d9-initial-render-states",
         "d3d9-raster-status",
+        "kernel32-query-performance-frequency",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -227,6 +228,7 @@ assert(
       "d3d9-initial-vertex-buffer",
       "d3d9-initial-render-states",
       "d3d9-raster-status",
+      "kernel32-query-performance-frequency",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -264,6 +266,7 @@ if (
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
     "d3d9-raster-status",
+    "kernel32-query-performance-frequency",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -294,7 +297,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-initial-textures" ||
     genericRuntimeCapability === "d3d9-initial-vertex-buffer" ||
     genericRuntimeCapability === "d3d9-initial-render-states" ||
-    genericRuntimeCapability === "d3d9-raster-status"
+    genericRuntimeCapability === "d3d9-raster-status" ||
+    genericRuntimeCapability === "kernel32-query-performance-frequency"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -429,7 +433,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const queryPerformanceFrequencyEnabled =
+  genericRuntimeCapability === "kernel32-query-performance-frequency";
 const d3d9RasterStatusEnabled =
+  queryPerformanceFrequencyEnabled ||
   genericRuntimeCapability === "d3d9-raster-status";
 const d3d9InitialRenderStatesEnabled =
   d3d9RasterStatusEnabled ||
@@ -663,7 +670,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9RasterStatusEnabled
+      ? queryPerformanceFrequencyEnabled
+      ? "v86-bgi-query-performance-frequency"
+      : d3d9RasterStatusEnabled
       ? "v86-bgi-d3d9-raster-status"
       : d3d9InitialRenderStatesEnabled
         ? "v86-bgi-d3d9-initial-render-states"
@@ -4637,6 +4646,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (queryPerformanceFrequencyEnabled) {
+        validateQueryPerformanceFrequencyResult(genericResult);
       } else if (d3d9RasterStatusEnabled) {
         validateD3d9RasterStatusResult(genericResult);
       } else if (d3d9InitialRenderStatesEnabled) {
@@ -4816,6 +4827,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : queryPerformanceFrequencyEnabled
+          ? "bgi QueryPerformanceFrequency"
           : d3d9RasterStatusEnabled
           ? "bgi D3D9 raster-status polling"
           : d3d9InitialRenderStatesEnabled
@@ -6043,6 +6056,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : queryPerformanceFrequencyEnabled
+          ? 73
         : timeGetTimeEnabled
           ? 72
         : monitorFromWindowEnabled
@@ -13539,6 +13554,149 @@ function validateD3d9InitialVertexBufferResult(result) {
   ]);
 }
 
+function validateQueryPerformanceFrequencyResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_438);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_493);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0
+    ),
+    36_650
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0
+    ),
+    1_816_818
+  );
+  assert.equal(result.hostDeltas.length, 17_145);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_069);
+
+  const frequencyCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "QueryPerformanceFrequency"
+  );
+  assert.equal(
+    frequencyCalls.length,
+    1,
+    "unexpected performance-frequency call count"
+  );
+
+  const first = frequencyCalls[0];
+  assert.equal(first.sequence, 17_867);
+  assert.equal(first.occurrence, 1);
+  assert.equal(first.trapInstructionCount, 11_808_626);
+  assert.deepEqual(first.arguments, [0x006f_fcf0]);
+  assert.deepEqual(first.result, { action: "set", value: 1 });
+  assert.equal(
+    first.implementationId,
+    "kernel32.query-performance-frequency.v1"
+  );
+  assert.equal(first.returnAddress, 0x1009_1fd7);
+  assert.equal(first.stackPointerAfter - first.stackPointerBefore, 8);
+  assert.equal(first.lastError, 0);
+  assert.equal(first.guestWrites.length, 1);
+  assert.equal(first.guestWrites[0].address, 0x006f_fcf0);
+  assert.deepEqual(
+    first.guestWrites[0].bytes,
+    [128, 150, 152, 0, 0, 0, 0, 0]
+  );
+  assert.equal(first.guestWrites[0].result.bytesWritten, 8);
+  assert.equal(first.guestWrites[0].result.dirtyPages, 1);
+  assert.deepEqual(first.guestWrites[0].result.invalidation, {
+    generation: 34_927,
+    dataTlb: false,
+    instructionFetch: false,
+    generatedCode: false,
+  });
+
+  const counterCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "QueryPerformanceCounter"
+  );
+  assert.equal(counterCalls.length, 301);
+  for (const [index, call] of counterCalls.entries()) {
+    assert.equal(call.occurrence, index + 1);
+    assert.deepEqual(call.result, { action: "set", value: 1 });
+    assert.equal(
+      call.implementationId,
+      "kernel32.query-performance-counter.v1"
+    );
+    assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].result.bytesWritten, 8);
+    assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+    assert.equal(
+      Buffer.from(call.guestWrites[0].bytes).readBigUInt64LE(),
+      12_345_678_901n + BigInt(index) * 10_000n
+    );
+  }
+  assert.equal(counterCalls[0].sequence, 5);
+  assert.equal(counterCalls[0].trapInstructionCount, 34);
+  assert.deepEqual(counterCalls[0].arguments, [0x006f_ffe4]);
+  assert.equal(counterCalls[0].returnAddress, 0x100a_88fa);
+  assert.equal(counterCalls[0].lastError, 87);
+  assert.equal(counterCalls[1].sequence, 17_868);
+  assert.equal(counterCalls[1].trapInstructionCount, 11_808_693);
+  assert.deepEqual(counterCalls[1].arguments, [0x006f_fd40]);
+  assert.equal(counterCalls[1].returnAddress, 0x1009_2017);
+  assert.equal(counterCalls[1].lastError, 0);
+  const lastCounter = counterCalls.at(-1);
+  assert.equal(lastCounter.sequence, 18_437);
+  assert.equal(lastCounter.occurrence, 301);
+  assert.equal(lastCounter.trapInstructionCount, 11_824_434);
+  assert.deepEqual(lastCounter.arguments, [0x006f_fd48]);
+  assert.equal(lastCounter.returnAddress, 0x1009_2017);
+  assert.equal(lastCounter.guestWrites[0].result.invalidation.generation, 36_067);
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "runtime-system-export");
+  assert.equal(endpoint.endpoint.id, 200);
+  assert.equal(endpoint.endpoint.address, 0x7f00_0c70);
+  assert.equal(endpoint.endpoint.module, "user32.dll");
+  assert.deepEqual(endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetMonitorInfoA",
+  });
+  assert.equal(endpoint.endpoint.iatAddress, 0x100d_13f8);
+  assert.equal(endpoint.endpoint.disposition, "declared-runtime-export");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 730);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "7028e80eae6c2bfcfd7ffaed6c7ce9fa8ae98e7fbe338e3db98aa5b79ce3573d"
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_824_580);
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 200);
+  assert.equal(terminal.thunk.address, 0x7f00_0c70);
+  assert.equal(terminal.thunk.module, "USER32.dll");
+  assert.equal(terminal.thunk.name, "GetMonitorInfoA");
+  assert.equal(terminal.returnAddress, 0x1005_c913);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_c913,
+    0x4f01_0001,
+    0x006f_fd44,
+    0x1005_ce0c,
+    800,
+    0x7f00_0ef0,
+    2,
+    1920,
+  ]);
+}
+
 function validateD3d9RasterStatusResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15884,6 +16042,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : queryPerformanceFrequencyEnabled
+        ? "vine.v86-bgi-query-performance-frequency"
         : d3d9RasterStatusEnabled
         ? "vine.v86-bgi-d3d9-raster-status"
         : d3d9InitialRenderStatesEnabled

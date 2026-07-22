@@ -373,9 +373,21 @@ display-authority mismatchはguest bytesと全authorityをpartial mutationしな
 outer loopが`Sleep(0)`でyieldすることを固定する。Hostの具体scanlineはartifact observationでありpolicyへ
 importしない。Node／Chromeはcall 17,866を同じ順序・outputで完了し、次の`QueryPerformanceFrequency` stopと
 memory digestを一致させる。
+Reached `QueryPerformanceFrequency`／progressing `QueryPerformanceCounter`はone-pointer／BOOL ABI、
+required writable eight-byte `LARGE_INTEGER`、LastError preserveを固定する。Frequency queryは
+process-owned nonzero valueをmutation-freeで返し、counter queryは`RuntimeProcessState`の
+lifecycle-bound plan／stale-check／targeted commitでcurrent valueを返してnext valueだけを進める。
+Dispatcher／marshaller fixtureは10 MHz output、NULL／read-only failure、1 ms policy quantum、連続sample、
+policy-disabled historical fixed modeを検査し、owner modelはzero increment、signed range exhaustion、
+stale lifecycle／counter planのfailure atomicityを固定する。Focused native evidenceはfrequencyが
+3 sentinel callとtwo runsで10 MHzに安定し、counterが各runでstrictly increasingし、BGI callerが
+frequency failure時だけ1000／`GetTickCount`へfallbackして成功時はcounterをfrequencyで除算することを
+要求する。Node／Chromeはfrequency completion、301 counter completions、全outputの10,000-tick progression、
+same semantic digest／memory／`GetMonitorInfoA` stop、clean cancel／watchdogを一致させる。Host QPC、
+browser clock、Worker cadence、WinMM resolution、frame／audio clockをimportしない。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。SHA固定Chrome for Testingのvalid environmentで101 sessions、semantic failure 0、heartbeat P99
-10.780 ms／maximum 34.535 ms、slice P99 2.625 msを記録して17／17を通過した。Heartbeat 25 ms、live
+条件とする。SHA固定Chrome for Testingのvalid environmentで98 sessions、semantic failure 0、heartbeat P99
+10.875 ms／maximum 32.790 ms、slice P99 3.695 msを記録して17／17を通過した。Heartbeat 25 ms、live
 heap／slope／backing storage、96 MiB capacityを含むversioned thresholdsは変更していない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは

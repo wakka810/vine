@@ -55,6 +55,8 @@ const supportedObservations = new Set([
   "swap-mouse-button",
   "time-get-dev-caps",
   "time-get-time",
+  "query-performance-frequency",
+  "query-performance-counter",
   "get-version-ex-a",
   "get-cp-info",
   "processor-feature",
@@ -2663,6 +2665,285 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     idirect3dsurface9Methods,
   );
 
+  const isU32 = (value) =>
+    Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
+  const normalizeUnsignedLargeInteger = (snapshot, label) => {
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      typeof snapshot.pointer !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(snapshot.pointer) ||
+      snapshot.size !== 8 ||
+      !Array.isArray(snapshot.bytes) ||
+      snapshot.bytes.length !== 8 ||
+      !snapshot.bytes.every(
+        (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+      ) ||
+      !isU32(snapshot.low) ||
+      !isU32(snapshot.high) ||
+      typeof snapshot.value !== "string" ||
+      !/^\d+$/u.test(snapshot.value)
+    ) {
+      throw new Error(`${label} is not an unsigned x86 LARGE_INTEGER snapshot`);
+    }
+    let bytesValue = 0n;
+    for (const [index, byte] of snapshot.bytes.entries()) {
+      bytesValue |= BigInt(byte) << BigInt(index * 8);
+    }
+    const wordsValue = BigInt(snapshot.low) | (BigInt(snapshot.high) << 32n);
+    if (bytesValue !== wordsValue || bytesValue !== BigInt(snapshot.value)) {
+      throw new Error(`${label} has inconsistent bytes, words, or decimal value`);
+    }
+    return { ...snapshot };
+  };
+
+  const summarizePerformanceObservation = ({
+    api,
+    completionKind,
+    completionProfile,
+    oracleKind,
+    oracleProfile,
+    selectedObservation,
+    stopEvent,
+    sentinels,
+    targetRva,
+  }) => {
+    const oracleEvents = events.filter((event) => event.kind === oracleKind);
+    const completionEvents = events.filter(
+      (event) => event.kind === completionKind,
+    );
+    const required =
+      selectedObservations.length === 1 &&
+      selectedObservations[0] === selectedObservation &&
+      traceStart.arguments?.stopOnEvent === stopEvent;
+    if (
+      oracleEvents.length > 1 ||
+      completionEvents.length > 1 ||
+      (required && (oracleEvents.length !== 1 || completionEvents.length !== 1))
+    ) {
+      throw new Error(
+        `${selectedObservation} observation requires exactly one oracle and structured completion`,
+      );
+    }
+    return completionEvents.map((completion) => {
+      const oracle = oracleEvents[0];
+      if (
+        oracle === undefined ||
+        oracle.profile !== oracleProfile ||
+        completion.profile !== completionProfile ||
+        completion.oracleProfile !== oracle.profile ||
+        !Array.isArray(oracle.calls) ||
+        oracle.calls.length !== sentinels.length ||
+        oracle.allSucceeded !== true ||
+        oracle.allPreserveLastError !== true ||
+        oracle.allGuardsUnchanged !== true ||
+        !Array.isArray(completion.mainModuleCalls) ||
+        completion.mainModuleCalls.length === 0 ||
+        completion.sequence <= oracle.sequence
+      ) {
+        throw new Error(`${selectedObservation} completion or oracle has invalid structure`);
+      }
+
+      const oraclePairs = apiPairing.pairs.filter(
+        (pair) =>
+          pair.enter.api === api &&
+          pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll",
+      );
+      if (oraclePairs.length !== sentinels.length) {
+        throw new Error(
+          `${selectedObservation} oracle calls do not match their paired traces`,
+        );
+      }
+      const oracleCalls = oracle.calls.map((call, index) => {
+        const pair = oraclePairs[index];
+        const sentinel = sentinels[index];
+        const outputAfter = normalizeUnsignedLargeInteger(
+          call.outputAfter,
+          `${selectedObservation} oracle output ${index}`,
+        );
+        const hookOutput = normalizeUnsignedLargeInteger(
+          call.hookOutput,
+          `${selectedObservation} oracle hook output ${index}`,
+        );
+        if (
+          call.sentinel !== sentinel ||
+          call.systemResult !== 1 ||
+          call.hookResult !== 1 ||
+          call.hookLastErrorAfter !== sentinel ||
+          call.systemLastError !== sentinel ||
+          call.prefixGuardUnchanged !== true ||
+          call.suffixGuardUnchanged !== true ||
+          call.hookResultMatches !== true ||
+          call.hookOutputMatches !== true ||
+          call.hookPreservesLastError !== true ||
+          call.systemPreservesLastError !== true ||
+          outputAfter.value !== hookOutput.value ||
+          pair.enter.module.toLowerCase() !== "kernel32.dll" ||
+          pair.enter.parentCallId !== null ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 1 ||
+          pair.enter.arguments[0].toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+          pair.enter.lastErrorBefore !== sentinel ||
+          pair.leave.lastError !== sentinel ||
+          BigInt(pair.leave.result) !== 1n ||
+          pair.leave[api === "QueryPerformanceFrequency"
+            ? "queryPerformanceFrequency"
+            : "queryPerformanceCounter"]?.result !== 1
+        ) {
+          throw new Error(
+            `${selectedObservation} oracle call ${index} violates its output or LastError contract`,
+          );
+        }
+        return {
+          sentinel,
+          callId: pair.enter.callId,
+          sequence: pair.enter.sequence,
+          output: outputAfter,
+        };
+      });
+
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const mainModuleCalls = completion.mainModuleCalls.map((snapshot, index) => {
+        const pair = apiPairing.pairs.find(
+          (candidate) => candidate.enter.callId === snapshot.callId,
+        );
+        const field =
+          api === "QueryPerformanceFrequency"
+            ? "queryPerformanceFrequency"
+            : "queryPerformanceCounter";
+        const outputAfter = normalizeUnsignedLargeInteger(
+          snapshot.outputAfter,
+          `${selectedObservation} main output ${index}`,
+        );
+        if (
+          pair === undefined ||
+          pair.enter.api !== api ||
+          pair.enter.module.toLowerCase() !== "kernel32.dll" ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.parentCallId !== null ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 1 ||
+          typeof snapshot.outputPointer !== "string" ||
+          snapshot.outputPointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+          pair.enter.arguments[0].toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+          snapshot.returnAddress.toLowerCase() !==
+            pair.enter.caller.address.toLowerCase() ||
+          snapshot.callerRva !== undefined &&
+            snapshot.callerRva !== pair.enter.caller.rva ||
+          snapshot.result !== 1 ||
+          BigInt(pair.leave.result) !== 1n ||
+          pair.leave[field]?.result !== 1 ||
+          JSON.stringify(pair.leave[field]?.outputAfter) !==
+            JSON.stringify(snapshot.outputAfter) ||
+          snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
+          snapshot.lastError !== pair.leave.lastError ||
+          snapshot.lastErrorBefore !== snapshot.lastError ||
+          JSON.stringify(snapshot.immediateConsumer) !==
+            JSON.stringify(pair.enter[field]?.immediateConsumer)
+        ) {
+          throw new Error(
+            `${selectedObservation} main call ${index} does not match its paired trace`,
+          );
+        }
+        return {
+          sequence: pair.enter.sequence,
+          callId: pair.enter.callId,
+          threadId: pair.enter.threadId,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          outputPointer: snapshot.outputPointer,
+          output: outputAfter,
+          result: snapshot.result,
+          lastErrorBefore: snapshot.lastErrorBefore,
+          lastError: snapshot.lastError,
+        };
+      });
+      const targetCallCount = mainModuleCalls.filter(
+        (call) => call.caller.rva === targetRva,
+      ).length;
+      if (targetCallCount < 1) {
+        throw new Error(
+          `${selectedObservation} completion is missing the required reached target calls`,
+        );
+      }
+
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        oracle: {
+          sequence: oracle.sequence,
+          profile: oracle.profile,
+          calls: oracleCalls,
+        },
+        mainModuleCalls,
+      };
+    });
+  };
+
+  const queryPerformanceFrequency = summarizePerformanceObservation({
+    api: "QueryPerformanceFrequency",
+    completionKind: "query-performance-frequency-complete",
+    completionProfile: "x86-bgi-query-performance-frequency-v1",
+    oracleKind: "query-performance-frequency-oracle",
+    oracleProfile: "x86-stable-performance-frequency-v1",
+    selectedObservation: "query-performance-frequency",
+    stopEvent: "query-performance-frequency-complete",
+    sentinels: [0, 87, 0x1234_5678],
+    targetRva: 0x91fd7,
+  });
+  for (const observation of queryPerformanceFrequency) {
+    const values = observation.oracle.calls.map((call) => call.output.value);
+    if (
+      values.some((value) => value !== values[0]) ||
+      values[0] !== "10000000" ||
+      observation.mainModuleCalls.some(
+        (call) => call.output.value !== values[0],
+      )
+    ) {
+      throw new Error(
+        "query-performance-frequency observation is not the stable 10 MHz target profile",
+      );
+    }
+  }
+
+  const queryPerformanceCounter = summarizePerformanceObservation({
+    api: "QueryPerformanceCounter",
+    completionKind: "query-performance-counter-complete",
+    completionProfile: "x86-bgi-query-performance-counter-progression-v1",
+    oracleKind: "query-performance-counter-oracle",
+    oracleProfile: "x86-monotonic-performance-counter-v1",
+    selectedObservation: "query-performance-counter",
+    stopEvent: "query-performance-counter-complete",
+    sentinels: [0, 87, 0x1234_5678, 0x8765_4321],
+    targetRva: 0x92017,
+  });
+  for (const observation of queryPerformanceCounter) {
+    const oracleValues = observation.oracle.calls.map((call) =>
+      BigInt(call.output.value),
+    );
+    if (
+      oracleValues.slice(1).some((value, index) => value <= oracleValues[index])
+    ) {
+      throw new Error(
+        "query-performance-counter oracle samples are not strictly increasing",
+      );
+    }
+    const targetValues = observation.mainModuleCalls
+      .filter((call) => call.caller.rva === 0x92017)
+      .map((call) => BigInt(call.output.value));
+    if (
+      targetValues.slice(1).some((value, index) => value <= targetValues[index])
+    ) {
+      throw new Error(
+        "query-performance-counter target samples are not strictly increasing",
+      );
+    }
+  }
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -2685,8 +2966,6 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     );
   }
 
-  const isU32 = (value) =>
-    Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
   const timeGetTime = timeGetTimeCompletionEvents.map((completion) => {
     const oracle = timeGetTimeOracleEvents[0];
     const sentinels = [0, 87, 0x1234_5678];
@@ -3090,6 +3369,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     modules,
     apis,
     vtables,
+    kernel32: {
+      queryPerformanceFrequency,
+      queryPerformanceCounter,
+    },
     winmm: {
       timeGetTime,
     },

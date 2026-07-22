@@ -3848,6 +3848,65 @@ Node／Chromeはcall sequence 17,866、instruction 11,808,586、arguments
 `0x100D11B0`、return `0x10091FD7`、reason `endpoint-contract-missing`である。Renderer、draw、Present、
 host／browser scanout importはこのcheckpointで実装済みとしない。
 
+## 126. BGI high-resolution performance clock
+
+`query-performance-frequency` focused observationを独立に2回取得した。Primary raw traceは
+186,666 bytes／469 records／SHA-256
+`d8d40e8dece88280ab1d35283b143359a447d3608b4abc5bf80e705198d86790`、summaryは36,690 bytes／
+SHA-256 `5a7b742f190a59cd9d50df2deca1283e3f88356fc98de88119815e97964177ab`である。Confirmation
+raw traceは185,056 bytes／464 records／SHA-256
+`1d3b500b87d2482ffbce59f0363c1506e81683b89aba476adc53184fad637a03`、summaryは36,866 bytes／
+SHA-256 `5e144ad4a2b037ddc1ebc15a9151134df430b0d9fff18237cdeaa060c45fc40d`である。両summaryの
+diagnosticは0、source executableは前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で変更していない。
+
+`x86-stable-performance-frequency-v1` oracleはLastError sentinel `0／87／0x12345678`で三回ずつ
+`QueryPerformanceFrequency`を呼ぶ。全callがBOOL 1、guard保持、LastError保持、full eight-byte
+`10,000,000`を返し、call間／run間で一致した。BGI callはcaller RVA `0x00091FD7`から一回到達し、
+同じ10 MHzを得る。RVA `0x00091FD0`のwrapperは失敗時だけfrequencyを1000へ置換し、RVA
+`0x00092050`のconsumerはfrequencyとcounterをx87 `fild`で読み、counterをfrequencyで除算する。
+
+`query-performance-counter` progression observationも独立に2回取得した。Primary raw traceは
+241,192 bytes／477 records／SHA-256
+`976b08a862fb847f55460ad0c4c6fa00b50c71dcd250beda60310c5fd60f0398`、summaryは38,763 bytes／
+SHA-256 `9d13cdace9dc15366319fa8570efc451d66481a81779acbf3f733515623cedf0`である。Confirmation
+raw traceは284,763 bytes／477 records／SHA-256
+`7f77b57c662d2bcacb3c5db417bb7de07412df1388eea390eb1a9a5b1c1f71d9`、summaryは39,582 bytes／
+SHA-256 `0fd05c7688e7330b9644ad9d908e2e1ecddb15a4f7513e57a3e5f8cd9134e32a`である。Four-call
+`x86-monotonic-performance-counter-v1` oracleの連続差分はprimary `4,396／4,020／3,984`、
+confirmation `3,791／3,117／3,349`で全て正であり、全callがBOOL 1、LastErrorとguardを保持した。
+Concrete counter値はhost-dependent artifact observationで、Vine policyへimportしない。
+
+BGI initial caller RVA `0x000A88FA`とtarget caller RVA `0x00092017`の両方へ到達した。Confirmationで
+target callerの連続sample差は17,953 ticks、10 MHz換算1.7953 msである。RVA `0x00092017`の
+wrapperは成功時に64-bit outputをそのまま使い、失敗時だけ`GetTickCount`へfallbackする。このconsumer
+evidenceから、Vineはcaller／occurrence分岐やhost sample copyではなく、process-owned frequencyと
+deterministic progressionを実装する。
+
+Runtimeはfrequency 10 MHzとcounterを`RuntimeProcessState`の単一clock authorityに置く。Frequency
+queryはmutation-free、counter queryはactive policyの10,000-tick incrementをmutation-free planで
+preflightし、running lifecycle、previous counter、signed `LARGE_INTEGER`上限をstale-checkしてtargeted
+commitする。Zero increment、range exhaustion、stale plan、invalid outputはobservable clock／memoryを
+部分更新しない。Host QPC、browser clock、Worker slice、WinMM resolution、frame／audio clockは取り込まない。
+
+Node semantic runはfrequencyをsequence 17,867／instruction 11,808,626で完了し、既存initial sampleを含む
+301 counter callsを`12,345,678,901`から10,000ずつ進める。18,438 supported calls、18,493
+writebacks／36,650 dirty pages／1,816,818 changed bytes、17,145 host deltas、generation 36,069を通し、
+semantic SHA-256は`95628a4df3257ac8eee45d7cb1f6cd7af87bf7e5dbeb8b60e64f309920c74151`、
+final memory SHA-256は`7028e80eae6c2bfcfd7ffaed6c7ce9fa8ae98e7fbe338e3db98aa5b79ce3573d`である。
+Summary reportは50,097 bytes／SHA-256
+`6983198d0fbd6fbcab21b8ef2f9df6de6f98aa04e54b39d166ea06712605e829`である。次stopはinstruction
+11,824,580の`USER32.dll!GetMonitorInfoA(0x4F010001,0x006FFD44)`、endpoint ID 200／
+`0x7F000C70`、IAT `0x100D13F8`、return `0x1005C913`、reason `endpoint-contract-missing`である。
+Chrome Runtime Workerもsame semantic digest／memory／stopを再現し、19,186 writebacks／38,262 pages、
+17,145 mapping deltas、generation 27→36,764、55,131 Wasm crossings、57,530 execution transitions、
+terminal pending work 0を通した。Browser reportは43,916 bytes／SHA-256
+`d78a0c151c95abaadb9796635cc34a55d8e6571a76d4dd257fd798a718898582`である。同じ180-second／
+17-threshold fixtureは98 sessions、semantic failure 0、session P95 1,905.020 ms、slice P99 3.695 ms、
+heartbeat P99 10.875 msで17／17を通した。Benchmark reportは1,638,396 bytes／SHA-256
+`91e64687f5da4d3825408e195d72d786a8f94366642e66c1bafe9f2a824e1dbb`である。Current artifact
+identityとcanonical reproductionはcurrent checkpoint manifestを正本とする。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

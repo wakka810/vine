@@ -274,6 +274,33 @@ fn current_directory_bootstrap_rejects_invalid_process_authority() {
     }
 }
 
+#[test]
+fn clock_bootstrap_rejects_invalid_performance_clock_values() {
+    for (counter, frequency, expected_code) in [
+        (12_345_678_901, 0, "performance-frequency-zero"),
+        (
+            12_345_678_901,
+            i64::MAX as u64 + 1,
+            "performance-frequency-range-invalid",
+        ),
+        (
+            i64::MAX as u64 + 1,
+            10_000_000,
+            "performance-counter-range-invalid",
+        ),
+    ] {
+        let mut bootstrap = controlled_bootstrap();
+        bootstrap.clock.performance_counter = counter;
+        bootstrap.clock.performance_frequency = frequency;
+        assert_eq!(
+            RuntimeState::new(bootstrap)
+                .expect_err("invalid performance clock must stop bootstrap")
+                .code,
+            expected_code
+        );
+    }
+}
+
 fn controlled_bootstrap() -> RuntimeBootstrap {
     RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
@@ -284,6 +311,7 @@ fn controlled_bootstrap() -> RuntimeBootstrap {
             wall_clock_file_time: 134_282_016_000_000_000,
             tick_count: 3_600_000,
             performance_counter: 12_345_678_901,
+            performance_frequency: 10_000_000,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: "runtime-lifecycle-test".to_owned(),

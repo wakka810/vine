@@ -224,6 +224,7 @@ fn runtime_bootstrap() -> RuntimeBootstrap {
             wall_clock_file_time: 134_282_016_000_000_000,
             tick_count: 3_600_000,
             performance_counter: 12_345_678_901,
+            performance_frequency: 10_000_000,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: "initial-thread-stack-test-v1".to_owned(),

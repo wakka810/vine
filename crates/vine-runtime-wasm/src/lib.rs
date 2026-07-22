@@ -2127,6 +2127,7 @@ fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
             wall_clock_file_time: 134_282_016_000_000_000,
             tick_count: 3_600_000,
             performance_counter: 12_345_678_901,
+            performance_frequency: 10_000_000,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: "startupinfow-v68-zero-optional-fields".to_owned(),
@@ -2509,6 +2510,7 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
             wall_clock_file_time: 134_282_016_000_000_000,
             tick_count: 3_600_000,
             performance_counter: 12_345_678_901,
+            performance_frequency: 10_000_000,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: "browser-vertical-startup-v1".to_owned(),

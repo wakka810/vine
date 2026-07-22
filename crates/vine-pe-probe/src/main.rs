@@ -196,6 +196,7 @@ enum GenericRuntimeCapability {
     D3d9InitialVertexBuffer,
     D3d9InitialRenderStates,
     D3d9RasterStatus,
+    QueryPerformanceFrequency,
 }
 
 struct GenericRuntimeProcess {
@@ -2329,6 +2330,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9InitialVertexBuffer
                     | GenericRuntimeCapability::D3d9InitialRenderStates
                     | GenericRuntimeCapability::D3d9RasterStatus
+                    | GenericRuntimeCapability::QueryPerformanceFrequency
             )
         ) {
             let loader = kernel32_policy
@@ -2998,6 +3000,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3040,7 +3043,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9InitialTextures
             | GenericRuntimeCapability::D3d9InitialVertexBuffer
             | GenericRuntimeCapability::D3d9InitialRenderStates
-            | GenericRuntimeCapability::D3d9RasterStatus,
+            | GenericRuntimeCapability::D3d9RasterStatus
+            | GenericRuntimeCapability::QueryPerformanceFrequency,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3118,6 +3122,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3137,6 +3142,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3158,6 +3164,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3174,6 +3181,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3190,6 +3198,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.create_texture = None;
@@ -3206,6 +3215,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.get_surface_level = None;
@@ -3220,6 +3230,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.surface_dc = None;
@@ -3231,6 +3242,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) && let Some(create_texture) = d3d9_policy.create_texture.as_mut()
     {
@@ -3242,6 +3254,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.initial_vertex_buffer = None;
@@ -3251,13 +3264,17 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         d3d9_policy.initial_render_states = None;
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9RasterStatus)
+        Some(
+            GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
+        )
     ) {
         d3d9_policy.raster_status = None;
     }
@@ -3551,6 +3568,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4803,6 +4821,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::D3d9InitialVertexBuffer
                             | GenericRuntimeCapability::D3d9InitialRenderStates
                             | GenericRuntimeCapability::D3d9RasterStatus
+                            | GenericRuntimeCapability::QueryPerformanceFrequency
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4870,6 +4889,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::D3d9InitialVertexBuffer
                                     | GenericRuntimeCapability::D3d9InitialRenderStates
                                     | GenericRuntimeCapability::D3d9RasterStatus
+                                    | GenericRuntimeCapability::QueryPerformanceFrequency
                             )
                         )
                     {
@@ -4919,6 +4939,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let monitor_from_window_enabled = matches!(
@@ -4936,6 +4957,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4955,6 +4977,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4975,6 +4998,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4996,6 +5020,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let load_library_a_enabled = matches!(
@@ -5018,6 +5043,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -5046,6 +5072,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -5092,6 +5119,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5607,6 +5635,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
                 | GenericRuntimeCapability::D3d9InitialRenderStates
                 | GenericRuntimeCapability::D3d9RasterStatus
+                | GenericRuntimeCapability::QueryPerformanceFrequency
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -10078,6 +10107,7 @@ fn controlled_runtime_state(
     const WALL_CLOCK_FILE_TIME: u64 = 134_282_016_000_000_000;
     const TICK_COUNT: u32 = 3_600_000;
     const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
+    const PERFORMANCE_FREQUENCY: u64 = 10_000_000;
     const ENCODED_POINTER_TOKEN_PREFIX: u32 = 0xec01_0000;
 
     let startup_info = X86StartupInfoW::controlled();
@@ -10090,6 +10120,7 @@ fn controlled_runtime_state(
             wall_clock_file_time: WALL_CLOCK_FILE_TIME,
             tick_count: TICK_COUNT,
             performance_counter: PERFORMANCE_COUNTER,
+            performance_frequency: PERFORMANCE_FREQUENCY,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: X86StartupInfoW::PROFILE_ID.to_owned(),
@@ -11398,6 +11429,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-initial-vertex-buffer" => GenericRuntimeCapability::D3d9InitialVertexBuffer,
                 "d3d9-initial-render-states" => GenericRuntimeCapability::D3d9InitialRenderStates,
                 "d3d9-raster-status" => GenericRuntimeCapability::D3d9RasterStatus,
+                "kernel32-query-performance-frequency" => {
+                    GenericRuntimeCapability::QueryPerformanceFrequency
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

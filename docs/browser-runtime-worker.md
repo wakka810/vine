@@ -248,9 +248,12 @@ COM／GDI lifetime relations. It also creates one Rust-owned 112-byte logical ve
 its guest backing through the exact full-range Lock, consumes the guest write, and returns the backing
 to read-only on Unlock. The device then consumes the exact four fixed-function `SetRenderState`
 settings through Rust-owned typed state and completes the bounded `GetRasterStatus` output before
-reaching `QueryPerformanceFrequency`. The Worker observes completions and mirrors checked guest
-bytes, but owns neither identity, lock state, protection, resource content, render state, nor a
-second raster clock. No texture／surface pixel or browser
+sampling the Rust-owned high-resolution performance frequency and deterministic counter. The
+reached loop repeatedly consumes raster status and counter values before continuing to the next
+User32 contract. The Worker observes completions and mirrors checked guest bytes, but owns neither
+identity, lock state, protection, resource content, render state, nor a second raster／performance
+clock. It does not substitute `performance.now()` or browser scheduling for guest-visible time.
+No texture／surface pixel or browser
 renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 

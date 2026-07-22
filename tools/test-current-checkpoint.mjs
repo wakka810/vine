@@ -932,6 +932,33 @@ assert.ok(
   ),
 );
 
+const browserOwnedPerformanceCounterPolicy = structuredClone(manifest);
+browserOwnedPerformanceCounterPolicy.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.performanceCounterBrowserClockImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedPerformanceCounterPolicy).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const detachedPerformanceCounterAuthority = structuredClone(manifest);
+detachedPerformanceCounterAuthority.activeRuntimeCheckpoint.latestEvidence.queryPerformanceCounterStateAuthority =
+  "browser-performance-now";
+assert.ok(
+  validateCurrentCheckpoint(detachedPerformanceCounterAuthority).some((error) =>
+    error.includes("high-resolution performance-clock evidence"),
+  ),
+);
+
+const browserOwnedPerformanceFrequency = structuredClone(manifest);
+browserOwnedPerformanceFrequency.browserCheckpoint.bgiRuntimeEvidence.queryPerformanceFrequencyBrowserClockImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedPerformanceFrequency).some((error) =>
+    error.includes("browser BGI authority or teardown evidence"),
+  ),
+);
+
 const staleThreadRegistryShape = structuredClone(manifest);
 staleThreadRegistryShape.activeRuntimeCheckpoint.runtimeThreadRegistry.schema =
   "vine.runtime-thread-registry.v4";

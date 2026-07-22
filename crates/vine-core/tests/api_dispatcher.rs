@@ -17,16 +17,17 @@ use vine_core::{
     Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy,
     Kernel32GetDriveTypeAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32SetCurrentDirectoryAPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
-    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
-    LC_MAP_STRING_W_IMPLEMENTATION, LOAD_LIBRARY_A_IMPLEMENTATION,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    Kernel32MultiByteToWideCharPolicy, Kernel32PerformanceCounterPolicy,
+    Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
+    Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy,
+    Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
+    LOAD_LIBRARY_A_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE,
+    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
     RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
@@ -51,6 +52,7 @@ const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234;
 const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
+const PERFORMANCE_FREQUENCY: u64 = 10_000_000;
 
 #[test]
 fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
@@ -351,6 +353,179 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
             .code,
         "host-request-id-unknown"
     );
+}
+
+#[test]
+fn query_performance_frequency_uses_the_validated_clock_authority_atomically() {
+    let (mut memory, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&RuntimeDynamicEndpoint {
+        namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
+        id: 99,
+        address: GuestAddress(ENDPOINT_BASE + 0x800),
+        module: "kernel32.dll".to_owned(),
+        name: "QueryPerformanceFrequency".to_owned(),
+        lifetime: "process-runtime".to_owned(),
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented performance-frequency endpoint");
+    assert_eq!(
+        contract.implementation_id,
+        QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION
+    );
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+
+    let valid_frame = (STACK_BASE, vec![0x1000_0081, OUTPUT_BASE]);
+    let null_frame = (STACK_BASE + 0x20, vec![0x1000_0082, 0]);
+    memory
+        .write_initialization(owner, GuestAddress(OUTPUT_BASE), &[0xa5; 8])
+        .expect("initialize frequency output");
+    write_frame(
+        &mut memory,
+        owner,
+        GuestAddress(valid_frame.0),
+        &valid_frame.1,
+    );
+    write_frame(
+        &mut memory,
+        owner,
+        GuestAddress(null_frame.0),
+        &null_frame.1,
+    );
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let runtime_before = runtime.clone();
+
+    let completion = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        valid_frame.0,
+        valid_frame.1[0],
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.stack_pointer, GuestAddress(valid_frame.0 + 8));
+    assert_eq!(completion.guest_writes.len(), 1);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(OUTPUT_BASE), 8)
+            .expect("frequency output"),
+        PERFORMANCE_FREQUENCY.to_le_bytes()
+    );
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(runtime.current_last_error().unwrap(), 87);
+
+    let runtime_before_fault = runtime.clone();
+    let memory_before_fault = memory.stats();
+    let output_before_fault = memory
+        .read(GuestAddress(OUTPUT_BASE), 8)
+        .expect("frequency output before NULL rejection");
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoint, null_frame.0, null_frame.1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "null-pointer-forbidden"
+    ));
+    assert_eq!(runtime, runtime_before_fault);
+    assert_eq!(memory.stats(), memory_before_fault);
+    assert_eq!(
+        memory
+            .read(GuestAddress(OUTPUT_BASE), 8)
+            .expect("frequency output after NULL rejection"),
+        output_before_fault
+    );
+}
+
+#[test]
+fn query_performance_counter_advances_only_under_the_explicit_clock_policy() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    runtime.set_current_last_error(87).unwrap();
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "kernel32-performance-counter-progression-test-v1".to_owned();
+    policy.performance_counter = Some(Kernel32PerformanceCounterPolicy {
+        increment_per_read: 10_000,
+    });
+    policy.validate().unwrap();
+
+    let first = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(first.eax, RegisterUpdate::Set(1));
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+        PERFORMANCE_COUNTER.to_le_bytes()
+    );
+    assert_eq!(
+        runtime.clock().performance_counter,
+        PERFORMANCE_COUNTER + 10_000
+    );
+
+    let second = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(second.eax, RegisterUpdate::Set(1));
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+        (PERFORMANCE_COUNTER + 10_000).to_le_bytes()
+    );
+    assert_eq!(
+        runtime.clock().performance_counter,
+        PERFORMANCE_COUNTER + 20_000
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 87);
+
+    let runtime_before_fault = runtime.clone();
+    let memory_before_fault = memory.stats();
+    let rejected = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoints[1], frames[4].0, frames[4].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "null-pointer-forbidden"
+    ));
+    assert_eq!(runtime, runtime_before_fault);
+    assert_eq!(memory.stats(), memory_before_fault);
 }
 
 #[test]
@@ -8691,6 +8866,7 @@ fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
             wall_clock_file_time: 134_282_016_000_000_000,
             tick_count: 3_600_000,
             performance_counter: PERFORMANCE_COUNTER,
+            performance_frequency: PERFORMANCE_FREQUENCY,
         },
         startup_info: RuntimeStartupInfo {
             profile_id: "test-startup-profile".to_owned(),

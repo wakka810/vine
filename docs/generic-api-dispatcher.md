@@ -957,6 +957,30 @@ Detailed native, Node, Chrome, and performance evidence is in
 affinity, importing host topology, arbitrary thread-handle access, and a general
 timer／wait clock remain outside this contract.
 
+## High-resolution performance-clock contract
+
+`QueryPerformanceFrequency` and `QueryPerformanceCounter` use the same Kernel32
+catalog／dispatcher boundary. Both are one-pointer x86 stdcall contracts with a
+required writable eight-byte `LARGE_INTEGER` output, BOOL success, and LastError
+preservation. The marshaller validates the complete output span before the
+semantic handler runs, so NULL, truncated, read-only, and unmapped destinations
+cannot advance the process clock or publish a prefix write.
+
+`RuntimeProcessState` owns both the nonzero frequency and the counter. Frequency
+queries are mutation-free. When the compatibility policy enables progression,
+counter queries create a process-lifecycle-bound sample plan that returns the
+current value and advances only the next value. The owner rejects zero increments,
+values outside the nonnegative signed `LARGE_INTEGER` range, and stale lifecycle／
+counter plans before targeted commit. A policy without progression retains the
+historical fixed counter used by the early controlled checkpoint.
+
+The active bounded runtime profile fixes a 10 MHz frequency, and its compatibility
+policy selects a 10,000-tick increment. Together they give the reached polling loop
+a deterministic one-millisecond quantum. The handler does not branch on caller RVA,
+occurrence, or title hash. Host QPC values, browser `performance.now()`, Worker slice
+cadence, WinMM resolution requests, frame cadence, and audio clocks are not imported
+as process-clock authority.
+
 ## x86 system-information contract
 
 `kernel32.get-system-info.v1` is a one-output-pointer VOID stdcall contract.

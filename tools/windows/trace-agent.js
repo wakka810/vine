@@ -179,6 +179,18 @@ let timeGetTimeOracleComplete = false;
 let timeGetTimeOracleEvidence = null;
 let timeGetTimeCompletionRecorded = false;
 const timeGetTimeMainModuleCalls = [];
+let queryPerformanceFrequencyOracleScheduled = false;
+let queryPerformanceFrequencyOracleCall = null;
+let queryPerformanceFrequencyOracleComplete = false;
+let queryPerformanceFrequencyOracleEvidence = null;
+let queryPerformanceFrequencyCompletionRecorded = false;
+const queryPerformanceFrequencyMainModuleCalls = [];
+let queryPerformanceCounterOracleScheduled = false;
+let queryPerformanceCounterOracleCall = null;
+let queryPerformanceCounterOracleComplete = false;
+let queryPerformanceCounterOracleEvidence = null;
+let queryPerformanceCounterCompletionRecorded = false;
+const queryPerformanceCounterMainModuleCalls = [];
 let getVersionExAOracleScheduled = false;
 let getVersionExAOracleCall = null;
 let getVersionExAOracleComplete = false;
@@ -2439,6 +2451,36 @@ function snapshotD3d9RasterStatus(pointer) {
         inVBlank: view.getUint32(0, true),
         scanLine: view.getUint32(4, true),
       },
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotUnsignedLargeInteger(pointer) {
+  const size = 8;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 LARGE_INTEGER observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    const low = view.getUint32(0, true);
+    const high = view.getUint32(4, true);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      low,
+      high,
+      value: ((BigInt(high) << 32n) | BigInt(low)).toString(),
     };
   } catch (error) {
     return { pointer: pointer.toString(), size, error: error.message };
@@ -11213,6 +11255,500 @@ function maybeCompleteTimeGetDevCapsObservation() {
   }, 250);
 }
 
+function maybeCompleteQueryPerformanceFrequencyObservation() {
+  if (
+    queryPerformanceFrequencyCompletionRecorded ||
+    !queryPerformanceFrequencyOracleComplete ||
+    queryPerformanceFrequencyMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  queryPerformanceFrequencyCompletionRecorded = true;
+  emit("query-performance-frequency-complete", {
+    profile: "x86-bgi-query-performance-frequency-v1",
+    oracleProfile: queryPerformanceFrequencyOracleEvidence.profile,
+    mainModuleCalls: queryPerformanceFrequencyMainModuleCalls.map((call) => ({
+      ...call,
+    })),
+  });
+  if (stopOnEvent === "query-performance-frequency-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteQueryPerformanceCounterObservation() {
+  if (
+    queryPerformanceCounterCompletionRecorded ||
+    !queryPerformanceCounterOracleComplete ||
+    queryPerformanceCounterMainModuleCalls.filter(
+      (call) => call.callerRva === 0x00092017,
+    ).length < 2
+  ) {
+    return;
+  }
+  queryPerformanceCounterCompletionRecorded = true;
+  emit("query-performance-counter-complete", {
+    profile: "x86-bgi-query-performance-counter-progression-v1",
+    oracleProfile: queryPerformanceCounterOracleEvidence.profile,
+    mainModuleCalls: queryPerformanceCounterMainModuleCalls.map((call) => ({
+      ...call,
+    })),
+  });
+  if (stopOnEvent === "query-performance-counter-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachQueryPerformanceCounterHook(module) {
+  const name = "QueryPerformanceCounter";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("QueryPerformanceCounter export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      this.mainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      this.oracleCaller =
+        callerModule === "frida-agent.dll" &&
+        queryPerformanceCounterOracleCall !== null;
+      if (!this.mainModuleCaller && !this.oracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (this.oracleCaller) {
+        this.lastError = queryPerformanceCounterOracleCall.sentinel;
+      }
+      this.caller = caller;
+      this.output = args[0];
+      this.outputBefore = snapshotUnsignedLargeInteger(this.output);
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = this.mainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              96,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              32,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          queryPerformanceCounter: {
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const value = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotUnsignedLargeInteger(this.output);
+      if (this.oracleCaller) {
+        queryPerformanceCounterOracleCall.hookResult = value;
+        queryPerformanceCounterOracleCall.hookLastErrorAfter = lastError;
+        queryPerformanceCounterOracleCall.hookOutput = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          queryPerformanceCounter: {
+            result: value,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        queryPerformanceCounterMainModuleCalls.length < 32
+      ) {
+        queryPerformanceCounterMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.caller.rva,
+          outputPointer: this.output.toString(),
+          result: value,
+          outputBefore: this.outputBefore,
+          outputAfter,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteQueryPerformanceCounterObservation);
+      }
+    },
+  });
+}
+
+function scheduleQueryPerformanceCounterOracle(module) {
+  if (queryPerformanceCounterOracleScheduled) {
+    return;
+  }
+  queryPerformanceCounterOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "QueryPerformanceCounter");
+      if (address === null) {
+        throw new Error("QueryPerformanceCounter export is unavailable");
+      }
+      const query = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const guardBytes = 16;
+        const outputBytes = 8;
+        const storageBytes = guardBytes + outputBytes + guardBytes;
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const output = storage.add(guardBytes);
+        const storageBefore = snapshotBoundedRawBytes(storage, storageBytes);
+        queryPerformanceCounterOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutput: null,
+        };
+        try {
+          const outcome = query(output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            queryPerformanceCounterOracleCall.hookResult === null ||
+            queryPerformanceCounterOracleCall.hookLastErrorAfter === null ||
+            queryPerformanceCounterOracleCall.hookOutput === null
+          ) {
+            throw new Error(
+              "QueryPerformanceCounter oracle did not pass through the hook",
+            );
+          }
+          const storageAfter = snapshotBoundedRawBytes(storage, storageBytes);
+          const outputAfter = snapshotUnsignedLargeInteger(output);
+          const afterBytes = storageAfter.bytes ?? [];
+          return {
+            sentinel,
+            systemResult,
+            hookResult: queryPerformanceCounterOracleCall.hookResult,
+            outputAfter,
+            hookOutput: queryPerformanceCounterOracleCall.hookOutput,
+            hookLastErrorAfter:
+              queryPerformanceCounterOracleCall.hookLastErrorAfter,
+            systemLastError,
+            storageOffset: guardBytes,
+            storageBefore,
+            storageAfter,
+            prefixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes.slice(0, guardBytes).every((byte) => byte === 0xa5),
+            suffixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(guardBytes + outputBytes)
+                .every((byte) => byte === 0xa5),
+            hookResultMatches:
+              queryPerformanceCounterOracleCall.hookResult === systemResult,
+            hookOutputMatches:
+              queryPerformanceCounterOracleCall.hookOutput.value ===
+              outputAfter.value,
+            hookPreservesLastError:
+              queryPerformanceCounterOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          queryPerformanceCounterOracleCall = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678, 0x87654321].map(invoke);
+      const deltas = calls.slice(1).map(
+        (call, index) =>
+          Number(
+            BigInt(call.outputAfter.value) -
+              BigInt(calls[index].outputAfter.value),
+          ),
+      );
+      queryPerformanceCounterOracleEvidence = {
+        profile: "x86-monotonic-performance-counter-v1",
+        calls,
+        deltas,
+        allSucceeded: calls.every(
+          (call) =>
+            call.systemResult !== 0 &&
+            call.hookResultMatches &&
+            call.hookOutputMatches,
+        ),
+        strictlyIncreasing: deltas.every((delta) => delta > 0),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+        allGuardsUnchanged: calls.every(
+          (call) =>
+            call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+        ),
+      };
+      queryPerformanceCounterOracleComplete = true;
+      emit(
+        "query-performance-counter-oracle",
+        queryPerformanceCounterOracleEvidence,
+      );
+      maybeCompleteQueryPerformanceCounterObservation();
+    } catch (error) {
+      emit("query-performance-counter-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
+function attachQueryPerformanceFrequencyHook(module) {
+  const name = "QueryPerformanceFrequency";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("QueryPerformanceFrequency export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      this.mainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      this.oracleCaller =
+        callerModule === "frida-agent.dll" &&
+        queryPerformanceFrequencyOracleCall !== null;
+      if (!this.mainModuleCaller && !this.oracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (this.oracleCaller) {
+        this.lastError = queryPerformanceFrequencyOracleCall.sentinel;
+      }
+      this.output = args[0];
+      this.outputBefore = snapshotUnsignedLargeInteger(this.output);
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = this.mainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              96,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              32,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          queryPerformanceFrequency: {
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const value = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotUnsignedLargeInteger(this.output);
+      if (this.oracleCaller) {
+        queryPerformanceFrequencyOracleCall.hookResult = value;
+        queryPerformanceFrequencyOracleCall.hookLastErrorAfter = lastError;
+        queryPerformanceFrequencyOracleCall.hookOutput = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          queryPerformanceFrequency: {
+            result: value,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        queryPerformanceFrequencyMainModuleCalls.length === 0
+      ) {
+        queryPerformanceFrequencyMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          outputPointer: this.output.toString(),
+          result: value,
+          outputBefore: this.outputBefore,
+          outputAfter,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteQueryPerformanceFrequencyObservation);
+      }
+    },
+  });
+}
+
+function scheduleQueryPerformanceFrequencyOracle(module) {
+  if (queryPerformanceFrequencyOracleScheduled) {
+    return;
+  }
+  queryPerformanceFrequencyOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "QueryPerformanceFrequency");
+      if (address === null) {
+        throw new Error("QueryPerformanceFrequency export is unavailable");
+      }
+      const query = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const guardBytes = 16;
+        const outputBytes = 8;
+        const storageBytes = guardBytes + outputBytes + guardBytes;
+        const storage = Memory.alloc(storageBytes);
+        storage.writeByteArray(Array(storageBytes).fill(0xa5));
+        const output = storage.add(guardBytes);
+        const storageBefore = snapshotBoundedRawBytes(storage, storageBytes);
+        queryPerformanceFrequencyOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutput: null,
+        };
+        try {
+          const outcome = query(output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            queryPerformanceFrequencyOracleCall.hookResult === null ||
+            queryPerformanceFrequencyOracleCall.hookLastErrorAfter === null ||
+            queryPerformanceFrequencyOracleCall.hookOutput === null
+          ) {
+            throw new Error(
+              "QueryPerformanceFrequency oracle did not pass through the hook",
+            );
+          }
+          const storageAfter = snapshotBoundedRawBytes(storage, storageBytes);
+          const outputAfter = snapshotUnsignedLargeInteger(output);
+          const afterBytes = storageAfter.bytes ?? [];
+          return {
+            sentinel,
+            systemResult,
+            hookResult: queryPerformanceFrequencyOracleCall.hookResult,
+            outputAfter,
+            hookOutput: queryPerformanceFrequencyOracleCall.hookOutput,
+            hookLastErrorAfter:
+              queryPerformanceFrequencyOracleCall.hookLastErrorAfter,
+            systemLastError,
+            storageOffset: guardBytes,
+            storageBefore,
+            storageAfter,
+            prefixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes.slice(0, guardBytes).every((byte) => byte === 0xa5),
+            suffixGuardUnchanged:
+              afterBytes.length === storageBytes &&
+              afterBytes
+                .slice(guardBytes + outputBytes)
+                .every((byte) => byte === 0xa5),
+            hookResultMatches:
+              queryPerformanceFrequencyOracleCall.hookResult === systemResult,
+            hookOutputMatches:
+              queryPerformanceFrequencyOracleCall.hookOutput.value ===
+              outputAfter.value,
+            hookPreservesLastError:
+              queryPerformanceFrequencyOracleCall.hookLastErrorAfter ===
+              sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          queryPerformanceFrequencyOracleCall = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678].map(invoke);
+      queryPerformanceFrequencyOracleEvidence = {
+        profile: "x86-stable-performance-frequency-v1",
+        calls,
+        frequency: calls[0].outputAfter.value,
+        allSucceeded: calls.every(
+          (call) =>
+            call.systemResult !== 0 &&
+            call.hookResultMatches &&
+            call.hookOutputMatches,
+        ),
+        allStable: calls.every(
+          (call) => call.outputAfter.value === calls[0].outputAfter.value,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+        allGuardsUnchanged: calls.every(
+          (call) =>
+            call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+        ),
+      };
+      queryPerformanceFrequencyOracleComplete = true;
+      emit(
+        "query-performance-frequency-oracle",
+        queryPerformanceFrequencyOracleEvidence,
+      );
+      maybeCompleteQueryPerformanceFrequencyObservation();
+    } catch (error) {
+      emit("query-performance-frequency-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
 function maybeCompleteTimeGetTimeObservation() {
   if (
     timeGetTimeCompletionRecorded ||
@@ -14678,6 +15214,36 @@ Process.attachModuleObserver({
             error: error.message,
           });
         }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("query-performance-frequency")
+    ) {
+      try {
+        attachQueryPerformanceFrequencyHook(module);
+        scheduleQueryPerformanceFrequencyOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "QueryPerformanceFrequency",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("query-performance-counter")
+    ) {
+      try {
+        attachQueryPerformanceCounterHook(module);
+        scheduleQueryPerformanceCounterOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "QueryPerformanceCounter",
+          error: error.message,
+        });
       }
     }
     if (

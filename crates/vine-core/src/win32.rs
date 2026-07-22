@@ -32,7 +32,7 @@ pub use policy::{
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
     Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32OsVersionInfoAPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
@@ -78,6 +78,8 @@ pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
+pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
+    "kernel32.query-performance-frequency.v1";
 pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
 pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
@@ -220,8 +222,11 @@ pub fn dispatch_kernel32_api_with_policy(
             handle_get_string_type_w(policy, contract, frame, session)
         }
         LC_MAP_STRING_W_IMPLEMENTATION => handle_lc_map_string_w(policy, contract, frame, session),
+        QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION => {
+            handle_query_performance_frequency(contract, frame, session)
+        }
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
-            handle_query_performance_counter(contract, frame, session)
+            handle_query_performance_counter(policy, contract, frame, session)
         }
         GET_STARTUP_INFO_W_IMPLEMENTATION => handle_get_startup_info_w(contract, frame, session),
         HEAP_SET_INFORMATION_IMPLEMENTATION => {
@@ -317,6 +322,7 @@ pub fn kernel32_contract_for_endpoint(
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
+        "QueryPerformanceFrequency" => query_performance_frequency_contract(endpoint)?,
         "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
         "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
@@ -2607,14 +2613,32 @@ fn wide_char_failure(last_error: u32) -> ApiImmediate {
 }
 
 fn handle_query_performance_counter(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "performance counter output")?;
+    let counter = match policy.performance_counter_increment_per_read() {
+        Some(increment) => session
+            .runtime_mut()
+            .sample_performance_counter(increment)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+        None => session.runtime().clock().performance_counter,
+    };
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_guest_write(GuestAddress(output), counter.to_le_bytes().to_vec()))
+}
+
+fn handle_query_performance_frequency(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "performance counter output")?;
-    let counter = session.runtime().clock().performance_counter;
+    let output = required_argument(contract, frame, 0, "performance frequency output")?;
+    let frequency = session.runtime().clock().performance_frequency;
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_guest_write(GuestAddress(output), counter.to_le_bytes().to_vec()))
+        .with_guest_write(GuestAddress(output), frequency.to_le_bytes().to_vec()))
 }
 
 fn handle_get_startup_info_w(
@@ -3909,6 +3933,18 @@ pub fn query_performance_counter_contract(
         vec![out_struct("performanceCounter", "LARGE_INTEGER", 8)],
         ApiReturnSchema::Bool32,
         QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION,
+    )
+}
+
+pub fn query_performance_frequency_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "QueryPerformanceFrequency",
+        vec![out_struct("performanceFrequency", "LARGE_INTEGER", 8)],
+        ApiReturnSchema::Bool32,
+        QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION,
     )
 }
 

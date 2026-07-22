@@ -92,6 +92,16 @@ process to be running and records previous, returned, and next DWORD values;
 `commit_tick_count_sample` rejects a stale plan before replacing only the tick
 field. Addition wraps at `0xFFFFFFFF` as the Win32 DWORD clock does.
 
+The same owner holds the high-resolution performance frequency and counter.
+Frequency must be nonzero and both bootstrap values must fit the nonnegative
+signed `LARGE_INTEGER` range at kernel construction; frequency is then read
+without mutation.
+`plan_performance_counter_sample` requires a running process and a nonzero policy
+increment, returns the current counter, and checks the next value against the
+nonnegative signed `LARGE_INTEGER` range. Commit rejects lifecycle or counter
+changes since preflight and replaces only the counter field. Range exhaustion,
+zero increment, and stale plans therefore preserve both clock state and allocators.
+
 The increment is supplied by validated compatibility policy. It is not derived
 from browser wall time, Worker scheduling, CPU slice count, or host uptime.
 Policies without an increment preserve their historical fixed-sample behavior.
@@ -157,6 +167,8 @@ The test fixes:
 - thread-only request／completion with thread signal and process nonsignal
 - current-directory bootstrap validation and lifecycle-preflighted plan commit
 - process-clock mutation-free sampling, stale-plan rejection, and DWORD wrap
+- performance-clock bootstrap validation plus counter progression, stale-plan
+  rejection, and signed-range exhaustion atomicity
 
 Current Node／Chrome semantic result、artifact identity、benchmark、next structured stopは
 [current checkpoint manifest](current-checkpoint.json)だけを正とし、このfoundation文書へ
@@ -171,9 +183,10 @@ termination across multiple lanes, suspend／resume, priorities, TLS／FLS clean
 thread/process detach, waiter registration, timeout, wait-any／wait-all, APC, or message wake. It is
 partial evidence for `P1-SCH-01`／`P3-WIN-02`, not their completion.
 
-The deterministic tick-read increment does not implement `Sleep`, timer queues,
-wait deadlines, performance-counter frequency, real-time pacing, or audio-clock
-synchronization.
+The deterministic tick and performance-counter increments do not implement
+`Sleep`, timer queues, wait deadlines, host-elapsed-time pacing, drift correction,
+or audio-clock synchronization. The reached frequency／counter relation is a
+bounded compatibility clock, not a claim about browser timer precision.
 
 The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves

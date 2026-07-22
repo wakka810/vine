@@ -336,7 +336,14 @@ Reached `timeGetTime`はKernel32 `GetTickCount`と同じprocess-owned tick count
 plan／commitでsampleする。WinMM policyはcounterを所有せず、resolution requestはsample値を変更しない。
 現在のdeterministic incrementはcompatibility policyであり、host経過時間やbrowser millisecond精度の
 claimではない。
-詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)を正とする。
+
+Reached `QueryPerformanceFrequency`／`QueryPerformanceCounter`も同じprocess ownerの別datumを使う。
+Frequencyはkernel bootstrapでnonzeroを、frequency／counter双方はsigned `LARGE_INTEGER`範囲を検証する
+immutable process valueであり、counter progressionはrunning lifecycle、previous counter、nonzero policy increment、signed `LARGE_INTEGER`上限を含む
+mutation-free planからtargeted commitする。Compatibility policyはincrementだけを選び、host QPC、
+browser `performance.now()`、Worker slice数、frame／audio clockをguest counterへimportしない。
+詳細は[generic-api-dispatcher.md](generic-api-dispatcher.md)と
+[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。
 
 ## 6. Guest address space と memory
 

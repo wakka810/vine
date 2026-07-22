@@ -71,6 +71,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tick_count: Option<Kernel32TickCountPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub performance_counter: Option<Kernel32PerformanceCounterPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heap_allocator: Option<Kernel32HeapAllocatorPolicy>,
     #[serde(default)]
     pub heap_allocations: Vec<Kernel32HeapAllocationPolicy>,
@@ -258,6 +260,12 @@ pub struct Kernel32TickCountPolicy {
     pub increment_per_read: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32PerformanceCounterPolicy {
+    pub increment_per_read: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Kernel32CompatibilityPolicyError {
     pub code: &'static str,
@@ -304,6 +312,7 @@ impl Kernel32CompatibilityPolicy {
             system_info: None,
             os_version_info_a: None,
             tick_count: None,
+            performance_counter: None,
             heap_allocator: None,
             heap_allocations: vec![Kernel32HeapAllocationPolicy {
                 flags: HEAP_ZERO_MEMORY,
@@ -635,6 +644,14 @@ impl Kernel32CompatibilityPolicy {
                 "tick-count policy requires a deterministic increment from 1 through 1000 milliseconds per read",
             ));
         }
+        if self.performance_counter.is_some_and(|clock| {
+            clock.increment_per_read == 0 || clock.increment_per_read > i64::MAX as u64
+        }) {
+            return Err(policy_error(
+                "kernel32-policy-performance-counter-invalid",
+                "performance-counter policy requires a nonzero deterministic increment within the signed LARGE_INTEGER range",
+            ));
+        }
 
         if let Some(allocator) = self.heap_allocator.as_ref() {
             let allowed_flags = allocator
@@ -833,6 +850,11 @@ impl Kernel32CompatibilityPolicy {
         self.tick_count.map(|clock| clock.increment_per_read)
     }
 
+    pub fn performance_counter_increment_per_read(&self) -> Option<u64> {
+        self.performance_counter
+            .map(|clock| clock.increment_per_read)
+    }
+
     pub fn allows_heap_allocation(&self, flags: u32, byte_length: u32) -> bool {
         self.heap_allocator.as_ref().map_or_else(
             || {
@@ -1023,6 +1045,7 @@ mod tests {
         assert_eq!(policy.system_info(), None);
         assert!(policy.os_version_info_a().is_none());
         assert_eq!(policy.tick_count_increment_per_read(), None);
+        assert_eq!(policy.performance_counter_increment_per_read(), None);
 
         let mut affinity = policy.clone();
         affinity.thread_affinity = Some(Kernel32ThreadAffinityPolicy { process_mask: 1 });
@@ -1071,6 +1094,30 @@ mod tests {
         assert_eq!(
             tick_count.validate().unwrap_err().code,
             "kernel32-policy-tick-count-invalid"
+        );
+
+        let mut performance_counter = policy.clone();
+        performance_counter.performance_counter = Some(Kernel32PerformanceCounterPolicy {
+            increment_per_read: 10_000,
+        });
+        performance_counter.validate().unwrap();
+        assert_eq!(
+            performance_counter.performance_counter_increment_per_read(),
+            Some(10_000)
+        );
+        performance_counter.performance_counter = Some(Kernel32PerformanceCounterPolicy {
+            increment_per_read: 0,
+        });
+        assert_eq!(
+            performance_counter.validate().unwrap_err().code,
+            "kernel32-policy-performance-counter-invalid"
+        );
+        performance_counter.performance_counter = Some(Kernel32PerformanceCounterPolicy {
+            increment_per_read: i64::MAX as u64 + 1,
+        });
+        assert_eq!(
+            performance_counter.validate().unwrap_err().code,
+            "kernel32-policy-performance-counter-invalid"
         );
 
         let mut bounded_heap = policy.clone();

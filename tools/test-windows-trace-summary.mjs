@@ -2869,6 +2869,299 @@ assert.throws(
   /requires exactly one oracle and structured completion/,
 );
 
+const largeIntegerSnapshot = (pointer, value) => {
+  const bytes = Buffer.alloc(8);
+  bytes.writeBigUInt64LE(BigInt(value));
+  return {
+    pointer,
+    size: 8,
+    bytes: [...bytes],
+    low: bytes.readUInt32LE(0),
+    high: bytes.readUInt32LE(4),
+    value: BigInt(value).toString(),
+  };
+};
+
+const performanceEvents = ({
+  api,
+  completionKind,
+  completionProfile,
+  mainCalls,
+  observation,
+  oracleProfile,
+  oracleValues,
+  sentinels,
+}) => {
+  const field =
+    api === "QueryPerformanceFrequency"
+      ? "queryPerformanceFrequency"
+      : "queryPerformanceCounter";
+  const stopEvent = `${observation}-complete`;
+  const result = [
+    {
+      schema,
+      kind: "trace-start",
+      timestamp: "2026-07-22T00:00:00.000Z",
+      executable: "C:\\fixture\\BGI.exe",
+      executableBytes: 1_193_472,
+      executableSha256: "f".repeat(64),
+      python: "3.14.6",
+      frida: "17.5.0",
+      platform: "Windows",
+      arguments: {
+        seconds: 30,
+        killAfter: true,
+        stopOnEvent: stopEvent,
+        vtables: [],
+        observations: [observation],
+      },
+    },
+    {
+      schema,
+      sequence: 0,
+      kind: "module-load",
+      module: "KERNEL32.dll",
+      base: "0x77000000",
+      size: 1_000_000,
+      path: "C:\\Windows\\System32\\KERNEL32.dll",
+    },
+    {
+      schema,
+      sequence: 1,
+      kind: "agent-ready",
+      architecture: "ia32",
+      pointerSize: 4,
+      processId: 456,
+      selectedVtables: [],
+      selectedObservations: [observation],
+    },
+  ];
+  let sequence = 2;
+  let callId = 1;
+  const oracleCalls = [];
+  for (const [index, sentinel] of sentinels.entries()) {
+    const pointer = `0x5000${index}000`;
+    const outputBefore = largeIntegerSnapshot(pointer, 0xa5a5_a5a5_a5a5_a5a5n);
+    const outputAfter = largeIntegerSnapshot(pointer, oracleValues[index]);
+    const caller = {
+      address: `0x7000${index}000`,
+      module: "frida-agent.dll",
+      rva: 0x1000 + index,
+    };
+    result.push(
+      {
+        schema,
+        sequence,
+        threadId: 30,
+        kind: "api-enter",
+        callId,
+        parentCallId: null,
+        caller,
+        module: "KERNEL32.dll",
+        api,
+        arguments: [pointer],
+        lastErrorBefore: sentinel,
+        [field]: { outputBefore, immediateConsumer: null },
+      },
+      {
+        schema,
+        sequence: sequence + 1,
+        threadId: 30,
+        kind: "api-leave",
+        callId,
+        parentCallId: null,
+        caller,
+        durationMs: 0,
+        lastError: sentinel,
+        module: "KERNEL32.dll",
+        api,
+        result: "0x1",
+        [field]: { result: 1, outputAfter },
+      },
+    );
+    oracleCalls.push({
+      sentinel,
+      systemResult: 1,
+      hookResult: 1,
+      outputAfter,
+      hookOutput: outputAfter,
+      hookLastErrorAfter: sentinel,
+      systemLastError: sentinel,
+      prefixGuardUnchanged: true,
+      suffixGuardUnchanged: true,
+      hookResultMatches: true,
+      hookOutputMatches: true,
+      hookPreservesLastError: true,
+      systemPreservesLastError: true,
+    });
+    sequence += 2;
+    callId += 1;
+  }
+  result.push({
+    schema,
+    sequence,
+    kind: `${observation}-oracle`,
+    profile: oracleProfile,
+    calls: oracleCalls,
+    allSucceeded: true,
+    allStable: api === "QueryPerformanceFrequency",
+    strictlyIncreasing: api === "QueryPerformanceCounter",
+    allPreserveLastError: true,
+    allGuardsUnchanged: true,
+  });
+  sequence += 1;
+
+  const completionCalls = [];
+  for (const [index, mainCall] of mainCalls.entries()) {
+    const pointer = `0x6000${index}000`;
+    const outputBefore = largeIntegerSnapshot(pointer, 0);
+    const outputAfter = largeIntegerSnapshot(pointer, mainCall.value);
+    const caller = {
+      address: `0x12${mainCall.rva.toString(16)}`,
+      module: "BGI.exe",
+      rva: mainCall.rva,
+    };
+    const immediateConsumer = { profile: "fixture-consumer-v1" };
+    result.push(
+      {
+        schema,
+        sequence,
+        threadId: 31,
+        kind: "api-enter",
+        callId,
+        parentCallId: null,
+        caller,
+        module: "KERNEL32.dll",
+        api,
+        arguments: [pointer],
+        lastErrorBefore: mainCall.lastError,
+        [field]: { outputBefore, immediateConsumer },
+      },
+      {
+        schema,
+        sequence: sequence + 1,
+        threadId: 31,
+        kind: "api-leave",
+        callId,
+        parentCallId: null,
+        caller,
+        durationMs: 0,
+        lastError: mainCall.lastError,
+        module: "KERNEL32.dll",
+        api,
+        result: "0x1",
+        [field]: { result: 1, outputAfter },
+      },
+    );
+    completionCalls.push({
+      callId,
+      returnAddress: caller.address,
+      ...(api === "QueryPerformanceCounter" ? { callerRva: mainCall.rva } : {}),
+      outputPointer: pointer,
+      result: 1,
+      outputBefore,
+      outputAfter,
+      lastErrorBefore: mainCall.lastError,
+      lastError: mainCall.lastError,
+      immediateConsumer,
+    });
+    sequence += 2;
+    callId += 1;
+  }
+  result.push(
+    {
+      schema,
+      sequence,
+      threadId: 31,
+      kind: completionKind,
+      profile: completionProfile,
+      oracleProfile,
+      mainModuleCalls: completionCalls,
+    },
+    {
+      schema,
+      kind: "trace-stop",
+      timestamp: "2026-07-22T00:00:01.000Z",
+      reason: `event-${stopEvent}-kill`,
+      detachedReason: "process-terminated",
+      crash: null,
+    },
+  );
+  return result;
+};
+
+const queryPerformanceFrequencyEvents = performanceEvents({
+  api: "QueryPerformanceFrequency",
+  completionKind: "query-performance-frequency-complete",
+  completionProfile: "x86-bgi-query-performance-frequency-v1",
+  mainCalls: [{ rva: 0x91fd7, value: 10_000_000n, lastError: 0 }],
+  observation: "query-performance-frequency",
+  oracleProfile: "x86-stable-performance-frequency-v1",
+  oracleValues: [10_000_000n, 10_000_000n, 10_000_000n],
+  sentinels: [0, 87, 0x1234_5678],
+});
+const queryPerformanceFrequencySummary = summarizeTrace(
+  encode(queryPerformanceFrequencyEvents),
+  "query-performance-frequency-fixture.jsonl",
+);
+assert.equal(
+  queryPerformanceFrequencySummary.kernel32.queryPerformanceFrequency[0]
+    .mainModuleCalls[0].output.value,
+  "10000000",
+);
+assert.deepEqual(
+  queryPerformanceFrequencySummary.kernel32.queryPerformanceFrequency[0].oracle.calls.map(
+    (call) => call.sentinel,
+  ),
+  [0, 87, 0x1234_5678],
+);
+const missingPerformanceFrequencyCompletion = queryPerformanceFrequencyEvents.filter(
+  (event) => event.kind !== "query-performance-frequency-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingPerformanceFrequencyCompletion)),
+  /requires exactly one oracle and structured completion/,
+);
+
+const queryPerformanceCounterEvents = performanceEvents({
+  api: "QueryPerformanceCounter",
+  completionKind: "query-performance-counter-complete",
+  completionProfile: "x86-bgi-query-performance-counter-progression-v1",
+  mainCalls: [
+    { rva: 0xa88fa, value: 20_000n, lastError: 87 },
+    { rva: 0x92017, value: 30_000n, lastError: 0 },
+    { rva: 0x92017, value: 40_000n, lastError: 0 },
+  ],
+  observation: "query-performance-counter",
+  oracleProfile: "x86-monotonic-performance-counter-v1",
+  oracleValues: [1000n, 2000n, 3000n, 4000n],
+  sentinels: [0, 87, 0x1234_5678, 0x8765_4321],
+});
+const queryPerformanceCounterSummary = summarizeTrace(
+  encode(queryPerformanceCounterEvents),
+  "query-performance-counter-fixture.jsonl",
+);
+assert.deepEqual(
+  queryPerformanceCounterSummary.kernel32.queryPerformanceCounter[0].mainModuleCalls.map(
+    (call) => [call.caller.rva, call.output.value, call.lastError],
+  ),
+  [
+    [0xa88fa, "20000", 87],
+    [0x92017, "30000", 0],
+    [0x92017, "40000", 0],
+  ],
+);
+const malformedPerformanceCounterBytes = structuredClone(
+  queryPerformanceCounterEvents,
+);
+malformedPerformanceCounterBytes.find(
+  (event) => event.kind === "query-performance-counter-complete",
+).mainModuleCalls[1].outputAfter.bytes[0] ^= 1;
+assert.throws(
+  () => summarizeTrace(encode(malformedPerformanceCounterBytes)),
+  /inconsistent bytes, words, or decimal value/,
+);
+
 const duplicateSequence = events.map((event) => ({ ...event }));
 duplicateSequence[5].sequence = 3;
 assert.throws(

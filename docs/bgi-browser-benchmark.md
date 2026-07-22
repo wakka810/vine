@@ -4,16 +4,16 @@
 
 - Status: threshold passed
 - Date: 2026-07-22
-- Workload: 17,866-call `d3d9-raster-status` private BGI generic session
-- Observation status: `current-d3d9-raster-status-observation`
+- Workload: 18,438-call `kernel32-query-performance-frequency` private BGI generic session
+- Observation status: `current-query-performance-frequency-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-raster-status-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-raster-status-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json`](../fixtures/benchmarks/bgi-browser-query-performance-frequency-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `d3d9-raster-status` BGI
+This observation repeats the complete `kernel32-query-performance-frequency` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,866 calls before the 11,808,626-instruction
-terminal stop, performs 53,146 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 18,438 calls before the 11,824,580-instruction
+terminal stop, performs 55,131 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -31,8 +31,10 @@ full-range Lock publishes Rust-owned guest backing, the caller writes the exact
 reference count is five. Four typed slot-57 states set culling off, depth testing
 off, lighting off, and alpha blending on before slot 19
 `IDirect3DDevice9::GetRasterStatus(0, output)` returns the deterministic eight-byte
-status `0000000001000000`. Execution then reaches
-`kernel32.dll!QueryPerformanceFrequency`. The successful resource path
+status `0000000001000000`. Execution then reads the process-owned 10 MHz
+`QueryPerformanceFrequency` value and advances `QueryPerformanceCounter` in
+10,000-tick increments while the caller repeats its raster-polling loop. It
+continues to `user32.dll!GetMonitorInfoA`. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
@@ -45,7 +47,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-17,866 detailed call objects or canonical strings on every repetition. Each
+18,438 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The Rust/Wasm artifact, Worker transport,
@@ -89,24 +91,24 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The accepted fixed-browser run completed 101 sessions with no semantic failure
-in a valid environment. All 17 thresholds passed. Heartbeat P99 was 10.780 ms,
-its maximum was 34.535 ms, and slice P99 was 2.625 ms. The environment monitor
+The accepted fixed-browser run completed 98 sessions with no semantic failure
+in a valid environment. All 17 thresholds passed. Heartbeat P99 was 10.875 ms,
+its maximum was 32.790 ms, and slice P99 was 3.695 ms. The environment monitor
 recorded 179 of 180 expected samples, no Updater, no sustained CPU or disk
-excursion, and no post-warm-up QoS transition. The report is 1,727,125 bytes
+excursion, and no post-warm-up QoS transition. The report is 1,638,396 bytes
 with SHA-256
-`9da5a6692224ea56da67035e566ded0a73ddc5d349724a8dd71dbdb0d55f4fcd`.
+`91e64687f5da4d3825408e195d72d786a8f94366642e66c1bafe9f2a824e1dbb`.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 101 |
-| Session latency p95 | <= 8,000 ms | 1,823.620 ms |
-| Maximum slice p99 | <= 10 ms | 2.625 ms |
-| Main heartbeat gap p99 | <= 25 ms | 10.780 ms |
-| Main heartbeat gap maximum | <= 250 ms | 34.535 ms |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,059,688 bytes |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 82,575,360 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 39,986,282 bytes |
+| Completed sessions | >= 24 | 98 |
+| Session latency p95 | <= 8,000 ms | 1,905.020 ms |
+| Maximum slice p99 | <= 10 ms | 3.695 ms |
+| Main heartbeat gap p99 | <= 25 ms | 10.875 ms |
+| Main heartbeat gap maximum | <= 250 ms | 32.790 ms |
+| Worker used heap maximum | <= 33,554,432 bytes | 27,896,060 bytes |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 91,226,112 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 42,665,640 bytes |
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
@@ -174,8 +176,8 @@ timer dispatch as the direct cause and Worker SHA／writeback／dirty-scan／JSO
 transport churn as an amplifier. SHA-pinned Chrome for Testing, environment
 qualification, bounded Worker fast paths, a 16,384-instruction production slice,
 and explicit background-scheduling launch flags resolved that historical
-blocker. The current raster-status run preserves those gates and advances the
-checkpoint to `QueryPerformanceFrequency`.
+blocker. The current performance-clock run preserves those gates and advances
+the checkpoint to `GetMonitorInfoA`.
 
 ## Surface DC heap-capacity correction
 
@@ -333,7 +335,7 @@ any threshold.
 | Chrome | Chrome for Testing `151.0.7922.34` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `9d9ab8cd1c7a20f982bf3599005c105b56e2dc07`
+The report records base implementation commit `ada77a04f3e8f99c9fa971b34744f1317931582a`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -342,12 +344,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,671,740 | `e31341e63dd5728ec46860ab3a37fea8282dc594b9c84a3f8bca4688aa1c4baa` |
+| Rust runtime core Wasm | 3,679,573 | `6387a49303f9c50330c6cac154a057cd7cabcd31ca664f96720f8d73c50d9604` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
 | BGI benchmark bundle | 10,355 | `02115b91f77250831c7ed41f87153d69f2c420bca42fd0f62133ccff1a28bb55` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| D3D9 Raster Status version 1 configuration | 1,180 | `57e2b85a351e44f7f827a24cef4a13cdddb756122d24135802e43cfca4999444` |
+| Performance Frequency version 1 configuration | 1,195 | `a9d79abad9523083043db61eef5958e6f07c27d4f65d0250ed8e4037a14b327f` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte

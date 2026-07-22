@@ -40,6 +40,7 @@ pub struct RuntimeClockState {
     pub wall_clock_file_time: u64,
     pub tick_count: u32,
     pub performance_counter: u64,
+    pub performance_frequency: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -197,6 +198,14 @@ pub(super) struct RuntimeTickCountSamplePlan {
     previous_tick_count: u32,
     returned_tick_count: u32,
     next_tick_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimePerformanceCounterSamplePlan {
+    previous_lifecycle: RuntimeProcessLifecycleState,
+    previous_counter: u64,
+    returned_counter: u64,
+    next_counter: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -396,6 +405,61 @@ impl RuntimeProcessState {
         }
         self.clock.tick_count = plan.next_tick_count;
         Ok(plan.returned_tick_count)
+    }
+
+    pub(super) fn plan_performance_counter_sample(
+        &self,
+        increment_per_read: u64,
+    ) -> Result<RuntimePerformanceCounterSamplePlan, RuntimeStateError> {
+        if !self.is_running() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-clock",
+                "performance-counter-process-state-invalid",
+                "performance-counter sampling requires a running process",
+            ));
+        }
+        if increment_per_read == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-process-clock",
+                "performance-counter-increment-zero",
+                "advancing performance-counter sampling requires a nonzero increment",
+            ));
+        }
+        let next_counter = self
+            .clock
+            .performance_counter
+            .checked_add(increment_per_read)
+            .filter(|next| *next <= i64::MAX as u64)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-process-clock",
+                    "performance-counter-range-exhausted",
+                    "performance-counter sampling exceeded the nonnegative LARGE_INTEGER range",
+                )
+            })?;
+        Ok(RuntimePerformanceCounterSamplePlan {
+            previous_lifecycle: self.lifecycle,
+            previous_counter: self.clock.performance_counter,
+            returned_counter: self.clock.performance_counter,
+            next_counter,
+        })
+    }
+
+    pub(super) fn commit_performance_counter_sample(
+        &mut self,
+        plan: RuntimePerformanceCounterSamplePlan,
+    ) -> Result<u64, RuntimeStateError> {
+        if self.lifecycle != plan.previous_lifecycle
+            || self.clock.performance_counter != plan.previous_counter
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-process-clock",
+                "performance-counter-sample-plan-stale",
+                "process lifecycle or performance counter changed after sampling preflight",
+            ));
+        }
+        self.clock.performance_counter = plan.next_counter;
+        Ok(plan.returned_counter)
     }
 
     pub fn startup_info(&self) -> &RuntimeStartupInfo {
@@ -1281,6 +1345,7 @@ mod tests {
                 wall_clock_file_time: 1,
                 tick_count: 2,
                 performance_counter: 3,
+                performance_frequency: 4,
             },
             RuntimeStartupInfo {
                 profile_id: "process-unit-test".to_owned(),
@@ -1332,6 +1397,58 @@ mod tests {
                 .unwrap_err()
                 .code,
             "tick-count-sample-plan-stale"
+        );
+        assert_eq!(process, before_stale_lifecycle);
+    }
+
+    #[test]
+    fn performance_counter_sampling_plans_progress_and_fails_atomically() {
+        let mut process = process_state();
+        let start = process.plan_start().unwrap();
+        process.preflight_mutation_commit(&start).unwrap();
+        process.commit_mutation(start);
+
+        let before = process.clone();
+        let first = process.plan_performance_counter_sample(4).unwrap();
+        assert_eq!(process, before, "clock sampling plan must be mutation-free");
+        assert_eq!(process.commit_performance_counter_sample(first), Ok(3));
+        assert_eq!(process.clock().performance_counter, 7);
+
+        let stale = process.plan_performance_counter_sample(4).unwrap();
+        let committed = process.plan_performance_counter_sample(5).unwrap();
+        assert_eq!(process.commit_performance_counter_sample(committed), Ok(7));
+        assert_eq!(process.clock().performance_counter, 12);
+        assert_eq!(
+            process
+                .commit_performance_counter_sample(stale)
+                .unwrap_err()
+                .code,
+            "performance-counter-sample-plan-stale"
+        );
+        assert_eq!(process.clock().performance_counter, 12);
+
+        process.clock.performance_counter = i64::MAX as u64;
+        let before_exhaustion = process.clone();
+        assert_eq!(
+            process.plan_performance_counter_sample(1).unwrap_err().code,
+            "performance-counter-range-exhausted"
+        );
+        assert_eq!(process, before_exhaustion);
+
+        process.clock.performance_counter = 20;
+        let stale_lifecycle = process.plan_performance_counter_sample(4).unwrap();
+        let exit = process
+            .plan_exit_request(RuntimeThreadId(0x2000), 7)
+            .unwrap();
+        process.preflight_mutation_commit(&exit).unwrap();
+        process.commit_mutation(exit);
+        let before_stale_lifecycle = process.clone();
+        assert_eq!(
+            process
+                .commit_performance_counter_sample(stale_lifecycle)
+                .unwrap_err()
+                .code,
+            "performance-counter-sample-plan-stale"
         );
         assert_eq!(process, before_stale_lifecycle);
     }
