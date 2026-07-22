@@ -30,13 +30,17 @@ const focusedD3d9InitialTexturesObservation =
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
+const focusedD3d9InitialRenderStatesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-initial-render-states");
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
   focusedD3d9CreateDeviceObservation ||
   focusedD3d9ResourceObservation ||
   focusedD3d9InitialTexturesObservation ||
-  focusedD3d9InitialVertexBufferObservation;
+  focusedD3d9InitialVertexBufferObservation ||
+  focusedD3d9InitialRenderStatesObservation;
 const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
@@ -55,6 +59,9 @@ let focusedD3d9InitialVertexBufferData = null;
 let focusedD3d9InitialVertexBufferLength = null;
 let focusedD3d9InitialVertexBufferComplete = false;
 const focusedD3d9InitialVertexBufferCalls = [];
+let focusedD3d9InitialRenderStateDevice = null;
+let focusedD3d9InitialRenderStatesComplete = false;
+const focusedD3d9InitialRenderStateCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -3652,7 +3659,23 @@ function attachIdirect3ddevice9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (focusedD3d9InitialVertexBufferObservation) {
+          if (focusedD3d9InitialRenderStatesObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            if (
+              focusedD3d9InitialRenderStatesComplete ||
+              focusedD3d9InitialRenderStateCalls.length >= 4 ||
+              slot !== 57 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              (focusedD3d9InitialRenderStateDevice !== null &&
+                objectAddress !== focusedD3d9InitialRenderStateDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9InitialRenderStateDevice ??= objectAddress;
+          } else if (focusedD3d9InitialVertexBufferObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
             if (
@@ -3833,6 +3856,20 @@ function attachIdirect3ddevice9(object) {
               );
             }
           }
+          if (focusedD3d9InitialRenderStatesObservation) {
+            focusedD3d9InitialRenderStateCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9InitialRenderStatesObservation();
+          }
           if (
             d3d9CreateTexture !== null &&
             !focusedD3d9InitialTexturesObservation &&
@@ -3847,7 +3884,8 @@ function attachIdirect3ddevice9(object) {
           if (
             focusedD3d9DeviceObservation &&
             !focusedD3d9InitialTexturesObservation &&
-            !focusedD3d9InitialVertexBufferObservation
+            !focusedD3d9InitialVertexBufferObservation &&
+            !focusedD3d9InitialRenderStatesObservation
           ) {
             focusedD3d9DeviceMethodCaptured = true;
           }
@@ -3913,6 +3951,31 @@ function maybeCompleteFocusedD3d9InitialVertexBufferObservation() {
     calls: focusedD3d9InitialVertexBufferCalls,
   });
   if (stopOnEvent === "d3d9-initial-vertex-buffer-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9InitialRenderStatesObservation() {
+  if (
+    focusedD3d9InitialRenderStatesComplete ||
+    focusedD3d9InitialRenderStateCalls.length !== 4 ||
+    !focusedD3d9InitialRenderStateCalls.every(
+      (call) => call.api === "SetRenderState",
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9InitialRenderStatesObservation, 10);
+    return;
+  }
+  focusedD3d9InitialRenderStatesComplete = true;
+  emit("d3d9-initial-render-states-complete", {
+    profile: "x86-bgi-initial-render-states-v1",
+    device: focusedD3d9InitialRenderStateDevice,
+    calls: focusedD3d9InitialRenderStateCalls,
+  });
+  if (stopOnEvent === "d3d9-initial-render-states-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

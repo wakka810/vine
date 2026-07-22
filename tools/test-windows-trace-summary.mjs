@@ -1874,6 +1874,187 @@ assert.throws(
   /changed its Lock data pointer/,
 );
 
+const d3d9InitialRenderStateEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-22T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-initial-render-states-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-initial-render-states"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-initial-render-states"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+];
+const renderStateCallFixtures = [
+  { callerRva: 0x5ad13, arguments: ["0x16", "0x1"] },
+  { callerRva: 0x5ad26, arguments: ["0x7", "0x0"] },
+  { callerRva: 0x5ad3c, arguments: ["0x89", "0x0"] },
+  { callerRva: 0x5ad50, arguments: ["0x1b", "0x1"] },
+];
+const renderStateCompletionCalls = [];
+for (const [index, fixture] of renderStateCallFixtures.entries()) {
+  const callId = index + 1;
+  const sequence = 4 + index * 2;
+  const caller = {
+    address: `0x${(0x0040_0000 + fixture.callerRva).toString(16)}`,
+    module: "BGI.exe",
+    rva: fixture.callerRva,
+  };
+  d3d9InitialRenderStateEvents.push(
+    {
+      schema,
+      sequence,
+      threadId: 20,
+      kind: "api-enter",
+      callId,
+      parentCallId: null,
+      caller,
+      module: "d3d9.dll",
+      api: "SetRenderState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 57,
+      object: "0x490000",
+      arguments: fixture.arguments,
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 20,
+      kind: "api-leave",
+      callId,
+      parentCallId: null,
+      caller,
+      durationMs: 1,
+      lastError: 0,
+      module: "d3d9.dll",
+      api: "SetRenderState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 57,
+      object: "0x490000",
+      result: "0x0",
+    },
+  );
+  renderStateCompletionCalls.push({
+    callId,
+    api: "SetRenderState",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 57,
+    object: "0x490000",
+    arguments: fixture.arguments,
+    result: "0x0",
+    lastError: 0,
+    caller,
+  });
+}
+d3d9InitialRenderStateEvents.push(
+  {
+    schema,
+    sequence: 12,
+    threadId: 20,
+    kind: "d3d9-initial-render-states-complete",
+    profile: "x86-bgi-initial-render-states-v1",
+    device: "0x490000",
+    calls: renderStateCompletionCalls,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-22T00:00:01.000Z",
+    reason: "event-d3d9-initial-render-states-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const d3d9InitialRenderStateSummary = summarizeTrace(
+  encode(d3d9InitialRenderStateEvents),
+  "d3d9-initial-render-states-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9InitialRenderStateSummary.d3d9.initialRenderStateSequences[0].calls,
+  [
+    { sequence: 4, caller: { module: "BGI.exe", rva: 0x5ad13 }, state: 22, value: 1, result: "0x0", lastError: 0 },
+    { sequence: 6, caller: { module: "BGI.exe", rva: 0x5ad26 }, state: 7, value: 0, result: "0x0", lastError: 0 },
+    { sequence: 8, caller: { module: "BGI.exe", rva: 0x5ad3c }, state: 137, value: 0, result: "0x0", lastError: 0 },
+    { sequence: 10, caller: { module: "BGI.exe", rva: 0x5ad50 }, state: 27, value: 1, result: "0x0", lastError: 0 },
+  ],
+);
+const missingInitialRenderStateCompletion = d3d9InitialRenderStateEvents.filter(
+  (event) => event.kind !== "d3d9-initial-render-states-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingInitialRenderStateCompletion)),
+  /requires exactly one structured completion/,
+);
+const malformedInitialRenderStateTuple = structuredClone(
+  d3d9InitialRenderStateEvents,
+);
+malformedInitialRenderStateTuple.find(
+  (event) => event.kind === "api-enter" && event.callId === 3,
+).arguments[1] = "0x1";
+malformedInitialRenderStateTuple.find(
+  (event) => event.kind === "d3d9-initial-render-states-complete",
+).calls[2].arguments[1] = "0x1";
+assert.throws(
+  () => summarizeTrace(encode(malformedInitialRenderStateTuple)),
+  /violates its caller, tuple, or result contract/,
+);
+const crossThreadInitialRenderStates = structuredClone(
+  d3d9InitialRenderStateEvents,
+);
+for (const event of crossThreadInitialRenderStates.filter(
+  (event) =>
+    (event.kind === "api-enter" || event.kind === "api-leave") &&
+    event.callId === 4,
+)) {
+  event.threadId = 21;
+}
+assert.throws(
+  () => summarizeTrace(encode(crossThreadInitialRenderStates)),
+  /violates its thread or contiguous ordering contract/,
+);
+
 const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);
 d3d9SurfaceDcEvents[0].arguments.stopOnEvent = "d3d9-surface-get-dc-complete";
 d3d9SurfaceDcEvents[0].arguments.observations = ["d3d9-surface-get-dc"];

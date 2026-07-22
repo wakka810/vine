@@ -152,6 +152,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "winmm-time-get-time",
         "d3d9-initial-textures",
         "d3d9-initial-vertex-buffer",
+        "d3d9-initial-render-states",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -223,6 +224,7 @@ assert(
       "winmm-time-get-time",
       "d3d9-initial-textures",
       "d3d9-initial-vertex-buffer",
+      "d3d9-initial-render-states",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -258,6 +260,7 @@ if (
     "winmm-time-get-time",
     "d3d9-initial-textures",
     "d3d9-initial-vertex-buffer",
+    "d3d9-initial-render-states",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -286,7 +289,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-surface-get-dc" ||
     genericRuntimeCapability === "winmm-time-get-time" ||
     genericRuntimeCapability === "d3d9-initial-textures" ||
-    genericRuntimeCapability === "d3d9-initial-vertex-buffer"
+    genericRuntimeCapability === "d3d9-initial-vertex-buffer" ||
+    genericRuntimeCapability === "d3d9-initial-render-states"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -421,7 +425,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const d3d9InitialRenderStatesEnabled =
+  genericRuntimeCapability === "d3d9-initial-render-states";
 const d3d9InitialVertexBufferEnabled =
+  d3d9InitialRenderStatesEnabled ||
   genericRuntimeCapability === "d3d9-initial-vertex-buffer";
 const d3d9InitialTexturesEnabled =
   d3d9InitialVertexBufferEnabled ||
@@ -649,7 +656,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9InitialVertexBufferEnabled
+      ? d3d9InitialRenderStatesEnabled
+        ? "v86-bgi-d3d9-initial-render-states"
+      : d3d9InitialVertexBufferEnabled
         ? "v86-bgi-d3d9-initial-vertex-buffer"
       : d3d9InitialTexturesEnabled
         ? "v86-bgi-d3d9-initial-textures"
@@ -4619,6 +4628,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (d3d9InitialRenderStatesEnabled) {
+        validateD3d9InitialRenderStatesResult(genericResult);
       } else if (d3d9InitialVertexBufferEnabled) {
         validateD3d9InitialVertexBufferResult(genericResult);
       } else if (d3d9InitialTexturesEnabled) {
@@ -4794,6 +4805,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9InitialRenderStatesEnabled
+            ? "bgi D3D9 initial render-state sequence"
           : d3d9InitialVertexBufferEnabled
             ? "bgi D3D9 initial vertex-buffer sequence"
           : d3d9InitialTexturesEnabled
@@ -13513,6 +13526,142 @@ function validateD3d9InitialVertexBufferResult(result) {
   ]);
 }
 
+function validateD3d9InitialRenderStatesResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 17_865);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 17_920);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_075,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    1_807_844,
+  );
+  assert.equal(result.hostDeltas.length, 16_573);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 34_924);
+
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "IDirect3DDevice9.SetRenderState",
+  );
+  assert.deepEqual(
+    calls.map((call) => [
+      call.sequence,
+      call.occurrence,
+      call.trapInstructionCount,
+      call.arguments,
+      call.result,
+      call.returnAddress,
+      call.stackPointerAfter - call.stackPointerBefore,
+      call.referenceCount,
+      call.objectRetired,
+      call.guestWrites,
+    ]),
+    [
+      [
+        17_862,
+        1,
+        11_808_458,
+        [0x0101_0004, 22, 1],
+        { kind: "h-result", value: 0 },
+        0x1005_ad13,
+        16,
+        5,
+        false,
+        [],
+      ],
+      [
+        17_863,
+        2,
+        11_808_466,
+        [0x0101_0004, 7, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_ad26,
+        16,
+        5,
+        false,
+        [],
+      ],
+      [
+        17_864,
+        3,
+        11_808_474,
+        [0x0101_0004, 137, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_ad3c,
+        16,
+        5,
+        false,
+        [],
+      ],
+      [
+        17_865,
+        4,
+        11_808_482,
+        [0x0101_0004, 27, 1],
+        { kind: "h-result", value: 0 },
+        0x1005_ad50,
+        16,
+        5,
+        false,
+        [],
+      ],
+    ],
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "com-method");
+  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(endpoint.target.object.referenceCount, 5);
+  assert.equal(endpoint.target.object.parentInterfaceId, "4");
+  assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(endpoint.target.method.slot, 19);
+  assert.equal(endpoint.target.method.name, "GetRasterStatus");
+  assert.equal(endpoint.target.method.explicitArgumentWords, 2);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_aedd);
+  assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
+  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
+  assert.equal(result.fault.fault.target.vtableSlot, 19);
+  assert.equal(result.fault.fault.target.method, "GetRasterStatus");
+  assert.equal(result.fault.memory.physicalPages, 730);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c6d0dc39420aeff8e9685b7814dabd45ad9719b98a16382c0e5fa163a61efa9d",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_808_586);
+  assert.equal(terminal.kind, "owned-com-method");
+  assert.equal(terminal.endpointAddress, endpoint.target.method.endpoint);
+  assert.equal(terminal.interfaceIndex, 1);
+  assert.equal(terminal.vtableSlot, 19);
+  assert.equal(terminal.returnAddress, 0x1005_aedd);
+  assert.deepEqual(terminal.stackWords, [
+    0x1005_aedd,
+    0x0101_0004,
+    0,
+    0x006f_fcf0,
+  ]);
+}
+
 function validateD3d9SurfaceGetDcResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -15629,6 +15778,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9InitialRenderStatesEnabled
+          ? "vine.v86-bgi-d3d9-initial-render-states"
         : d3d9InitialVertexBufferEnabled
           ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
         : d3d9InitialTexturesEnabled

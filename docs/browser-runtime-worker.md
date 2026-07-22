@@ -3,8 +3,8 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-18
-- Browser: Chrome `150.0.7871.127`
+- Date: 2026-07-22
+- Browser: Chrome `150.0.7871.129`
 - Protocol: `vine.browser-runtime-worker` version `7`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
@@ -243,8 +243,10 @@ logical textures covering the exact system-memory／default／dynamic-default in
 texture's level-zero surface; a typed surface HDC; one bounded graphics fill command; and their
 COM／GDI lifetime relations. It also creates one Rust-owned 112-byte logical vertex buffer, exposes
 its guest backing through the exact full-range Lock, consumes the guest write, and returns the backing
-to read-only on Unlock. The Worker observes completions and mirrors checked guest bytes, but owns
-neither identity, lock state, protection, nor resource content. No texture／surface pixel or browser
+to read-only on Unlock. The device then consumes the exact four fixed-function `SetRenderState`
+settings through Rust-owned typed state and reaches `GetRasterStatus`. The Worker observes
+completions and mirrors checked guest bytes, but owns neither identity, lock state, protection,
+resource content, nor render state. No texture／surface pixel or browser
 renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
 heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
 

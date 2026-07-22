@@ -65,6 +65,7 @@ const supportedObservations = new Set([
   "d3d9-surface-get-dc",
   "d3d9-initial-textures",
   "d3d9-initial-vertex-buffer",
+  "d3d9-initial-render-states",
 ]);
 export const idirect3d9MethodNames = [
   "QueryInterface",
@@ -2117,6 +2118,115 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const initialRenderStateCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-initial-render-states-complete",
+  );
+  const requiresInitialRenderStateCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-initial-render-states" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-initial-render-states-complete";
+  if (
+    initialRenderStateCompletionEvents.length > 1 ||
+    (requiresInitialRenderStateCompletion &&
+      initialRenderStateCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-initial-render-states observation requires exactly one structured completion",
+    );
+  }
+  const initialRenderStateSequences = initialRenderStateCompletionEvents.map(
+    (completion) => {
+      const expected = [
+        { callerRva: 0x5ad13, state: 22n, value: 1n },
+        { callerRva: 0x5ad26, state: 7n, value: 0n },
+        { callerRva: 0x5ad3c, state: 137n, value: 0n },
+        { callerRva: 0x5ad50, state: 27n, value: 1n },
+      ];
+      if (
+        completion.profile !== "x86-bgi-initial-render-states-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== expected.length ||
+        !Number.isInteger(completion.sequence)
+      ) {
+        throw new Error(
+          "d3d9-initial-render-states completion has invalid structure",
+        );
+      }
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const pairs = completion.calls.map((snapshot, index) => {
+        const pair = pairsByCallId.get(snapshot?.callId);
+        const expectedCall = expected[index];
+        if (
+          pair === undefined ||
+          snapshot.api !== "SetRenderState" ||
+          snapshot.interface !== "IDirect3DDevice9" ||
+          snapshot.vtableSlot !== 57 ||
+          snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          JSON.stringify(snapshot.arguments) !==
+            JSON.stringify(pair.enter.arguments) ||
+          snapshot.result !== pair.leave.result ||
+          snapshot.lastError !== pair.leave.lastError ||
+          snapshot.caller?.module !== pair.enter.caller?.module ||
+          snapshot.caller?.rva !== pair.enter.caller?.rva ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.api !== "SetRenderState" ||
+          pair.enter.interface !== "IDirect3DDevice9" ||
+          pair.enter.vtableSlot !== 57 ||
+          pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== expectedCall.callerRva ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 2 ||
+          BigInt(pair.enter.arguments[0]) !== expectedCall.state ||
+          BigInt(pair.enter.arguments[1]) !== expectedCall.value ||
+          BigInt(pair.leave.result) !== 0n ||
+          pair.leave.lastError !== 0
+        ) {
+          throw new Error(
+            `d3d9-initial-render-states completion call ${index} violates its caller, tuple, or result contract`,
+          );
+        }
+        return pair;
+      });
+      if (
+        !pairs.every((pair) => pair.enter.threadId === pairs[0].enter.threadId) ||
+        completion.threadId !== pairs[0].enter.threadId ||
+        pairs.slice(1).some(
+          (pair, index) =>
+            pair.enter.sequence !== pairs[index].leave.sequence + 1,
+        ) ||
+        completion.sequence !== pairs.at(-1).leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-initial-render-states completion violates its thread or contiguous ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pairs[0].enter.threadId,
+        device: completion.device,
+        calls: pairs.map((pair) => ({
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          state: Number(BigInt(pair.enter.arguments[0])),
+          value: Number(BigInt(pair.enter.arguments[1])),
+          result: pair.leave.result,
+          lastError: pair.leave.lastError,
+        })),
+      };
+    },
+  );
+
   const getSurfaceLevels = apiPairing.pairs
     .filter(
       (pair) =>
@@ -2695,6 +2805,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       createVertexBuffers,
       initialTextureSequences,
       initialVertexBufferSequences,
+      initialRenderStateSequences,
       getSurfaceLevels,
       surfaceDcFlows,
       deviceCalls,

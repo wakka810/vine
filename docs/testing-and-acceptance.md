@@ -359,6 +359,17 @@ final Releaseはresource mapping／owner／allocation／graphics associationをC
 Node／Chromeは三completion、112-byte content、device refcount 5、backing protection、device slot 57
 `SetRenderState` stopを比較し、browser renderer、texture／surface pixel storage、GPU vertex bufferが未生成で
 あることを要求する。
+Reached `SetRenderState`はtwo-word／HRESULT ABI、exact order
+`(22,1)／(7,0)／(137,0)／(27,1)`、zero guest writes、device refcount不変、LastError preserveを固定する。
+`RuntimeGraphicsDevice`はreached valueだけをtyped stateとして所有し、Windows default全体を推測しない。
+Plan／preflight／commitはstale、wrong device、generation exhaustion、unsupported tupleでstateとgenerationを
+partial mutationせず、same-value reapplyはsuccess／zero generation deltaとする。Node／Chromeは四completion、
+call digest、logical values、次のslot 19 `GetRasterStatus` stop、browser-owned render-state tableとrendererが
+未生成であることを比較する。
+このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
+条件とする。Current observationはsemantic failure 0だがheartbeat P99 30.505 msが25 ms上限を超え、16／17
+のみ通過したため`threshold-blocked`である。Retryをpass evidenceにせず、unchanged thresholdsをisolated／
+quiescent hostで通すか、別evidenceに基づくversioned performance-contract変更の明示判断までacceptしない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
@@ -370,7 +381,8 @@ wrong／repeated `ReleaseDC`、live DC中の`LockRect`拒否、NULL／read-only 
 Focused initial-texture traceは三callのexact caller RVA／arguments／S_OK、same device、distinct non-NULL output、
 直後の`CreateVertexBuffer`をtwo-runで固定する。Focused vertex-buffer traceはCreate／Lock／112-byte caller
 write／Unlockのexact caller RVA、arguments、initial zero content、written content、S_OK／LastError preserve、
-直後の`SetRenderState(22,1)`をtwo-runで固定する。詳細は
+直後の`SetRenderState(22,1)`をtwo-runで固定する。Focused render-state traceは四caller RVA、state／value、
+contiguous same-device／thread relation、S_OK／LastError preserveをtwo-runで固定する。詳細は
 [d3d9-frontend.md](d3d9-frontend.md)を正とする。
 
 Reached `LoadLibraryA`のrepresentative contractsはone-word x86 stdcall、nullable logical module

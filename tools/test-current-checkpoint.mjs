@@ -29,8 +29,12 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
-assert.ok(!rendered.includes("| Active blocker |"));
+assert.equal(
+  manifest.browserCheckpoint.bgiBenchmarkBlocker.id,
+  "d3d9-initial-render-states-heartbeat-threshold-v1",
+);
+assert.ok(rendered.includes("| Active blocker |"));
+assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.resumeCondition));
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
   assert.ok(rendered.includes(`\`${milestone.status}\``));
@@ -145,71 +149,7 @@ assert.ok(
   ),
 );
 
-const structuredBenchmarkBlocker = structuredClone(manifest);
-structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmark = "threshold-blocked";
-Object.assign(structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkEvidence, {
-  decisionStatus: "failed",
-  decisionReason: "1-of-17-versioned-thresholds-failed",
-  completedSessions: 26,
-  sessionP95Milliseconds: 8437.465000033379,
-  thresholdFailures: 1,
-  thresholdFailureIds: ["maximum-p95-session-milliseconds"],
-  reportBytes: 930_082,
-  reportSha256: "7b599da1fb0fa2e75234553cf69e16e740f6388522d97c1438bd9fe2c8bcf742",
-});
-structuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker = {
-  schema: "vine.structured-blocker",
-  schemaVersion: 1,
-  id: "d3d9-create-texture-performance-oracle-host-contention-v1",
-  kind: "feasibility-blocker",
-  reason: "repeatable-performance-oracle-unavailable-with-current-host-load",
-  status: "blocked",
-  blockedWork: "advance-from-create-texture-to-get-surface-level",
-  exactReproduction: "npm run check:runtime:bgi-browser-benchmark:prepared",
-  firstFailure: {
-    thresholdId: "maximum-p95-session-milliseconds",
-    observed: 8437.465000033379,
-    comparison: "<=",
-    threshold: 8_000,
-  },
-  evidence: {
-    benchmarkReport: ".work/browser-runtime/bgi-browser-benchmark-report.json",
-    benchmarkReportBytes: 930_082,
-    benchmarkReportSha256:
-      "7b599da1fb0fa2e75234553cf69e16e740f6388522d97c1438bd9fe2c8bcf742",
-    passingThresholds: 16,
-    thresholdEvaluations: 17,
-    completedSessions: 26,
-    failedSessions: 0,
-    nodeComparisonReport: ".work/hyperfine-d3d9-create-texture-v1.json",
-    nodeComparisonReportBytes: 1_082,
-    nodeComparisonReportSha256:
-      "dc3a36b16d9b0a31252be5e99a8cc79887eb1020a8d17282048fc12d971ccb67",
-    createDeviceMedianMilliseconds: 36_326.809418,
-    createTextureMedianMilliseconds: 36_623.290318,
-    nodeMedianIncreasePercent: 0.816149022581365,
-    ambientCpuConsumers: [
-      { processName: "MuMuVMMHeadless", observedLogicalCpuPercent: 234 },
-      { processName: "MaaGakumasu", observedLogicalCpuPercent: 123 },
-    ],
-  },
-  attemptedOptions: [
-    "same-host-node-create-device-create-texture-comparison",
-    "ambient-process-cpu-attribution",
-    "preserve-versioned-duration-and-thresholds-without-retry-acceptance",
-  ],
-  protectedInvariants: [
-    "do-not-relax-versioned-performance-thresholds",
-    "do-not-accept-a-retry-as-performance-evidence",
-    "do-not-stop-unrelated-user-processes-without-authorization",
-  ],
-  requiredAuthority: "user-controlled-external-process-lifecycle-or-isolated-host",
-  resumeCondition:
-    "Pause the external CPU workloads or use an isolated host, then rerun with unchanged thresholds before GetSurfaceLevel.",
-};
-assert.deepEqual(validateCurrentCheckpoint(structuredBenchmarkBlocker), []);
-
-const missingStructuredBenchmarkBlocker = structuredClone(structuredBenchmarkBlocker);
+const missingStructuredBenchmarkBlocker = structuredClone(manifest);
 delete missingStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker;
 assert.ok(
   validateCurrentCheckpoint(missingStructuredBenchmarkBlocker).some((error) =>
@@ -217,9 +157,9 @@ assert.ok(
   ),
 );
 
-const mismatchedStructuredBenchmarkBlocker = structuredClone(structuredBenchmarkBlocker);
+const mismatchedStructuredBenchmarkBlocker = structuredClone(manifest);
 mismatchedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker.firstFailure.observed =
-  8_000;
+  25;
 assert.ok(
   validateCurrentCheckpoint(mismatchedStructuredBenchmarkBlocker).some((error) =>
     error.includes("structured performance blocker"),

@@ -97,12 +97,13 @@ ordinary short gate. Its exact evidence and non-claims are recorded in
 
 The BGI benchmark command is a separate three-minute private workload gate. Its
 current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-d3d9-initial-vertex-buffer-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-vertex-buffer-v1.json).
+[`bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json).
 It repeats the complete current session through the first texture's surface
 `GetDC`, stock-brush `FillRect`, `ReleaseDC`, surface retirement, then the
 static-default and dynamic-default texture creations, device slot 26
-`CreateVertexBuffer`, and vertex-buffer slot 11／12 `Lock`／`Unlock` before the
-device slot 57 `SetRenderState` stop. Every summary-evidence
+`CreateVertexBuffer`, vertex-buffer slot 11／12 `Lock`／`Unlock`, and the exact
+four device slot 57 `SetRenderState` calls before the slot 19 `GetRasterStatus`
+stop. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
@@ -111,8 +112,9 @@ and Wasm-crossing thresholds. Its result and non-claims are recorded in
 because the private executable is never distributed.
 
 `threshold-blocked` is a required failure outcome, not a soft pass. The current
-manifest must retain the failing threshold ID, exact report identity, attempted
-isolation evidence, protected threshold／retry invariants, and resume condition.
+manifest must retain the failing threshold ID, full distribution count, exact
+report and Node A/B identities, attempted isolation evidence, protected
+threshold／retry invariants, and resume condition.
 No downstream primary checkpoint or private-evidence commit proceeds until the
 same 180-second fixture passes unchanged on an isolated host, or a repeated
 isolated failure leads to a profiled bounded optimization.

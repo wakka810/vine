@@ -3800,6 +3800,27 @@ retry acceptanceは行っていない。
 arguments `22, 1`、endpoint `0x010113C0`、return `0x1005AD13`の`com-method-unsupported`である。
 Render-state authority、draw、Present、Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
 
+## 124. BGI D3D9 initial render states
+
+Focused `x86-bgi-initial-render-states-v1` observationを独立に2回取得した。Primary raw traceは
+208,326 bytes／511 records／222 balanced API pairs／SHA-256
+`db86df8455db6ed3e2c36b13618730b7d40b6750012136308148a7fc302d86e9`、summaryは180,986 bytes／
+SHA-256 `31202c168e9f22f0cec2570d41cdadd95ef9eab602e3bab3e1c8b409f2bafa4b`である。Confirmation raw
+traceは208,999 bytes／512 records／222 balanced pairs／SHA-256
+`66e7b34f2900bbf5470c6433bcd0d7ea0818e87396cc2108d5ee72a163b8a704`、summaryは181,209 bytes／
+SHA-256 `1d04f1ec63c1cf3769f97267bf06bc6133e21a08aedd9173fa6af5a59c934100`である。両runともtrace
+diagnosticは0、sequenceはcontiguous、API pairingはbalancedである。
+
+両runは同じdevice／thread内でcaller RVA `0x0005AD13／0x0005AD26／0x0005AD3C／0x0005AD50`
+からslot 57 `SetRenderState`を4回連続して完了する。State／valueは順に`22／1`、`7／0`、
+`137／0`、`27／1`、全resultは`S_OK`、observed LastErrorは0である。Device pointerとthread IDはrun間で
+異なりopaque artifact identityとして扱う。Source executableはbefore／afterとも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`であり変更していない。
+
+このevidenceはexact startup clusterとorderingを固定する。未到達render-state variant、Windows default state
+全体、GPU renderer、draw、Present、Reset、device lossを一般化しない。Runtime／Node／Chromeのsemantic
+evidenceと次の`GetRasterStatus` stopはcurrent checkpoint manifestを正本とする。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

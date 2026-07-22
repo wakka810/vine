@@ -2,18 +2,18 @@
 
 ## Status
 
-- Status: threshold passed
+- Status: threshold blocked
 - Date: 2026-07-22
-- Workload: 17,861-call `d3d9-initial-vertex-buffer` private BGI generic session
-- Observation status: `current-d3d9-initial-vertex-buffer-observation`
+- Workload: 17,865-call `d3d9-initial-render-states` private BGI generic session
+- Observation status: `current-d3d9-initial-render-states-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-vertex-buffer-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-vertex-buffer-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json)
 - Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 
-This observation repeats the complete `d3d9-initial-vertex-buffer` BGI
+This observation repeats the complete `d3d9-initial-render-states` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 17,861 calls before the 11,808,458-instruction
-terminal stop, performs 63,614 Rust/Wasm bridge operations, and applies four
+runtime and v86 mirror, dispatches 17,865 calls before the 11,808,586-instruction
+terminal stop, performs 63,626 Rust/Wasm bridge operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
@@ -28,8 +28,9 @@ and one dynamic default-pool variant. All three texture identities remain live,
 then the device creates one 112-byte write-only, managed vertex buffer. Its
 full-range Lock publishes Rust-owned guest backing, the caller writes the exact
 112-byte quad payload, and Unlock returns the range to read-only. The device
-reference count is five, and execution reaches `IDirect3DDevice9::SetRenderState`
-at slot 57. The successful resource path
+reference count is five. Four typed slot-57 states set culling off, depth testing
+off, lighting off, and alpha blending on before execution reaches
+`IDirect3DDevice9::GetRasterStatus` at slot 19. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
@@ -42,7 +43,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-17,861 detailed call objects or canonical strings on every repetition. Each
+17,865 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The D3D9 compatibility profile and Rust/Wasm
@@ -70,40 +71,55 @@ including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 2 also stores a structured
 `repeated-distribution-threshold` decision with `passed` or `failed` status,
 reason, the exact evaluation count, and failure IDs. The current decision is
-`passed`, reason `all-17-versioned-thresholds-passed`, with no failure IDs.
+`failed`, reason `1-of-17-versioned-thresholds-failed`, with failure ID
+`maximum-p99-heartbeat-gap-milliseconds`.
 
 ## Result
 
-The isolated clean-profile Chrome run completed 64 sessions with no semantic failure.
-The D3D9 Initial Vertex Buffer version 1 configuration retained all 17 existing threshold
-values unchanged before this 180-second run. All 17 thresholds passed. Previous workload configurations remain
-unchanged as historical evidence; their identities are not applied to this
-current workload.
+The clean-profile Chrome run completed 46 sessions with no semantic failure.
+The D3D9 Initial Render States version 1 configuration retained all 17 existing
+threshold values unchanged. Sixteen thresholds passed; heartbeat P99 exceeded
+its bound. Of 24,487 heartbeat samples, 405 exceeded 25 ms and 260 exceeded
+30 ms, so this is a distribution failure rather than one maximum outlier.
+Previous workload configurations remain unchanged as historical evidence.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 64 |
+| Completed sessions | >= 24 | 46 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 2,914.615 ms |
-| Maximum slice p99 | <= 10 ms | 2.585 ms |
-| Main heartbeat gap p99 | <= 25 ms | 5.995 ms |
-| Main heartbeat gap maximum | <= 250 ms | 20.855 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,503,991 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 52,745.45 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,492,896 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 2,161,225.38 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 58,941,440 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 27,572,578 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 1,440,798.06 bytes/min |
+| Session latency p95 | <= 8,000 ms | 4,142.755 ms |
+| Maximum slice p99 | <= 10 ms | 3.015 ms |
+| Main heartbeat gap p99 | <= 25 ms | **30.505 ms (failed)** |
+| Main heartbeat gap maximum | <= 250 ms | 43.960 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,261,694 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 15,122.36 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 18,101,484 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 1,674,213.91 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 58,720,256 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 24,012,334 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 2,256,614.36 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 955,155 bytes with SHA-256
-`c80155da249b02dc5aab121732bcb96a0853577cbcffe63b68f1acd5f7ce50d0`.
+The exact report is 642,010 bytes with SHA-256
+`68d66db730712da40f924defbd5669db55a97d40c3b095d00f1a27986ea8d4d9`.
 The hash identifies this run; the versioned thresholds and semantic assertions
 are the regression gate. The report also carries the six-class policy from
 [evidence-classification.md](evidence-classification.md).
+
+A same-host three-run Node A/B compared the preceding vertex-buffer profile
+with the render-state profile. Their medians were 29,258.362 ms and 29,105.955
+ms respectively, a `-0.521%` change. That does not support a guest/runtime cost
+regression as the cause of the Chrome heartbeat shift. The comparison is 1,108
+bytes with SHA-256
+`7320265a1c826761d751c93e6f7fa30ad228444db4441348f2e3993e749b32fb`.
+
+The failed run was not retried as acceptance evidence and no threshold was
+relaxed. The structured blocker requires an isolated or quiescent browser host
+with unchanged thresholds, or an explicitly approved and separately evidenced
+versioned performance-contract change, before this checkpoint can be accepted
+and work can advance to `GetRasterStatus`.
 
 ## Surface DC heap-capacity correction
 
@@ -261,7 +277,7 @@ any threshold.
 | Chrome | `150.0.7871.129` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `ed5f0967032854372ff792c5ba1ac534a247bdbe`
+The report records base implementation commit `892b40c3c699b85027dd6fac4d7774ab54910fa1`
 and `dirty: true` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
@@ -270,12 +286,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,654,703 | `b37c6f49d0954d49c73a6ca0a76a75913384a797b0749b17f9a96118a5f5bc4d` |
+| Rust runtime core Wasm | 3,667,842 | `7e3ee9d2458c782c92ddc62500f12303078b0c7d7133bf1d9445a5fee09ad3c4` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 156,801 | `658f211b67e1473158eaeaec0f8622a735224c08b7cd4594046f0b482819894b` |
 | BGI benchmark bundle | 10,354 | `fb23aa94ae00e63ecefc12decc48a6c7560bf8b4e1574cfcebec90c4315b514d` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| D3D9 Initial Vertex Buffer version 1 configuration | 1,189 | `297d6ffd9833a98ef379aee0207643329bf205fb2800bf2a268a9a4c39bdfc0b` |
+| D3D9 Initial Render States version 1 configuration | 1,190 | `6b7ab2ebc8bc2977905740e232ebd256daf649a7a8165aaea3876b915397d507` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte

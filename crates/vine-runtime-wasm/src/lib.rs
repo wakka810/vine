@@ -311,7 +311,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v13();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v14();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -473,7 +473,7 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v13();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v14();
         d3d9_policy.validate().map_err(api_fault_string)?;
         process
             .runtime

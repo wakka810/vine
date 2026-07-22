@@ -52,6 +52,71 @@ pub enum RuntimeGraphicsFrontend {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsCullMode {
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsRenderStates {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cull_mode: Option<RuntimeGraphicsCullMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depth_test_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lighting_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha_blend_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsRenderStateUpdate {
+    CullMode(RuntimeGraphicsCullMode),
+    DepthTestEnabled(bool),
+    LightingEnabled(bool),
+    AlphaBlendEnabled(bool),
+}
+
+impl RuntimeGraphicsRenderStates {
+    fn current_for(
+        &self,
+        update: RuntimeGraphicsRenderStateUpdate,
+    ) -> Option<RuntimeGraphicsRenderStateUpdate> {
+        match update {
+            RuntimeGraphicsRenderStateUpdate::CullMode(_) => self
+                .cull_mode
+                .map(RuntimeGraphicsRenderStateUpdate::CullMode),
+            RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(_) => self
+                .depth_test_enabled
+                .map(RuntimeGraphicsRenderStateUpdate::DepthTestEnabled),
+            RuntimeGraphicsRenderStateUpdate::LightingEnabled(_) => self
+                .lighting_enabled
+                .map(RuntimeGraphicsRenderStateUpdate::LightingEnabled),
+            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(_) => self
+                .alpha_blend_enabled
+                .map(RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled),
+        }
+    }
+
+    fn apply(&mut self, update: RuntimeGraphicsRenderStateUpdate) {
+        match update {
+            RuntimeGraphicsRenderStateUpdate::CullMode(value) => self.cull_mode = Some(value),
+            RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(value) => {
+                self.depth_test_enabled = Some(value);
+            }
+            RuntimeGraphicsRenderStateUpdate::LightingEnabled(value) => {
+                self.lighting_enabled = Some(value);
+            }
+            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(value) => {
+                self.alpha_blend_enabled = Some(value);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsColorFormat {
     B8g8r8x8Unorm,
 }
@@ -179,6 +244,7 @@ pub struct RuntimeGraphicsDevice {
     pub owner_thread_id: RuntimeThreadId,
     pub presentation: RuntimeGraphicsPresentation,
     pub com_object_id: RuntimeComObjectId,
+    pub render_states: RuntimeGraphicsRenderStates,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub renderer: Option<RuntimeGraphicsRendererAssociation>,
     pub generation: u64,
@@ -244,6 +310,12 @@ pub(crate) struct RuntimeGraphicsDeviceCreateRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub update: RuntimeGraphicsRenderStateUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsTextureCreateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
@@ -293,6 +365,17 @@ pub(crate) struct RuntimeGraphicsDeviceCreationPlan {
     next_generation: u64,
     id: RuntimeGraphicsDeviceId,
     request: RuntimeGraphicsDeviceCreationRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsRenderStateUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous: Option<RuntimeGraphicsRenderStateUpdate>,
+    update: RuntimeGraphicsRenderStateUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -366,6 +449,15 @@ pub struct RuntimeGraphicsVertexBufferUnlockResult {
     pub vertex_buffer_id: RuntimeGraphicsVertexBufferId,
     pub generation: u64,
     pub content_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsRenderStateUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub update: RuntimeGraphicsRenderStateUpdate,
+    pub changed: bool,
+    pub device_generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -609,6 +701,7 @@ impl RuntimeGraphics {
             owner_thread_id: plan.request.target.owner_thread_id,
             presentation,
             com_object_id,
+            render_states: RuntimeGraphicsRenderStates::default(),
             renderer: None,
             generation: plan.next_generation,
         };
@@ -621,6 +714,98 @@ impl RuntimeGraphics {
         self.next_device_id = next_device_id;
         self.generation = plan.next_generation;
         device
+    }
+
+    pub(super) fn plan_render_state_update(
+        &self,
+        request: RuntimeGraphicsRenderStateUpdateRequest,
+    ) -> Result<RuntimeGraphicsRenderStateUpdatePlan, RuntimeStateError> {
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-render-state-device-com-object-unknown",
+                    "logical render-state update requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let previous = device.render_states.current_for(request.update);
+        let changed = previous != Some(request.update);
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsRenderStateUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous,
+            update: request.update,
+        })
+    }
+
+    pub(super) fn preflight_render_state_update(
+        &self,
+        plan: &RuntimeGraphicsRenderStateUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-render-state-update-plan-stale"));
+        };
+        let changed = plan.previous != Some(plan.update);
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.render_states.current_for(plan.update) != plan.previous
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan("graphics-render-state-update-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_render_state_update(
+        &mut self,
+        plan: RuntimeGraphicsRenderStateUpdatePlan,
+    ) -> RuntimeGraphicsRenderStateUpdateResult {
+        debug_assert!(self.preflight_render_state_update(&plan).is_ok());
+        let changed = plan.previous != Some(plan.update);
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.render_states.apply(plan.update);
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsRenderStateUpdateResult {
+            device_id: device.id,
+            update: plan.update,
+            changed,
+            device_generation: device.generation,
+        }
     }
 
     pub(super) fn plan_texture_creation(
@@ -2167,6 +2352,110 @@ mod tests {
                 .code,
             "graphics-com-retirement-plan-stale"
         );
+    }
+
+    #[test]
+    fn render_state_updates_are_typed_idempotent_and_failure_atomic() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert_eq!(device.render_states, RuntimeGraphicsRenderStates::default());
+
+        for update in [
+            RuntimeGraphicsRenderStateUpdate::CullMode(RuntimeGraphicsCullMode::None),
+            RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(false),
+            RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
+            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true),
+        ] {
+            let plan = graphics
+                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update,
+                })
+                .unwrap();
+            let stale = plan.clone();
+            graphics.preflight_render_state_update(&plan).unwrap();
+            let result = graphics.commit_render_state_update(plan);
+            assert_eq!(result.device_id, device.id);
+            assert_eq!(result.update, update);
+            assert!(result.changed);
+            assert_eq!(
+                graphics
+                    .preflight_render_state_update(&stale)
+                    .unwrap_err()
+                    .code,
+                "graphics-render-state-update-plan-stale"
+            );
+        }
+        let committed = graphics.device(device.id).unwrap();
+        assert_eq!(
+            committed.render_states.cull_mode,
+            Some(RuntimeGraphicsCullMode::None)
+        );
+        assert_eq!(committed.render_states.depth_test_enabled, Some(false));
+        assert_eq!(committed.render_states.lighting_enabled, Some(false));
+        assert_eq!(committed.render_states.alpha_blend_enabled, Some(true));
+
+        let before_idempotent = graphics.clone();
+        let idempotent = graphics
+            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true),
+            })
+            .unwrap();
+        let result = graphics.commit_render_state_update(idempotent);
+        assert!(!result.changed);
+        assert_eq!(graphics, before_idempotent);
+
+        let stale = graphics
+            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(true),
+            })
+            .unwrap();
+        let intervening = graphics
+            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(true),
+            })
+            .unwrap();
+        graphics.commit_render_state_update(intervening);
+        let before_stale = graphics.clone();
+        assert_eq!(
+            graphics
+                .preflight_render_state_update(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-render-state-update-plan-stale"
+        );
+        assert_eq!(graphics, before_stale);
+
+        let before_unknown = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(99),
+                    update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-render-state-device-com-object-unknown"
+        );
+        assert_eq!(graphics, before_unknown);
+
+        graphics.generation = u64::MAX;
+        let exhausted = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update: RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(false),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(graphics, exhausted);
     }
 
     #[test]

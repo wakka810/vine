@@ -194,6 +194,7 @@ enum GenericRuntimeCapability {
     TimeGetTime,
     D3d9InitialTextures,
     D3d9InitialVertexBuffer,
+    D3d9InitialRenderStates,
 }
 
 struct GenericRuntimeProcess {
@@ -2325,6 +2326,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::TimeGetTime
                     | GenericRuntimeCapability::D3d9InitialTextures
                     | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                    | GenericRuntimeCapability::D3d9InitialRenderStates
             )
         ) {
             let loader = kernel32_policy
@@ -2992,6 +2994,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -3032,7 +3035,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9SurfaceGetDc
             | GenericRuntimeCapability::TimeGetTime
             | GenericRuntimeCapability::D3d9InitialTextures
-            | GenericRuntimeCapability::D3d9InitialVertexBuffer,
+            | GenericRuntimeCapability::D3d9InitialVertexBuffer
+            | GenericRuntimeCapability::D3d9InitialRenderStates,
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
@@ -3108,6 +3112,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         user32_policy.set_window_long_a = None;
@@ -3125,6 +3130,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         user32_policy.monitor_from_window = None;
@@ -3132,7 +3138,7 @@ fn run_v86_generic_runtime_session(
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v13();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v14();
     if !matches!(
         requested_capability,
         Some(
@@ -3144,6 +3150,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         d3d9_policy.get_adapter_monitor = None;
@@ -3158,6 +3165,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         d3d9_policy.create_device = None;
@@ -3172,6 +3180,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         d3d9_policy.create_texture = None;
@@ -3186,6 +3195,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         d3d9_policy.get_surface_level = None;
@@ -3198,6 +3208,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         d3d9_policy.surface_dc = None;
@@ -3207,6 +3218,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) && let Some(create_texture) = d3d9_policy.create_texture.as_mut()
     {
@@ -3214,9 +3226,18 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         requested_capability,
-        Some(GenericRuntimeCapability::D3d9InitialVertexBuffer)
+        Some(
+            GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
+        )
     ) {
         d3d9_policy.initial_vertex_buffer = None;
+    }
+    if !matches!(
+        requested_capability,
+        Some(GenericRuntimeCapability::D3d9InitialRenderStates)
+    ) {
+        d3d9_policy.initial_render_states = None;
     }
     d3d9_policy.validate().map_err(api_fault)?;
     if matches!(
@@ -3506,6 +3527,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         let loader = kernel32_policy.load_library_a().ok_or_else(|| {
@@ -4756,6 +4778,7 @@ fn run_v86_generic_runtime_session(
                             | GenericRuntimeCapability::TimeGetTime
                             | GenericRuntimeCapability::D3d9InitialTextures
                             | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                            | GenericRuntimeCapability::D3d9InitialRenderStates
                     )
                 ) || trap.endpoint_id != 0
                 {
@@ -4793,6 +4816,7 @@ fn run_v86_generic_runtime_session(
                         18 => d3d9_policy.get_surface_level.is_some(),
                         23 => d3d9_policy.create_texture.is_some(),
                         26 | 11 | 12 => d3d9_policy.initial_vertex_buffer.is_some(),
+                        57 => d3d9_policy.initial_render_states.is_some(),
                         _ => true,
                     };
                     if d3d9_frontend_enabled
@@ -4819,6 +4843,7 @@ fn run_v86_generic_runtime_session(
                                     | GenericRuntimeCapability::TimeGetTime
                                     | GenericRuntimeCapability::D3d9InitialTextures
                                     | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                                    | GenericRuntimeCapability::D3d9InitialRenderStates
                             )
                         )
                     {
@@ -4866,6 +4891,7 @@ fn runtime_capability_enables_endpoint(
             GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let monitor_from_window_enabled = matches!(
@@ -4881,6 +4907,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let set_window_long_a_enabled = matches!(
@@ -4898,6 +4925,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let window_dc_fill_enabled = matches!(
@@ -4916,6 +4944,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let get_client_rect_enabled = matches!(
@@ -4935,6 +4964,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let load_library_a_enabled = matches!(
@@ -4955,6 +4985,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let d3d9_root_factory_enabled = matches!(
@@ -4981,6 +5012,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let set_window_pos_enabled = d3d9_root_factory_enabled
@@ -5025,6 +5057,7 @@ fn runtime_capability_enables_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     );
     let source_file_read_enabled = create_window_ex_a_enabled
@@ -5538,6 +5571,7 @@ fn runtime_capability_enables_dynamic_endpoint(
                 | GenericRuntimeCapability::TimeGetTime
                 | GenericRuntimeCapability::D3d9InitialTextures
                 | GenericRuntimeCapability::D3d9InitialVertexBuffer
+                | GenericRuntimeCapability::D3d9InitialRenderStates
         )
     ) {
         Some(GenericRuntimeCapability::SetWindowPosInitialPlacement)
@@ -11327,6 +11361,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "winmm-time-get-time" => GenericRuntimeCapability::TimeGetTime,
                 "d3d9-initial-textures" => GenericRuntimeCapability::D3d9InitialTextures,
                 "d3d9-initial-vertex-buffer" => GenericRuntimeCapability::D3d9InitialVertexBuffer,
+                "d3d9-initial-render-states" => GenericRuntimeCapability::D3d9InitialRenderStates,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

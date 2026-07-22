@@ -665,7 +665,7 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 `RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contract、
 `CreateTexture` gatewayで最初のdevice-related logical texture descriptor、`GetSurfaceLevel` gatewayで
 最初のlogical texture subresource descriptor、`CreateVertexBuffer` gatewayで最初のguest-backed logical
-geometry resourceを所有するprivate Rust subsystemである。Window relation、
+geometry resource、`SetRenderState` gatewayでreached typed device stateを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
 device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lockを
 owner-local plan／commitで管理し、各4,096-object capacity、stale
@@ -697,6 +697,13 @@ graphics capacity、graphics-resource arena内のprocess allocation、owner-tagg
 `RuntimeGraphics`はdescriptor、backing identity、lock、generationを所有する。Final releaseはCOM backing、
 resource allocation、memory owner、logical associationをまとめてretireしてからdevice／rootへcascadeする。
 Browser renderer resource、GPU vertex buffer、format translationはこのgatewayでは作らない。
+
+Reached D3D9 device stateはCOM frontendやTypeScriptへ複製せず、`RuntimeGraphicsDevice`のtyped fieldsだけを
+authorityとする。未到達Windows defaultを初期値として推測せず、guestが設定したfieldだけをpresentにする。
+State updateはdevice／global generationを含むowner planをpreflightし、targeted commitする。同値の再設定は
+successかつgeneration不変、unknown device、stale plan、unsupported enum／value、generation exhaustionは
+observable stateを変更しない。Browser rendererへのcommand変換はdraw／present vertical sliceで別に追加し、
+guest-visible state ownerにはしない。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

@@ -13,8 +13,9 @@ use crate::com::{
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
-    RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsColorFormat,
+    RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode,
     RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
+    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsRenderStateUpdateRequest,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
@@ -26,7 +27,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 13;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 14;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -39,6 +40,11 @@ pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
 pub const D3D9_D3DUSAGE_WRITEONLY: u32 = 0x0000_0008;
+pub const D3D9_D3DRS_ZENABLE: u32 = 7;
+pub const D3D9_D3DRS_CULLMODE: u32 = 22;
+pub const D3D9_D3DRS_ALPHABLENDENABLE: u32 = 27;
+pub const D3D9_D3DRS_LIGHTING: u32 = 137;
+pub const D3D9_D3DCULL_NONE: u32 = 1;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
 pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
@@ -240,6 +246,20 @@ pub struct D3d9InitialVertexBufferPolicy {
     pub lock_flags: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9RenderStateSetting {
+    pub state: u32,
+    pub value: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9InitialRenderStatePolicy {
+    pub profile_id: String,
+    pub settings: [D3d9RenderStateSetting; 4],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
@@ -258,14 +278,15 @@ pub struct D3d9CompatibilityPolicy {
     pub get_surface_level: Option<D3d9GetSurfaceLevelPolicy>,
     pub surface_dc: Option<D3d9SurfaceDcPolicy>,
     pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
+    pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v13() -> Self {
+    pub fn controlled_v14() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v13".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v14".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-v1".to_owned(),
@@ -374,6 +395,10 @@ impl D3d9CompatibilityPolicy {
                 lock_offset: 0,
                 lock_byte_length: 0,
                 lock_flags: 0,
+            }),
+            initial_render_states: Some(D3d9InitialRenderStatePolicy {
+                profile_id: "primary-initial-fixed-function-render-states-v1".to_owned(),
+                settings: controlled_initial_render_state_settings(),
             }),
         }
     }
@@ -577,6 +602,17 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 initial vertex-buffer profile must describe the reached managed write-only quad and full lock",
             ));
         }
+        if let Some(render_states) = self.initial_render_states.as_ref()
+            && (!valid_policy_id(&render_states.profile_id)
+                || render_states.settings != controlled_initial_render_state_settings()
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-initial-render-state-profile-invalid",
+                "D3D9 initial render-state profile must describe the reached fixed-function startup sequence",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_count
                 .as_ref()
@@ -670,6 +706,27 @@ fn controlled_create_texture_variants() -> [D3d9CreateTextureVariant; 3] {
             usage: D3D9_D3DUSAGE_DYNAMIC,
             format: D3D9_D3DFMT_X8R8G8B8,
             pool: D3D9_D3DPOOL_DEFAULT,
+        },
+    ]
+}
+
+fn controlled_initial_render_state_settings() -> [D3d9RenderStateSetting; 4] {
+    [
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_CULLMODE,
+            value: D3D9_D3DCULL_NONE,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_ZENABLE,
+            value: 0,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_LIGHTING,
+            value: 0,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_ALPHABLENDENABLE,
+            value: 1,
         },
     ]
 }
@@ -1021,6 +1078,7 @@ fn dispatch_d3d9_device_frontend_call(
     let expected = match call.frame().vtable_slot {
         23 => ("CreateTexture", 8),
         26 => ("CreateVertexBuffer", 6),
+        57 => ("SetRenderState", 2),
         _ => {
             return call.fault(
                 ComFaultClass::RuntimeDefect,
@@ -1045,6 +1103,7 @@ fn dispatch_d3d9_device_frontend_call(
     match call.frame().vtable_slot {
         23 => dispatch_create_texture(policy, call),
         26 => dispatch_create_vertex_buffer(policy, call),
+        57 => dispatch_set_render_state(policy, call),
         _ => unreachable!(),
     }
 }
@@ -1538,6 +1597,58 @@ fn dispatch_create_vertex_buffer(
     debug_assert_eq!(vertex_buffer.com_object_id, installed.object.id);
     debug_assert_eq!(vertex_buffer.descriptor.byte_length, byte_length);
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn dispatch_set_render_state(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(render_state_policy) = policy.initial_render_states.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-set-render-state",
+            "set-render-state-policy-disabled",
+            "D3D9 compatibility policy does not enable SetRenderState",
+        );
+    };
+    let state = call.frame().explicit_arguments[0];
+    let value = call.frame().explicit_arguments[1];
+    if !render_state_policy
+        .settings
+        .contains(&D3d9RenderStateSetting { state, value })
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let update = match (state, value) {
+        (D3D9_D3DRS_CULLMODE, D3D9_D3DCULL_NONE) => {
+            RuntimeGraphicsRenderStateUpdate::CullMode(RuntimeGraphicsCullMode::None)
+        }
+        (D3D9_D3DRS_ZENABLE, 0) => RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(false),
+        (D3D9_D3DRS_LIGHTING, 0) => RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
+        (D3D9_D3DRS_ALPHABLENDENABLE, 1) => {
+            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true)
+        }
+        _ => unreachable!("validated D3D9 render-state policy has an unknown setting"),
+    };
+    let plan = match call.runtime().plan_graphics_render_state_update(
+        RuntimeGraphicsRenderStateUpdateRequest {
+            device_com_object_id: call.frame().object_id,
+            update,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call.runtime().preflight_graphics_render_state_update(&plan) {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call.runtime_mut().commit_graphics_render_state_update(plan);
+    debug_assert_eq!(result.update, update);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
 fn dispatch_vertex_buffer_lock(
@@ -2371,7 +2482,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            23 | 26 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            23 | 26 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),
