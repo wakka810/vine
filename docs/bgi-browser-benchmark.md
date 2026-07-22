@@ -4,17 +4,17 @@
 
 - Status: threshold passed
 - Date: 2026-07-22
-- Workload: 18,442-call `dinput8-api-contract` private BGI generic session
-- Observation status: `current-dinput8-root-observation`
+- Workload: 18,452-call `dinput8-enum-devices` private BGI generic session
+- Observation status: `current-dinput8-enum-devices-observation`
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-dinput8-root-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-root-v1.json)
+- Configuration: [`fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json)
 - Accepted evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
 - Historical monitor diagnostic failures: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`, `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
 
-This observation repeats the complete `dinput8-api-contract` BGI
+This observation repeats the complete `dinput8-enum-devices` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 18,442 calls before the 11,825,229-instruction
-slot 4 `IDirectInput8A::EnumDevices` terminal stop, performs 55,142 Rust/Wasm bridge
+runtime and v86 mirror, dispatches 18,452 calls before the 11,921,739-instruction
+`DSOUND.dll` ordinal 11 terminal stop, performs 55,176 Rust/Wasm bridge
 operations, and applies four
 initial-thread stack-growth commits. It opens the fingerprinted asset twice,
 performs two complete 125,461-byte source reads through the same-origin service,
@@ -41,8 +41,10 @@ publishes the Rust-owned 40-byte primary `MONITORINFO` with monitor rect
 by the reached frame／caption metrics. Execution then completes
 `DirectInput8Create`, atomically publishing one Rust-owned root
 COM object, canonical IUnknown／`IDirectInput8A` identities, refcount 1, exact
-11-slot vtable, and four-byte guest pointer. The next `EnumDevices(4, callback,
-0, 1)` call remains typed unsupported. The successful resource path
+11-slot vtable, and four-byte guest pointer. It completes
+`EnumDevices(4, callback, 0, 1)` as the native-evidenced empty attached
+game-controller catalog without scheduling the callback, then executes the
+following heap path and stops at `DirectSoundCreate8(NULL, output, NULL)`. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
 
@@ -55,7 +57,7 @@ structured stop, and zero pending work before retaining only a compact scalar
 summary. Protocol v7 uses independently computed full-sequence canonical digests
 for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
 the digest retains sequence uniqueness and terminal semantics without retaining
-18,442 detailed call objects or canonical strings on every repetition. Each
+18,452 detailed call objects or canonical strings on every repetition. Each
 benchmark session checks the call count, digest algorithm, and semantic SHA
 against the manifest. Completed report payloads, including source-read records,
 are released after scalar capture. The Rust/Wasm artifact, Worker transport,
@@ -99,37 +101,44 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The canonical DirectInput root gate completed 128 sessions and passed all 17
-versioned thresholds without changing the Chrome artifact, launch flags, or
-limits. Every session reproduced the exact 18,442-call semantic digest and
-`IDirectInput8A::EnumDevices` stop with zero semantic failure. The report is
-2,037,763 bytes with SHA-256
-`a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0a`.
+The canonical DirectInput enumeration gate completed 127 sessions and passed
+all 17 versioned thresholds. Every session reproduced the exact 18,452-call
+semantic digest and `DSOUND.dll` ordinal 11 stop with zero semantic failure.
+The report is 1,955,904 bytes with SHA-256
+`b9bbd3d6ba8a8e5dbde7876f4913fb361f58e9972ab1d4077d20ddadbbffd507`.
 
 The environment monitor recorded 180 samples against a minimum of 153, no
 Updater, no sustained CPU or disk excursion, and no post-warm-up QoS transition.
-Total CPU mean／maximum were 8.407%／17.199%; browser-tree CPU mean／maximum were
-6.967%／9.100%; external CPU mean／maximum were 1.827%／13.048%. The independent
+Total CPU mean／maximum were 8.594%／14.072%; browser-tree CPU mean／maximum were
+6.967%／9.391%; external CPU mean／maximum were 1.956%／9.338%. The independent
 environment decision is `valid`.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 128 |
+| Completed sessions | >= 24 | 127 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 1,445.050 ms |
-| Maximum slice p99 | <= 10 ms | 2.170 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.050 ms |
-| Main heartbeat gap maximum | <= 250 ms | 27.980 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,103,820 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 261,222.68 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,030,388 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 1,915,764.89 bytes/min |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 76,767,232 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 48,211,996 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 3,425,876.40 bytes/min |
-| Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
-| Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
+| Session latency p95 | <= 8,000 ms | 1,458.825 ms |
+| Maximum slice p99 | <= 10 ms | 2.125 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.060 ms |
+| Main heartbeat gap maximum | <= 250 ms | 33.110 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 2,992,998 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 234,361.69 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,562,368 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | -94,317.80 bytes/min |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 75,456,512 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 43,569,325 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | -1,169,674.53 bytes/min |
+| Rust linear memory | <= 16,777,216 bytes | 12,124,160 bytes |
+| Execution-engine linear memory | <= 25,165,824 bytes | 18,219,008 bytes |
+
+The new workload reaches a subsequent one-MiB guest heap allocation. The
+standalone Chrome equivalence run measured the corresponding execution mirror
+at 18,219,008 bytes before the repeated gate, so this configuration versions a
+24 MiB execution-engine ceiling. The other 16 thresholds are unchanged. This
+does not relax a failed benchmark: the prior 16 MiB limit belonged to the
+earlier terminal workload and was known to be below the new semantic footprint
+before the three-minute run began.
 
 The preceding monitor checkpoint required an explicitly quiescent-host
 confirmation. Before that accepted run, two unchanged fixed-browser diagnostics completed with
@@ -153,7 +162,7 @@ Chrome hashes as both failures; subsequent commits only captured the already
 measured implementation and its evidence. The shift to heartbeat P99 6.065 ms
 coincides with external CPU mean falling to 1.802%, so no repository scheduling
 remediation was justified. That historical blocker was resolved before the
-current DirectInput root run; it was not reopened or bypassed by this result.
+earlier DirectInput root run; it was not reopened or bypassed by this result.
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
@@ -381,8 +390,8 @@ any threshold.
 | Node.js | `v24.18.0` |
 
 The current report records base implementation commit
-`78b694f768d7994727905a10b74c7922660561d2` and `dirty: true` for the grouped
-DirectInput implementation under test.
+`e20f8cc218be38cc6b62ea2f7c530da3725a9cf3` and `dirty: true` for the grouped
+DirectInput enumeration implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
 
@@ -390,12 +399,12 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,702,615 | `a407e641e98d62a3ba36f02990d69239b8df62fae91807bdedee263835961458` |
+| Rust runtime core Wasm | 3,711,515 | `e0fae96661e6559912a424ba6fdb0b80c195e8dc82670e2f63d5ae18f368b132` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
-| BGI benchmark bundle | 10,355 | `02115b91f77250831c7ed41f87153d69f2c420bca42fd0f62133ccff1a28bb55` |
+| BGI benchmark bundle | 10,453 | `17a5b08aa98e743d3c0673b1d61b799c48dd5605a291f587be652bcabbf31144` |
 | Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| DirectInput root version 1 configuration | 1,165 | `4236b86d5aaf14295c989ec4f1811d7ac843662b74954cacda6c7fbb53514007` |
+| DirectInput EnumDevices version 1 configuration | 1,160 | `172fa367239db5df92016b87707c3b7ec0407aede17b400522b284a2f7008ec7` |
 
 The private executable is never copied into the browser build or Git. The
 runner serves it only from its installed path and verifies its 1,193,472-byte

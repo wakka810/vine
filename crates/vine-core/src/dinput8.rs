@@ -6,10 +6,12 @@ use crate::api::{
     ReentrancyPolicy, StackCleanup,
 };
 use crate::com::{
-    COM_E_NOINTERFACE, COM_S_OK, ComHResult, ComInterfaceSpec, ComMethodSpec, ComObjectSpec,
+    COM_E_NOINTERFACE, COM_S_OK, ComCallTrap, ComDispatchOutcome, ComFaultClass, ComFrontendCall,
+    ComHResult, ComInterfaceSpec, ComMethodSpec, ComObjectSpec, ComReturnValue,
 };
-use crate::memory::GuestAddress;
+use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{RUNTIME_COM_IUNKNOWN_IID, RuntimeComIid, RuntimeStateError};
+use serde::Serialize;
 
 pub const DINPUT8_VERSION: u32 = 0x0800;
 pub const DINPUT8_DIRECT_INPUT_8_CREATE_IMPLEMENTATION: &str = "dinput8.direct-input-8-create.v1";
@@ -20,6 +22,84 @@ pub const DINPUT8_IDIRECTINPUT8A_IID: RuntimeComIid = RuntimeComIid::from_window
 pub const DINPUT8_DIERR_BETADIRECTINPUTVERSION: ComHResult = ComHResult(0x8007_0481_u32 as i32);
 pub const DINPUT8_DIERR_OLDDIRECTINPUTVERSION: ComHResult = ComHResult(0x8007_047e_u32 as i32);
 pub const DINPUT8_CLASS_E_NOAGGREGATION: ComHResult = ComHResult(0x8004_0110_u32 as i32);
+pub const DINPUT8_E_INVALIDARG: ComHResult = ComHResult(0x8007_0057_u32 as i32);
+pub const DINPUT8_DI8DEVCLASS_ALL: u32 = 0;
+pub const DINPUT8_DI8DEVCLASS_DEVICE: u32 = 1;
+pub const DINPUT8_DI8DEVCLASS_POINTER: u32 = 2;
+pub const DINPUT8_DI8DEVCLASS_KEYBOARD: u32 = 3;
+pub const DINPUT8_DI8DEVCLASS_GAMECTRL: u32 = 4;
+pub const DINPUT8_DIEDFL_ATTACHEDONLY: u32 = 0x0000_0001;
+pub const DINPUT8_DIEDFL_VALID_MASK: u32 = 0x0007_0101;
+pub const DINPUT8_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.dinput8-compatibility-policy";
+pub const DINPUT8_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dinput8EnumDevicesPolicy {
+    pub profile_id: String,
+    pub device_class: u32,
+    pub flags: u32,
+    pub attached_device_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dinput8CompatibilityPolicy {
+    pub schema: String,
+    pub schema_version: u32,
+    pub id: String,
+    pub enum_devices: Option<Dinput8EnumDevicesPolicy>,
+}
+
+impl Dinput8CompatibilityPolicy {
+    pub fn controlled_v1() -> Self {
+        Self {
+            schema: DINPUT8_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
+            schema_version: DINPUT8_COMPATIBILITY_POLICY_VERSION,
+            id: "dinput8-primary-input-v1".to_owned(),
+            enum_devices: Some(Dinput8EnumDevicesPolicy {
+                profile_id: "empty-attached-game-controller-enumeration-v1".to_owned(),
+                device_class: DINPUT8_DI8DEVCLASS_GAMECTRL,
+                flags: DINPUT8_DIEDFL_ATTACHEDONLY,
+                attached_device_count: 0,
+            }),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ApiFault> {
+        if self.schema != DINPUT8_COMPATIBILITY_POLICY_SCHEMA
+            || self.schema_version != DINPUT8_COMPATIBILITY_POLICY_VERSION
+            || !valid_policy_id(&self.id)
+        {
+            return Err(ApiFault::runtime_defect(
+                "dinput8-compatibility-policy",
+                "dinput8-compatibility-policy-header-invalid",
+                "DirectInput 8 compatibility policy has an unsupported schema, version, or ID",
+            ));
+        }
+        if let Some(enumeration) = self.enum_devices.as_ref()
+            && (!valid_policy_id(&enumeration.profile_id)
+                || enumeration.device_class != DINPUT8_DI8DEVCLASS_GAMECTRL
+                || enumeration.flags != DINPUT8_DIEDFL_ATTACHEDONLY
+                || enumeration.attached_device_count != 0)
+        {
+            return Err(ApiFault::runtime_defect(
+                "dinput8-compatibility-policy",
+                "dinput8-enum-devices-profile-invalid",
+                "DirectInput 8 enumeration policy must describe the evidenced empty attached-game-controller catalog",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn valid_policy_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
 
 pub fn dispatch_dinput8_api(
     contract: &ApiContract,
@@ -36,6 +116,100 @@ pub fn dispatch_dinput8_api(
             format!("DirectInput implementation {implementation_id} is not registered"),
         )),
     }
+}
+
+pub fn dispatch_dinput8_com_call(
+    policy: &Dinput8CompatibilityPolicy,
+    trap: ComCallTrap,
+    session: &mut ExecutionSession<'_>,
+) -> ComDispatchOutcome {
+    session
+        .dispatch_com_call_with_frontend(trap, |call| dispatch_dinput8_frontend_call(policy, call))
+}
+
+fn dispatch_dinput8_frontend_call(
+    policy: &Dinput8CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    if call.class_identity() != DINPUT8_IDIRECTINPUT8A_CLASS_IDENTITY
+        || call.frame().iid != DINPUT8_IDIRECTINPUT8A_IID
+    {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "dinput8-com-dispatch",
+            "dinput8-com-target-mismatch",
+            "DirectInput 8 frontend received a COM object outside its owned root interface",
+        );
+    }
+    match (call.frame().vtable_slot, call.frame().method.as_str()) {
+        (4, "EnumDevices") => handle_enum_devices(policy, call),
+        _ => call.fault(
+            ComFaultClass::Unsupported,
+            "dinput8-com-dispatch",
+            "dinput8-com-method-unsupported",
+            "DirectInput 8 frontend method is outside the reached compatibility band",
+        ),
+    }
+}
+
+fn handle_enum_devices(
+    policy: &Dinput8CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let (device_class, callback, _reference, flags) =
+        match call.frame().explicit_arguments.as_slice() {
+            [device_class, callback, reference, flags] => {
+                (*device_class, *callback, *reference, *flags)
+            }
+            _ => {
+                return call.fault(
+                    ComFaultClass::RuntimeDefect,
+                    "dinput8-enum-devices",
+                    "dinput8-enum-devices-frame-invalid",
+                    "decoded IDirectInput8A::EnumDevices frame does not contain four arguments",
+                );
+            }
+        };
+
+    if callback == 0
+        || device_class > DINPUT8_DI8DEVCLASS_GAMECTRL
+        || flags & !DINPUT8_DIEDFL_VALID_MASK != 0
+    {
+        return call.complete(ComReturnValue::HResult(DINPUT8_E_INVALIDARG), Vec::new());
+    }
+
+    let Some(enumeration) = policy.enum_devices.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dinput8-enum-devices",
+            "dinput8-enum-devices-policy-disabled",
+            "DirectInput 8 device enumeration is disabled by the active compatibility policy",
+        );
+    };
+    if device_class != enumeration.device_class || flags != enumeration.flags {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dinput8-enum-devices",
+            "dinput8-enum-devices-variant-unsupported",
+            "DirectInput 8 device enumeration variant is outside the evidenced compatibility policy",
+        );
+    }
+    if enumeration.attached_device_count != 0 {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "dinput8-enum-devices",
+            "dinput8-enum-devices-callback-path-unimplemented",
+            "DirectInput 8 policy requested callback delivery without an implemented callback transaction",
+        );
+    }
+    if let Err(error) =
+        call.memory()
+            .validate_access(GuestAddress(callback), 1, MemoryAccess::Execute)
+    {
+        return call.memory_fault(error);
+    }
+
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
 fn handle_direct_input_8_create(
@@ -191,7 +365,7 @@ pub fn direct_input8a_object_spec() -> ComObjectSpec {
                     ComMethodSpec::add_ref(),
                     ComMethodSpec::release(),
                     ComMethodSpec::unsupported_hresult("CreateDevice", 3),
-                    ComMethodSpec::unsupported_hresult("EnumDevices", 4),
+                    ComMethodSpec::frontend_hresult("EnumDevices", 4),
                     ComMethodSpec::unsupported_hresult("GetDeviceStatus", 1),
                     ComMethodSpec::unsupported_hresult("RunControlPanel", 2),
                     ComMethodSpec::unsupported_hresult("Initialize", 2),

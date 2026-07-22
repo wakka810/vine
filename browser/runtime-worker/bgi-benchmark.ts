@@ -303,9 +303,12 @@ function validateSession(report: SessionReport, expected: any): void {
       );
     } else {
       invariant(isRecord(endpoint.symbol), "BGI next API endpoint is malformed");
+      const symbol =
+        endpoint.symbol.kind === "ordinal"
+          ? `#${endpoint.symbol.ordinal}`
+          : endpoint.symbol.name;
       invariant(
-        `${endpoint.module}!${endpoint.symbol.name}`.toLowerCase() ===
-          expected.nextApi.toLowerCase(),
+        `${endpoint.module}!${symbol}`.toLowerCase() === expected.nextApi.toLowerCase(),
         "BGI next API changed",
       );
     }

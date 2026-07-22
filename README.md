@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `dinput8-api-contract`: 18442 calls across 88 API contracts, memory generation 36100 |
+| Runtime diagnostics | `dinput8-enum-devices`: 18452 calls across 88 API contracts, memory generation 36120 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (128 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (127 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirectInput8A::EnumDevices(0x00000004, 0x1005bef0, 0x00000000, 0x00000001)` at instruction 11825229: `com-method-unsupported` |
+| Next structured stop | `dsound.dll!#11(0x00000000, 0x100feb10, 0x00000000)` at instruction 11921739: `endpoint-contract-missing` |
 
-The active semantic report is 53,845 bytes with SHA-256
-`298349d459d4d4cd2d92ad807fc6cc261c3719b49d1ddc86273b7abf364e5db3`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 50,056 bytes with SHA-256
+`4a9a079d1b7b8728d4cba82e649e0fd48b9476390765a0dec7e6306028bafff3`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

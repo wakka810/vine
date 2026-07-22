@@ -1,16 +1,19 @@
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiReturnSchema, ApiTrap, ApiValueSchema,
     COM_E_NOINTERFACE, ComCallTrap, ComDispatchOutcome, ComFaultClass,
-    DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DIERR_BETADIRECTINPUTVERSION,
-    DINPUT8_DIERR_OLDDIRECTINPUTVERSION, DINPUT8_IDIRECTINPUT8A_CLASS_IDENTITY,
-    DINPUT8_IDIRECTINPUT8A_IID, DINPUT8_VERSION, DispatchOutcome, ExecutionSession, GuestAddress,
-    GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
+    DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DI8DEVCLASS_GAMECTRL, DINPUT8_DI8DEVCLASS_KEYBOARD,
+    DINPUT8_DIEDFL_ATTACHEDONLY, DINPUT8_DIERR_BETADIRECTINPUTVERSION,
+    DINPUT8_DIERR_OLDDIRECTINPUTVERSION, DINPUT8_E_INVALIDARG,
+    DINPUT8_IDIRECTINPUT8A_CLASS_IDENTITY, DINPUT8_IDIRECTINPUT8A_IID, DINPUT8_VERSION,
+    Dinput8CompatibilityPolicy, DispatchOutcome, ExecutionSession, GuestAddress, GuestMemory,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
     LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
     MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout, RUNTIME_COM_IUNKNOWN_IID,
     RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeComMethodImplementation,
     RuntimeComReturnKind, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH,
     dinput8_contract_for_endpoint, direct_input_8_create_contract, dispatch_dinput8_api,
+    dispatch_dinput8_com_call,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -78,7 +81,7 @@ fn direct_input_8_create_installs_owned_identity_and_stops_at_reached_enum_devic
     );
     assert_eq!(
         interface.methods[&4].implementation,
-        RuntimeComMethodImplementation::Unsupported
+        RuntimeComMethodImplementation::Frontend
     );
     assert_eq!(interface.methods[&10].name, "ConfigureDevices");
     assert_eq!(interface.methods[&10].explicit_argument_words, 4);
@@ -122,6 +125,172 @@ fn direct_input_8_create_installs_owned_identity_and_stops_at_reached_enum_devic
         fixture.runtime.current_last_error().unwrap(),
         LAST_ERROR_SENTINEL
     );
+}
+
+#[test]
+fn enum_devices_returns_the_evidenced_empty_game_controller_catalog_without_callback_state() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    immediate(fixture.dispatch_factory(
+        DINPUT8_VERSION,
+        DINPUT8_IDIRECTINPUT8A_IID.windows_bytes(),
+        0,
+    ));
+    fixture.acknowledge();
+    let pointer = read_u32(&fixture.memory, OUTPUT_ADDRESS);
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirectInput8A pointer")
+        .clone();
+    let callback = interface.methods[&0].endpoint.0;
+    let policy = Dinput8CompatibilityPolicy::controlled_v1();
+    policy.validate().expect("controlled DirectInput policy");
+
+    write_words(
+        &mut fixture.memory,
+        COM_STACK,
+        &[
+            ENUM_DEVICES_CALL_SITE.0,
+            pointer,
+            DINPUT8_DI8DEVCLASS_GAMECTRL,
+            callback,
+            0,
+            DINPUT8_DIEDFL_ATTACHEDONLY,
+        ],
+    );
+    acknowledge_pending(&mut fixture.memory);
+    let before_memory = fixture.memory.stats();
+    let before_runtime = fixture.runtime.clone();
+    let completion = match fixture.dispatch_com_with_policy(&policy, &interface, 4, COM_STACK) {
+        ComDispatchOutcome::Completed(completion) => completion,
+        other => panic!("evidenced EnumDevices call did not complete: {other:?}"),
+    };
+    assert_eq!(completion.return_value.eax(), 0);
+    assert_eq!(completion.stack_pointer, GuestAddress(COM_STACK.0 + 24));
+    assert_eq!(completion.reference_count, 1);
+    assert!(!completion.object_retired);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats(), before_memory);
+    assert_eq!(fixture.runtime, before_runtime);
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        LAST_ERROR_SENTINEL
+    );
+}
+
+#[test]
+fn enum_devices_rejects_invalid_arguments_and_stops_on_valid_unreached_variants_atomically() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    immediate(fixture.dispatch_factory(
+        DINPUT8_VERSION,
+        DINPUT8_IDIRECTINPUT8A_IID.windows_bytes(),
+        0,
+    ));
+    fixture.acknowledge();
+    let pointer = read_u32(&fixture.memory, OUTPUT_ADDRESS);
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .expect("IDirectInput8A pointer")
+        .clone();
+    let callback = interface.methods[&0].endpoint.0;
+    let policy = Dinput8CompatibilityPolicy::controlled_v1();
+
+    for (device_class, callback, flags) in [
+        (DINPUT8_DI8DEVCLASS_GAMECTRL, 0, DINPUT8_DIEDFL_ATTACHEDONLY),
+        (99, callback, DINPUT8_DIEDFL_ATTACHEDONLY),
+        (DINPUT8_DI8DEVCLASS_GAMECTRL, callback, 0x8000_0000),
+    ] {
+        write_words(
+            &mut fixture.memory,
+            COM_STACK,
+            &[
+                ENUM_DEVICES_CALL_SITE.0,
+                pointer,
+                device_class,
+                callback,
+                0x1234_5678,
+                flags,
+            ],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let completion = match fixture.dispatch_com_with_policy(&policy, &interface, 4, COM_STACK) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("invalid EnumDevices arguments did not return HRESULT: {other:?}"),
+        };
+        assert_eq!(completion.return_value.eax(), DINPUT8_E_INVALIDARG.bits());
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
+
+    for (policy, device_class, callback, expected_code) in [
+        (
+            Dinput8CompatibilityPolicy::controlled_v1(),
+            DINPUT8_DI8DEVCLASS_KEYBOARD,
+            callback,
+            "dinput8-enum-devices-variant-unsupported",
+        ),
+        (
+            {
+                let mut disabled = Dinput8CompatibilityPolicy::controlled_v1();
+                disabled.enum_devices = None;
+                disabled
+            },
+            DINPUT8_DI8DEVCLASS_GAMECTRL,
+            callback,
+            "dinput8-enum-devices-policy-disabled",
+        ),
+        (
+            Dinput8CompatibilityPolicy::controlled_v1(),
+            DINPUT8_DI8DEVCLASS_GAMECTRL,
+            MEMORY_BASE.0,
+            "guest-page-fault",
+        ),
+    ] {
+        write_words(
+            &mut fixture.memory,
+            COM_STACK,
+            &[
+                ENUM_DEVICES_CALL_SITE.0,
+                pointer,
+                device_class,
+                callback,
+                0,
+                DINPUT8_DIEDFL_ATTACHEDONLY,
+            ],
+        );
+        acknowledge_pending(&mut fixture.memory);
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let fault = faulted(fixture.dispatch_com_with_policy(&policy, &interface, 4, COM_STACK));
+        assert_eq!(fault.code, expected_code);
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
+}
+
+#[test]
+fn enum_devices_policy_rejects_device_claims_before_dispatch() {
+    let mut policy = Dinput8CompatibilityPolicy::controlled_v1();
+    policy
+        .enum_devices
+        .as_mut()
+        .expect("enumeration policy")
+        .attached_device_count = 1;
+    let fault = policy
+        .validate()
+        .expect_err("callback-producing policy must be rejected");
+    assert_eq!(fault.code, "dinput8-enum-devices-profile-invalid");
+
+    let mut header = Dinput8CompatibilityPolicy::controlled_v1();
+    header.schema_version += 1;
+    let fault = header
+        .validate()
+        .expect_err("future policy version must be rejected");
+    assert_eq!(fault.code, "dinput8-compatibility-policy-header-invalid");
 }
 
 #[test]
@@ -347,6 +516,26 @@ impl Fixture {
             return_address: ENUM_DEVICES_CALL_SITE,
             call_site: ENUM_DEVICES_CALL_SITE,
         })
+    }
+
+    fn dispatch_com_with_policy(
+        &mut self,
+        policy: &Dinput8CompatibilityPolicy,
+        interface: &vine_core::RuntimeComInterfaceRecord,
+        slot: u16,
+        stack_pointer: GuestAddress,
+    ) -> ComDispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        dispatch_dinput8_com_call(
+            policy,
+            ComCallTrap {
+                endpoint_address: interface.methods[&slot].endpoint,
+                stack_pointer,
+                return_address: ENUM_DEVICES_CALL_SITE,
+                call_site: ENUM_DEVICES_CALL_SITE,
+            },
+            &mut session,
+        )
     }
 
     fn acknowledge(&mut self) {

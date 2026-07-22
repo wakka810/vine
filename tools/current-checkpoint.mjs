@@ -712,6 +712,15 @@ export function validateCurrentCheckpoint(manifest) {
     "directInput8CreateInterfaceId",
     "directInput8CreateReferenceCount",
     "directInput8CreateBackingBytes",
+    "directInput8EnumDevicesCompletions",
+    "directInput8EnumDevicesSequence",
+    "directInput8EnumDevicesInstructionCount",
+    "directInput8EnumDevicesLastError",
+    "directInput8EnumDevicesGuestWriteBytes",
+    "directInput8EnumDevicesDeviceClass",
+    "directInput8EnumDevicesCallbackInvocations",
+    "directInput8EnumDevicesDeviceCount",
+    "directInput8EnumDevicesReferenceCount",
     "loadLibraryACompletions",
     "loadLibraryASequence",
     "loadLibraryALastError",
@@ -828,16 +837,16 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !== 13 ||
-    bgiMappingOperations.commit !== 60 ||
+    bgiMappingOperations.commit !== 61 ||
     bgiMappingOperations.protect !== 21 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_147 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_349 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_156 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_637 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 57_542 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 57_587 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1264,6 +1273,24 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.directInput8CreateBackingBytes !== 8_192 ||
     bgiBrowserEvidence.directInput8CreateBrowserOwnsComState !== false ||
     bgiBrowserEvidence.directInput8CreateOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.directInput8EnumDevicesCompletions !== 1 ||
+    bgiBrowserEvidence.directInput8EnumDevicesSequence !== 18_443 ||
+    bgiBrowserEvidence.directInput8EnumDevicesInstructionCount !== 11_825_229 ||
+    bgiBrowserEvidence.directInput8EnumDevicesArguments?.join(",") !==
+      "0x01060004,0x00000004,0x1005bef0,0x00000000,0x00000001" ||
+    bgiBrowserEvidence.directInput8EnumDevicesResult !== "0x00000000" ||
+    bgiBrowserEvidence.directInput8EnumDevicesLastError !== 0 ||
+    bgiBrowserEvidence.directInput8EnumDevicesGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.directInput8EnumDevicesDeviceClass !== 4 ||
+    bgiBrowserEvidence.directInput8EnumDevicesFlags !== "0x00000001" ||
+    bgiBrowserEvidence.directInput8EnumDevicesCallbackInvocations !== 0 ||
+    bgiBrowserEvidence.directInput8EnumDevicesDeviceCount !== 0 ||
+    bgiBrowserEvidence.directInput8EnumDevicesReferenceCount !== 1 ||
+    bgiBrowserEvidence.directInput8EnumDevicesObjectRetired !== false ||
+    bgiBrowserEvidence.directInput8EnumDevicesPolicyProfileId !==
+      "empty-attached-game-controller-enumeration-v1" ||
+    bgiBrowserEvidence.directInput8EnumDevicesBrowserInputImported !== false ||
+    bgiBrowserEvidence.directInput8EnumDevicesOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -1504,10 +1531,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-dinput8-root-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "dinput8-api-contract" ||
+      "fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !== "dinput8-enum-devices" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-dinput8-root-observation" ||
+      "current-dinput8-enum-devices-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -2032,7 +2059,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeAtomicTests
       .filter((test) => test.startsWith("dinput8_dispatcher::"))
       .join(",") !==
-      "dinput8_dispatcher::direct_input_8_create_installs_owned_identity_and_stops_at_reached_enum_devices,dinput8_dispatcher::factory_oracle_variants_clear_output_without_allocating_com_state,dinput8_dispatcher::factory_can_publish_iunknown_and_preserves_failure_atomicity,dinput8_dispatcher::factory_catalog_fixes_the_five_word_hresult_contract" ||
+      "dinput8_dispatcher::direct_input_8_create_installs_owned_identity_and_stops_at_reached_enum_devices,dinput8_dispatcher::enum_devices_returns_the_evidenced_empty_game_controller_catalog_without_callback_state,dinput8_dispatcher::enum_devices_rejects_invalid_arguments_and_stops_on_valid_unreached_variants_atomically,dinput8_dispatcher::enum_devices_policy_rejects_device_claims_before_dispatch,dinput8_dispatcher::factory_oracle_variants_clear_output_without_allocating_com_state,dinput8_dispatcher::factory_can_publish_iunknown_and_preserves_failure_atomicity,dinput8_dispatcher::factory_catalog_fixes_the_five_word_hresult_contract" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -5668,7 +5695,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-dinput8-root.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-dinput8-enum-devices.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6130,11 +6157,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_497 ||
-    latestEvidence.writebackDirtyPages !== 36_661 ||
-    latestEvidence.writebackChangedBytes !== 1_816_996 ||
-    latestEvidence.hostDeltaBatches !== 17_147 ||
-    latestEvidence.finalMemoryGeneration !== 36_100
+    latestEvidence.writebackBatches !== 18_507 ||
+    latestEvidence.writebackDirtyPages !== 36_964 ||
+    latestEvidence.writebackChangedBytes !== 2_931_700 ||
+    latestEvidence.hostDeltaBatches !== 17_156 ||
+    latestEvidence.finalMemoryGeneration !== 36_120
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -7796,13 +7823,99 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.directInput8CreateGuestComAtomicity !== true ||
     latestEvidence.directInput8CreateFailureAtomicity !== true ||
     latestEvidence.directInput8CreateBrowserOwnsComState !== false ||
-    latestEvidence.directInput8CreateDeviceEnumerationImplemented !== false ||
+    latestEvidence.directInput8CreateDeviceEnumerationImplemented !== true ||
     latestEvidence.directInput8CreateBrowserInputImported !== false ||
     latestEvidence.directInput8CreateNodeCompletions !== 1 ||
     latestEvidence.directInput8CreateChromeCompletions !== 1 ||
     latestEvidence.directInput8CreateNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest DirectInput 8 root-factory evidence is invalid");
+  }
+  for (const field of [
+    "nativeDirectInput8EnumDevicesPrimaryTraceSha256",
+    "nativeDirectInput8EnumDevicesConfirmationTraceSha256",
+    "directInput8EnumDevicesOracleSourceSha256",
+    "directInput8EnumDevicesOracleExecutableSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeDirectInput8EnumDevicesPrimaryTraceBytes !== 263_408 ||
+    latestEvidence.nativeDirectInput8EnumDevicesPrimaryTraceLines !== 700 ||
+    latestEvidence.nativeDirectInput8EnumDevicesPrimaryTraceSha256 !==
+      "f4a04103c290ccd4f3ec8e19150d9480be60214f1904cc4ba082bb47784d29b1" ||
+    latestEvidence.nativeDirectInput8EnumDevicesConfirmationTraceBytes !== 261_749 ||
+    latestEvidence.nativeDirectInput8EnumDevicesConfirmationTraceLines !== 697 ||
+    latestEvidence.nativeDirectInput8EnumDevicesConfirmationTraceSha256 !==
+      "2c859ebf886caede34331c0ddfedd4c7591e9b51ad873038e810d88f765a037d" ||
+    latestEvidence.nativeDirectInput8EnumDevicesProfile !==
+      "x86-bgi-direct-input-8-enum-devices-v1" ||
+    latestEvidence.nativeDirectInput8EnumDevicesCallsPerTrace !== 1 ||
+    latestEvidence.nativeDirectInput8EnumDevicesCallerRva !== "0x0005c1ce" ||
+    latestEvidence.nativeDirectInput8EnumDevicesArguments?.join(",") !==
+      "game-controller,0x1005bef0,0x00000000,attached-only" ||
+    latestEvidence.nativeDirectInput8EnumDevicesResult !== "0x00000000" ||
+    latestEvidence.nativeDirectInput8EnumDevicesLastError !== 0 ||
+    latestEvidence.nativeDirectInput8EnumDevicesCallbackCount !== 0 ||
+    latestEvidence.nativeDirectInput8EnumDevicesConsumer !==
+      "callback-would-link-device-entry-then-caller-walks-empty-list" ||
+    latestEvidence.nativeDirectInput8EnumDevicesExecutableHashUnchanged !== true ||
+    latestEvidence.directInput8EnumDevicesOracleArchitecture !== "coff-i386" ||
+    latestEvidence.directInput8EnumDevicesOracleSourceBytes !== 10_528 ||
+    latestEvidence.directInput8EnumDevicesOracleSourceSha256 !==
+      "2a255635c7f5f5b27cae442cead6eb050f4f63e4306237ad13b1001b2aa4d908" ||
+    latestEvidence.directInput8EnumDevicesOracleExecutableBytes !== 10_752 ||
+    latestEvidence.directInput8EnumDevicesOracleExecutableSha256 !==
+      "ef3eabd2738fb4723b3c96f78798e52c73e556a9ec73c8e12dc7953d133c46da" ||
+    latestEvidence.directInput8EnumDevicesOraclePrimaryDeviceClass !== 4 ||
+    latestEvidence.directInput8EnumDevicesOraclePrimaryFlags !== "0x00000001" ||
+    latestEvidence.directInput8EnumDevicesOraclePrimaryResult !== "0x00000000" ||
+    latestEvidence.directInput8EnumDevicesOraclePrimaryCallbackCount !== 0 ||
+    latestEvidence.directInput8EnumDevicesOracleReachedCallbackCounts?.join(",") !==
+      "1,1,1,1" ||
+    latestEvidence.directInput8EnumDevicesOracleReachedCallbackClasses?.join(",") !==
+      "3,2,0,1" ||
+    latestEvidence.directInput8EnumDevicesOracleInstanceBytes !== 580 ||
+    latestEvidence.directInput8EnumDevicesOracleCallbackContextForwarded !== true ||
+    latestEvidence.directInput8EnumDevicesOracleInvalidResult !== "0x80070057" ||
+    latestEvidence.directInput8EnumDevicesOracleInvalidCallbackCount !== 0 ||
+    latestEvidence.directInput8EnumDevicesOracleInvalidLastErrorPreserved !== true ||
+    latestEvidence.directInput8EnumDevicesImplemented !== true ||
+    latestEvidence.directInput8EnumDevicesSequence !== 18_443 ||
+    latestEvidence.directInput8EnumDevicesInstructionCount !== 11_825_229 ||
+    latestEvidence.directInput8EnumDevicesArguments?.join(",") !==
+      "0x01060004,0x00000004,0x1005bef0,0x00000000,0x00000001" ||
+    latestEvidence.directInput8EnumDevicesReturnAddress !== "0x1005c1ce" ||
+    latestEvidence.directInput8EnumDevicesResult !== "0x00000000" ||
+    latestEvidence.directInput8EnumDevicesLastError !== 0 ||
+    latestEvidence.directInput8EnumDevicesGuestWriteBytes !== 0 ||
+    latestEvidence.directInput8EnumDevicesCallbackInvocations !== 0 ||
+    latestEvidence.directInput8EnumDevicesDeviceCount !== 0 ||
+    latestEvidence.directInput8EnumDevicesReferenceCount !== 1 ||
+    latestEvidence.directInput8EnumDevicesObjectRetired !== false ||
+    latestEvidence.directInput8EnumDevicesPolicySchema !==
+      "vine.dinput8-compatibility-policy" ||
+    latestEvidence.directInput8EnumDevicesPolicySchemaVersion !== 1 ||
+    latestEvidence.directInput8EnumDevicesPolicyProfileId !==
+      "empty-attached-game-controller-enumeration-v1" ||
+    latestEvidence.directInput8EnumDevicesPolicyDeviceClass !== 4 ||
+    latestEvidence.directInput8EnumDevicesPolicyFlags !== "0x00000001" ||
+    latestEvidence.directInput8EnumDevicesStateMutation !== false ||
+    latestEvidence.directInput8EnumDevicesFailureAtomicity !== true ||
+    latestEvidence.directInput8EnumDevicesValidUnreachedVariantsStructuredUnsupported !==
+      true ||
+    latestEvidence.directInput8EnumDevicesInvalidArgumentsReturnInvalidArg !== true ||
+    latestEvidence.directInput8EnumDevicesCallbackProducingVariantsImplemented !== false ||
+    latestEvidence.directInput8EnumDevicesBrowserInputImported !== false ||
+    latestEvidence.directInput8EnumDevicesNodeCompletions !== 1 ||
+    latestEvidence.directInput8EnumDevicesChromeCompletions !== 1 ||
+    latestEvidence.directInput8EnumDevicesNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest DirectInput 8 EnumDevices evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -8417,7 +8530,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "DirectInput 8 root factory with exact five-word HRESULT ABI and atomic guest-memory/COM identity publication" ||
+      "DirectInput 8 root identity plus exact empty attached game-controller enumeration without callback scheduling" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

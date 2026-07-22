@@ -431,6 +431,29 @@ Current DirectInput root workloadの180-second gateは、同じversioned 17 thre
 `a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0a`である。これはroot factory／COM
 identityの成立性を受け入れるが、enumeration callback、device identity、acquire／state、DOM inputをclaimしない。
 
+Reached `IDirectInput8A::EnumDevices`はfour-explicit-word COM ABI、live root identity、device class 4、non-NULL
+executable callback、reference 0、flags 1を固定する。Focused native two-run evidenceは両runでS_OK／callback 0、
+callerが空listを走査して成功することを確認する。Controlled COFF-i386 oracleはprimary class 4／attached-onlyが
+callback 0、keyboard／pointer／all／device classが各callback 1、callback contextと580-byte
+`DIDEVICEINSTANCEA`が渡ること、NULL callback／invalid class／invalid flagsが`E_INVALIDARG`かつcallback 0で
+LastErrorを保存することを固定する。
+
+Runtime policy version 1はexact primary queryのdevice count 0だけを許可する。Reached completionはS_OK、guest write
+0、callback scheduling 0、COM refcount 1 unchanged、LastError／memory generation unchangedである。Invalid inputは
+`E_INVALIDARG`、valid unreached variantはstructured unsupported、nonzero-device policyはvalidation faultとなり、いずれも
+guest bytes、COM／input state、allocatorをpartial mutationしない。Node／Chromeはsequence 18,443を同じsemanticsで
+完了し、その後のheap pathを含む18,452 calls、instruction 11,921,739、semantic SHA-256
+`c4408e6ddb87129787656cb709d07081b59edfb7517aa15791b003d0a065214e`、final memory SHA-256
+`07630b9b0a45bb1b97d2159e51bb9c635596ce8ff4067dc70370a7864ea78e23`、次の`DSOUND.dll` ordinal 11
+(`DirectSoundCreate8`) stop、clean cancel／watchdogを一致させる。
+
+Current enumeration workloadの180-second gateは127 sessions、semantic failure 0、session P95 1,458.825 ms、slice
+P99 2.125 ms、heartbeat P99 6.060 ms、valid environment、17／17 passを得た。新たに到達した1 MiB heap pathで
+execution mirrorは18,219,008 bytesとなるため、新fixtureだけに24 MiB ceilingを事前設定し、残る16 thresholdsは
+維持した。Accepted reportは1,955,904 bytes／SHA-256
+`b9bbd3d6ba8a8e5dbde7876f4913fb361f58e9972ab1d4077d20ddadbbffd507`である。Callback-producing enumeration、
+device identity／create／acquire／state、DOM inputは受け入れていない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

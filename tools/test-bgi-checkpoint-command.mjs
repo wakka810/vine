@@ -163,6 +163,10 @@ assert.equal(
   bgiProfileOutputDirectory("dinput8-api-contract"),
   "v86-bgi-dinput8-api-contract",
 );
+assert.equal(
+  bgiProfileOutputDirectory("dinput8-enum-devices"),
+  "v86-bgi-dinput8-enum-devices",
+);
 assert.throws(() => bgiProfileOutputDirectory("dsound-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

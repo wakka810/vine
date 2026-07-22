@@ -977,6 +977,33 @@ assert.ok(
   ),
 );
 
+const browserOwnedDirectInputEnumeration = structuredClone(manifest);
+browserOwnedDirectInputEnumeration.browserCheckpoint.bgiRuntimeEvidence.directInput8EnumDevicesBrowserInputImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDirectInputEnumeration).some((error) =>
+    error.includes("browser BGI authority or teardown evidence"),
+  ),
+);
+
+const partialDirectInputEnumeration = structuredClone(manifest);
+partialDirectInputEnumeration.activeRuntimeCheckpoint.latestEvidence.directInput8EnumDevicesFailureAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialDirectInputEnumeration).some((error) =>
+    error.includes("DirectInput 8 EnumDevices evidence"),
+  ),
+);
+
+const unsupportedCallbackClaim = structuredClone(manifest);
+unsupportedCallbackClaim.activeRuntimeCheckpoint.latestEvidence.directInput8EnumDevicesCallbackProducingVariantsImplemented =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(unsupportedCallbackClaim).some((error) =>
+    error.includes("DirectInput 8 EnumDevices evidence"),
+  ),
+);
+
 const missingDirectInputBoundaryTest = structuredClone(manifest);
 missingDirectInputBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests =
   missingDirectInputBoundaryTest.activeRuntimeCheckpoint.runtimeKernelBoundary.representativeCrossSubsystemAtomicTests.filter(

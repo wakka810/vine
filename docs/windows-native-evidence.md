@@ -4012,6 +4012,52 @@ bytes／SHA-256 `a0c09c440c6cb66fab15cf4340a4588a73dabdef8d22d16c5aa054dfde065b0
 `IDirectInput8A::EnumDevices(this=0x01060004,4,0x1005BEF0,0,1)`、reason `com-method-unsupported`である。
 Device enumeration／callback／device create／acquire／state、DOM inputはまだ実装済みとしない。
 
+## 129. BGI DirectInput 8 empty game-controller enumeration
+
+Focused `dinput8-enum-devices` observationを独立に2回取得した。Primary raw traceは263,408 bytes／700 records／
+SHA-256 `f4a04103c290ccd4f3ec8e19150d9480be60214f1904cc4ba082bb47784d29b1`、confirmationは
+261,749 bytes／697 records／SHA-256
+`2c859ebf886caede34331c0ddfedd4c7591e9b51ad873038e810d88f765a037d`である。両runともprofile
+`x86-bgi-direct-input-8-enum-devices-v1`で、factory caller RVA `0x0005C234`に続くslot 4 callをcaller RVA
+`0x0005C1CE`から一回捕捉した。Argumentsはdevice class 4 (`DI8DEVCLASS_GAMECTRL`)、callback
+`0x1005BEF0`、reference 0、flags 1 (`DIEDFL_ATTACHEDONLY`)で、S_OK／LastError 0、callback count 0である。
+Caller callbackはdeviceがあればentryをallocate／linkするが、primary pathは空listをそのまま走査して成功する。
+Raw traceは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／primary SHA-256を保持した。
+
+Controlled COFF-i386 oracle sourceは10,528 bytes／SHA-256
+`2a255635c7f5f5b27cae442cead6eb050f4f63e4306237ad13b1001b2aa4d908`、executableは10,752 bytes／
+SHA-256 `ef3eabd2738fb4723b3c96f78798e52c73e556a9ec73c8e12dc7953d133c46da`で、二回の出力は一致した。
+Primary class 4／flags 1はS_OK／callback 0、keyboard class 3、pointer class 2、all class 0、device class 1は
+各callback 1だった。Reached callbacksはcaller referenceを転送し、最初のinstance sizeは580 bytesである。NULL
+callback、class 99、unknown high flagは`0x80070057`／callback 0となり、sentinel LastErrorを保存した。
+
+Runtimeは`vine.dinput8-compatibility-policy` version 1の
+`empty-attached-game-controller-enumeration-v1`だけを実装する。Exact primary callはsequence 18,443／instruction
+11,825,229でS_OKを返し、guest write／callback／device publication／state mutationは0、root refcountは1のままである。
+Invalid argumentは`E_INVALIDARG`、valid unreached class／flagはtyped structured unsupported、callback-producing device
+countを含むpolicyはdispatch前に拒否する。BrowserはCOM／input／device stateを所有せず、DOM device catalogを
+importしない。
+
+Nodeは続くheap pathを実行して18,452 supported calls、18,507 writebacks／36,964 dirty pages／2,931,700 changed
+bytes、17,156 host deltas、generation 36,120、semantic SHA-256
+`c4408e6ddb87129787656cb709d07081b59edfb7517aa15791b003d0a065214e`、final memory SHA-256
+`07630b9b0a45bb1b97d2159e51bb9c635596ce8ff4067dc70370a7864ea78e23`を固定した。Summary reportは50,056
+bytes／SHA-256 `4a9a079d1b7b8728d4cba82e649e0fd48b9476390765a0dec7e6306028bafff3`である。Chrome Runtime Workerも
+same digest／memory／stopを再現し、19,207 slices、19,205 writebacks／38,582 pages、17,156 mapping deltas／
+18,637 dirty pages、generation 27→36,820、55,176 Wasm crossings、57,587 execution transitions、clean
+cancel／watchdogを通した。Browser reportは43,892 bytes／SHA-256
+`12639faa2c11a5f45c476425d498581f38c4013001ca2e41565bce91d11a1c9f`である。
+
+Versioned 180-second gateは127 sessions、semantic failure 0、session P95 1,458.825 ms、slice P99 2.125 ms、
+heartbeat P99 6.060 ms、valid environment、17-of-17 passを得た。新たな1 MiB heap pathのsingle-run observation
+18,219,008 bytesを根拠に、このversionだけexecution-engine ceilingを24 MiBとし、残る16 thresholdsは維持した。
+Reportは1,955,904 bytes／SHA-256
+`b9bbd3d6ba8a8e5dbde7876f4913fb361f58e9972ab1d4077d20ddadbbffd507`である。次stopはinstruction
+11,921,739、endpoint ID 330／`0x7F001490`、IAT `0x100D1058`、return `0x1009CCCC`の`DSOUND.dll` ordinal 11。
+Local SysWOW64 export tableはこれを`DirectSoundCreate8`へ解決する。ArgumentsはNULL device GUID、output
+`0x100FEB10`、NULL outer、reasonは`endpoint-contract-missing`である。DirectSound object／buffer／browser audio
+transport、callback-producing DirectInput variants、device create／acquire／stateはまだ実装済みとしない。
+
 ## 121. BGI shared multimedia tick sample
 
 Focused `time-get-time` observationを独立に2回取得した。Primary raw traceは304,054 bytes／

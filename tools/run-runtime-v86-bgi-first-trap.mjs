@@ -157,6 +157,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-query-performance-frequency",
         "user32-get-monitor-info-a",
         "dinput8-api-contract",
+        "dinput8-enum-devices",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -233,6 +234,7 @@ assert(
       "kernel32-query-performance-frequency",
       "user32-get-monitor-info-a",
       "dinput8-api-contract",
+      "dinput8-enum-devices",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -273,6 +275,7 @@ if (
     "kernel32-query-performance-frequency",
     "user32-get-monitor-info-a",
     "dinput8-api-contract",
+    "dinput8-enum-devices",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -306,7 +309,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-raster-status" ||
     genericRuntimeCapability === "kernel32-query-performance-frequency" ||
     genericRuntimeCapability === "user32-get-monitor-info-a" ||
-    genericRuntimeCapability === "dinput8-api-contract"
+    genericRuntimeCapability === "dinput8-api-contract" ||
+    genericRuntimeCapability === "dinput8-enum-devices"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -441,7 +445,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const dinput8EnumDevicesEnabled =
+  genericRuntimeCapability === "dinput8-enum-devices";
 const dinput8FactoryEnabled =
+  dinput8EnumDevicesEnabled ||
   genericRuntimeCapability === "dinput8-api-contract";
 const getMonitorInfoAEnabled =
   dinput8FactoryEnabled ||
@@ -684,7 +691,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? dinput8FactoryEnabled
+      ? dinput8EnumDevicesEnabled
+      ? "v86-bgi-dinput8-enum-devices"
+      : dinput8FactoryEnabled
       ? "v86-bgi-dinput8-api-contract"
       : getMonitorInfoAEnabled
       ? "v86-bgi-get-monitor-info-a"
@@ -4664,6 +4673,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (dinput8EnumDevicesEnabled) {
+        validateDinput8EnumDevicesResult(genericResult);
       } else if (dinput8FactoryEnabled) {
         validateDinput8FactoryResult(genericResult);
       } else if (getMonitorInfoAEnabled) {
@@ -4849,6 +4860,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dinput8EnumDevicesEnabled
+          ? "bgi DirectInput8 empty game-controller enumeration"
           : dinput8FactoryEnabled
           ? "bgi DirectInput8 root factory and identity"
           : getMonitorInfoAEnabled
@@ -13857,6 +13870,116 @@ function validateDinput8FactoryResult(result) {
   ]);
 }
 
+function validateDinput8EnumDevicesResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_452);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_507);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_964,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_931_700,
+  );
+  assert.equal(result.hostDeltas.length, 17_156);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_120);
+
+  const enumeration = result.supportedCalls.find(
+    (call) => call.symbol === "IDirectInput8A.EnumDevices",
+  );
+  assert(enumeration, "IDirectInput8A::EnumDevices completion is missing");
+  assert.equal(enumeration.sequence, 18_443);
+  assert.equal(enumeration.occurrence, 3);
+  assert.equal(enumeration.trapInstructionCount, 11_825_229);
+  assert.equal(enumeration.module, "<com>");
+  assert.equal(enumeration.symbol, "IDirectInput8A.EnumDevices");
+  assert.equal(enumeration.interface, "IDirectInput8A");
+  assert.equal(enumeration.vtableSlot, 4);
+  assert.deepEqual(enumeration.arguments, [
+    0x0106_0004,
+    4,
+    0x1005_bef0,
+    0,
+    1,
+  ]);
+  assert.deepEqual(enumeration.result, { kind: "h-result", value: 0 });
+  assert.equal(enumeration.returnAddress, 0x1005_c1ce);
+  assert.equal(enumeration.stackPointerAfter, enumeration.stackPointerBefore + 24);
+  assert.equal(enumeration.referenceCount, 1);
+  assert.equal(enumeration.objectRetired, false);
+  assert.deepEqual(enumeration.guestWrites, []);
+
+  assert.deepEqual(
+    result.supportedCalls.slice(-10).map((call) => ({
+      sequence: call.sequence,
+      symbol: call.symbol,
+    })),
+    [
+      { sequence: 18_443, symbol: "IDirectInput8A.EnumDevices" },
+      { sequence: 18_444, symbol: "HeapAlloc" },
+      { sequence: 18_445, symbol: "HeapAlloc" },
+      { sequence: 18_446, symbol: "HeapAlloc" },
+      { sequence: 18_447, symbol: "EnterCriticalSection" },
+      { sequence: 18_448, symbol: "HeapAlloc" },
+      { sequence: 18_449, symbol: "HeapAlloc" },
+      { sequence: 18_450, symbol: "HeapAlloc" },
+      { sequence: 18_451, symbol: "HeapAlloc" },
+      { sequence: 18_452, symbol: "HeapFree" },
+    ],
+  );
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(endpoint.kind, "runtime-system-export");
+  assert.equal(endpoint.endpoint.id, 330);
+  assert.equal(endpoint.endpoint.address, 0x7f00_1490);
+  assert.equal(endpoint.endpoint.module, "dsound.dll");
+  assert.deepEqual(endpoint.endpoint.symbol, { kind: "ordinal", ordinal: 11 });
+  assert.equal(endpoint.endpoint.iatAddress, 0x100d_1058);
+  assert.equal(endpoint.endpoint.disposition, "declared-runtime-export");
+  assert.equal(result.fault.capabilityCluster, "dsound-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.physicalPages, 988);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "07630b9b0a45bb1b97d2159e51bb9c635596ce8ff4067dc70370a7864ea78e23",
+  );
+
+  const terminal = result.terminal.terminal;
+  assert.equal(result.terminal.instructionCount, 11_921_739);
+  assert.equal(terminal.kind, "owned-import-thunk");
+  assert.equal(terminal.thunk.id, 330);
+  assert.equal(terminal.thunk.address, 0x7f00_1490);
+  assert.equal(terminal.thunk.module, "DSOUND.dll");
+  assert.equal(terminal.thunk.kind, "ordinal");
+  assert.equal(terminal.thunk.ordinal, 11);
+  assert.equal(terminal.returnAddress, 0x1009_cccc);
+  assert.deepEqual(terminal.stackWords, [
+    0x1009_cccc,
+    0,
+    0x100f_eb10,
+    0,
+    0xe93f_6cd3,
+    0,
+    0x2013_2b20,
+    0,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -16345,6 +16468,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dinput8EnumDevicesEnabled
+        ? "vine.v86-bgi-dinput8-enum-devices"
         : dinput8FactoryEnabled
         ? "vine.v86-bgi-dinput8-api-contract"
         : getMonitorInfoAEnabled

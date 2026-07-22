@@ -5,7 +5,7 @@
 - Status: implemented foundation
 - Authority: `runtime/input.rs::RuntimeInput`
 - First reached API: `USER32.dll!SwapMouseButton`
-- DirectInput gateway: `DINPUT8.dll!DirectInput8Create` root identity implemented
+- DirectInput gateway: root identity and reached empty game-controller enumeration implemented
 
 Logical input state is guest-visible Windows state and therefore belongs to the
 Rust runtime. Browser main-thread adapters may normalize DOM events, but they do
@@ -51,10 +51,22 @@ IUnknown slots use the shared COM implementation, while unreached DirectInput
 methods remain typed unsupported endpoints. Browser TypeScript creates no
 parallel COM object or DirectInput state.
 
-The primary workload now reaches slot 4 `IDirectInput8A::EnumDevices` with
-device type 4, callback `0x1005BEF0`, reference 0, and flags 1. Enumeration,
-callback delivery, device identities, acquisition, and state polling belong to
-the next vertical slice; the root factory does not silently claim them.
+The primary workload reaches slot 4 `IDirectInput8A::EnumDevices` with device
+class 4 (`DI8DEVCLASS_GAMECTRL`), callback `0x1005BEF0`, reference 0, and flags
+1 (`DIEDFL_ATTACHEDONLY`). Two native runs return `S_OK` without invoking the
+callback. A controlled x86 oracle confirms the same zero-device result for this
+class while keyboard, pointer, all-device, and device classes do invoke the
+callback on the host.
+
+`Dinput8CompatibilityPolicy` version 1 therefore exposes only the exact reached
+empty attached-game-controller catalog. The COM frontend validates the class,
+flags, callback pointer, root identity, and policy before completion. Invalid
+class／flags／NULL callback return `E_INVALIDARG`; valid but unreached variants
+remain structured unsupported. The reached completion writes no guest bytes,
+does not schedule a callback, and does not mutate COM, input, allocator,
+LastError, or memory generation. A policy that claims a nonzero device count is
+rejected before dispatch because callback scheduling and device publication are
+not implemented yet. Browser TypeScript imports no host or DOM device catalog.
 
 ## Failure ordering
 
@@ -99,7 +111,9 @@ Node, Chrome, and benchmark evidence is recorded in
 
 This foundation does not yet ingest DOM input, emit mouse messages, implement
 focus／capture, expose button count or metrics, provide keyboard state, enumerate
-DirectInput devices, create keyboard／mouse devices, acquire them, or serve
-device state. It does not change the host OS mapping. Those later slices must
-extend this owner or introduce a separately justified input owner by lifetime
-and failure domain; TypeScript remains an adapter, not Windows-state authority.
+callback-producing DirectInput variants, create keyboard／mouse devices, acquire
+them, or serve device state. The only enumeration claim is the exact empty
+attached-game-controller query above. It does not change the host OS mapping.
+Those later slices must extend this owner or introduce a separately justified
+input owner by lifetime and failure domain; TypeScript remains an adapter, not
+Windows-state authority.

@@ -38,6 +38,11 @@ const focusedD3d9RasterStatusObservation =
   selectedObservations.has("d3d9-raster-status");
 const focusedDinput8RootObservation =
   selectedObservations.size === 1 && selectedObservations.has("dinput8-root");
+const focusedDinput8EnumDevicesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("dinput8-enum-devices");
+const focusedDinput8Observation =
+  focusedDinput8RootObservation || focusedDinput8EnumDevicesObservation;
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
@@ -75,6 +80,8 @@ let focusedDinput8RootObject = null;
 let focusedDinput8RootComplete = false;
 let focusedDinput8FactoryCall = null;
 const focusedDinput8RootCalls = [];
+const activeDinput8EnumDevicesByThread = new Map();
+const attachedDinput8EnumDevicesCallbacks = new Set();
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2470,6 +2477,103 @@ function snapshotD3d9RasterStatus(pointer) {
   }
 }
 
+function snapshotFixedAnsiBuffer(pointer, maximumBytes) {
+  const raw = snapshotBoundedRawBytes(pointer, maximumBytes, maximumBytes);
+  if (!Array.isArray(raw.bytes)) {
+    return { raw };
+  }
+  const terminator = raw.bytes.indexOf(0);
+  const byteLength = terminator === -1 ? maximumBytes : terminator;
+  return {
+    raw,
+    byteLength,
+    terminated: terminator !== -1,
+    codeUnits: raw.bytes.slice(0, byteLength),
+  };
+}
+
+function snapshotDinput8DeviceInstanceA(pointer) {
+  const byteLength = 580;
+  const raw = snapshotBoundedRawBytes(pointer, byteLength, byteLength);
+  if (!Array.isArray(raw.bytes)) {
+    return { profile: "x86-dideviceinstancea-v1", byteLength, raw };
+  }
+  try {
+    return {
+      profile: "x86-dideviceinstancea-v1",
+      byteLength,
+      raw,
+      fields: {
+        size: pointer.readU32(),
+        instanceGuid: snapshotBoundedRawBytes(pointer.add(4), 16, 16),
+        productGuid: snapshotBoundedRawBytes(pointer.add(20), 16, 16),
+        deviceType: pointer.add(36).readU32(),
+        instanceName: snapshotFixedAnsiBuffer(pointer.add(40), 260),
+        productName: snapshotFixedAnsiBuffer(pointer.add(300), 260),
+        forceFeedbackDriverGuid: snapshotBoundedRawBytes(
+          pointer.add(560),
+          16,
+          16,
+        ),
+        usagePage: pointer.add(576).readU16(),
+        usage: pointer.add(578).readU16(),
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-dideviceinstancea-v1",
+      byteLength,
+      raw,
+      error: error.message,
+    };
+  }
+}
+
+function attachDinput8EnumDevicesCallback(callback) {
+  if (callback.isNull()) {
+    return;
+  }
+  const key = callback.toString().toLowerCase();
+  if (attachedDinput8EnumDevicesCallbacks.has(key)) {
+    return;
+  }
+  attachedDinput8EnumDevicesCallbacks.add(key);
+  Interceptor.attach(callback, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      const active = activeDinput8EnumDevicesByThread.get(threadId) ?? null;
+      this.dinput8EnumDevicesActive = active;
+      this.dinput8EnumDevicesInstance = args[0];
+      if (active === null) {
+        this.dinput8EnumDevicesCallback = null;
+        return;
+      }
+      const record = {
+        callback: callback.toString(),
+        callbackIdentity: describeCaller(callback),
+        caller: describeCaller(this.returnAddress),
+        deviceInstancePointer: args[0].toString(),
+        deviceInstanceBefore: snapshotDinput8DeviceInstanceA(args[0]),
+        reference: args[1].toString(),
+        lastErrorBefore: Number(this.lastError) >>> 0,
+      };
+      this.dinput8EnumDevicesCallback = record;
+      active.callbacks.push(record);
+    },
+    onLeave(result) {
+      const record = this.dinput8EnumDevicesCallback;
+      if (record === null) {
+        return;
+      }
+      record.result = result.toUInt32();
+      record.deviceInstanceAfter = snapshotDinput8DeviceInstanceA(
+        this.dinput8EnumDevicesInstance,
+      );
+      record.lastErrorAfter = Number(this.lastError) >>> 0;
+    },
+  });
+}
+
 function snapshotMonitorInfoA(pointer) {
   const profile = "x86-monitor-info-a-v1";
   const header = snapshotBoundedRawBytes(pointer, 4);
@@ -4131,7 +4235,7 @@ function attachIdirectinput8a(object) {
         onEnter(args) {
           const caller = describeCaller(this.returnAddress);
           if (
-            focusedDinput8RootObservation &&
+            focusedDinput8Observation &&
             (focusedDinput8RootComplete ||
               caller.module?.toLowerCase() !==
                 Process.mainModule.name.toLowerCase())
@@ -4160,6 +4264,29 @@ function attachIdirectinput8a(object) {
                 }
               : null;
           this.traceDinput8CreateDeviceOutput = slot === 3 ? args[2] : null;
+          this.traceDinput8EnumDevices =
+            slot === 4 && focusedDinput8EnumDevicesObservation
+              ? {
+                  deviceType: args[1].toUInt32(),
+                  callback: args[2].toString(),
+                  callbackIdentity: args[2].isNull()
+                    ? null
+                    : describeCaller(args[2]),
+                  callbackInstructions: args[2].isNull()
+                    ? null
+                    : snapshotInstructions(args[2], 96),
+                  reference: args[3].toString(),
+                  flags: args[4].toUInt32(),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    96,
+                  ),
+                  callbacks: [],
+                }
+              : null;
+          if (this.traceDinput8EnumDevices !== null) {
+            attachDinput8EnumDevicesCallback(args[2]);
+          }
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -4171,12 +4298,21 @@ function attachIdirectinput8a(object) {
             },
             this.returnAddress,
           );
+          if (this.traceDinput8EnumDevices !== null) {
+            activeDinput8EnumDevicesByThread.set(
+              this.traceFrame.threadId,
+              this.traceDinput8EnumDevices,
+            );
+          }
         },
         onLeave(result) {
           if (this.traceFrame === null) {
             return;
           }
           const lastError = this.lastError;
+          if (this.traceDinput8EnumDevices !== null) {
+            activeDinput8EnumDevicesByThread.delete(this.traceFrame.threadId);
+          }
           const dinput8CreateDevice =
             this.traceDinput8CreateDevice === null
               ? null
@@ -4201,11 +4337,14 @@ function attachIdirectinput8a(object) {
               ...(dinput8CreateDevice === null
                 ? {}
                 : { dinput8CreateDevice }),
+              ...(this.traceDinput8EnumDevices === null
+                ? {}
+                : { dinput8EnumDevices: this.traceDinput8EnumDevices }),
             },
             lastError,
           );
           if (
-            focusedDinput8RootObservation &&
+            focusedDinput8Observation &&
             focusedDinput8RootCalls.length === 0
           ) {
             focusedDinput8RootCalls.push({
@@ -4223,6 +4362,9 @@ function attachIdirectinput8a(object) {
               ...(dinput8CreateDevice === null
                 ? {}
                 : { dinput8CreateDevice }),
+              ...(this.traceDinput8EnumDevices === null
+                ? {}
+                : { dinput8EnumDevices: this.traceDinput8EnumDevices }),
             });
             setImmediate(maybeCompleteFocusedDinput8RootObservation);
           }
@@ -4257,13 +4399,18 @@ function maybeCompleteFocusedDinput8RootObservation() {
     return;
   }
   focusedDinput8RootComplete = true;
-  emit("dinput8-root-complete", {
-    profile: "x86-bgi-direct-input-8-root-v1",
+  const completionKind = focusedDinput8EnumDevicesObservation
+    ? "dinput8-enum-devices-complete"
+    : "dinput8-root-complete";
+  emit(completionKind, {
+    profile: focusedDinput8EnumDevicesObservation
+      ? "x86-bgi-direct-input-8-enum-devices-v1"
+      : "x86-bgi-direct-input-8-root-v1",
     rootObject: focusedDinput8RootObject,
     factory: focusedDinput8FactoryCall,
     firstRootCall: focusedDinput8RootCalls[0],
   });
-  if (stopOnEvent === "dinput8-root-complete") {
+  if (stopOnEvent === completionKind) {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -7672,9 +7819,9 @@ function attachHook(module, name, decoders) {
         caller.module !== null &&
         caller.module.toLowerCase() === Process.mainModule.name.toLowerCase();
       const tracesDinput8Factory =
-        (focusedDinput8RootObservation ||
+        (focusedDinput8Observation ||
           selectedVtables.has("idirectinput8a")) &&
-        (!focusedDinput8RootObservation ||
+        (!focusedDinput8Observation ||
           (!focusedDinput8RootComplete &&
             focusedDinput8FactoryCall === null)) &&
         name === "DirectInput8Create" &&
@@ -9612,7 +9759,7 @@ function attachHook(module, name, decoders) {
         directInput8Create.output.after.value !== "0x0"
       ) {
         const rootObject = directInput8Create.output.after.value.toLowerCase();
-        if (focusedDinput8RootObservation) {
+        if (focusedDinput8Observation) {
           focusedDinput8RootObject = rootObject;
           focusedDinput8FactoryCall = {
             callId: this.traceFrame.callId,
@@ -9627,7 +9774,7 @@ function attachHook(module, name, decoders) {
           };
         }
         attachIdirectinput8a(ptr(rootObject));
-        if (focusedDinput8RootObservation) {
+        if (focusedDinput8Observation) {
           setImmediate(maybeCompleteFocusedDinput8RootObservation);
         }
       }

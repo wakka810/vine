@@ -9,10 +9,10 @@ use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
-    CpuWritebackReceipt, D3d9CompatibilityPolicy, DispatchOutcome, ExecutionSession, ExportTarget,
-    GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy,
-    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding,
-    ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
+    ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
+    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
+    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
@@ -24,13 +24,13 @@ use vine_core::{
     RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
     User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_gdi32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, gdi32_contract_for_endpoint, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
+    dispatch_gdi32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, gdi32_contract_for_endpoint,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -325,6 +325,7 @@ struct BrowserRuntime {
     controlled_guest_thread: Option<ControlledGuestThread>,
     mapping_fixture: BrowserMappingFixture,
     d3d9_policy: Option<Box<D3d9CompatibilityPolicy>>,
+    dinput8_policy: Option<Box<Dinput8CompatibilityPolicy>>,
     target: BrowserRuntimeTarget,
 }
 
@@ -475,6 +476,7 @@ impl BrowserRuntime {
                 controlled_guest_thread: Some(controlled_guest_thread),
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: Some(Box::new(d3d9_policy)),
+                dinput8_policy: None,
                 target: BrowserRuntimeTarget::ControlledFixture,
             },
             metadata,
@@ -521,6 +523,8 @@ impl BrowserRuntime {
         winmm_policy.validate().map_err(api_fault_string)?;
         let d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
         d3d9_policy.validate().map_err(api_fault_string)?;
+        let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
+        dinput8_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
             .configure_display_profile(
@@ -660,6 +664,7 @@ impl BrowserRuntime {
                 controlled_guest_thread: None,
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: Some(Box::new(d3d9_policy)),
+                dinput8_policy: Some(Box::new(dinput8_policy)),
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
@@ -776,6 +781,7 @@ impl BrowserRuntime {
                 controlled_guest_thread: None,
                 mapping_fixture: BrowserMappingFixture::default(),
                 d3d9_policy: None,
+                dinput8_policy: None,
                 target: BrowserRuntimeTarget::ControlledSourceRead {
                     kernel32_policy: Box::new(kernel32_policy),
                 },
@@ -1407,10 +1413,18 @@ impl BrowserRuntime {
         return_address: GuestAddress,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let d3d9_policy = self.d3d9_policy.as_deref();
-        let routes_to_d3d9 = self
+        let dinput8_policy = self.dinput8_policy.as_deref();
+        let class_identity = self
             .runtime
             .resolve_com_method(endpoint_address)
-            .is_ok_and(|target| target.object.class_identity.starts_with("d3d9."));
+            .ok()
+            .map(|target| target.object.class_identity);
+        let routes_to_d3d9 = class_identity
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("d3d9."));
+        let routes_to_dinput8 = class_identity
+            .as_deref()
+            .is_some_and(|identity| identity.starts_with("dinput8."));
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
             let trap = ComCallTrap {
@@ -1419,8 +1433,18 @@ impl BrowserRuntime {
                 return_address,
                 call_site: return_address,
             };
-            match (routes_to_d3d9, d3d9_policy) {
-                (true, Some(policy)) => dispatch_d3d9_com_call(policy, trap, &mut session),
+            match (
+                routes_to_d3d9,
+                routes_to_dinput8,
+                d3d9_policy,
+                dinput8_policy,
+            ) {
+                (true, false, Some(policy), _) => {
+                    dispatch_d3d9_com_call(policy, trap, &mut session)
+                }
+                (false, true, _, Some(policy)) => {
+                    dispatch_dinput8_com_call(policy, trap, &mut session)
+                }
                 _ => session.dispatch_com_call(trap),
             }
         };
