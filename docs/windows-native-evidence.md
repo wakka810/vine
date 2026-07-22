@@ -3900,11 +3900,11 @@ Summary reportは50,097 bytes／SHA-256
 `0x7F000C70`、IAT `0x100D13F8`、return `0x1005C913`、reason `endpoint-contract-missing`である。
 Chrome Runtime Workerもsame semantic digest／memory／stopを再現し、19,186 writebacks／38,262 pages、
 17,145 mapping deltas、generation 27→36,764、55,131 Wasm crossings、57,530 execution transitions、
-terminal pending work 0を通した。Browser reportは43,916 bytes／SHA-256
-`d78a0c151c95abaadb9796635cc34a55d8e6571a76d4dd257fd798a718898582`である。同じ180-second／
-17-threshold fixtureは98 sessions、semantic failure 0、session P95 1,905.020 ms、slice P99 3.695 ms、
-heartbeat P99 10.875 msで17／17を通した。Benchmark reportは1,638,396 bytes／SHA-256
-`91e64687f5da4d3825408e195d72d786a8f94366642e66c1bafe9f2a824e1dbb`である。Current artifact
+terminal pending work 0を通した。Browser reportは43,931 bytes／SHA-256
+`fd7bb3358736c8e723f875411bee56c35141e5104450e2c2762c1a803df712e0`である。同じ180-second／
+17-threshold fixtureは127 sessions、semantic failure 0、session P95 1,471.575 ms、slice P99 1.675 ms、
+heartbeat P99 6.055 msで17／17を通した。Benchmark reportは1,958,180 bytes／SHA-256
+`333ae2125e48e5d63c1be7622b11bd7395566f97c01b81344bd268b0ad0bc932`である。Current artifact
 identityとcanonical reproductionはcurrent checkpoint manifestを正本とする。
 
 ## 121. BGI shared multimedia tick sample

@@ -386,8 +386,8 @@ frequency failure時だけ1000／`GetTickCount`へfallbackして成功時はcoun
 same semantic digest／memory／`GetMonitorInfoA` stop、clean cancel／watchdogを一致させる。Host QPC、
 browser clock、Worker cadence、WinMM resolution、frame／audio clockをimportしない。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。SHA固定Chrome for Testingのvalid environmentで98 sessions、semantic failure 0、heartbeat P99
-10.875 ms／maximum 32.790 ms、slice P99 3.695 msを記録して17／17を通過した。Heartbeat 25 ms、live
+条件とする。SHA固定Chrome for Testingのvalid environmentで127 sessions、semantic failure 0、heartbeat P99
+6.055 ms／maximum 36.075 ms、slice P99 1.675 msを記録して17／17を通過した。Heartbeat 25 ms、live
 heap／slope／backing storage、96 MiB capacityを含むversioned thresholdsは変更していない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは

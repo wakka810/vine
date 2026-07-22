@@ -91,24 +91,24 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The accepted fixed-browser run completed 98 sessions with no semantic failure
-in a valid environment. All 17 thresholds passed. Heartbeat P99 was 10.875 ms,
-its maximum was 32.790 ms, and slice P99 was 3.695 ms. The environment monitor
-recorded 179 of 180 expected samples, no Updater, no sustained CPU or disk
-excursion, and no post-warm-up QoS transition. The report is 1,638,396 bytes
+The accepted fixed-browser run completed 127 sessions with no semantic failure
+in a valid environment. All 17 thresholds passed. Heartbeat P99 was 6.055 ms,
+its maximum was 36.075 ms, and slice P99 was 1.675 ms. The environment monitor
+recorded all 180 expected samples, no Updater, no sustained CPU or disk
+excursion, and no post-warm-up QoS transition. The report is 1,958,180 bytes
 with SHA-256
-`91e64687f5da4d3825408e195d72d786a8f94366642e66c1bafe9f2a824e1dbb`.
+`333ae2125e48e5d63c1be7622b11bd7395566f97c01b81344bd268b0ad0bc932`.
 
 | Metric | Threshold | Result |
 |---|---:|---:|
-| Completed sessions | >= 24 | 98 |
-| Session latency p95 | <= 8,000 ms | 1,905.020 ms |
-| Maximum slice p99 | <= 10 ms | 3.695 ms |
-| Main heartbeat gap p99 | <= 25 ms | 10.875 ms |
-| Main heartbeat gap maximum | <= 250 ms | 32.790 ms |
-| Worker used heap maximum | <= 33,554,432 bytes | 27,896,060 bytes |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 91,226,112 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 42,665,640 bytes |
+| Completed sessions | >= 24 | 127 |
+| Session latency p95 | <= 8,000 ms | 1,471.575 ms |
+| Maximum slice p99 | <= 10 ms | 1.675 ms |
+| Main heartbeat gap p99 | <= 25 ms | 6.055 ms |
+| Main heartbeat gap maximum | <= 250 ms | 36.075 ms |
+| Worker used heap maximum | <= 33,554,432 bytes | 29,557,900 bytes |
+| Worker heap capacity maximum | <= 100,663,296 bytes | 82,010,112 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 44,635,004 bytes |
 
 The capacity ceiling is the only version 2 threshold change. After the hot-path
 allocation reductions, a valid run still used at most 27,945,712 live Worker
@@ -335,8 +335,8 @@ any threshold.
 | Chrome | Chrome for Testing `151.0.7922.34` |
 | Node.js | `v24.18.0` |
 
-The report records base implementation commit `ada77a04f3e8f99c9fa971b34744f1317931582a`
-and `dirty: true` for the benchmark implementation under test.
+The report records base implementation commit `6c8270e4c8bf06627dbf63305770492b33e7aa6a`
+and `dirty: false` for the benchmark implementation under test.
 That Git value is run identity rather than the semantic gate; exact generated
 artifacts are independently fingerprinted below.
 
@@ -344,7 +344,7 @@ artifacts are independently fingerprinted below.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| Rust runtime core Wasm | 3,679,573 | `6387a49303f9c50330c6cac154a057cd7cabcd31ca664f96720f8d73c50d9604` |
+| Rust runtime core Wasm | 3,680,045 | `b158802c859c0185bdce2c25711ea6b361676c8df4deb0c319025c7c95098926` |
 | v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
 | Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
 | BGI benchmark bundle | 10,355 | `02115b91f77250831c7ed41f87153d69f2c420bca42fd0f62133ccff1a28bb55` |
