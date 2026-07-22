@@ -9,11 +9,12 @@ use crate::runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationLifetime,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationReleasePolicy,
     ProcessAddressAllocationRequest, RUNTIME_COM_IUNKNOWN_IID,
-    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeAudioDevice,
-    RuntimeAudioDeviceCreateRequest, RuntimeComBacking, RuntimeComIid, RuntimeComInterfaceId,
-    RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration, RuntimeComMethodImplementation,
-    RuntimeComMethodRegistration, RuntimeComMethodTarget, RuntimeComObjectId,
-    RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
+    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RuntimeAddressRange, RuntimeAudioBufferLock,
+    RuntimeAudioBufferLockRequest, RuntimeAudioBufferUnlockRequest, RuntimeAudioBufferUnlockResult,
+    RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeComBacking, RuntimeComIid,
+    RuntimeComInterfaceId, RuntimeComInterfaceRecord, RuntimeComInterfaceRegistration,
+    RuntimeComMethodImplementation, RuntimeComMethodRegistration, RuntimeComMethodTarget,
+    RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
     RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan,
     RuntimeGraphicsVertexBuffer, RuntimeGraphicsVertexBufferCreateRequest,
     RuntimeGraphicsVertexBufferLock, RuntimeGraphicsVertexBufferLockRequest,
@@ -430,6 +431,141 @@ impl ComFrontendCall<'_> {
         self.runtime
             .preflight_graphics_vertex_buffer_unlock(&plan)?;
         let result = self.runtime.commit_graphics_vertex_buffer_unlock(plan);
+        transaction.commit_transaction();
+        Ok(result)
+    }
+
+    pub(crate) fn lock_audio_buffer_with_guest_writes(
+        &mut self,
+        request: RuntimeAudioBufferLockRequest,
+        output_addresses: [GuestAddress; 4],
+    ) -> Result<(RuntimeAudioBufferLock, Vec<ComGuestWriteReceipt>), RuntimeStateError> {
+        for address in output_addresses {
+            self.memory
+                .validate_access(address, 4, MemoryAccess::Write)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        let plan = self.runtime.plan_audio_buffer_lock(request)?;
+        let lock = plan.lock();
+        let resource_allocation = plan.resource_allocation().cloned();
+        let existing_backing = if resource_allocation.is_none() {
+            Some(
+                self.runtime
+                    .audio_buffer(plan.buffer_id())?
+                    .backing
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-audio",
+                            "audio-buffer-lock-existing-backing-missing",
+                            "audio Lock without an allocation plan has no live sample backing",
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+        let mut transaction = self.memory.begin_transaction();
+        let backing_memory_owner = if let Some(allocation) = &resource_allocation {
+            let owner = transaction
+                .create_owner(MemoryOwnerKind::Runtime)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .reserve_fixed_for_address_allocation(
+                    allocation.id.0,
+                    owner,
+                    MemoryRegionKind::AudioResource,
+                    allocation.range.base,
+                    allocation.range.byte_length,
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            let range = GuestRange::new(allocation.range.base, allocation.range.byte_length)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .commit(
+                    owner,
+                    range,
+                    PageProtection {
+                        read: true,
+                        write: true,
+                        execute: false,
+                    },
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            Some(owner)
+        } else {
+            let backing = existing_backing.expect("existing audio backing was preflighted");
+            transaction
+                .protect(
+                    backing.memory_owner,
+                    backing.range,
+                    PageProtection {
+                        read: true,
+                        write: true,
+                        execute: false,
+                    },
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            None
+        };
+        let output_values = [
+            lock.first_segment.guest_address.0,
+            lock.first_segment.byte_length,
+            lock.second_segment
+                .map_or(0, |segment| segment.guest_address.0),
+            lock.second_segment.map_or(0, |segment| segment.byte_length),
+        ];
+        let mut guest_writes = Vec::with_capacity(output_addresses.len());
+        for (address, value) in output_addresses.into_iter().zip(output_values) {
+            let bytes = value.to_le_bytes().to_vec();
+            let result = transaction
+                .write(address, &bytes)
+                .map_err(RuntimeStateError::from_memory)?;
+            guest_writes.push(ComGuestWriteReceipt {
+                address,
+                bytes,
+                result,
+            });
+        }
+        self.runtime
+            .preflight_audio_buffer_lock(&plan, backing_memory_owner)?;
+        let committed = self
+            .runtime
+            .commit_audio_buffer_lock(plan, backing_memory_owner)?;
+        transaction.commit_transaction();
+        debug_assert_eq!(committed, lock);
+        Ok((committed, guest_writes))
+    }
+
+    pub(crate) fn unlock_audio_buffer(
+        &mut self,
+        request: RuntimeAudioBufferUnlockRequest,
+    ) -> Result<RuntimeAudioBufferUnlockResult, RuntimeStateError> {
+        let plan = self.runtime.plan_audio_buffer_unlock(request)?;
+        let backing = self
+            .runtime
+            .audio_buffer(plan.buffer_id())?
+            .backing
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-audio",
+                    "audio-buffer-unlock-backing-missing",
+                    "preflighted audio Unlock has no sample backing",
+                )
+            })?;
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .protect(
+                backing.memory_owner,
+                backing.range,
+                PageProtection {
+                    read: true,
+                    write: false,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime.preflight_audio_buffer_unlock(&plan)?;
+        let result = self.runtime.commit_audio_buffer_unlock(plan)?;
         transaction.commit_transaction();
         Ok(result)
     }

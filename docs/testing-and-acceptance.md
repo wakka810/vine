@@ -460,13 +460,18 @@ Reached DirectSound initializationは`DirectSoundCreate8`、live top-level windo
 `RuntimeAudio`がdevice／buffer descriptor／format／playback relation、`RuntimeCom`がinterface identityと
 refcountを所有し、guest output publicationを含むcross-owner failureをatomicにする。Controlled x86 oracleは
 NULL／bad-size／primary-format／secondary-size等のinvalid descriptor、aggregation、primary non-looping play、
-secondary SetFormat、Buffer8 identityを検査する。
+secondary SetFormat、Buffer8 identityを検査する。Reached content transferはsecondary full-range
+`Lock(0, 88200, ..., 0)`、callerによる全sample write、exact single-segment `Unlock`、looping secondary
+`Play(..., DSBPLAY_LOOPING)`を追加する。初回LockはRust-owned address allocationと`GuestMemory` backing、4 output、
+audio lock stateを一括publishし、Unlockはread-only protectionとcontent generationを一括commitする。Final
+`Release`はCOM／audio／allocation／memory lifetimeをまとめてretireする。
 
-Node／Chrome semantic gateは同じordered calls、terminal memory、clean cancel／watchdogを要求し、次の
-`IDirectSoundBuffer8::Lock`でstructured stopする。ここで受け入れるのはlogical initializationまでであり、
-sample backing、Lock／Unlock content、cursor、secondary playback、browser audio transport、audible primary output、
-WinMM audioをclaimしない。既存180-second observationはDirectSound root／cooperative-level workloadのartifactで、
-buffer-content経路のcurrent performance evidenceとして扱わない。
+Node／Chrome semantic gateは同じordered calls、Lock output、sample writeback、protection transition、terminal
+memory、clean cancel／watchdogを要求し、続く`USER32.dll!SetTimer`でstructured stopする。Native oracleが示す
+NULL outputの部分clearや任意segmentを受け入れるUnlockはprimary-reached contractへ一般化せず、Vineはexact
+variant外をmutation前に拒否する。Partial／flagged／wrapping Lock、cursor、Stop／Restore、notification、browser
+audio transport、audible primary output、WinMM audioはclaimしない。既存180-second observationはDirectSound
+root／cooperative-level workloadのartifactで、buffer-content経路のcurrent performance evidenceとして扱わない。
 
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは

@@ -4301,7 +4301,7 @@ Controlled COFF-i386 oracleはsource 11,546 bytes／SHA-256
 SHA-256 `52b332822134f18dcfd8e0ecb5329187eccddcf96082a9c383311370a69b71d2`である。NULL descriptor／
 output、bad size、invalid primary bytes／format、zero secondary bytesは`E_INVALIDARG`かつoutput preserve、
 aggregationは`CLASS_E_NOAGGREGATION`かつoutput preserveとなる。Primary SetFormat／looping PlayはS_OK、
-non-looping Playは`E_INVALIDARG`、secondary SetFormatは`DSERR_CONTROLUNAVAIL`、Buffer8 QueryInterfaceは
+non-looping Playは`E_INVALIDARG`、secondary SetFormatは`DSERR_INVALIDCALL`、Buffer8 QueryInterfaceは
 same pointerである。
 
 Runtimeはprimary／secondary descriptor、PCM format、looping playback state、COM child identityを
@@ -4313,3 +4313,38 @@ deltas／18,647 dirty pages、generation 27→36,932、55,204 Wasm crossings、5
 cancel／watchdogを通した。次stopはinstruction 11,921,896、`IDirectSoundBuffer8::Lock` slot 11、this
 `0x01090004`、endpoint `0x010910E0`、return `0x1009CAB2`の`com-method-unsupported`である。Sample backing、
 Lock／Unlock content、cursor、secondary playback、browser audio transport、audible primary outputは未実装である。
+
+## 131. BGI DirectSound secondary buffer transfer
+
+Focused `dsound-buffer-lock-unlock-play` observationを独立に2回取得した。Primary raw traceは425,777 bytes／
+847 records／SHA-256 `c0993be13360eb7515c6ceac90b228b58943c818d5973d53131929c51fe6d72d`、
+confirmationは424,704 bytes／848 records／SHA-256
+`76fab2a79d5ca148209f6ce9df060650f67d9f6ab7f79de88d6ea6d3eb60dbda`で、diagnosticsは0、
+address以外のsemanticsは一致した。Raw traceは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+BGI callerはRVA `0x0009CAB2`からsecondary `Lock(0, 88200, outputs, 0)`を呼び、first segmentはnon-NULL／
+88,200 bytes、second segmentはNULL／0、resultはS_OKとなる。Callerは公開された全rangeをzero-fillし、
+RVA `0x0009CAF3`からexact segmentで`Unlock`してS_OKを得る。88,200 bytesはすべてzeroで、FNV-1a 32-bitは
+`0xCB8D2B65`である。直後にRVA `0x0009CB06`から`Play(0, 0, DSBPLAY_LOOPING)`を呼びS_OKを得る。
+Native sample pointerはartifact identityであり、Vineのguest addressへimportしない。
+
+Controlled COFF-i386 oracleはsource 11,532 bytes／SHA-256
+`84596e1660f8c8e8701e5b94d4d9ab8683688ae81ced4de987d3982fdbcaf287`、executable 6,656 bytes／
+SHA-256 `1615936f0f42ec6352c0c54a9a0373da0775b7837312eac3a0479678a0717d19`である。Valid full Lockは
+S_OK／single full segment、double Lockは`E_INVALIDARG`となる。NULL first-data outputは`E_INVALIDARG`かつ
+outputs preserve、NULL first-byte-count outputは`E_INVALIDARG`だがnativeはfirst-data outputだけをzero化する。
+Unlock-before-LockのNULL segmentsとactive Lockに一致しないUnlockはnativeでS_OKとなり、後者はlockを消費して
+続くexact／repeat Unlockを`E_INVALIDARG`にする。これらのpermissive segment acceptanceとpartial output mutationは
+primary callerが消費せず、Vineのcross-owner failure atomicityを破るためbounded compatibility policyへ採用しない。
+Vineはreached full Lock／exact Unlockだけを実装し、variant外をobservable mutation前にstructured faultへ分類する。
+
+Runtimeはaudio-resource arenaからsample backingをlazy allocationし、Lock publication、caller write、Unlock時の
+read-only protection、content generation、looping playback、final COM release時のallocation／memory retirementを
+Rust authorityで一貫させる。NodeとChromeは同じordered calls、terminal guest bytes、mapping operations、clean
+cancel／watchdogを通し、TypeScript側にDirectSound stateやbrowser audio resourceを作らない。Current report identityと
+変動するaggregate値は[current-checkpoint.json](current-checkpoint.json)だけを正本とする。次stopはinstruction
+11,945,256、`USER32.dll!SetTimer`、argumentsはlive HWND `0x48010001`、timer ID 1、20 ms、guest procedure
+`0x10099600`で、`api-endpoint-contract-missing`である。Timer registration、callback delivery、browser clock、audible
+outputはこのcheckpointで実装済みとしない。

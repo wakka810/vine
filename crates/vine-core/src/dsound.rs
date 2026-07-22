@@ -12,7 +12,8 @@ use crate::com::{
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeAudioBufferCreateRequest, RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatRequest,
-    RuntimeAudioBufferKind, RuntimeAudioBufferPlayRequest, RuntimeAudioCooperativeLevel,
+    RuntimeAudioBufferKind, RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayRequest,
+    RuntimeAudioBufferSegment, RuntimeAudioBufferUnlockRequest, RuntimeAudioCooperativeLevel,
     RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
     RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioPcmFormat,
     RuntimeAudioPlaybackState, RuntimeComIid, RuntimeComReturnKind, RuntimeStateError,
@@ -38,7 +39,7 @@ pub const DSOUND_IDIRECTSOUNDBUFFER8_IID: RuntimeComIid = RuntimeComIid::from_wi
 ]);
 pub const DSOUND_CLASS_E_NOAGGREGATION: ComHResult = ComHResult(0x8004_0110_u32 as i32);
 pub const DSOUND_E_INVALIDARG: ComHResult = ComHResult(0x8007_0057_u32 as i32);
-pub const DSOUND_DSERR_CONTROLUNAVAIL: ComHResult = ComHResult(0x8878_0032_u32 as i32);
+pub const DSOUND_DSERR_INVALIDCALL: ComHResult = ComHResult(0x8878_0032_u32 as i32);
 pub const DSOUND_DSSCL_NORMAL: u32 = 1;
 pub const DSOUND_DSSCL_PRIORITY: u32 = 2;
 pub const DSOUND_DSSCL_EXCLUSIVE: u32 = 3;
@@ -75,12 +76,23 @@ pub struct DsoundInitialBuffersPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DsoundBufferTransferPolicy {
+    pub profile_id: String,
+    pub lock_offset: u32,
+    pub lock_byte_length: u32,
+    pub lock_flags: u32,
+    pub secondary_play_flags: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DsoundCompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub set_cooperative_level: Option<DsoundCooperativeLevelPolicy>,
     pub initial_buffers: Option<DsoundInitialBuffersPolicy>,
+    pub buffer_transfer: Option<DsoundBufferTransferPolicy>,
 }
 
 impl DsoundCompatibilityPolicy {
@@ -108,6 +120,13 @@ impl DsoundCompatibilityPolicy {
                     bits_per_sample: 16,
                 },
                 primary_play_flags: DSOUND_DSBPLAY_LOOPING,
+            }),
+            buffer_transfer: Some(DsoundBufferTransferPolicy {
+                profile_id: "primary-secondary-full-lock-looping-play-v1".to_owned(),
+                lock_offset: 0,
+                lock_byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
+                lock_flags: 0,
+                secondary_play_flags: DSOUND_DSBPLAY_LOOPING,
             }),
         }
     }
@@ -154,6 +173,20 @@ impl DsoundCompatibilityPolicy {
                 "dsound-compatibility-policy",
                 "dsound-initial-buffers-profile-invalid",
                 "DirectSound initial-buffer policy must match the evidenced PCM setup sequence",
+            ));
+        }
+        if let Some(transfer) = self.buffer_transfer.as_ref()
+            && (!valid_policy_id(&transfer.profile_id)
+                || self.initial_buffers.is_none()
+                || transfer.lock_offset != 0
+                || transfer.lock_byte_length != DSOUND_SECONDARY_BUFFER_BYTES
+                || transfer.lock_flags != 0
+                || transfer.secondary_play_flags != DSOUND_DSBPLAY_LOOPING)
+        {
+            return Err(ApiFault::runtime_defect(
+                "dsound-compatibility-policy",
+                "dsound-buffer-transfer-profile-invalid",
+                "DirectSound buffer-transfer policy must match the evidenced full secondary Lock, Unlock, and looping Play sequence",
             ));
         }
         Ok(())
@@ -233,11 +266,17 @@ fn dispatch_dsound_frontend_call(
         (true, false, 6, "SetCooperativeLevel", 2, 2, RuntimeComReturnKind::HResult) => {
             handle_set_cooperative_level(policy, call)
         }
+        (false, true, 11, "Lock", 7, 7, RuntimeComReturnKind::HResult) => {
+            handle_buffer_lock(policy, call)
+        }
         (false, true, 12, "Play", 3, 3, RuntimeComReturnKind::HResult) => {
             handle_buffer_play(policy, call)
         }
         (false, true, 14, "SetFormat", 1, 1, RuntimeComReturnKind::HResult) => {
             handle_buffer_set_format(policy, call)
+        }
+        (false, true, 19, "Unlock", 4, 4, RuntimeComReturnKind::HResult) => {
+            handle_buffer_unlock(policy, call)
         }
         _ => call.fault(
             ComFaultClass::RuntimeDefect,
@@ -396,6 +435,141 @@ fn handle_create_sound_buffer(
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
 }
 
+fn handle_buffer_lock(
+    policy: &DsoundCompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let [
+        offset,
+        byte_length,
+        data1_output,
+        bytes1_output,
+        data2_output,
+        bytes2_output,
+        flags,
+    ] = call.frame().explicit_arguments.as_slice()
+    else {
+        unreachable!("frontend ABI preflight fixed the DirectSound argument count");
+    };
+    let (offset, byte_length, data1_output, bytes1_output, data2_output, bytes2_output, flags) = (
+        *offset,
+        *byte_length,
+        *data1_output,
+        *bytes1_output,
+        *data2_output,
+        *bytes2_output,
+        *flags,
+    );
+    let Some(transfer) = policy.buffer_transfer.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "com-dispatch",
+            "com-method-unsupported",
+            "COM interface IDirectSoundBuffer8 slot 11 (Lock) is not enabled by the active policy",
+        );
+    };
+    if [data1_output, bytes1_output, data2_output, bytes2_output].contains(&0) {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    if offset != transfer.lock_offset
+        || byte_length != transfer.lock_byte_length
+        || flags != transfer.lock_flags
+    {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-lock",
+            "dsound-buffer-lock-variant-unsupported",
+            "DirectSound Lock is outside the evidenced full secondary-buffer transfer variant",
+        );
+    }
+    let output_addresses = [
+        GuestAddress(data1_output),
+        GuestAddress(bytes1_output),
+        GuestAddress(data2_output),
+        GuestAddress(bytes2_output),
+    ];
+    for address in output_addresses {
+        if let Err(error) = call
+            .memory()
+            .validate_access(address, 4, MemoryAccess::Write)
+        {
+            return call.memory_fault(error);
+        }
+    }
+    let mut call = call;
+    match call.lock_audio_buffer_with_guest_writes(
+        RuntimeAudioBufferLockRequest {
+            buffer_com_object_id: call.frame().object_id,
+            offset,
+            byte_length,
+            flags,
+        },
+        output_addresses,
+    ) {
+        Ok((_lock, guest_writes)) => call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes),
+        Err(error) if error.code == "audio-buffer-already-locked" => {
+            call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new())
+        }
+        Err(error) if error.code == "audio-buffer-lock-variant-unsupported" => call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-lock",
+            "dsound-buffer-lock-target-unsupported",
+            error.message,
+        ),
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
+fn handle_buffer_unlock(
+    policy: &DsoundCompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let [data1, bytes1, data2, bytes2] = call.frame().explicit_arguments.as_slice() else {
+        unreachable!("frontend ABI preflight fixed the DirectSound argument count");
+    };
+    let (data1, bytes1, data2, bytes2) = (*data1, *bytes1, *data2, *bytes2);
+    let Some(transfer) = policy.buffer_transfer.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "com-dispatch",
+            "com-method-unsupported",
+            "COM interface IDirectSoundBuffer8 slot 19 (Unlock) is not enabled by the active policy",
+        );
+    };
+    if data1 == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    if bytes1 != transfer.lock_byte_length || data2 != 0 || bytes2 != 0 {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-unlock",
+            "dsound-buffer-unlock-variant-unsupported",
+            "DirectSound Unlock is outside the evidenced single-segment transfer variant",
+        );
+    }
+    let mut call = call;
+    match call.unlock_audio_buffer(RuntimeAudioBufferUnlockRequest {
+        buffer_com_object_id: call.frame().object_id,
+        first_segment: RuntimeAudioBufferSegment {
+            guest_address: GuestAddress(data1),
+            byte_length: bytes1,
+        },
+        second_segment: None,
+    }) {
+        Ok(_result) => call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new()),
+        Err(error) if error.code == "audio-buffer-not-locked" => {
+            call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new())
+        }
+        Err(error) if error.code == "audio-buffer-unlock-segments-mismatch" => call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-unlock",
+            "dsound-buffer-unlock-segments-unsupported",
+            "DirectSound Unlock did not return the exact active Lock segments",
+        ),
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
 fn handle_buffer_set_format(
     policy: &DsoundCompatibilityPolicy,
     call: ComFrontendCall<'_>,
@@ -428,7 +602,7 @@ fn handle_buffer_set_format(
     };
     if buffer.descriptor.kind == RuntimeAudioBufferKind::Secondary {
         return call.complete(
-            ComReturnValue::HResult(DSOUND_DSERR_CONTROLUNAVAIL),
+            ComReturnValue::HResult(DSOUND_DSERR_INVALIDCALL),
             Vec::new(),
         );
     }
@@ -475,9 +649,6 @@ fn handle_buffer_play(
             "DirectSound initial-buffer support is disabled by the active policy",
         );
     };
-    if flags != buffers_policy.primary_play_flags {
-        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
-    }
     let buffer = match call
         .runtime()
         .audio_buffer_for_com_object(call.frame().object_id)
@@ -485,13 +656,22 @@ fn handle_buffer_play(
         Ok(buffer) => buffer,
         Err(error) => return call.runtime_fault(error),
     };
-    if buffer.descriptor.kind != RuntimeAudioBufferKind::Primary {
-        return call.fault(
-            ComFaultClass::Unsupported,
-            "dsound-buffer-play",
-            "dsound-secondary-buffer-play-unsupported",
-            "secondary DirectSound playback has not been reached",
-        );
+    let expected_flags = match buffer.descriptor.kind {
+        RuntimeAudioBufferKind::Primary => buffers_policy.primary_play_flags,
+        RuntimeAudioBufferKind::Secondary => {
+            let Some(transfer) = policy.buffer_transfer.as_ref() else {
+                return call.fault(
+                    ComFaultClass::Unsupported,
+                    "dsound-buffer-play",
+                    "dsound-secondary-buffer-play-unsupported",
+                    "secondary DirectSound playback is disabled by the active policy",
+                );
+            };
+            transfer.secondary_play_flags
+        }
+    };
+    if flags != expected_flags {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
     }
     let plan = match call
         .runtime()
@@ -756,7 +936,7 @@ pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("GetFrequency", 1),
                     ComMethodSpec::unsupported_hresult("GetStatus", 1),
                     ComMethodSpec::unsupported_hresult("Initialize", 2),
-                    ComMethodSpec::unsupported_hresult("Lock", 7),
+                    ComMethodSpec::frontend_hresult("Lock", 7),
                     ComMethodSpec::frontend_hresult("Play", 3),
                     ComMethodSpec::unsupported_hresult("SetCurrentPosition", 1),
                     ComMethodSpec::frontend_hresult("SetFormat", 1),
@@ -764,7 +944,7 @@ pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("SetPan", 1),
                     ComMethodSpec::unsupported_hresult("SetFrequency", 1),
                     ComMethodSpec::unsupported_hresult("Stop", 0),
-                    ComMethodSpec::unsupported_hresult("Unlock", 4),
+                    ComMethodSpec::frontend_hresult("Unlock", 4),
                     ComMethodSpec::unsupported_hresult("Restore", 0),
                     ComMethodSpec::unsupported_hresult("SetFX", 3),
                     ComMethodSpec::unsupported_hresult("AcquireResources", 3),
@@ -921,6 +1101,17 @@ mod tests {
             buffers.validate().unwrap_err().code,
             "dsound-initial-buffers-profile-invalid"
         );
+
+        let mut transfer = DsoundCompatibilityPolicy::controlled_v1();
+        transfer
+            .buffer_transfer
+            .as_mut()
+            .expect("buffer-transfer policy")
+            .lock_byte_length += 1;
+        assert_eq!(
+            transfer.validate().unwrap_err().code,
+            "dsound-buffer-transfer-profile-invalid"
+        );
     }
 
     #[test]
@@ -990,7 +1181,7 @@ mod tests {
     fn native_hresult_constants_are_fixed() {
         assert_eq!(DSOUND_CLASS_E_NOAGGREGATION.bits(), 0x8004_0110);
         assert_eq!(DSOUND_E_INVALIDARG.bits(), 0x8007_0057);
-        assert_eq!(DSOUND_DSERR_CONTROLUNAVAIL.bits(), 0x8878_0032);
+        assert_eq!(DSOUND_DSERR_INVALIDCALL.bits(), 0x8878_0032);
         assert_eq!(crate::com::COM_E_NOINTERFACE.bits(), 0x8000_4002);
     }
 }

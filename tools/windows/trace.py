@@ -85,6 +85,7 @@ SUPPORTED_OBSERVATIONS = (
     "dinput8-enum-devices",
     "dsound-root",
     "dsound-create-sound-buffer",
+    "dsound-buffer-lock-unlock-play",
 )
 
 

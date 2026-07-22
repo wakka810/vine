@@ -11,6 +11,7 @@ use crate::imports::{IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE};
 use crate::memory::{GUEST_PAGE_SIZE, GuestAddress, GuestMemoryError};
 
 use super::{
+    RUNTIME_AUDIO_RESOURCE_ARENA_BASE, RUNTIME_AUDIO_RESOURCE_ARENA_SIZE,
     RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE,
@@ -66,6 +67,7 @@ pub struct ProcessAddressSpaceLayout {
     pub dynamic_exports: RuntimeAddressRange,
     pub callback_scratch: RuntimeAddressRange,
     pub graphics_resources: RuntimeAddressRange,
+    pub audio_resources: RuntimeAddressRange,
 }
 
 impl ProcessAddressSpaceLayout {
@@ -91,6 +93,10 @@ impl ProcessAddressSpaceLayout {
                 base: RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
                 byte_length: RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE,
             },
+            audio_resources: RuntimeAddressRange {
+                base: RUNTIME_AUDIO_RESOURCE_ARENA_BASE,
+                byte_length: RUNTIME_AUDIO_RESOURCE_ARENA_SIZE,
+            },
         }
     }
 }
@@ -115,6 +121,8 @@ pub enum ProcessAddressAllocationPurpose {
     ComEndpoint,
     GraphicsResourceArena,
     GraphicsResource,
+    AudioResourceArena,
+    AudioResource,
     MappedFile,
 }
 
@@ -128,6 +136,7 @@ pub enum ProcessAddressAllocationClassification {
     ProcessEnvironment,
     Com,
     Graphics,
+    Audio,
     MappedFile,
 }
 
@@ -362,6 +371,16 @@ impl ProcessAddressSpaceAllocator {
                 "runtime-graphics-resource-arena",
                 layout.graphics_resources,
                 ProcessAddressAllocationClassification::Graphics,
+                false,
+            ),
+        )?;
+        allocator.reserve_fixed(
+            None,
+            fixed_request(
+                ProcessAddressAllocationPurpose::AudioResourceArena,
+                "runtime-audio-resource-arena",
+                layout.audio_resources,
+                ProcessAddressAllocationClassification::Audio,
                 false,
             ),
         )?;
@@ -1043,7 +1062,7 @@ mod tests {
     fn vine_layout_registers_control_arenas_and_heap_slots() {
         let allocator =
             ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
-        assert_eq!(allocator.records().len(), 39);
+        assert_eq!(allocator.records().len(), 40);
         let import = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
             .unwrap();
@@ -1088,6 +1107,19 @@ mod tests {
         );
         assert_eq!(
             graphics.release_policy,
+            ProcessAddressAllocationReleasePolicy::Permanent
+        );
+        let audio = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::AudioResourceArena)
+            .unwrap();
+        assert_eq!(audio.range.base, RUNTIME_AUDIO_RESOURCE_ARENA_BASE);
+        assert_eq!(audio.range.byte_length, RUNTIME_AUDIO_RESOURCE_ARENA_SIZE);
+        assert_eq!(
+            audio.classification,
+            ProcessAddressAllocationClassification::Audio
+        );
+        assert_eq!(
+            audio.release_policy,
             ProcessAddressAllocationReleasePolicy::Permanent
         );
     }
@@ -1270,6 +1302,7 @@ mod tests {
                 byte_length: 0x1_0000,
             },
             graphics_resources: ProcessAddressSpaceLayout::vine_v1().graphics_resources,
+            audio_resources: ProcessAddressSpaceLayout::vine_v1().audio_resources,
         };
         assert_eq!(
             ProcessAddressSpaceAllocator::vine_v1(layout)

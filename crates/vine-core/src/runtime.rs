@@ -36,17 +36,19 @@ pub use address_space::{
 };
 pub use audio::{
     RUNTIME_AUDIO_BUFFER_ID_NAMESPACE, RUNTIME_AUDIO_BUFFER_LIMIT,
-    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT, RuntimeAudioBuffer,
-    RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatResult, RuntimeAudioBufferId,
-    RuntimeAudioBufferKind, RuntimeAudioBufferPlayResult, RuntimeAudioCooperativeLevel,
-    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState, RuntimeAudioDevice,
-    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioPcmFormat,
-    RuntimeAudioPlaybackState,
+    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT,
+    RUNTIME_AUDIO_RESOURCE_ARENA_BASE, RUNTIME_AUDIO_RESOURCE_ARENA_SIZE, RuntimeAudioBuffer,
+    RuntimeAudioBufferBacking, RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatResult,
+    RuntimeAudioBufferId, RuntimeAudioBufferKind, RuntimeAudioBufferLock,
+    RuntimeAudioBufferPlayResult, RuntimeAudioBufferSegment, RuntimeAudioBufferUnlockResult,
+    RuntimeAudioCooperativeLevel, RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState,
+    RuntimeAudioDevice, RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
+    RuntimeAudioPcmFormat, RuntimeAudioPlaybackState,
 };
 pub(crate) use audio::{
     RuntimeAudioBufferCreateRequest, RuntimeAudioBufferFormatRequest,
-    RuntimeAudioBufferPlayRequest, RuntimeAudioCooperativeLevelRequest,
-    RuntimeAudioDeviceCreateRequest,
+    RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayRequest, RuntimeAudioBufferUnlockRequest,
+    RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
 };
 pub use com::{
     RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,

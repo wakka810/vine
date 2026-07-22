@@ -160,6 +160,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "dinput8-enum-devices",
         "dsound-root-and-cooperative-level",
         "dsound-initial-buffers",
+        "dsound-buffer-lock-unlock-play",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -239,6 +240,7 @@ assert(
       "dinput8-enum-devices",
       "dsound-root-and-cooperative-level",
       "dsound-initial-buffers",
+      "dsound-buffer-lock-unlock-play",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -282,6 +284,7 @@ if (
     "dinput8-enum-devices",
     "dsound-root-and-cooperative-level",
     "dsound-initial-buffers",
+    "dsound-buffer-lock-unlock-play",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -318,7 +321,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "dinput8-api-contract" ||
     genericRuntimeCapability === "dinput8-enum-devices" ||
     genericRuntimeCapability === "dsound-root-and-cooperative-level" ||
-    genericRuntimeCapability === "dsound-initial-buffers"
+    genericRuntimeCapability === "dsound-initial-buffers" ||
+    genericRuntimeCapability === "dsound-buffer-lock-unlock-play"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -453,7 +457,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const dsoundBufferTransferEnabled =
+  genericRuntimeCapability === "dsound-buffer-lock-unlock-play";
 const dsoundInitialBuffersEnabled =
+  dsoundBufferTransferEnabled ||
   genericRuntimeCapability === "dsound-initial-buffers";
 const dsoundRootEnabled =
   dsoundInitialBuffersEnabled ||
@@ -704,7 +711,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? dsoundInitialBuffersEnabled
+      ? dsoundBufferTransferEnabled
+      ? "v86-bgi-dsound-buffer-lock-unlock-play"
+      : dsoundInitialBuffersEnabled
       ? "v86-bgi-dsound-initial-buffers"
       : dsoundRootEnabled
       ? "v86-bgi-dsound-root-and-cooperative-level"
@@ -4690,6 +4699,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (dsoundBufferTransferEnabled) {
+        validateDsoundBufferLockUnlockPlayResult(genericResult);
       } else if (dsoundInitialBuffersEnabled) {
         validateDsoundInitialBuffersResult(genericResult);
       } else if (dsoundRootEnabled) {
@@ -4881,6 +4892,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dsoundBufferTransferEnabled
+          ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
           : dsoundInitialBuffersEnabled
           ? "bgi DirectSound 8 initial primary and secondary buffers"
           : dsoundRootEnabled
@@ -6632,6 +6645,7 @@ function applyRuntimeHostDelta(context, delta) {
     const comBackingOperation =
       operation.regionKind === 9 && !callbackScratchOperation;
     const graphicsResourceOperation = operation.regionKind === 11;
+    const audioResourceOperation = operation.regionKind === 12;
     if (operation.regionKind === 9) {
       assert(
         (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
@@ -6662,6 +6676,16 @@ function applyRuntimeHostDelta(context, delta) {
       assert(0x4400_0000 <= operation.address && end <= 0x4500_0000);
       assert.equal(operation.byteLength, page.size);
     }
+    if (audioResourceOperation) {
+      assert(
+        dsoundBufferTransferEnabled,
+        "audio-resource mapping requires the DirectSound buffer-transfer capability",
+      );
+      assert.equal(operation.address % page.size, 0);
+      assert.equal(operation.byteLength % page.size, 0);
+      assert(0x4500_0000 <= operation.address && end <= 0x4600_0000);
+      assert.equal(operation.byteLength, 22 * page.size);
+    }
     if (operation.operation === 1) {
       const callbackScratchReserve =
         operation.regionKind === 9 &&
@@ -6672,8 +6696,9 @@ function applyRuntimeHostDelta(context, delta) {
           (enumDisplayMonitorsEnabled && callbackScratchReserve) ||
           ((d3d9RootFactoryEnabled || dinput8FactoryEnabled || dsoundRootEnabled) &&
             comBackingOperation) ||
-          graphicsResourceOperation,
-        "runtime host reserve is neither a heap, callback scratch, COM backing, nor graphics resource",
+          graphicsResourceOperation ||
+          audioResourceOperation,
+        "runtime host reserve is neither a heap, callback scratch, COM backing, graphics resource, nor audio resource",
       );
       assert.deepEqual(operation.protection, {
         read: false,
@@ -14420,6 +14445,205 @@ function validateDsoundInitialBuffersResult(result) {
   ]);
 }
 
+function validateDsoundBufferLockUnlockPlayResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_576);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_631);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_447,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_944_587,
+  );
+  assert.equal(result.hostDeltas.length, 17_275);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_468);
+  const lock = result.supportedCalls.find(
+    (call) =>
+      call.symbol === "IDirectSoundBuffer8.Lock" &&
+      call.returnAddress === 0x1009_cab2,
+  );
+  assert(lock, "secondary IDirectSoundBuffer8::Lock completion is missing");
+  assert.equal(lock.sequence, 18_461);
+  assert.equal(lock.occurrence, 2);
+  assert.equal(lock.trapInstructionCount, 11_921_896);
+  assert.equal(lock.interface, "IDirectSoundBuffer8");
+  assert.equal(lock.vtableSlot, 11);
+  assert.deepEqual(lock.arguments, [
+    0x0109_0004,
+    0,
+    88_200,
+    0x006f_fe2c,
+    0x006f_fe30,
+    0x006f_fe20,
+    0x006f_fe28,
+    0,
+  ]);
+  assert.deepEqual(lock.result, { kind: "h-result", value: 0 });
+  assert.equal(lock.referenceCount, 1);
+  assert.equal(lock.objectRetired, false);
+  assert.equal(lock.stackPointerAfter, lock.stackPointerBefore + 36);
+  assert.equal(lock.guestWrites.length, 4);
+  assert.deepEqual(
+    lock.guestWrites.map(({ address }) => address),
+    [0x006f_fe2c, 0x006f_fe30, 0x006f_fe20, 0x006f_fe28],
+  );
+  assert.deepEqual(
+    lock.guestWrites.map(({ bytes }) => Buffer.from(bytes).readUInt32LE(0)),
+    [0x4500_0000, 88_200, 0, 0],
+  );
+  assert.deepEqual(
+    lock.guestWrites.map(({ result: write }) => write.invalidation.generation),
+    [36_235, 36_236, 36_237, 36_238],
+  );
+  const lockDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === lock.sequence,
+  );
+  assert(lockDelta, "secondary Lock host delta is missing");
+  assert.equal(lockDelta.fromGeneration, 36_232);
+  assert.equal(lockDelta.generation, 36_238);
+  assert.equal(lockDelta.mappingOperations, 2);
+  assert.equal(lockDelta.dirtyPages.length, 23);
+  assert.deepEqual(lockDelta.dirtyPages[0], {
+    address: 0x006f_f000,
+    owner: 4,
+  });
+  assert.deepEqual(
+    lockDelta.dirtyPages.slice(1),
+    Array.from({ length: 22 }, (_, index) => ({
+      address: 0x4500_0000 + index * 4096,
+      owner: 26,
+    })),
+  );
+  assert.equal(
+    lockDelta.payloadSha256,
+    "0d791cb0e27d7edf9580170880bb87155c2dd11b7818609b172d5f4c062a4de6",
+  );
+
+  const unlock = result.supportedCalls.find(
+    (call) =>
+      call.symbol === "IDirectSoundBuffer8.Unlock" &&
+      call.returnAddress === 0x1009_caf3,
+  );
+  assert(unlock, "secondary IDirectSoundBuffer8::Unlock completion is missing");
+  assert.equal(unlock.sequence, lock.sequence + 1);
+  assert.equal(unlock.occurrence, 272);
+  assert.equal(unlock.trapInstructionCount, 11_929_559);
+  assert.equal(unlock.interface, "IDirectSoundBuffer8");
+  assert.equal(unlock.vtableSlot, 19);
+  assert.deepEqual(unlock.arguments.slice(1), [0x4500_0000, 88_200, 0, 0]);
+  assert.deepEqual(unlock.result, { kind: "h-result", value: 0 });
+  assert.equal(unlock.stackPointerAfter, unlock.stackPointerBefore + 24);
+  assert.equal(unlock.referenceCount, 1);
+  assert.equal(unlock.objectRetired, false);
+  assert.deepEqual(unlock.guestWrites, []);
+  const sampleWriteback = result.writebacks.find(
+    (writeback) => writeback.sequence === unlock.sequence,
+  );
+  assert(sampleWriteback, "secondary sample writeback is missing");
+  assert.equal(sampleWriteback.dirtyPages.length, 23);
+  assert.equal(
+    sampleWriteback.dirtyPages.filter(
+      ({ address, owner }) =>
+        owner === 26 && 0x4500_0000 <= address && address < 0x4501_6000,
+    ).length,
+    22,
+  );
+  assert.equal(sampleWriteback.receipt.touchedPages, 23);
+  assert.equal(sampleWriteback.receipt.changedPages, 1);
+  assert.equal(sampleWriteback.receipt.unchangedPages, 22);
+  assert.equal(sampleWriteback.receipt.changedBytes, 22);
+  assert.equal(
+    sampleWriteback.receipt.contentSha256,
+    "7b5baf93dae387ed6c806d22add656648fc92cb53e4d2e71f3330f374aa43d5e",
+  );
+  const unlockDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === unlock.sequence,
+  );
+  assert(unlockDelta, "secondary Unlock host delta is missing");
+  assert.equal(unlockDelta.fromGeneration, 36_239);
+  assert.equal(unlockDelta.generation, 36_240);
+  assert.equal(unlockDelta.mappingOperations, 1);
+  assert.deepEqual(unlockDelta.dirtyPages, []);
+
+  const play = result.supportedCalls.find(
+    (call) =>
+      call.symbol === "IDirectSoundBuffer8.Play" &&
+      call.returnAddress === 0x1009_cb06,
+  );
+  assert(play, "secondary IDirectSoundBuffer8::Play completion is missing");
+  assert.equal(play.sequence, unlock.sequence + 1);
+  assert.equal(play.occurrence, 3);
+  assert.equal(play.trapInstructionCount, 11_929_568);
+  assert.equal(play.interface, "IDirectSoundBuffer8");
+  assert.equal(play.vtableSlot, 12);
+  assert.deepEqual(play.arguments.slice(1), [0, 0, 1]);
+  assert.deepEqual(play.result, { kind: "h-result", value: 0 });
+  assert.equal(play.stackPointerAfter, play.stackPointerBefore + 20);
+  assert.equal(play.referenceCount, 1);
+  assert.equal(play.objectRetired, false);
+  assert.deepEqual(play.guestWrites, []);
+  assert.deepEqual(
+    result.supportedCalls.slice(-2).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_575, symbol: "LeaveCriticalSection", occurrence: 11 },
+      { sequence: 18_576, symbol: "EnterCriticalSection", occurrence: 12 },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 181);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0b40);
+  assert.equal(result.fault.endpoint.endpoint.module, "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetTimer",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_13ac);
+  assert.equal(result.fault.memory.physicalPages, 1_016);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "8e563f6d8687d1aa9d40467b3ba45509256000cbbdfece784648510f4858cc81",
+  );
+  assert.equal(result.terminal.instructionCount, 11_945_256);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 181);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0b40);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "SetTimer");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_9d4b);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1009_9d4b,
+    0x4801_0001,
+    1,
+    20,
+    0x1009_9600,
+    0x1009_a5e1,
+    0xe93f_6d2f,
+    0,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -16908,6 +17132,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dsoundBufferTransferEnabled
+        ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
         : dsoundInitialBuffersEnabled
         ? "vine.v86-bgi-dsound-initial-buffers"
         : dsoundRootEnabled

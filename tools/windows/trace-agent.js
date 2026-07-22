@@ -48,8 +48,13 @@ const focusedDsoundRootObservation =
 const focusedDsoundCreateBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("dsound-create-sound-buffer");
+const focusedDsoundBufferLockUnlockPlayObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("dsound-buffer-lock-unlock-play");
 const focusedDsoundObservation =
-  focusedDsoundRootObservation || focusedDsoundCreateBufferObservation;
+  focusedDsoundRootObservation ||
+  focusedDsoundCreateBufferObservation ||
+  focusedDsoundBufferLockUnlockPlayObservation;
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
@@ -94,9 +99,11 @@ let focusedDsoundRootComplete = false;
 let focusedDsoundFactoryCall = null;
 const focusedDsoundRootCalls = [];
 let focusedDsoundCreateBufferComplete = false;
+let focusedDsoundBufferLockUnlockPlayComplete = false;
 const focusedDsoundCreateBufferCalls = [];
 const focusedDsoundBufferObjects = new Set();
 const focusedDsoundBufferCalls = [];
+let focusedDsoundActiveLock = null;
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2492,6 +2499,70 @@ function snapshotD3d9RasterStatus(pointer) {
   }
 }
 
+function snapshotDsoundBufferContent(pointer, byteLength) {
+  const maximumBytes = 1024 * 1024;
+  const edgeBytes = 64;
+  if (!Number.isInteger(byteLength) || byteLength < 0 || byteLength > maximumBytes) {
+    return {
+      pointer: pointer.toString(),
+      byteLength,
+      maximumBytes,
+      error: "DirectSound buffer length is outside the bounded observation",
+    };
+  }
+  if (byteLength === 0) {
+    return {
+      pointer: pointer.toString(),
+      byteLength,
+      maximumBytes,
+      isNull: pointer.isNull(),
+      contentFnv1a32: "0x811c9dc5",
+      zeroBytes: 0,
+      prefix: [],
+      suffix: [],
+    };
+  }
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      byteLength,
+      maximumBytes,
+      isNull: true,
+      error: "nonempty DirectSound segment has a null pointer",
+    };
+  }
+  try {
+    const buffer = pointer.readByteArray(byteLength);
+    const bytes = new Uint8Array(buffer);
+    let hash = 0x811c9dc5;
+    let zeroBytes = 0;
+    for (const byte of bytes) {
+      hash = fnv1aByte(hash, byte);
+      zeroBytes += Number(byte === 0);
+    }
+    const prefixLength = Math.min(edgeBytes, byteLength);
+    const suffixOffset = Math.max(0, byteLength - edgeBytes);
+    return {
+      pointer: pointer.toString(),
+      byteLength,
+      maximumBytes,
+      isNull: false,
+      contentFnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+      zeroBytes,
+      prefix: [...bytes.slice(0, prefixLength)],
+      suffix: [...bytes.slice(suffixOffset)],
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      byteLength,
+      maximumBytes,
+      isNull: false,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotWaveFormatEx(pointer) {
   const minimumSize = 16;
   if (pointer.isNull()) {
@@ -4340,7 +4411,11 @@ function attachIdirect3ddevice9(object) {
 }
 
 function attachIdirectsoundbuffer(object) {
-  if (object.isNull() || !focusedDsoundCreateBufferObservation) {
+  if (
+    object.isNull() ||
+    (!focusedDsoundCreateBufferObservation &&
+      !focusedDsoundBufferLockUnlockPlayObservation)
+  ) {
     return;
   }
   try {
@@ -4367,9 +4442,15 @@ function attachIdirectsoundbuffer(object) {
         onEnter(args) {
           const caller = describeCaller(this.returnAddress);
           const calledObject = args[0].toString().toLowerCase();
+          const maximumBufferCalls = focusedDsoundBufferLockUnlockPlayObservation
+            ? 7
+            : 5;
           if (
-            focusedDsoundCreateBufferComplete ||
-            focusedDsoundBufferCalls.length >= 5 ||
+            (focusedDsoundCreateBufferObservation &&
+              focusedDsoundCreateBufferComplete) ||
+            (focusedDsoundBufferLockUnlockPlayObservation &&
+              focusedDsoundBufferLockUnlockPlayComplete) ||
+            focusedDsoundBufferCalls.length >= maximumBufferCalls ||
             !focusedDsoundBufferObjects.has(calledObject) ||
             caller.module?.toLowerCase() !==
               Process.mainModule.name.toLowerCase()
@@ -4390,6 +4471,24 @@ function attachIdirectsoundbuffer(object) {
                   bytes1: args[4],
                   data2: args[5],
                   bytes2: args[6],
+                }
+              : null;
+          this.traceDsoundBufferUnlock =
+            slot === 19
+              ? {
+                  data1: args[1].toString(),
+                  bytes1: args[2].toUInt32(),
+                  data2: args[3].toString(),
+                  bytes2: args[4].toUInt32(),
+                  activeLock: focusedDsoundActiveLock,
+                  firstSegmentContent: snapshotDsoundBufferContent(
+                    args[1],
+                    args[2].toUInt32(),
+                  ),
+                  secondSegmentContent: snapshotDsoundBufferContent(
+                    args[3],
+                    args[4].toUInt32(),
+                  ),
                 }
               : null;
           this.traceDsoundBufferMethod = {
@@ -4422,6 +4521,9 @@ function attachIdirectsoundbuffer(object) {
                     },
                   },
                 }),
+            ...(this.traceDsoundBufferUnlock === null
+              ? {}
+              : { unlock: this.traceDsoundBufferUnlock }),
             immediateConsumer: snapshotInstructionsFollowingDirectJump(
               this.returnAddress,
               96,
@@ -4481,6 +4583,25 @@ function attachIdirectsoundbuffer(object) {
               },
             };
           }
+          if (
+            this.traceDsoundBufferLockOutputs !== null &&
+            result.toInt32() >= 0
+          ) {
+            const outputs = directSoundBufferMethod.lock.outputsAfter;
+            focusedDsoundActiveLock = {
+              object: this.traceObject,
+              data1: outputs.data1.value?.toLowerCase() ?? null,
+              bytes1:
+                outputs.bytes1.value === undefined
+                  ? null
+                  : ptr(outputs.bytes1.value).toUInt32(),
+              data2: outputs.data2.value?.toLowerCase() ?? null,
+              bytes2:
+                outputs.bytes2.value === undefined
+                  ? null
+                  : ptr(outputs.bytes2.value).toUInt32(),
+            };
+          }
           finishCall(
             this.traceFrame,
             {
@@ -4518,6 +4639,7 @@ function attachIdirectsoundbuffer(object) {
             attachIdirectsoundbuffer(ptr(queryOutput));
           }
           setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
+          setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
         },
       });
     }
@@ -4568,6 +4690,10 @@ function attachIdirectsound8(object) {
               (focusedDsoundCreateBufferObservation &&
                 (focusedDsoundCreateBufferComplete ||
                   slot !== 3 ||
+                  focusedDsoundCreateBufferCalls.length >= 2)) ||
+              (focusedDsoundBufferLockUnlockPlayObservation &&
+                (focusedDsoundBufferLockUnlockPlayComplete ||
+                  slot !== 3 ||
                   focusedDsoundCreateBufferCalls.length >= 2)))
           ) {
             this.traceFrame = null;
@@ -4590,7 +4716,11 @@ function attachIdirectsound8(object) {
                 }
               : null;
           this.traceDsoundCreateBufferOutput =
-            focusedDsoundCreateBufferObservation && slot === 3 ? args[2] : null;
+            (focusedDsoundCreateBufferObservation ||
+              focusedDsoundBufferLockUnlockPlayObservation) &&
+            slot === 3
+              ? args[2]
+              : null;
           this.traceDsoundCreateBuffer =
             this.traceDsoundCreateBufferOutput === null
               ? null
@@ -4682,7 +4812,8 @@ function attachIdirectsound8(object) {
             setImmediate(maybeCompleteFocusedDsoundRootObservation);
           }
           if (
-            focusedDsoundCreateBufferObservation &&
+            (focusedDsoundCreateBufferObservation ||
+              focusedDsoundBufferLockUnlockPlayObservation) &&
             directSoundCreateBuffer !== null &&
             focusedDsoundCreateBufferCalls.length < 2
           ) {
@@ -4710,6 +4841,7 @@ function attachIdirectsound8(object) {
               attachIdirectsoundbuffer(ptr(output));
             }
             setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
+            setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
           }
         },
       });
@@ -4755,6 +4887,7 @@ function maybeCompleteFocusedDsoundRootObservation() {
 
 function maybeCompleteFocusedDsoundCreateBufferObservation() {
   if (
+    !focusedDsoundCreateBufferObservation ||
     focusedDsoundCreateBufferComplete ||
     focusedDsoundFactoryCall === null ||
     focusedDsoundCreateBufferCalls.length !== 2 ||
@@ -4775,6 +4908,45 @@ function maybeCompleteFocusedDsoundCreateBufferObservation() {
     bufferCalls: focusedDsoundBufferCalls,
   });
   if (stopOnEvent === "dsound-create-sound-buffer-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation() {
+  const expectedBufferMethods = [
+    "SetFormat",
+    "Play",
+    "QueryInterface",
+    "Release",
+    "Lock",
+    "Unlock",
+    "Play",
+  ];
+  if (
+    !focusedDsoundBufferLockUnlockPlayObservation ||
+    focusedDsoundBufferLockUnlockPlayComplete ||
+    focusedDsoundFactoryCall === null ||
+    focusedDsoundCreateBufferCalls.length !== 2 ||
+    focusedDsoundBufferCalls.length !== expectedBufferMethods.length ||
+    !focusedDsoundBufferCalls.every(
+      (call, index) => call.api === expectedBufferMethods[index],
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation, 10);
+    return;
+  }
+  focusedDsoundBufferLockUnlockPlayComplete = true;
+  emit("dsound-buffer-lock-unlock-play-complete", {
+    profile: "x86-bgi-direct-sound-buffer-lock-unlock-play-v1",
+    rootObject: focusedDsoundRootObject,
+    factory: focusedDsoundFactoryCall,
+    createCalls: focusedDsoundCreateBufferCalls,
+    bufferCalls: focusedDsoundBufferCalls,
+  });
+  if (stopOnEvent === "dsound-buffer-lock-unlock-play-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -8399,6 +8571,7 @@ function attachHook(module, name, decoders) {
         focusedDsoundObservation &&
         !focusedDsoundRootComplete &&
         !focusedDsoundCreateBufferComplete &&
+        !focusedDsoundBufferLockUnlockPlayComplete &&
         focusedDsoundFactoryCall === null &&
         name === "DirectSoundCreate8" &&
         isMainModuleCaller;
@@ -10413,8 +10586,10 @@ function attachHook(module, name, decoders) {
         attachIdirectsound8(ptr(rootObject));
         if (focusedDsoundRootObservation) {
           setImmediate(maybeCompleteFocusedDsoundRootObservation);
-        } else {
+        } else if (focusedDsoundCreateBufferObservation) {
           setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
+        } else {
+          setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
         }
       }
       if (

@@ -205,6 +205,7 @@ enum GenericRuntimeCapability {
     Dinput8EnumDevices,
     DsoundRootAndCooperativeLevel,
     DsoundInitialBuffers,
+    DsoundBufferLockUnlockPlay,
 }
 
 struct GenericRuntimeProcess {
@@ -2344,6 +2345,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::Dinput8EnumDevices
                     | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                     | GenericRuntimeCapability::DsoundInitialBuffers
+                    | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
             )
         ) {
             let loader = kernel32_policy
@@ -2999,6 +3001,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::Dinput8EnumDevices
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
+                | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3007,6 +3010,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::Dinput8EnumDevices
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
+                | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
         )
     );
     let dsound_root_enabled = matches!(
@@ -3014,18 +3018,27 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
+                | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
         )
     );
     let dsound_initial_buffers_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DsoundInitialBuffers)
+        Some(
+            GenericRuntimeCapability::DsoundInitialBuffers
+                | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+        )
+    );
+    let dsound_buffer_transfer_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::DsoundBufferLockUnlockPlay)
     );
     let requested_capability = match enabled_capability {
         Some(
             GenericRuntimeCapability::Dinput8Factory
             | GenericRuntimeCapability::Dinput8EnumDevices
             | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
-            | GenericRuntimeCapability::DsoundInitialBuffers,
+            | GenericRuntimeCapability::DsoundInitialBuffers
+            | GenericRuntimeCapability::DsoundBufferLockUnlockPlay,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3361,6 +3374,9 @@ fn run_v86_generic_runtime_session(
     let mut dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
     if !dsound_initial_buffers_enabled {
         dsound_policy.initial_buffers = None;
+    }
+    if !dsound_buffer_transfer_enabled {
+        dsound_policy.buffer_transfer = None;
     }
     dsound_policy.validate().map_err(api_fault)?;
     if matches!(
@@ -11563,6 +11579,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 }
                 "dsound-initial-buffers" => GenericRuntimeCapability::DsoundInitialBuffers,
+                "dsound-buffer-lock-unlock-play" => {
+                    GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

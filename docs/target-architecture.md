@@ -273,8 +273,13 @@ Primary／secondary bufferは`RuntimeAudio`内のdevice-child relationとして�
 playback state、COM object relationを一つのlifetimeに束ねる。Primary format変更とlooping playはaudio ownerの
 mutation-free planで検証し、buffer作成はCOM backing、guest output pointer、audio child publicationを全owner
 preflight後にcommitする。Invalid descriptor、duplicate primary、capacity、stale plan、unwritable outputでは
-buffer ID／COM ID／address allocation／guest bytesを部分更新しない。Lock／Unlockで必要になるsample backingと
-browser transportはこのlogical descriptor stateとは別の次段transactionとして追加する。
+buffer ID／COM ID／address allocation／guest bytesを部分更新しない。Reached secondary full-range `Lock`は
+audio-resource arenaのobject allocationとowner-tagged `GuestMemory` backingを初回だけ作り、exact segmentと
+4 outputを同じtransactionでpublishする。`Unlock`はactive segmentを検証してbackingをread-onlyへ戻し、content
+generationを進める。Looping secondary `Play`はinitialized／unlocked contentだけを受け入れ、final `Release`は
+COM backing、audio association、sample allocation、memory ownerをまとめてretireする。Sample byte authorityは
+`GuestMemory`だけに置き、`RuntimeAudio`はbacking identity、lock、generation、playback stateを所有する。
+Browser audio transportは別namespaceの後続gatewayであり、このguest-visible stateの第二の正本にしない。
 
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
 images、import bindings、runtime export tableはprivate

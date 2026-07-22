@@ -762,6 +762,24 @@ export function validateCurrentCheckpoint(manifest) {
     "directSoundBuffer8ReleaseInstructionCount",
     "directSoundBuffer8ReleaseResult",
     "directSoundBuffer8ReleaseReferenceCount",
+    "directSoundBufferLockCompletions",
+    "directSoundBufferLockSequence",
+    "directSoundBufferLockInstructionCount",
+    "directSoundBufferLockGuestWriteBytes",
+    "directSoundBufferLockFirstSegmentBytes",
+    "directSoundBufferLockSecondSegmentBytes",
+    "directSoundBufferLockReferenceCount",
+    "directSoundBufferUnlockCompletions",
+    "directSoundBufferUnlockSequence",
+    "directSoundBufferUnlockInstructionCount",
+    "directSoundBufferUnlockGuestWriteBytes",
+    "directSoundBufferUnlockContentGeneration",
+    "directSoundBufferUnlockZeroBytes",
+    "directSoundBufferUnlockReferenceCount",
+    "directSoundSecondaryPlayCompletions",
+    "directSoundSecondaryPlaySequence",
+    "directSoundSecondaryPlayInstructionCount",
+    "directSoundSecondaryPlayReferenceCount",
     "loadLibraryACompletions",
     "loadLibraryASequence",
     "loadLibraryALastError",
@@ -877,17 +895,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 16 ||
-    bgiMappingOperations.commit !== 67 ||
-    bgiMappingOperations.protect !== 27 ||
+    bgiMappingOperations.reserve !== 17 ||
+    bgiMappingOperations.commit !== 68 ||
+    bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_160 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_647 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_275 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_787 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 57_611 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 57_959 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -1415,6 +1433,45 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/audio.rs::RuntimeAudio" ||
     bgiBrowserEvidence.directSoundInitialBuffersBrowserAudioImported !== false ||
     bgiBrowserEvidence.directSoundInitialBuffersOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.directSoundBufferLockCompletions !== 1 ||
+    bgiBrowserEvidence.directSoundBufferLockSequence !== 18_461 ||
+    bgiBrowserEvidence.directSoundBufferLockInstructionCount !== 11_921_896 ||
+    bgiBrowserEvidence.directSoundBufferLockArguments?.join(",") !==
+      "0x01090004,0x00000000,0x00015888,0x006ffe2c,0x006ffe30,0x006ffe20,0x006ffe28,0x00000000" ||
+    bgiBrowserEvidence.directSoundBufferLockResult !== "0x00000000" ||
+    bgiBrowserEvidence.directSoundBufferLockGuestWriteBytes !== 16 ||
+    bgiBrowserEvidence.directSoundBufferLockFirstSegmentAddress !== "0x45000000" ||
+    bgiBrowserEvidence.directSoundBufferLockFirstSegmentBytes !== 88_200 ||
+    bgiBrowserEvidence.directSoundBufferLockSecondSegmentAddress !== "0x00000000" ||
+    bgiBrowserEvidence.directSoundBufferLockSecondSegmentBytes !== 0 ||
+    bgiBrowserEvidence.directSoundBufferLockReferenceCount !== 1 ||
+    bgiBrowserEvidence.directSoundBufferUnlockCompletions !== 1 ||
+    bgiBrowserEvidence.directSoundBufferUnlockSequence !== 18_462 ||
+    bgiBrowserEvidence.directSoundBufferUnlockInstructionCount !== 11_929_559 ||
+    bgiBrowserEvidence.directSoundBufferUnlockArguments?.join(",") !==
+      "0x01090004,0x45000000,0x00015888,0x00000000,0x00000000" ||
+    bgiBrowserEvidence.directSoundBufferUnlockResult !== "0x00000000" ||
+    bgiBrowserEvidence.directSoundBufferUnlockGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.directSoundBufferUnlockContentGeneration !== 1 ||
+    bgiBrowserEvidence.directSoundBufferUnlockZeroBytes !== 88_200 ||
+    bgiBrowserEvidence.directSoundBufferUnlockBackingProtection !== "read-only" ||
+    bgiBrowserEvidence.directSoundBufferUnlockReferenceCount !== 1 ||
+    bgiBrowserEvidence.directSoundSecondaryPlayCompletions !== 1 ||
+    bgiBrowserEvidence.directSoundSecondaryPlaySequence !== 18_463 ||
+    bgiBrowserEvidence.directSoundSecondaryPlayInstructionCount !== 11_929_568 ||
+    bgiBrowserEvidence.directSoundSecondaryPlayArguments?.join(",") !==
+      "0x01090004,0x00000000,0x00000000,0x00000001" ||
+    bgiBrowserEvidence.directSoundSecondaryPlayResult !== "0x00000000" ||
+    bgiBrowserEvidence.directSoundSecondaryPlaybackState !== "looping" ||
+    bgiBrowserEvidence.directSoundSecondaryPlayReferenceCount !== 1 ||
+    bgiBrowserEvidence.directSoundBufferTransferPolicyProfileId !==
+      "primary-secondary-full-lock-looping-play-v1" ||
+    bgiBrowserEvidence.directSoundBufferTransferAudioAuthority !==
+      "runtime/audio.rs::RuntimeAudio" ||
+    bgiBrowserEvidence.directSoundBufferTransferMemoryAuthority !==
+      "rust-guest-memory" ||
+    bgiBrowserEvidence.directSoundBufferTransferBrowserAudioImported !== false ||
+    bgiBrowserEvidence.directSoundBufferTransferOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.loadLibraryACompletions !== 1 ||
     bgiBrowserEvidence.loadLibraryASequence !== 17_823 ||
     bgiBrowserEvidence.loadLibraryAArguments?.join(",") !== "0x100dc9c8" ||
@@ -2143,7 +2200,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::audio::"))
       .join(",") !==
-      "runtime::audio::tests::device_cooperative_state_and_com_retirement_are_planned_and_owned,runtime::audio::tests::invalid_targets_and_capacity_fail_without_mutation,runtime::audio::tests::buffers_own_format_playback_and_parent_retirement_relations,runtime::audio::tests::invalid_and_duplicate_buffers_fail_without_mutation" ||
+      "runtime::audio::tests::device_cooperative_state_and_com_retirement_are_planned_and_owned,runtime::audio::tests::invalid_targets_and_capacity_fail_without_mutation,runtime::audio::tests::buffers_own_format_playback_and_parent_retirement_relations,runtime::audio::tests::invalid_and_duplicate_buffers_fail_without_mutation,runtime::audio::tests::secondary_lock_unlock_and_play_preserve_backing_and_generation_invariants" ||
     representativeAtomicTests
       .filter(
         (test) =>
@@ -2160,7 +2217,7 @@ export function validateCurrentCheckpoint(manifest) {
            test !==
              "runtime::kernel::tests::direct_sound_cooperative_level_commits_the_live_window_relation" &&
           test !==
-            "runtime::kernel::tests::direct_sound_initial_buffers_commit_com_memory_and_audio_as_one_lifetime" &&
+            "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime" &&
           !test.startsWith("dinput8_dispatcher::") &&
           !test.startsWith("dsound_dispatcher::"),
       )
@@ -2207,7 +2264,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeAtomicTests.filter(
       (test) =>
         test ===
-          "runtime::kernel::tests::direct_sound_initial_buffers_commit_com_memory_and_audio_as_one_lifetime",
+          "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime",
     ).length !== 1 ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
@@ -4892,18 +4949,40 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.processAddressSpaceAllocator",
     errors,
   );
+  const addressPurposes = requireStringArray(
+    addressSpace.registeredPurposes,
+    "activeRuntimeCheckpoint.processAddressSpaceAllocator.registeredPurposes",
+    errors,
+  );
   if (
     addressSpace.schema !== "vine.process-address-space-allocator.v1" ||
     addressSpace.authority !== "rust-runtime-kernel" ||
+    addressSpace.rootAllocationCount !== 7 ||
+    addressSpace.heapSlotAllocationCount !== 32 ||
+    addressSpace.largeHeapSlotAllocationCount !== 1 ||
     addressSpace.totalAllocationCount !==
       addressSpace.rootAllocationCount +
         addressSpace.heapSlotAllocationCount +
         addressSpace.largeHeapSlotAllocationCount ||
+    addressPurposes.join(",") !==
+      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,com-endpoint,graphics-resource-arena,graphics-resource,audio-resource-arena,audio-resource" ||
     addressSpace.heapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapAddressAllocationPermanent !== true ||
     addressSpace.comBackingUsesAllocationId !== true ||
     addressSpace.comFinalReleaseRetiresAllocation !== true ||
+    addressSpace.graphicsResourceArenaBase !== "0x44000000" ||
+    addressSpace.graphicsResourceArenaBytes !== 16 * 1024 * 1024 ||
+    addressSpace.graphicsResourceArenaPermanent !== true ||
+    addressSpace.graphicsResourceBackingUsesAllocationId !== true ||
+    addressSpace.graphicsResourceBatchReservationWithComBacking !== true ||
+    addressSpace.graphicsResourceFinalReleaseRetiresAllocation !== true ||
+    addressSpace.audioResourceArenaBase !== "0x45000000" ||
+    addressSpace.audioResourceArenaBytes !== 16 * 1024 * 1024 ||
+    addressSpace.audioResourceArenaPermanent !== true ||
+    addressSpace.audioResourceBackingUsesAllocationId !== true ||
+    addressSpace.audioResourceLockReservationWithGuestOutputs !== true ||
+    addressSpace.audioResourceFinalReleaseRetiresAllocation !== true ||
     addressSpace.controlMappingCommitUsesAllocationId !== true ||
     addressSpace.mappingDeltaBinaryVersion !== 2 ||
     addressSpace.mappingDeltaAllocationIdWidthBits !== 64 ||
@@ -5844,7 +5923,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-dsound-initial-buffers.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-dsound-buffer-lock-unlock-play.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6306,11 +6385,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_515 ||
-    latestEvidence.writebackDirtyPages !== 36_973 ||
-    latestEvidence.writebackChangedBytes !== 2_931_873 ||
-    latestEvidence.hostDeltaBatches !== 17_160 ||
-    latestEvidence.finalMemoryGeneration !== 36_232
+    latestEvidence.writebackBatches !== 18_631 ||
+    latestEvidence.writebackDirtyPages !== 37_447 ||
+    latestEvidence.writebackChangedBytes !== 2_944_587 ||
+    latestEvidence.hostDeltaBatches !== 17_275 ||
+    latestEvidence.finalMemoryGeneration !== 36_468
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8217,6 +8296,12 @@ export function validateCurrentCheckpoint(manifest) {
     "directSoundPrimaryBufferHostDeltaPayloadSha256",
     "directSoundSecondaryBufferHostDeltaPayloadSha256",
     "directSoundBuffer8QueryInterfaceHostDeltaPayloadSha256",
+    "nativeDirectSoundBufferTransferPrimaryTraceSha256",
+    "nativeDirectSoundBufferTransferConfirmationTraceSha256",
+    "directSoundLockOracleSourceSha256",
+    "directSoundLockOracleExecutableSha256",
+    "directSoundBufferLockHostDeltaPayloadSha256",
+    "directSoundBufferUnlockWritebackContentSha256",
   ]) {
     requireSha256(
       latestEvidence[field],
@@ -8227,10 +8312,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "d20eb73d871ff9952d17ab436413846bc1af47134496c398a61d5f700b27e2fd" ||
+      "22e970df9e267bab5eb2f08a291c9bc741202a2e8f744c34d0301135f98b58a1" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "7dedfbcb0926c81f62fcfd19af56f4403bc7913be7011933bd8e84419dc9ad0d" ||
+      "8e563f6d8687d1aa9d40467b3ba45509256000cbbdfece784648510f4858cc81" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -8285,6 +8370,8 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.directSoundBufferOraclePrimaryLoopingPlayResult !== "0x00000000" ||
     latestEvidence.directSoundBufferOraclePrimaryNonLoopingPlayResult !== "0x80070057" ||
     latestEvidence.directSoundBufferOracleSecondarySetFormatResult !== "0x88780032" ||
+    latestEvidence.directSoundBufferOracleSecondarySetFormatResultName !==
+      "DSERR_INVALIDCALL" ||
     latestEvidence.directSoundBufferOracleBuffer8QueryInterfaceSamePointer !== true ||
     latestEvidence.directSoundInitialBuffersImplemented !== true ||
     latestEvidence.directSoundInitialBuffersPolicySchema !==
@@ -8373,6 +8460,129 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.directSoundInitialBuffersNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest DirectSound initial-buffer evidence is invalid");
+  }
+  if (
+    latestEvidence.nativeDirectSoundBufferTransferPrimaryTraceBytes !== 425_777 ||
+    latestEvidence.nativeDirectSoundBufferTransferPrimaryTraceLines !== 847 ||
+    latestEvidence.nativeDirectSoundBufferTransferPrimaryTraceSha256 !==
+      "c0993be13360eb7515c6ceac90b228b58943c818d5973d53131929c51fe6d72d" ||
+    latestEvidence.nativeDirectSoundBufferTransferConfirmationTraceBytes !== 424_704 ||
+    latestEvidence.nativeDirectSoundBufferTransferConfirmationTraceLines !== 848 ||
+    latestEvidence.nativeDirectSoundBufferTransferConfirmationTraceSha256 !==
+      "76fab2a79d5ca148209f6ce9df060650f67d9f6ab7f79de88d6ea6d3eb60dbda" ||
+    latestEvidence.nativeDirectSoundBufferTransferTraceDiagnostics !== 0 ||
+    latestEvidence.nativeDirectSoundBufferTransferProfile !==
+      "x86-bgi-direct-sound-buffer-lock-unlock-play-v1" ||
+    latestEvidence.nativeDirectSoundBufferTransferOrderedMethods?.join(",") !==
+      "IDirectSoundBuffer8::Lock,IDirectSoundBuffer8::Unlock,IDirectSoundBuffer8::Play" ||
+    latestEvidence.nativeDirectSoundBufferTransferLockCallerRva !== "0x0009cab2" ||
+    latestEvidence.nativeDirectSoundBufferTransferLockArguments?.join(",") !==
+      "0x00000000,0x00015888,non-null-output,non-null-output,non-null-output,non-null-output,0x00000000" ||
+    latestEvidence.nativeDirectSoundBufferTransferLockResult !== "0x00000000" ||
+    latestEvidence.nativeDirectSoundBufferTransferFirstSegmentBytes !== 88_200 ||
+    latestEvidence.nativeDirectSoundBufferTransferSecondSegmentNullAndZero !== true ||
+    latestEvidence.nativeDirectSoundBufferTransferUnlockCallerRva !== "0x0009caf3" ||
+    latestEvidence.nativeDirectSoundBufferTransferUnlockResult !== "0x00000000" ||
+    latestEvidence.nativeDirectSoundBufferTransferUnlockFirstSegmentZeroBytes !== 88_200 ||
+    latestEvidence.nativeDirectSoundBufferTransferUnlockFirstSegmentFnv1a32 !==
+      "0xcb8d2b65" ||
+    latestEvidence.nativeDirectSoundBufferTransferPlayCallerRva !== "0x0009cb06" ||
+    latestEvidence.nativeDirectSoundBufferTransferPlayFlags !== "0x00000001" ||
+    latestEvidence.nativeDirectSoundBufferTransferPlayResult !== "0x00000000" ||
+    latestEvidence.nativeDirectSoundBufferTransferConsumer !==
+      "unlock-then-looping-play-and-return-success" ||
+    latestEvidence.nativeDirectSoundBufferTransferExecutableHashUnchanged !== true ||
+    latestEvidence.directSoundLockOracleArchitecture !== "coff-i386" ||
+    latestEvidence.directSoundLockOracleSourceBytes !== 11_532 ||
+    latestEvidence.directSoundLockOracleSourceSha256 !==
+      "84596e1660f8c8e8701e5b94d4d9ab8683688ae81ced4de987d3982fdbcaf287" ||
+    latestEvidence.directSoundLockOracleExecutableBytes !== 6_656 ||
+    latestEvidence.directSoundLockOracleExecutableSha256 !==
+      "1615936f0f42ec6352c0c54a9a0373da0775b7837312eac3a0479678a0717d19" ||
+    latestEvidence.directSoundLockOracleLastErrorSentinel !== 23_130 ||
+    latestEvidence.directSoundLockOracleNullData1Result !== "0x80070057" ||
+    latestEvidence.directSoundLockOracleNullData1PreservesOutputs !== true ||
+    latestEvidence.directSoundLockOracleNullBytes1Result !== "0x80070057" ||
+    latestEvidence.directSoundLockOracleNullBytes1ZerosData1 !== true ||
+    latestEvidence.directSoundLockOracleValidResult !== "0x00000000" ||
+    latestEvidence.directSoundLockOracleValidFirstSegmentBytes !== 88_200 ||
+    latestEvidence.directSoundLockOracleValidSecondSegmentNullAndZero !== true ||
+    latestEvidence.directSoundLockOracleDoubleLockResult !== "0x80070057" ||
+    latestEvidence.directSoundLockOracleUnlockBeforeLockResult !== "0x00000000" ||
+    latestEvidence.directSoundLockOracleMismatchedUnlockResult !== "0x00000000" ||
+    latestEvidence.directSoundLockOracleMismatchedUnlockConsumesLock !== true ||
+    latestEvidence.directSoundLockOracleExactUnlockAfterMismatchResult !== "0x80070057" ||
+    latestEvidence.directSoundLockOracleRepeatedUnlockResult !== "0x80070057" ||
+    latestEvidence.directSoundLockOracleLoopingPlayResult !== "0x00000000" ||
+    latestEvidence.directSoundBufferTransferImplemented !== true ||
+    latestEvidence.directSoundBufferTransferPolicySchema !==
+      "vine.dsound-compatibility-policy" ||
+    latestEvidence.directSoundBufferTransferPolicySchemaVersion !== 1 ||
+    latestEvidence.directSoundBufferTransferPolicyId !==
+      "dsound-primary-default-device-v1" ||
+    latestEvidence.directSoundBufferTransferProfileId !==
+      "primary-secondary-full-lock-looping-play-v1" ||
+    latestEvidence.directSoundBufferTransferAudioAuthority !==
+      "runtime/audio.rs::RuntimeAudio" ||
+    latestEvidence.directSoundBufferTransferComAuthority !==
+      "runtime/com.rs::RuntimeCom" ||
+    latestEvidence.directSoundBufferTransferMemoryAuthority !== "rust-guest-memory" ||
+    latestEvidence.directSoundBufferTransferAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    latestEvidence.directSoundBufferTransferGuestMemoryAudioAtomicity !== true ||
+    latestEvidence.directSoundBufferTransferFailureAtomicity !== true ||
+    latestEvidence.directSoundBufferTransferExactUnlockSegmentsRequired !== true ||
+    latestEvidence.directSoundBufferTransferNativeLooseUnlockGeneralized !== false ||
+    latestEvidence.directSoundBufferTransferBrowserOwnsComOrAudioState !== false ||
+    latestEvidence.directSoundBufferLockSequence !== 18_461 ||
+    latestEvidence.directSoundBufferLockInstructionCount !== 11_921_896 ||
+    latestEvidence.directSoundBufferLockArguments?.join(",") !==
+      "0x01090004,0x00000000,0x00015888,0x006ffe2c,0x006ffe30,0x006ffe20,0x006ffe28,0x00000000" ||
+    latestEvidence.directSoundBufferLockReturnAddress !== "0x1009cab2" ||
+    latestEvidence.directSoundBufferLockResult !== "0x00000000" ||
+    latestEvidence.directSoundBufferLockGuestWriteBytes !== 16 ||
+    latestEvidence.directSoundBufferLockOutputValues?.join(",") !==
+      "0x45000000,88200,0x00000000,0" ||
+    latestEvidence.directSoundBufferLockSampleBackingAddress !== "0x45000000" ||
+    latestEvidence.directSoundBufferLockSampleBackingUsableBytes !== 88_200 ||
+    latestEvidence.directSoundBufferLockSampleBackingReservedBytes !== 90_112 ||
+    latestEvidence.directSoundBufferLockSampleBackingMemoryOwner !== 26 ||
+    latestEvidence.directSoundBufferLockBackingProtection !== "read-write" ||
+    latestEvidence.directSoundBufferLockHostDeltaFromGeneration !== 36_232 ||
+    latestEvidence.directSoundBufferLockHostDeltaGeneration !== 36_238 ||
+    latestEvidence.directSoundBufferLockHostDeltaMappingOperations !== 2 ||
+    latestEvidence.directSoundBufferLockHostDeltaDirtyPages !== 23 ||
+    latestEvidence.directSoundBufferLockHostDeltaPayloadSha256 !==
+      "0d791cb0e27d7edf9580170880bb87155c2dd11b7818609b172d5f4c062a4de6" ||
+    latestEvidence.directSoundBufferUnlockSequence !== 18_462 ||
+    latestEvidence.directSoundBufferUnlockInstructionCount !== 11_929_559 ||
+    latestEvidence.directSoundBufferUnlockArguments?.join(",") !==
+      "0x01090004,0x45000000,0x00015888,0x00000000,0x00000000" ||
+    latestEvidence.directSoundBufferUnlockReturnAddress !== "0x1009caf3" ||
+    latestEvidence.directSoundBufferUnlockResult !== "0x00000000" ||
+    latestEvidence.directSoundBufferUnlockWritebackTouchedPages !== 23 ||
+    latestEvidence.directSoundBufferUnlockWritebackChangedPages !== 1 ||
+    latestEvidence.directSoundBufferUnlockWritebackUnchangedSamplePages !== 22 ||
+    latestEvidence.directSoundBufferUnlockWritebackChangedBytes !== 22 ||
+    latestEvidence.directSoundBufferUnlockWritebackContentSha256 !==
+      "7b5baf93dae387ed6c806d22add656648fc92cb53e4d2e71f3330f374aa43d5e" ||
+    latestEvidence.directSoundBufferUnlockContentGeneration !== 1 ||
+    latestEvidence.directSoundBufferUnlockBackingProtection !== "read-only" ||
+    latestEvidence.directSoundBufferUnlockHostDeltaFromGeneration !== 36_239 ||
+    latestEvidence.directSoundBufferUnlockHostDeltaGeneration !== 36_240 ||
+    latestEvidence.directSoundBufferUnlockHostDeltaMappingOperations !== 1 ||
+    latestEvidence.directSoundSecondaryPlaySequence !== 18_463 ||
+    latestEvidence.directSoundSecondaryPlayInstructionCount !== 11_929_568 ||
+    latestEvidence.directSoundSecondaryPlayArguments?.join(",") !==
+      "0x01090004,0x00000000,0x00000000,0x00000001" ||
+    latestEvidence.directSoundSecondaryPlayReturnAddress !== "0x1009cb06" ||
+    latestEvidence.directSoundSecondaryPlayResult !== "0x00000000" ||
+    latestEvidence.directSoundSecondaryPlaybackState !== "looping" ||
+    latestEvidence.directSoundBufferTransferNodeCompletions !== 3 ||
+    latestEvidence.directSoundBufferTransferChromeCompletions !== 3 ||
+    latestEvidence.directSoundBufferTransferNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest DirectSound buffer-transfer evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -8987,7 +9197,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "DirectSound 8 root plus Rust-owned primary and secondary buffer descriptors, PCM format, looping playback state, and COM lifetimes" ||
+      "DirectSound 8 root plus Rust-owned primary and secondary buffer descriptors, lazy sample backing, exact Lock/Unlock content transition, looping playback state, and COM lifetimes" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

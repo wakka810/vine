@@ -32,10 +32,13 @@ use super::address_space::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::audio::{
-    RuntimeAudio, RuntimeAudioBuffer, RuntimeAudioBufferCreateRequest,
-    RuntimeAudioBufferCreationPlan, RuntimeAudioBufferFormatPlan, RuntimeAudioBufferFormatRequest,
-    RuntimeAudioBufferFormatResult, RuntimeAudioBufferId, RuntimeAudioBufferPlayPlan,
-    RuntimeAudioBufferPlayRequest, RuntimeAudioBufferPlayResult, RuntimeAudioComRetirementPlan,
+    RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER, RuntimeAudio, RuntimeAudioBuffer,
+    RuntimeAudioBufferBackingPlan, RuntimeAudioBufferCreateRequest, RuntimeAudioBufferCreationPlan,
+    RuntimeAudioBufferFormatPlan, RuntimeAudioBufferFormatRequest, RuntimeAudioBufferFormatResult,
+    RuntimeAudioBufferId, RuntimeAudioBufferLock, RuntimeAudioBufferLockPlan,
+    RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayPlan, RuntimeAudioBufferPlayRequest,
+    RuntimeAudioBufferPlayResult, RuntimeAudioBufferUnlockPlan, RuntimeAudioBufferUnlockRequest,
+    RuntimeAudioBufferUnlockResult, RuntimeAudioComRetirementPlan,
     RuntimeAudioCooperativeLevelPlan, RuntimeAudioCooperativeLevelRequest,
     RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeLevelUpdateRequest,
     RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceCreationPlan,
@@ -271,6 +274,27 @@ impl RuntimeComReleasePlan {
 pub(crate) struct RuntimeGraphicsVertexBufferInstallationPlan {
     address_space: ProcessAddressReservationBatchPlan,
     graphics: RuntimeGraphicsVertexBufferCreationPlan,
+}
+
+pub(crate) struct RuntimeAudioBufferLockInstallationPlan {
+    address_space: Option<ProcessAddressReservationBatchPlan>,
+    audio: RuntimeAudioBufferLockPlan,
+}
+
+impl RuntimeAudioBufferLockInstallationPlan {
+    pub(crate) fn resource_allocation(&self) -> Option<&ProcessAddressAllocationRecord> {
+        self.address_space
+            .as_ref()
+            .and_then(|plan| plan.allocations().first())
+    }
+
+    pub(crate) fn buffer_id(&self) -> RuntimeAudioBufferId {
+        self.audio.buffer_id()
+    }
+
+    pub(crate) fn lock(&self) -> RuntimeAudioBufferLock {
+        self.audio.lock()
+    }
 }
 
 impl RuntimeGraphicsVertexBufferInstallationPlan {
@@ -1099,6 +1123,11 @@ impl RuntimeKernel {
         let audio = self
             .audio
             .plan_com_object_retirements(&retired_object_ids)?;
+        let audio_buffer_backings = audio
+            .as_ref()
+            .map(|plan| self.audio.buffer_backings_for_retirement(plan))
+            .transpose()?
+            .unwrap_or_default();
         let graphics = self
             .graphics
             .plan_com_object_retirements(&retired_object_ids)?;
@@ -1113,6 +1142,11 @@ impl RuntimeKernel {
             .map(|retirement| retirement.backing.address_allocation_id)
             .collect::<Vec<_>>();
         allocation_ids.extend(
+            audio_buffer_backings
+                .iter()
+                .map(|(backing, _)| backing.address_allocation_id),
+        );
+        allocation_ids.extend(
             vertex_buffer_backings
                 .iter()
                 .map(|(backing, _)| backing.address_allocation_id),
@@ -1123,8 +1157,10 @@ impl RuntimeKernel {
             let plan = self
                 .address_space_allocator
                 .plan_releases(&allocation_ids)?;
-            let (com_allocations, graphics_allocations) =
+            let (com_allocations, resource_allocations) =
                 plan.allocations().split_at(result.retirements.len());
+            let (audio_allocations, graphics_allocations) =
+                resource_allocations.split_at(audio_buffer_backings.len());
             for (retirement, released) in result.retirements.iter().zip(com_allocations) {
                 let backing = &retirement.backing;
                 if released.range != backing.range
@@ -1139,6 +1175,30 @@ impl RuntimeKernel {
                         "runtime-com",
                         "com-retirement-allocation-mismatch",
                         "retiring COM object does not own the expected process allocation",
+                    ));
+                }
+            }
+            let audio_arena = self
+                .address_space_allocator
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::AudioResourceArena)?;
+            for ((backing, usable_byte_length), released) in
+                audio_buffer_backings.iter().zip(audio_allocations)
+            {
+                if released.parent_id != Some(audio_arena.id)
+                    || released.range.base != backing.range.start()
+                    || released.range.byte_length != backing.range.byte_length()
+                    || released.usable_byte_length != u64::from(*usable_byte_length)
+                    || released.purpose != ProcessAddressAllocationPurpose::AudioResource
+                    || released.owner != RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER
+                    || released.classification != ProcessAddressAllocationClassification::Audio
+                    || released.lifetime != ProcessAddressAllocationLifetime::Object
+                    || released.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+                    || released.executable
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-audio",
+                        "audio-buffer-retirement-allocation-mismatch",
+                        "retiring audio buffer does not own its planned guest sample backing",
                     ));
                 }
             }
@@ -1180,6 +1240,11 @@ impl RuntimeKernel {
                 .map_err(RuntimeStateError::from_memory)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        memory_retirements.extend(
+            audio_buffer_backings
+                .iter()
+                .map(|(backing, _)| (backing.memory_owner, backing.range)),
+        );
         memory_retirements.extend(
             vertex_buffer_backings
                 .iter()
@@ -3545,6 +3610,163 @@ impl RuntimeKernel {
         Ok(self.audio.commit_buffer_format(plan))
     }
 
+    pub(crate) fn plan_audio_buffer_lock(
+        &self,
+        request: RuntimeAudioBufferLockRequest,
+    ) -> Result<RuntimeAudioBufferLockInstallationPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        let buffer = self
+            .audio
+            .buffer_by_com_object(request.buffer_com_object_id)?;
+        let address_space = if buffer.backing.is_none() {
+            let arena = self
+                .address_space_allocator
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::AudioResourceArena)?;
+            if arena.range.base != super::RUNTIME_AUDIO_RESOURCE_ARENA_BASE
+                || arena.range.byte_length != super::RUNTIME_AUDIO_RESOURCE_ARENA_SIZE
+                || arena.classification != ProcessAddressAllocationClassification::Audio
+                || arena.lifetime != ProcessAddressAllocationLifetime::Process
+                || arena.release_policy != ProcessAddressAllocationReleasePolicy::Permanent
+                || arena.executable
+            {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-audio",
+                    "audio-resource-arena-invalid",
+                    "audio resource arena does not match the controlled process layout",
+                ));
+            }
+            Some(self.address_space_allocator.plan_reservations(vec![(
+                Some(arena.id),
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::AudioResource,
+                    owner: RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER.to_owned(),
+                    preferred_address: None,
+                    search_range: arena.range,
+                    reserve_size: u64::from(buffer.descriptor.byte_length),
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages: 0,
+                    classification: ProcessAddressAllocationClassification::Audio,
+                    lifetime: ProcessAddressAllocationLifetime::Object,
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            )])?)
+        } else {
+            None
+        };
+        let backing_installation = address_space
+            .as_ref()
+            .and_then(|plan| plan.allocations().first())
+            .map(|allocation| {
+                GuestRange::new(allocation.range.base, allocation.range.byte_length)
+                    .map(|range| RuntimeAudioBufferBackingPlan {
+                        address_allocation_id: allocation.id,
+                        range,
+                    })
+                    .map_err(RuntimeStateError::from_memory)
+            })
+            .transpose()?;
+        let audio = self.audio.plan_buffer_lock(request, backing_installation)?;
+        Ok(RuntimeAudioBufferLockInstallationPlan {
+            address_space,
+            audio,
+        })
+    }
+
+    pub(crate) fn preflight_audio_buffer_lock(
+        &self,
+        plan: &RuntimeAudioBufferLockInstallationPlan,
+        backing_memory_owner: Option<MemoryOwnerId>,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        if let Some(address_space) = &plan.address_space {
+            self.address_space_allocator
+                .preflight_reservations_commit(address_space)?;
+            let [allocation] = address_space.allocations() else {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-audio",
+                    "audio-buffer-lock-allocation-count-invalid",
+                    "initial audio Lock did not plan exactly one sample-backing allocation",
+                ));
+            };
+            let arena = self
+                .address_space_allocator
+                .allocation_for_purpose(&ProcessAddressAllocationPurpose::AudioResourceArena)?;
+            let backing = plan.audio.backing_installation().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-audio",
+                    "audio-buffer-lock-backing-plan-missing",
+                    "initial audio Lock omitted its sample-backing installation",
+                )
+            })?;
+            if allocation.parent_id != Some(arena.id)
+                || allocation.id != backing.address_allocation_id
+                || allocation.range.base != backing.range.start()
+                || allocation.range.byte_length != backing.range.byte_length()
+                || allocation.usable_byte_length != u64::from(plan.audio.lock().byte_length)
+                || allocation.purpose != ProcessAddressAllocationPurpose::AudioResource
+                || allocation.owner != RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER
+                || allocation.classification != ProcessAddressAllocationClassification::Audio
+                || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+                || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+                || allocation.executable
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-audio",
+                    "audio-buffer-backing-allocation-mismatch",
+                    "logical audio buffer backing does not match its planned process allocation",
+                ));
+            }
+        } else if plan.audio.backing_installation().is_some() {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-audio",
+                "audio-buffer-lock-backing-plan-unexpected",
+                "existing audio backing cannot install another process allocation",
+            ));
+        }
+        self.audio
+            .preflight_buffer_lock(&plan.audio, backing_memory_owner)
+    }
+
+    pub(crate) fn commit_audio_buffer_lock(
+        &mut self,
+        plan: RuntimeAudioBufferLockInstallationPlan,
+        backing_memory_owner: Option<MemoryOwnerId>,
+    ) -> Result<RuntimeAudioBufferLock, RuntimeStateError> {
+        self.preflight_audio_buffer_lock(&plan, backing_memory_owner)?;
+        if let Some(address_space) = plan.address_space {
+            self.address_space_allocator
+                .commit_reservations(address_space);
+        }
+        Ok(self
+            .audio
+            .commit_buffer_lock(plan.audio, backing_memory_owner))
+    }
+
+    pub(crate) fn plan_audio_buffer_unlock(
+        &self,
+        request: RuntimeAudioBufferUnlockRequest,
+    ) -> Result<RuntimeAudioBufferUnlockPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_buffer_unlock(request)
+    }
+
+    pub(crate) fn preflight_audio_buffer_unlock(
+        &self,
+        plan: &RuntimeAudioBufferUnlockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_unlock(plan)
+    }
+
+    pub(crate) fn commit_audio_buffer_unlock(
+        &mut self,
+        plan: RuntimeAudioBufferUnlockPlan,
+    ) -> Result<RuntimeAudioBufferUnlockResult, RuntimeStateError> {
+        self.preflight_audio_buffer_unlock(&plan)?;
+        Ok(self.audio.commit_buffer_unlock(plan))
+    }
+
     pub(crate) fn plan_audio_buffer_play(
         &self,
         request: RuntimeAudioBufferPlayRequest,
@@ -5753,15 +5975,16 @@ mod tests {
     };
     use crate::dsound::{
         DSOUND_DSBPLAY_LOOPING, DSOUND_DSBUFFERDESC_BYTES, DSOUND_DSSCL_PRIORITY,
-        DSOUND_IDIRECTSOUND8_IID, DSOUND_IDIRECTSOUNDBUFFER8_IID, DSOUND_PRIMARY_BUFFER_FLAGS,
-        DSOUND_SECONDARY_BUFFER_BYTES, DSOUND_SECONDARY_BUFFER_FLAGS, DsoundCompatibilityPolicy,
-        direct_sound8_object_spec, dispatch_dsound_com_call,
+        DSOUND_E_INVALIDARG, DSOUND_IDIRECTSOUND8_IID, DSOUND_IDIRECTSOUNDBUFFER8_IID,
+        DSOUND_PRIMARY_BUFFER_FLAGS, DSOUND_SECONDARY_BUFFER_BYTES, DSOUND_SECONDARY_BUFFER_FLAGS,
+        DsoundCompatibilityPolicy, direct_sound8_object_spec, dispatch_dsound_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
-        RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE,
-        RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
-        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeAudioBufferKind, RuntimeAudioPlaybackState,
+        RUNTIME_AUDIO_RESOURCE_ARENA_BASE, RUNTIME_GDI_BLACK_BRUSH_INDEX,
+        RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+        RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+        RuntimeAudioBufferKind, RuntimeAudioBufferSegment, RuntimeAudioPlaybackState,
         RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsPresentMode,
         RuntimeGraphicsRenderStates, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
         RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUsage,
@@ -7813,7 +8036,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_sound_initial_buffers_commit_com_memory_and_audio_as_one_lifetime() {
+    fn direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime() {
         let mut runtime = d3d9_fixture_runtime();
         let window = seed_created_d3d9_window(&mut runtime);
         let mut memory = d3d9_fixture_memory();
@@ -8171,11 +8394,262 @@ mod tests {
                 &mut session,
             )
         };
-        let ComDispatchOutcome::Fault(lock) = lock else {
-            panic!("Lock unexpectedly completed: {lock:?}");
+        let ComDispatchOutcome::Completed(lock) = lock else {
+            panic!("Lock did not complete: {lock:?}");
         };
-        assert_eq!(lock.class, ComFaultClass::Unsupported);
-        assert_eq!(lock.code, "com-method-unsupported");
+        assert_eq!(lock.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(lock.guest_writes.len(), 4);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let data1 = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let bytes1 = u32::from_le_bytes(
+            memory
+                .read(GuestAddress(D3D9_FIXTURE_OUTPUT.0 + 4), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let data2 = u32::from_le_bytes(
+            memory
+                .read(GuestAddress(D3D9_FIXTURE_OUTPUT.0 + 8), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let bytes2 = u32::from_le_bytes(
+            memory
+                .read(GuestAddress(D3D9_FIXTURE_OUTPUT.0 + 12), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        assert_eq!(data1, RUNTIME_AUDIO_RESOURCE_ARENA_BASE.0);
+        assert_eq!(bytes1, DSOUND_SECONDARY_BUFFER_BYTES);
+        assert_eq!((data2, bytes2), (0, 0));
+        let locked_secondary = runtime
+            .audio_buffer_for_com_object(secondary_interface.object_id)
+            .expect("locked secondary logical audio buffer");
+        let backing = locked_secondary.backing.expect("secondary sample backing");
+        assert_eq!(backing.range.start(), GuestAddress(data1));
+        assert_eq!(
+            locked_secondary.active_lock.expect("active secondary Lock"),
+            RuntimeAudioBufferLock {
+                offset: 0,
+                byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
+                flags: 0,
+                first_segment: RuntimeAudioBufferSegment {
+                    guest_address: GuestAddress(data1),
+                    byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
+                },
+                second_segment: None,
+            }
+        );
+        assert_eq!(locked_secondary.content_generation, 0);
+        assert!(
+            runtime
+                .process_address_space_allocator()
+                .allocation(backing.address_allocation_id)
+                .is_ok()
+        );
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_OUTPUT,
+            &[0xcccc_cccc, 0xcccc_cccc, 0xcccc_cccc, 0xcccc_cccc],
+        );
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                0,
+                DSOUND_SECONDARY_BUFFER_BYTES,
+                D3D9_FIXTURE_OUTPUT.0,
+                D3D9_FIXTURE_OUTPUT.0 + 4,
+                D3D9_FIXTURE_OUTPUT.0 + 8,
+                D3D9_FIXTURE_OUTPUT.0 + 12,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_double_lock = runtime.clone();
+        let double_lock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&11].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(double_lock) = double_lock else {
+            panic!("double Lock did not return HRESULT: {double_lock:?}");
+        };
+        assert_eq!(
+            double_lock.return_value,
+            ComReturnValue::HResult(DSOUND_E_INVALIDARG)
+        );
+        assert!(double_lock.guest_writes.is_empty());
+        assert_eq!(runtime, before_double_lock);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_OUTPUT, 16).unwrap(),
+            vec![0xcc; 16]
+        );
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                data1 + 4,
+                bytes1,
+                data2,
+                bytes2,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_mismatched_unlock = runtime.clone();
+        let mismatched_unlock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&19].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Fault(mismatched_unlock) = mismatched_unlock else {
+            panic!("mismatched Unlock unexpectedly completed: {mismatched_unlock:?}");
+        };
+        assert_eq!(mismatched_unlock.class, ComFaultClass::Unsupported);
+        assert_eq!(
+            mismatched_unlock.code,
+            "dsound-buffer-unlock-segments-unsupported"
+        );
+        assert_eq!(runtime, before_mismatched_unlock);
+
+        memory
+            .write(
+                GuestAddress(data1),
+                &vec![0; DSOUND_SECONDARY_BUFFER_BYTES as usize],
+            )
+            .expect("zero writable secondary sample backing");
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                data1,
+                bytes1,
+                data2,
+                bytes2,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let unlock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&19].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(unlock) = unlock else {
+            panic!("Unlock did not complete: {unlock:?}");
+        };
+        assert_eq!(unlock.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert!(unlock.guest_writes.is_empty());
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        assert!(memory.write(GuestAddress(data1), &[1]).is_err());
+        let unlocked_secondary = runtime
+            .audio_buffer_for_com_object(secondary_interface.object_id)
+            .expect("unlocked secondary logical audio buffer");
+        assert_eq!(unlocked_secondary.active_lock, None);
+        assert_eq!(unlocked_secondary.content_generation, 1);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                0,
+                0,
+                DSOUND_DSBPLAY_LOOPING,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let secondary_play = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&12].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(secondary_play) = secondary_play else {
+            panic!("secondary looping Play did not complete: {secondary_play:?}");
+        };
+        assert_eq!(
+            secondary_play.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(
+            runtime
+                .audio_buffer_for_com_object(secondary_interface.object_id)
+                .unwrap()
+                .playback,
+            RuntimeAudioPlaybackState::PlayingLooping
+        );
+
+        let release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &secondary_interface,
+            secondary_interface.guest_pointer,
+        );
+        assert_eq!(release.return_value, ComReturnValue::U32(0));
+        assert!(release.object_retired);
+        assert!(memory.read(backing.range.start(), 4).is_err());
+        assert!(
+            runtime
+                .process_address_space_allocator()
+                .allocation(backing.address_allocation_id)
+                .is_err()
+        );
+        assert!(
+            runtime
+                .audio_buffer_for_com_object(secondary_interface.object_id)
+                .is_err()
+        );
+        assert_eq!(runtime.audio_buffers().len(), 1);
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
     }
 

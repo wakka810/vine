@@ -253,9 +253,14 @@ reached loop repeatedly consumes raster status and counter values before continu
 User32 contract. The Worker observes completions and mirrors checked guest bytes, but owns neither
 identity, lock state, protection, resource content, render state, nor a second raster／performance
 clock. It does not substitute `performance.now()` or browser scheduling for guest-visible time.
-No texture／surface pixel or browser
-renderer resource is created. A separate repeated-session benchmark evaluates the versioned latency,
-heartbeat, heap, backing-storage, linear-memory, and bridge-crossing thresholds.
+The reached DirectSound path also creates the primary／secondary logical buffers, publishes one
+88,200-byte Rust-owned secondary sample backing on full-range Lock, reconciles the caller write,
+returns the range to read-only on Unlock, and commits looping secondary Play before stopping at
+`SetTimer`. The Worker transports mapping operations and bytes only; it creates no browser audio
+resource and owns no DirectSound identity, content generation, or playback state. No texture／surface
+pixel, browser renderer, Web Audio node, or audible output is created. A separate repeated-session
+benchmark evaluates the versioned latency, heartbeat, heap, backing-storage, linear-memory, and
+bridge-crossing thresholds.
 
 A benchmark threshold failure does not invalidate a passing semantic-equivalence run, but it
 blocks the next primary checkpoint. Exact failure, host-load evidence, protected thresholds, and
