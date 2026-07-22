@@ -34,10 +34,10 @@ use vine_core::{
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
     RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
-    SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
-    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, UnsupportedPoint,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
+    SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
+    UnsupportedPoint, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
@@ -206,6 +206,7 @@ enum GenericRuntimeCapability {
     DsoundRootAndCooperativeLevel,
     DsoundInitialBuffers,
     DsoundBufferLockUnlockPlay,
+    SetTimer,
 }
 
 struct GenericRuntimeProcess {
@@ -441,6 +442,8 @@ struct GenericRuntimeCompletion {
     window_class: Option<vine_core::RuntimeWindowClass>,
     #[serde(skip_serializing_if = "Option::is_none")]
     window: Option<vine_core::RuntimeWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window_timer: Option<RuntimeWindowTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2346,6 +2349,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                     | GenericRuntimeCapability::DsoundInitialBuffers
                     | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                    | GenericRuntimeCapability::SetTimer
             )
         ) {
             let loader = kernel32_policy
@@ -3002,6 +3006,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                | GenericRuntimeCapability::SetTimer
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3011,6 +3016,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                | GenericRuntimeCapability::SetTimer
         )
     );
     let dsound_root_enabled = matches!(
@@ -3019,6 +3025,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 | GenericRuntimeCapability::DsoundInitialBuffers
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                | GenericRuntimeCapability::SetTimer
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3026,11 +3033,15 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::DsoundInitialBuffers
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                | GenericRuntimeCapability::SetTimer
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DsoundBufferLockUnlockPlay)
+        Some(
+            GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+                | GenericRuntimeCapability::SetTimer
+        )
     );
     let requested_capability = match enabled_capability {
         Some(
@@ -3038,7 +3049,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::Dinput8EnumDevices
             | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
             | GenericRuntimeCapability::DsoundInitialBuffers
-            | GenericRuntimeCapability::DsoundBufferLockUnlockPlay,
+            | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
+            | GenericRuntimeCapability::SetTimer,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3118,7 +3130,7 @@ fn run_v86_generic_runtime_session(
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v17();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v18();
     if !matches!(
         user32_capability,
         Some(
@@ -3224,6 +3236,9 @@ fn run_v86_generic_runtime_session(
         Some(GenericRuntimeCapability::GetMonitorInfoA)
     ) {
         user32_policy.get_monitor_info_a = None;
+    }
+    if !matches!(enabled_capability, Some(GenericRuntimeCapability::SetTimer)) {
+        user32_policy.set_timer = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -3917,6 +3932,7 @@ fn run_v86_generic_runtime_session(
                             cursor: None,
                             window_class: None,
                             window,
+                            window_timer: None,
                             thread_affinity: None,
                             tick_count: None,
                             com_apartment: None,
@@ -4443,6 +4459,44 @@ fn run_v86_generic_runtime_session(
                             } else {
                                 None
                             };
+                        let window_timer = if completion.implementation_id
+                            == SET_TIMER_IMPLEMENTATION
+                        {
+                            let window_handle =
+                                completion.frame.argument_u32(0).ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "set-timer-window-argument-missing",
+                                        "SetTimer completion has no logical HWND argument",
+                                    )
+                                })?;
+                            let timer_id = completion.frame.argument_u32(1).ok_or_else(|| {
+                                LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "set-timer-id-argument-missing",
+                                    "SetTimer completion has no timer identity argument",
+                                )
+                            })?;
+                            Some(
+                                *session
+                                    .runtime()
+                                    .window_timers()
+                                    .values()
+                                    .find(|timer| {
+                                        timer.window_handle == window_handle
+                                            && timer.timer_id == timer_id
+                                    })
+                                    .ok_or_else(|| {
+                                        LoaderError::runtime_defect(
+                                            "runtime-reentry",
+                                            "set-timer-state-missing-after-dispatch",
+                                            "SetTimer completed without a matching logical window timer",
+                                        )
+                                    })?,
+                            )
+                        } else {
+                            None
+                        };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -4584,6 +4638,7 @@ fn run_v86_generic_runtime_session(
                                 cursor,
                                 window_class,
                                 window,
+                                window_timer,
                                 thread_affinity,
                                 tick_count,
                                 com_apartment,
@@ -4778,6 +4833,7 @@ fn run_v86_generic_runtime_session(
                                 cursor: None,
                                 window_class: None,
                                 window: None,
+                                window_timer: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -4878,6 +4934,7 @@ fn run_v86_generic_runtime_session(
                                 cursor: None,
                                 window_class: None,
                                 window: None,
+                                window_timer: None,
                                 thread_affinity: None,
                                 tick_count: None,
                                 com_apartment: None,
@@ -11582,6 +11639,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "dsound-buffer-lock-unlock-play" => {
                     GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 }
+                "user32-set-timer" => GenericRuntimeCapability::SetTimer,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

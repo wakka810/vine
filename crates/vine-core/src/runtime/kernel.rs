@@ -134,8 +134,10 @@ use super::thread::{
 };
 use super::timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
-    RuntimeTimerResolutionState, RuntimeTimerResolutionTeardownPlan, RuntimeTimers,
-    RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
+    RuntimeTimerResolutionState, RuntimeTimers, RuntimeTimersTeardownPlan, RuntimeWaitableTimer,
+    RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan, RuntimeWindowTimer,
+    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationRequest,
+    RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
@@ -203,7 +205,7 @@ struct RuntimeWaitWakePlan {
 struct RuntimeProcessExitRequestPlan {
     process_plan: RuntimeProcessMutationPlan,
     thread_plans: Vec<RuntimeThreadExitRequestPlan>,
-    timer_resolution_teardown: Option<RuntimeTimerResolutionTeardownPlan>,
+    timer_teardown: Option<RuntimeTimersTeardownPlan>,
     cancellation: RuntimeProcessCancellation,
 }
 
@@ -452,6 +454,8 @@ struct RuntimeProcessStateSnapshot<'a> {
     waitable_timers: &'a BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    window_timers: &'a BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer>,
 }
 
 #[derive(Clone, Copy)]
@@ -487,6 +491,7 @@ impl Serialize for RuntimeProcessView<'_> {
             fls_slots: self.fls_slots,
             waitable_timers: self.timers.waitable_timers(),
             timer_resolution: self.timers.state(),
+            window_timers: self.timers.window_timers(),
         }
         .serialize(serializer)
     }
@@ -543,6 +548,7 @@ impl Serialize for RuntimeKernel {
                 fls_slots: self.threads.fls_slots(),
                 waitable_timers: self.timers.waitable_timers(),
                 timer_resolution: self.timers.state(),
+                window_timers: self.timers.window_timers(),
             },
             address_space_allocator: &self.address_space_allocator,
             threads: &self.threads,
@@ -3372,6 +3378,81 @@ impl RuntimeKernel {
         self.user32.windows()
     }
 
+    pub(crate) fn register_window_timer(
+        &mut self,
+        window_handle: u32,
+        timer_id: u32,
+        interval_milliseconds: u32,
+        callback_address: GuestAddress,
+    ) -> Result<RuntimeWindowTimerRegistrationResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let (window_id, owner_thread_id) = self.resolve_window_timer_target(window_handle)?;
+        let plan =
+            self.timers
+                .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                    window_id,
+                    window_handle,
+                    timer_id,
+                    owner_thread_id,
+                    interval_milliseconds,
+                    callback_address,
+                })?;
+        self.preflight_window_timer_registration(&plan)?;
+        Ok(self.timers.commit_window_timer_registration(plan))
+    }
+
+    pub fn window_timers(&self) -> &BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer> {
+        self.timers.window_timers()
+    }
+
+    pub fn window_timer(
+        &self,
+        id: RuntimeWindowTimerId,
+    ) -> Result<&RuntimeWindowTimer, RuntimeStateError> {
+        self.timers.window_timer(id)
+    }
+
+    fn preflight_window_timer_registration(
+        &self,
+        plan: &super::timers::RuntimeWindowTimerRegistrationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let (window_id, window_handle, _timer_id, owner_thread_id, _callback_address) =
+            plan.request_identity();
+        let (current_window_id, current_owner_thread_id) =
+            self.resolve_window_timer_target(window_handle)?;
+        if current_window_id != window_id || current_owner_thread_id != owner_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-target-stale",
+                "logical window timer target changed after registration planning",
+            ));
+        }
+        self.timers.preflight_window_timer_registration(plan)
+    }
+
+    fn resolve_window_timer_target(
+        &self,
+        window_handle: u32,
+    ) -> Result<(RuntimeWindowId, RuntimeThreadId), RuntimeStateError> {
+        let window = self.user32.window(window_handle)?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-lifecycle-state-invalid",
+                "logical window timer registration requires a created window",
+            ));
+        }
+        if window.creation.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-owner-thread-mismatch",
+                "logical window timer registration requires the selected window owner thread",
+            ));
+        }
+        Ok((window.id, window.creation.owner_thread_id))
+    }
+
     pub(crate) fn set_window_style(
         &mut self,
         window_handle: u32,
@@ -5265,7 +5346,7 @@ impl RuntimeKernel {
         let gdi_teardown = self.gdi.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
-        if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
+        if let Some(timer_plan) = plan.timer_teardown.as_ref() {
             self.timers.preflight_process_teardown(timer_plan)?;
         }
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
@@ -5278,7 +5359,7 @@ impl RuntimeKernel {
             self.user32.preflight_process_teardown(user32_plan)?;
         }
         let cancellation = plan.cancellation.clone();
-        if let Some(timer_plan) = plan.timer_resolution_teardown {
+        if let Some(timer_plan) = plan.timer_teardown {
             self.timers.commit_process_teardown(timer_plan)?;
         }
         for ((thread_plan, terminal_thread_plan), terminal_scheduler_plan) in plan
@@ -5613,7 +5694,7 @@ impl RuntimeKernel {
         Ok(RuntimeProcessExitRequestPlan {
             process_plan,
             thread_plans,
-            timer_resolution_teardown: self.timers.plan_process_teardown()?,
+            timer_teardown: self.timers.plan_process_teardown()?,
             cancellation,
         })
     }
@@ -5623,10 +5704,10 @@ impl RuntimeKernel {
         plan: RuntimeProcessExitRequestPlan,
     ) -> Result<(), RuntimeStateError> {
         self.process.preflight_mutation_commit(&plan.process_plan)?;
-        if let Some(timer_plan) = plan.timer_resolution_teardown.as_ref() {
+        if let Some(timer_plan) = plan.timer_teardown.as_ref() {
             self.timers.preflight_process_teardown(timer_plan)?;
         }
-        if let Some(timer_plan) = plan.timer_resolution_teardown {
+        if let Some(timer_plan) = plan.timer_teardown {
             self.timers.commit_process_teardown(timer_plan)?;
         }
         self.process.commit_mutation(plan.process_plan);

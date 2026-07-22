@@ -2,10 +2,14 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use super::{RuntimeHandle, RuntimeStateError};
+use super::{RuntimeHandle, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
+use crate::memory::GuestAddress;
 
 pub(crate) const RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT: usize = 64;
 pub const RUNTIME_WAITABLE_TIMER_LIMIT: usize = 4096;
+pub const RUNTIME_WINDOW_TIMER_ID_NAMESPACE: &str = "vine.logical-window-timer.v1";
+pub const RUNTIME_WINDOW_TIMER_LIMIT: usize = 4096;
+pub const RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS: u32 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -23,6 +27,44 @@ pub struct RuntimeWaitableTimer {
 pub struct RuntimeCreateWaitableTimerAResult {
     pub timer_id: RuntimeWaitableTimerId,
     pub handle: RuntimeHandle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeWindowTimerId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowTimer {
+    pub id: RuntimeWindowTimerId,
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub timer_id: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub requested_interval_milliseconds: u32,
+    pub effective_interval_milliseconds: u32,
+    pub callback_address: GuestAddress,
+    pub registration_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeWindowTimerRegistrationRequest {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub timer_id: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub interval_milliseconds: u32,
+    pub callback_address: GuestAddress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowTimerRegistrationResult {
+    pub id: RuntimeWindowTimerId,
+    pub timer_id: u32,
+    pub replaced: bool,
+    pub registration_generation: u64,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -46,10 +88,12 @@ pub struct RuntimeTimerResolutionMutationResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct RuntimeTimerResolutionTeardown {
+pub(super) struct RuntimeTimersTeardown {
     retired_distinct_periods: usize,
     retired_request_count: u64,
-    generation: u64,
+    retired_window_timers: usize,
+    resolution_generation: u64,
+    window_timer_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +102,10 @@ pub(super) struct RuntimeTimers {
     resolution_generation: u64,
     waitable_timers: BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
     next_waitable_timer_id: u64,
+    window_timers: BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer>,
+    window_timer_index: BTreeMap<(RuntimeWindowId, u32), RuntimeWindowTimerId>,
+    next_window_timer_id: u64,
+    window_timer_generation: u64,
 }
 
 impl Default for RuntimeTimers {
@@ -67,6 +115,10 @@ impl Default for RuntimeTimers {
             resolution_generation: 0,
             waitable_timers: BTreeMap::new(),
             next_waitable_timer_id: 1,
+            window_timers: BTreeMap::new(),
+            window_timer_index: BTreeMap::new(),
+            next_window_timer_id: 1,
+            window_timer_generation: 0,
         }
     }
 }
@@ -90,6 +142,30 @@ pub(super) struct RuntimeWaitableTimerRetirementPlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeWindowTimerRegistrationPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    expected_next_id: u64,
+    next_window_timer_id: u64,
+    previous: Option<RuntimeWindowTimer>,
+    next: RuntimeWindowTimer,
+}
+
+impl RuntimeWindowTimerRegistrationPlan {
+    pub(crate) fn request_identity(
+        &self,
+    ) -> (RuntimeWindowId, u32, u32, RuntimeThreadId, GuestAddress) {
+        (
+            self.next.window_id,
+            self.next.window_handle,
+            self.next.timer_id,
+            self.next.owner_thread_id,
+            self.next.callback_address,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeTimerResolutionMutationPlan {
     expected_generation: u64,
     period_milliseconds: u32,
@@ -99,11 +175,14 @@ pub(super) struct RuntimeTimerResolutionMutationPlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeTimerResolutionTeardownPlan {
-    expected_generation: u64,
-    next_generation: u64,
+pub(super) struct RuntimeTimersTeardownPlan {
+    expected_resolution_generation: u64,
+    next_resolution_generation: Option<u64>,
     retired_distinct_periods: usize,
     retired_request_count: u64,
+    expected_window_timer_generation: u64,
+    next_window_timer_generation: Option<u64>,
+    retired_window_timers: usize,
 }
 
 impl RuntimeTimers {
@@ -218,6 +297,197 @@ impl RuntimeTimers {
         &self.waitable_timers
     }
 
+    pub(crate) fn plan_window_timer_registration(
+        &self,
+        request: RuntimeWindowTimerRegistrationRequest,
+    ) -> Result<RuntimeWindowTimerRegistrationPlan, RuntimeStateError> {
+        if request.window_id.0 == 0
+            || request.window_handle == 0
+            || request.timer_id == 0
+            || request.owner_thread_id.0 == 0
+            || request.callback_address.0 == 0
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-window-timer",
+                "window-timer-registration-identity-invalid",
+                "logical window timer registration requires nonzero window, timer, thread, and callback identities",
+            ));
+        }
+        let key = (request.window_id, request.timer_id);
+        let previous = self
+            .window_timer_index
+            .get(&key)
+            .copied()
+            .map(|id| {
+                self.window_timers.get(&id).copied().ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "runtime-window-timer",
+                        "window-timer-index-dangling",
+                        "logical window timer index does not resolve to a live registration",
+                    )
+                })
+            })
+            .transpose()?;
+        let (id, registration_generation, next_window_timer_id) = match previous {
+            Some(previous) => {
+                if previous.window_id != request.window_id
+                    || previous.window_handle != request.window_handle
+                    || previous.timer_id != request.timer_id
+                    || previous.owner_thread_id != request.owner_thread_id
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-window-timer",
+                        "window-timer-replacement-owner-mismatch",
+                        "logical window timer replacement changed its window or owner identity",
+                    ));
+                }
+                (
+                    previous.id,
+                    previous
+                        .registration_generation
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            RuntimeStateError::resource_limit(
+                                "runtime-window-timer",
+                                "window-timer-registration-generation-exhausted",
+                                "logical window timer registration generation is exhausted",
+                            )
+                        })?,
+                    self.next_window_timer_id,
+                )
+            }
+            None => {
+                if self.window_timers.len() >= RUNTIME_WINDOW_TIMER_LIMIT {
+                    return Err(RuntimeStateError::resource_limit(
+                        "runtime-window-timer",
+                        "window-timer-limit-exceeded",
+                        "process logical window timer count exceeds the runtime bound",
+                    ));
+                }
+                let id = RuntimeWindowTimerId(self.next_window_timer_id);
+                if id.0 == 0 || self.window_timers.contains_key(&id) {
+                    return Err(RuntimeStateError::resource_limit(
+                        "runtime-window-timer",
+                        "window-timer-id-space-exhausted",
+                        "logical window timer ID space is exhausted or collided",
+                    ));
+                }
+                let next_id = self.next_window_timer_id.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-window-timer",
+                        "window-timer-id-space-exhausted",
+                        "logical window timer ID space is exhausted",
+                    )
+                })?;
+                (id, 1, next_id)
+            }
+        };
+        let next_generation = self.window_timer_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-window-timer",
+                "window-timer-generation-exhausted",
+                "logical window timer collection generation is exhausted",
+            )
+        })?;
+        Ok(RuntimeWindowTimerRegistrationPlan {
+            expected_generation: self.window_timer_generation,
+            next_generation,
+            expected_next_id: self.next_window_timer_id,
+            next_window_timer_id,
+            previous,
+            next: RuntimeWindowTimer {
+                id,
+                window_id: request.window_id,
+                window_handle: request.window_handle,
+                timer_id: request.timer_id,
+                owner_thread_id: request.owner_thread_id,
+                requested_interval_milliseconds: request.interval_milliseconds,
+                effective_interval_milliseconds: request
+                    .interval_milliseconds
+                    .max(RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS),
+                callback_address: request.callback_address,
+                registration_generation,
+            },
+        })
+    }
+
+    pub(crate) fn preflight_window_timer_registration(
+        &self,
+        plan: &RuntimeWindowTimerRegistrationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let key = (plan.next.window_id, plan.next.timer_id);
+        let current = self
+            .window_timer_index
+            .get(&key)
+            .and_then(|id| self.window_timers.get(id))
+            .copied();
+        if self.window_timer_generation != plan.expected_generation
+            || self.next_window_timer_id != plan.expected_next_id
+            || current != plan.previous
+            || plan.next.id.0 == 0
+            || plan.next.window_handle == 0
+            || plan.next.timer_id == 0
+            || plan.next.owner_thread_id.0 == 0
+            || plan.next.callback_address.0 == 0
+            || plan.next.effective_interval_milliseconds < RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS
+            || self.window_timer_generation.checked_add(1) != Some(plan.next_generation)
+            || (plan.previous.is_some()
+                && (plan.next.id != plan.previous.expect("checked replacement").id
+                    || plan.next_window_timer_id != plan.expected_next_id))
+            || (plan.previous.is_none()
+                && (self.window_timers.contains_key(&plan.next.id)
+                    || plan.next.registration_generation != 1
+                    || plan.expected_next_id.checked_add(1) != Some(plan.next_window_timer_id)))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-registration-plan-stale",
+                "logical window timer state changed after registration planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_window_timer_registration(
+        &mut self,
+        plan: RuntimeWindowTimerRegistrationPlan,
+    ) -> RuntimeWindowTimerRegistrationResult {
+        debug_assert!(self.preflight_window_timer_registration(&plan).is_ok());
+        let replaced = plan.previous.is_some();
+        self.next_window_timer_id = plan.next_window_timer_id;
+        self.window_timer_generation = plan.next_generation;
+        let previous_timer = self.window_timers.insert(plan.next.id, plan.next);
+        let previous_index = self
+            .window_timer_index
+            .insert((plan.next.window_id, plan.next.timer_id), plan.next.id);
+        debug_assert_eq!(previous_timer, plan.previous);
+        debug_assert_eq!(previous_index, plan.previous.map(|timer| timer.id));
+        RuntimeWindowTimerRegistrationResult {
+            id: plan.next.id,
+            timer_id: plan.next.timer_id,
+            replaced,
+            registration_generation: plan.next.registration_generation,
+            generation: self.window_timer_generation,
+        }
+    }
+
+    pub fn window_timer(
+        &self,
+        id: RuntimeWindowTimerId,
+    ) -> Result<&RuntimeWindowTimer, RuntimeStateError> {
+        self.window_timers.get(&id).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-window-timer",
+                "window-timer-unknown",
+                format!("logical window timer {} is not live", id.0),
+            )
+        })
+    }
+
+    pub fn window_timers(&self) -> &BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer> {
+        &self.window_timers
+    }
+
     pub(super) fn plan_resolution_begin(
         &self,
         period_milliseconds: u32,
@@ -314,30 +584,56 @@ impl RuntimeTimers {
 
     pub(super) fn plan_process_teardown(
         &self,
-    ) -> Result<Option<RuntimeTimerResolutionTeardownPlan>, RuntimeStateError> {
-        if self.resolution_request_counts.is_empty() {
+    ) -> Result<Option<RuntimeTimersTeardownPlan>, RuntimeStateError> {
+        if self.resolution_request_counts.is_empty() && self.window_timers.is_empty() {
             return Ok(None);
         }
-        Ok(Some(RuntimeTimerResolutionTeardownPlan {
-            expected_generation: self.resolution_generation,
-            next_generation: self.next_generation()?,
+        Ok(Some(RuntimeTimersTeardownPlan {
+            expected_resolution_generation: self.resolution_generation,
+            next_resolution_generation: (!self.resolution_request_counts.is_empty())
+                .then(|| self.next_generation())
+                .transpose()?,
             retired_distinct_periods: self.resolution_request_counts.len(),
             retired_request_count: self.total_request_count(),
+            expected_window_timer_generation: self.window_timer_generation,
+            next_window_timer_generation: (!self.window_timers.is_empty())
+                .then(|| {
+                    self.window_timer_generation.checked_add(1).ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-window-timer",
+                            "window-timer-generation-exhausted",
+                            "logical window timer collection generation is exhausted",
+                        )
+                    })
+                })
+                .transpose()?,
+            retired_window_timers: self.window_timers.len(),
         }))
     }
 
     pub(super) fn preflight_process_teardown(
         &self,
-        plan: &RuntimeTimerResolutionTeardownPlan,
+        plan: &RuntimeTimersTeardownPlan,
     ) -> Result<(), RuntimeStateError> {
-        if self.resolution_generation != plan.expected_generation
+        if self.resolution_generation != plan.expected_resolution_generation
             || self.resolution_request_counts.len() != plan.retired_distinct_periods
             || self.total_request_count() != plan.retired_request_count
+            || self.window_timer_generation != plan.expected_window_timer_generation
+            || self.window_timers.len() != plan.retired_window_timers
+            || self.window_timer_index.len() != plan.retired_window_timers
+            || plan.next_resolution_generation
+                != (!self.resolution_request_counts.is_empty())
+                    .then(|| self.resolution_generation.checked_add(1))
+                    .flatten()
+            || plan.next_window_timer_generation
+                != (!self.window_timers.is_empty())
+                    .then(|| self.window_timer_generation.checked_add(1))
+                    .flatten()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-timers",
-                "timer-resolution-teardown-plan-stale",
-                "logical timer resolution requests changed after teardown planning",
+                "timer-teardown-plan-stale",
+                "logical timer state changed after process teardown planning",
             ));
         }
         Ok(())
@@ -345,15 +641,24 @@ impl RuntimeTimers {
 
     pub(super) fn commit_process_teardown(
         &mut self,
-        plan: RuntimeTimerResolutionTeardownPlan,
-    ) -> Result<RuntimeTimerResolutionTeardown, RuntimeStateError> {
+        plan: RuntimeTimersTeardownPlan,
+    ) -> Result<RuntimeTimersTeardown, RuntimeStateError> {
         self.preflight_process_teardown(&plan)?;
         self.resolution_request_counts.clear();
-        self.resolution_generation = plan.next_generation;
-        Ok(RuntimeTimerResolutionTeardown {
+        self.window_timers.clear();
+        self.window_timer_index.clear();
+        if let Some(generation) = plan.next_resolution_generation {
+            self.resolution_generation = generation;
+        }
+        if let Some(generation) = plan.next_window_timer_generation {
+            self.window_timer_generation = generation;
+        }
+        Ok(RuntimeTimersTeardown {
             retired_distinct_periods: plan.retired_distinct_periods,
             retired_request_count: plan.retired_request_count,
-            generation: self.resolution_generation,
+            retired_window_timers: plan.retired_window_timers,
+            resolution_generation: self.resolution_generation,
+            window_timer_generation: self.window_timer_generation,
         })
     }
 
@@ -498,8 +803,110 @@ mod tests {
         assert!(timers.state().unwrap().request_counts.is_empty());
         assert_eq!(
             timers.commit_process_teardown(stale).unwrap_err().code,
-            "timer-resolution-teardown-plan-stale"
+            "timer-teardown-plan-stale"
         );
+    }
+
+    #[test]
+    fn window_timer_registration_replacement_and_teardown_preserve_identity() {
+        let mut timers = RuntimeTimers::default();
+        let request = RuntimeWindowTimerRegistrationRequest {
+            window_id: RuntimeWindowId(7),
+            window_handle: 0x4801_0001,
+            timer_id: 1,
+            owner_thread_id: RuntimeThreadId(9),
+            interval_milliseconds: 20,
+            callback_address: GuestAddress(0x1009_9600),
+        };
+        let plan = timers.plan_window_timer_registration(request).unwrap();
+        let stale = plan;
+        assert!(timers.window_timers().is_empty());
+        let created = timers.commit_window_timer_registration(plan);
+        assert_eq!(created.id, RuntimeWindowTimerId(1));
+        assert_eq!(created.timer_id, 1);
+        assert!(!created.replaced);
+        assert_eq!(created.registration_generation, 1);
+        let registered = *timers.window_timer(created.id).unwrap();
+        assert_eq!(registered.requested_interval_milliseconds, 20);
+        assert_eq!(registered.effective_interval_milliseconds, 20);
+        assert_eq!(registered.callback_address, GuestAddress(0x1009_9600));
+        assert_eq!(
+            timers
+                .preflight_window_timer_registration(&stale)
+                .unwrap_err()
+                .code,
+            "window-timer-registration-plan-stale"
+        );
+
+        let replacement = timers
+            .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                interval_milliseconds: 1,
+                callback_address: GuestAddress(0x1009_9700),
+                ..request
+            })
+            .unwrap();
+        let replaced = timers.commit_window_timer_registration(replacement);
+        assert_eq!(replaced.id, created.id);
+        assert!(replaced.replaced);
+        assert_eq!(replaced.registration_generation, 2);
+        let registered = timers.window_timer(created.id).unwrap();
+        assert_eq!(registered.requested_interval_milliseconds, 1);
+        assert_eq!(registered.effective_interval_milliseconds, 10);
+        assert_eq!(registered.callback_address, GuestAddress(0x1009_9700));
+        assert_eq!(timers.next_window_timer_id, 2);
+
+        let before_invalid = timers.clone();
+        assert_eq!(
+            timers
+                .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                    callback_address: GuestAddress(0),
+                    ..request
+                })
+                .unwrap_err()
+                .code,
+            "window-timer-registration-identity-invalid"
+        );
+        assert_eq!(timers, before_invalid);
+
+        let teardown = timers.plan_process_teardown().unwrap().unwrap();
+        let result = timers.commit_process_teardown(teardown).unwrap();
+        assert_eq!(result.retired_window_timers, 1);
+        assert!(timers.window_timers().is_empty());
+        assert!(timers.window_timer_index.is_empty());
+    }
+
+    #[test]
+    fn window_timer_capacity_rejection_is_failure_atomic() {
+        let mut timers = RuntimeTimers::default();
+        for timer_id in 1..=RUNTIME_WINDOW_TIMER_LIMIT as u32 {
+            let plan = timers
+                .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                    window_id: RuntimeWindowId(7),
+                    window_handle: 0x4801_0001,
+                    timer_id,
+                    owner_thread_id: RuntimeThreadId(9),
+                    interval_milliseconds: 20,
+                    callback_address: GuestAddress(0x1009_9600),
+                })
+                .unwrap();
+            timers.commit_window_timer_registration(plan);
+        }
+        let before = timers.clone();
+        assert_eq!(
+            timers
+                .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                    window_id: RuntimeWindowId(7),
+                    window_handle: 0x4801_0001,
+                    timer_id: RUNTIME_WINDOW_TIMER_LIMIT as u32 + 1,
+                    owner_thread_id: RuntimeThreadId(9),
+                    interval_milliseconds: 20,
+                    callback_address: GuestAddress(0x1009_9600),
+                })
+                .unwrap_err()
+                .code,
+            "window-timer-limit-exceeded"
+        );
+        assert_eq!(timers, before);
     }
 
     #[test]

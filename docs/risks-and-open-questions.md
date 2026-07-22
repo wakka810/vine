@@ -50,7 +50,7 @@ contextを保存／復元し、ownerがhost work待機中に別guest threadを�
 | R-MEMORY | Full-play／snapshot memoryがsemantic／mirror ceilingを超える、Worker pressureまたはstale mappingを起こす | Rust byte authority、bounded growing pool、page reclamation、typed preflight exhaustion | Title peakを測定しversioned limitを見直す。Atomicityを弱めずchecked sparse mirrorを比較する |
 | R-ASYNC | Sync Win32とasync host serviceがnested callback、wait、cancel、reentrancyでdeadlockする | Thread／request identity、per-thread CPU context、explicit state、scheduler-owned host request | 最小multi-thread／wait fixtureを追加し、unsupported reentrancyをmutation前に拒否する |
 | R-FAIRNESS | Cooperative schedulingがtiming-sensitive threadをstarveさせる、またはtitle-relevant raceを変える | Runnable-lane selectionとbounded Worker execution | Thread traceからfairness／virtual-time policyを定義し、測定上必要な場合だけSAB／multi-Workerを比較する |
-| R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolationとexplicit cancel／watchdog | Background executionをclaimする前にfreeze／resumeとbounded catch-upを定義する |
+| R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolation、Rust-owned logical timer registration、explicit cancel／watchdog | `WM_TIMER`／TIMERPROC deliveryへ進む前にlogical clock、generation-checked cancellation、freeze／resume、bounded catch-upを定義する |
 | R-COMPAT | Subtle Win32／COM behaviorまたはsilent stubがbootを進め、後段stateを壊す | Caller-consumer oracle、typed fault、mutation-free negative path | Stubを正しいstateまたはfirst divergenceでのexplicit structured stopへ置き換える |
 | R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する | Supported format／stateをboundし、semantic＋visual oracleを追加し、非対応browser／GPUをtier分けする |
 | R-MEDIA | Audio timing／media dependencyまたはD3D9 scopeがplanned browser subsetを超える | Corpus-bounded frontendとseparate backend adapter | Early feasibility traceを行い、広いAPI実装前にsupport bandを再設計する |
@@ -61,6 +61,11 @@ contextを保存／復元し、ownerがhost work待機中に別guest threadを�
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
+
+Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacement generation、process teardownは
+Rust authorityとして成立した。残るriskは登録の可否ではなく、browser task timingをguest-visible clockへ直接
+流入させずにexpiry、`WM_TIMER`／TIMERPROC選択、replacement／`KillTimer` race、background catch-upをschedulerと
+message queueで順序付けることである。
 
 ## 5. Scope reduction／no-go trigger
 

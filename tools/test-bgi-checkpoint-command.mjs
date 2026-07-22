@@ -179,6 +179,10 @@ assert.equal(
   bgiProfileOutputDirectory("dsound-buffer-lock-unlock-play"),
   "v86-bgi-dsound-buffer-lock-unlock-play",
 );
+assert.equal(
+  bgiProfileOutputDirectory("user32-set-timer"),
+  "v86-bgi-set-timer",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

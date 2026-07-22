@@ -4348,3 +4348,50 @@ cancel／watchdogを通し、TypeScript側にDirectSound stateやbrowser audio r
 11,945,256、`USER32.dll!SetTimer`、argumentsはlive HWND `0x48010001`、timer ID 1、20 ms、guest procedure
 `0x10099600`で、`api-endpoint-contract-missing`である。Timer registration、callback delivery、browser clock、audible
 outputはこのcheckpointで実装済みとしない。
+
+## 132. BGI logical window timer registration
+
+Focused `set-timer` observationを独立に2回取得した。Primary raw traceは1,610,985 bytes／5,007 records／
+SHA-256 `d848db2ee4c8b9a356baa1f77325614ca8047c8d8e84738a81f3cc4d60230636`、confirmationは
+1,611,913 bytes／5,010 records／SHA-256
+`4fa263adc08521a7f82df1b8e586843a8eef4e338cfe5f9d2bdc00f906c1f1ab`で、diagnostics／hook errorsは0である。
+Raw traceは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGI callerはRVA `0x00099D4B`へ戻るcallで、live top-level HWND、timer ID 1、20 ms、BGI RVA
+`0x00099600`のTIMERPROCを渡す。`SetTimer`は1を返し、LastError 0を保存する。Caller wrapperは直後にEAXをzero化して
+戻るためreturn valueを消費しない。各bounded traceは同じwindow／owner threadへ16回の
+`TIMERPROC(HWND, WM_TIMER=0x0113, 1, GetTickCount-like DWORD)` entryを確認した。Callback timestampとnative HWNDは
+artifact identityでありVineのlogical deadline／handleへimportしない。Observation期間内に`KillTimer`は到達しない。
+
+Controlled COFF-i386 oracleはsource 11,122 bytes／SHA-256
+`27dab91a5f2d579a4e491f628aae78f420a9920d700a2dd06f0596a7e3bdd894`、executable 8,192 bytes／SHA-256
+`896cb0ea2adc8f49984a2e8e6faced2977bbec5439ed3c96970f993e85c4fa2f`である。Live HWND／ID 1／20 msは1を返して
+LastError sentinel `0x5A5A`を保存する。同じkeyの再登録はIDを保持し、old callbackを止め、new callbackを同じowner
+threadへ配送する。First `KillTimer`はTRUE、repeatはFALSEで、どちらもLastErrorを保存する。Invalid HWNDは0／
+ERROR_INVALID_WINDOW_HANDLE 1400となる。NULL HWNDではrequested ID 0／`0x1234`のどちらもsystem-assigned IDを返し、
+live HWND／ID 0もallocated IDを返す。これらのallocation／kill variantsはoracleとして保持するが、primaryのexact
+registration sliceへは一般化しない。
+
+Runtimeは`RuntimeTimers`にinternal ID、logical HWND／timer ID key、owner TID、requested／effective interval、
+TIMERPROC、registration generationを所有させる。`RuntimeUser32`のlive-window／same-owner relationとexecutable guest
+addressを全てpreflightしてからopaque timer planをcommitする。同じkeyのreplacementはinternal identityを保持し、
+capacity 4,096、wrong owner、invalid callback、stale／duplicate planではtimer map、key index、allocator、generationを
+変更しない。Process exitはtimer-resolution request、waitable timer payload、logical window timerを一つのtimer-owner
+teardownでretireする。
+
+Nodeは18,597 supported calls、18,652 writebacks／37,551 dirty pages／2,945,186 changed bytes、17,288 host
+deltas、generation 36,502、semantic SHA-256
+`df0edbfbc34388c1837bc93223787f5ba8faabac7c4c30b015ff3b1d2d8121ee`、terminal memory SHA-256
+`4e54af4735dfaab564f6eed4779693851ab8ca3bd8f234ea97a1f771906b397c`を通した。Node reportは50,127 bytes／
+SHA-256 `a1f767a7c74a0cdcbaba8ba881d15b3f33ed10119334ea41afe986c8f99bd4f8`である。Chrome Runtime Workerも
+same ordered semantics／terminal memoryを再現し、19,352 slices、19,350 writebacks／39,169 pages、17,288 mapping
+deltas／18,800 dirty pages、generation 27→37,202、55,608 Wasm crossings、58,022 success transitions、clean
+cancel／watchdogを通した。Browser reportは43,910 bytes／SHA-256
+`e90b9db5a030160d4c845d258e216dc7c9e1857951638de3f099a40bd3d35aae`である。
+
+次stopはinstruction 11,945,954、`KERNEL32.dll!CreateThread` endpoint ID 50／address `0x7F000310`／IAT
+`0x100D1170`／return `0x100A1FAD`の`api-endpoint-contract-missing`である。Captured stack wordsは
+`0, 0, 0x100A1EE8, 0x20139940, 4, 0x20139940, 1`で、API contract確定前の最後のwordはtrailing observationとして
+扱う。Logical clock expiry、`WM_TIMER`／TIMERPROC delivery、`KillTimer`、NULL-window／allocated-ID variant、browser
+task timerはこのcheckpointで実装済みとしない。

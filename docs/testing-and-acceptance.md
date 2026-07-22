@@ -473,6 +473,16 @@ variant外をmutation前に拒否する。Partial／flagged／wrapping Lock、cu
 audio transport、audible primary output、WinMM audioはclaimしない。既存180-second observationはDirectSound
 root／cooperative-level workloadのartifactで、buffer-content経路のcurrent performance evidenceとして扱わない。
 
+Reached `SetTimer` gateはlive HWND、ID 1、20 ms、mapped executable TIMERPROC、same owner threadをexact profileとして
+固定する。Focused native two-run evidenceはreturn 1／LastError preserveと、同じowner threadへの反復
+`TIMERPROC(HWND, WM_TIMER, 1, tick)`を確認する。Controlled COFF-i386 oracleはsame-key replacementがtimer IDを
+保持してold callbackを止めること、first／repeat `KillTimer`、invalid HWND error 1400、NULL HWND／zero ID allocationを
+固定する。Runtime testはregistration／replacement／process teardown、4,096-record capacity rejection、invalid／
+wrong-owner／non-executable callbackのfailure atomicityを検査する。Node／Chrome gateはsequence 18,577の登録、
+Rust-owned timer snapshot、guest write 0、LastError preserve、同じterminal memory／semantic digestと、続く
+`KERNEL32.dll!CreateThread` stopを要求する。Clock expiry、`WM_TIMER`／TIMERPROC delivery、`KillTimer`、NULL HWND、
+allocated ID、general intervalsはこのcheckpointのacceptance claimに含めない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

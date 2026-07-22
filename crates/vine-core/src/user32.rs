@@ -14,8 +14,9 @@ use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
     LOGICAL_MONITOR_HANDLE_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
-    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
-    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS,
+    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
+    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
     RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
     RuntimeRect, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
@@ -30,7 +31,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 17;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 18;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -40,6 +41,7 @@ pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
 pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v2";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
+pub const SET_TIMER_IMPLEMENTATION: &str = "user32.set-timer.live-window-callback-registration.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
@@ -59,6 +61,7 @@ const RT_GROUP_ICON: u32 = 14;
 const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
+const WM_TIMER: u32 = 0x0113;
 const WM_MOVE: u32 = 0x0003;
 const WM_ACTIVATE: u32 = 0x0006;
 const WM_SETFOCUS: u32 = 0x0007;
@@ -149,6 +152,15 @@ pub struct User32SetWindowLongAPolicy {
     pub requested_style: u32,
     pub retained_style_mask: u32,
     pub invalid_index: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SetTimerPolicy {
+    pub profile_id: String,
+    pub timer_id: u32,
+    pub interval_milliseconds: u32,
+    pub message: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -244,6 +256,7 @@ pub struct User32CompatibilityPolicy {
     pub send_message_a: Option<User32SendMessageAPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
     pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
+    pub set_timer: Option<User32SetTimerPolicy>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub get_monitor_info_a: Option<User32GetMonitorInfoAPolicy>,
     pub load_cursor_a: Option<User32LoadCursorAPolicy>,
@@ -254,11 +267,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v17() -> Self {
+    pub fn controlled_v18() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-v17"
+            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-v18"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -322,6 +335,12 @@ impl User32CompatibilityPolicy {
                 requested_style: 0x90ca_0000,
                 retained_style_mask: 0x0400_0000,
                 invalid_index: INVALID_WINDOW_LONG_INDEX,
+            }),
+            set_timer: Some(User32SetTimerPolicy {
+                profile_id: "main-window-id-1-20ms-timerproc-v1".to_owned(),
+                timer_id: 1,
+                interval_milliseconds: 20,
+                message: WM_TIMER,
             }),
             monitor_from_window: Some(User32MonitorFromWindowPolicy {
                 profile_id: "live-window-default-to-primary-v1".to_owned(),
@@ -528,6 +547,19 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-set-window-long-a-profile-invalid",
                 "User32 SetWindowLongA profile requires the reached GWL_STYLE visibility transition and retained native style bits",
+            ));
+        }
+        if let Some(profile) = self.set_timer.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.timer_id == 0
+                || profile.interval_milliseconds < RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS
+                || profile.message != WM_TIMER
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-set-timer-profile-invalid",
+                "User32 SetTimer profile requires a live logical window, a nonzero timer identity, a bounded interval, and WM_TIMER delivery semantics",
             ));
         }
         if let Some(profile) = self.monitor_from_window.as_ref()
@@ -819,6 +851,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        SET_TIMER_IMPLEMENTATION => match handle_set_timer(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         MONITOR_FROM_WINDOW_IMPLEMENTATION => {
             match handle_monitor_from_window(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -1687,6 +1723,66 @@ fn handle_set_window_long_a(
             ApiImmediate::new(ApiReturnValue::U32(result.previous_effective_style))
                 .with_last_error(preserved_last_error),
         ),
+        Err(error) if error.code == "window-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(0))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_set_timer(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let timer_policy = policy.set_timer.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-timers",
+            "set-timer-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical window timer registration",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let timer_id = required_argument(contract, frame, 1, "timer ID")?;
+    let interval_milliseconds = required_argument(contract, frame, 2, "interval")?;
+    let callback = required_argument(contract, frame, 3, "timer callback")?;
+    if timer_id != timer_policy.timer_id
+        || interval_milliseconds != timer_policy.interval_milliseconds
+        || callback == 0
+    {
+        return Err(ApiFault::unsupported(
+            "user32-timers",
+            "set-timer-variant-unsupported",
+            "SetTimer arguments are outside the reached live-window ID 1, 20 ms TIMERPROC registration",
+        ));
+    }
+    session
+        .memory()
+        .validate_access(GuestAddress(callback), 1, MemoryAccess::Execute)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime_mut().register_window_timer(
+        window_handle,
+        timer_id,
+        interval_milliseconds,
+        GuestAddress(callback),
+    ) {
+        Ok(result) if result.timer_id == timer_id => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(result.timer_id))
+                .with_last_error(preserved_last_error))
+        }
+        Ok(_) => Err(ApiFault::runtime_defect(
+            "user32-timers",
+            "set-timer-result-identity-mismatch",
+            "logical timer authority returned a different window timer identity",
+        )),
         Err(error) if error.code == "window-handle-unknown" => {
             Ok(ApiImmediate::new(ApiReturnValue::U32(0))
                 .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
@@ -4418,6 +4514,7 @@ pub fn user32_contract_for_endpoint(
         "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
         "SetWindowPos" => Ok(Some(set_window_pos_contract(endpoint)?)),
         "SetWindowLongA" => Ok(Some(set_window_long_a_contract(endpoint)?)),
+        "SetTimer" => Ok(Some(set_timer_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
@@ -4583,6 +4680,28 @@ pub fn set_window_long_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCo
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: SET_WINDOW_LONG_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_timer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                u32_argument("timerId"),
+                u32_argument("intervalMilliseconds"),
+                opaque_pointer_argument("timerProcedure", false, 1),
+            ],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_TIMER_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -5047,7 +5166,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v17();
+        let policy = User32CompatibilityPolicy::controlled_v18();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -5074,6 +5193,10 @@ mod tests {
                 .small_icon_height,
             Some(16)
         );
+        let timer = policy.set_timer.as_ref().unwrap();
+        assert_eq!(timer.timer_id, 1);
+        assert_eq!(timer.interval_milliseconds, 20);
+        assert_eq!(timer.message, WM_TIMER);
 
         let mut invalid = policy;
         invalid
@@ -5087,7 +5210,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v18();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -5099,14 +5222,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v18();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v18();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -5117,21 +5240,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v18();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v18();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v18();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -5142,14 +5265,25 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v18();
+        invalid_timer
+            .set_timer
+            .as_mut()
+            .unwrap()
+            .interval_milliseconds = 9;
+        assert_eq!(
+            invalid_timer.validate().unwrap_err().code,
+            "user32-set-timer-profile-invalid"
+        );
+
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v18();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v18();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -5160,7 +5294,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v18();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -5171,7 +5305,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v18();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -5183,7 +5317,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v18();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -5194,7 +5328,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v18();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -5205,7 +5339,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v18();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -5216,7 +5350,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v17();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v18();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

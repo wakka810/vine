@@ -313,6 +313,15 @@ compatibility serializationはimmutable snapshotを返す。Begin／endはexpect
 mutation前に拒否する。Process exitはprocess／thread planとtimer teardownを全てpreflightした後にrequest
 tableを一回でretireする。
 
+Logical window timer registrationも同じ`RuntimeTimers`がprivateに所有し、internal timer ID、logical HWND／
+timer ID key、owner thread、requested／effective interval、guest TIMERPROC、registration generationを一つの
+recordに保つ。`RuntimeUser32`はlive windowとselected owner threadをpreflightし、kernelはwindow relationとtimer
+planが両方validな場合だけtargeted commitする。同じHWND／timer IDの再登録はinternal identityを保持して
+registrationだけを置換し、capacity、wrong owner、invalid callback、stale planではallocator／index／generationを
+更新しない。Process exit teardownはtimer-resolution request、waitable-timer payload、logical window timerを同じ
+owner planでretireする。Expiry clock、`WM_TIMER`／TIMERPROC配送、`KillTimer`は登録stateとは別のscheduler／message
+gatewayであり、browser task timerをauthorityとして先行導入しない。
+
 WinMM `timeGetTime`のsampled DWORDはtimer subsystemへ複製しない。既存の
 `runtime/process.rs::RuntimeProcessState`がKernel32 `GetTickCount`と共有するtick datum、
 sample plan、wrapping commitを所有し、WinMM policyはbounded incrementだけを選ぶ。
@@ -637,6 +646,13 @@ window、selected owner thread、registered class／WndProc、live shared 16×16
 WndProcの`LRESULT`はouter API resultへ戻す。Wrong／stale identity、callback preflight、duplicate／stale
 commitはwindow／icon relationとallocatorを部分更新しない。Cross-thread send、queue integration、
 timeout／cancel、browser icon associationは後続message gatewayで別contractとして扱う。
+
+Reached `SetTimer` profileはlive top-level HWND、timer ID 1、20 ms、same-owner thread、mapped executable
+TIMERPROCだけを受理する。User32 dispatcherはregister call中にcallbackを起動せず、`RuntimeTimers`へopaqueな
+registration planを要求して、success時はtimer IDを返しLastErrorを保存する。Logical window timer snapshotは
+Workerへのread-only completionであり、TypeScriptはWindows timer identity、generation、deadlineを所有しない。
+NULL HWND／zero ID allocation、general interval、queue fallback、replacement delivery、`KillTimer`はnative oracleに
+存在するが、primary-reached registration contractへ一般化しない。
 
 Reached `SetWindowPos` profileでは、geometry、visibility、topmostとsmall-icon relationのauthorityを同じ
 `RuntimeUser32` window recordへ置く。Show operationはlogical displayとversioned non-client policyから

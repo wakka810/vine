@@ -161,6 +161,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "dsound-root-and-cooperative-level",
         "dsound-initial-buffers",
         "dsound-buffer-lock-unlock-play",
+        "user32-set-timer",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -241,6 +242,7 @@ assert(
       "dsound-root-and-cooperative-level",
       "dsound-initial-buffers",
       "dsound-buffer-lock-unlock-play",
+      "user32-set-timer",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -285,6 +287,7 @@ if (
     "dsound-root-and-cooperative-level",
     "dsound-initial-buffers",
     "dsound-buffer-lock-unlock-play",
+    "user32-set-timer",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -322,7 +325,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "dinput8-enum-devices" ||
     genericRuntimeCapability === "dsound-root-and-cooperative-level" ||
     genericRuntimeCapability === "dsound-initial-buffers" ||
-    genericRuntimeCapability === "dsound-buffer-lock-unlock-play"
+    genericRuntimeCapability === "dsound-buffer-lock-unlock-play" ||
+    genericRuntimeCapability === "user32-set-timer"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -457,7 +461,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setTimerEnabled = genericRuntimeCapability === "user32-set-timer";
 const dsoundBufferTransferEnabled =
+  setTimerEnabled ||
   genericRuntimeCapability === "dsound-buffer-lock-unlock-play";
 const dsoundInitialBuffersEnabled =
   dsoundBufferTransferEnabled ||
@@ -711,7 +717,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? dsoundBufferTransferEnabled
+      ? setTimerEnabled
+      ? "v86-bgi-set-timer"
+      : dsoundBufferTransferEnabled
       ? "v86-bgi-dsound-buffer-lock-unlock-play"
       : dsoundInitialBuffersEnabled
       ? "v86-bgi-dsound-initial-buffers"
@@ -4699,6 +4707,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setTimerEnabled) {
+        validateSetTimerResult(genericResult);
       } else if (dsoundBufferTransferEnabled) {
         validateDsoundBufferLockUnlockPlayResult(genericResult);
       } else if (dsoundInitialBuffersEnabled) {
@@ -4892,6 +4902,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setTimerEnabled
+          ? "bgi SetTimer logical window callback registration"
           : dsoundBufferTransferEnabled
           ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
           : dsoundInitialBuffersEnabled
@@ -6062,6 +6074,9 @@ function buildGenericCallRecord(
       ? {}
       : { windowClass: completionFrame.windowClass }),
     ...(completionFrame.window === undefined ? {} : { window: completionFrame.window }),
+    ...(completionFrame.windowTimer === undefined
+      ? {}
+      : { windowTimer: completionFrame.windowTimer }),
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
@@ -6133,6 +6148,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : setTimerEnabled
+          ? 77
         : dsoundRootEnabled
           ? 76
         : dinput8FactoryEnabled
@@ -6275,7 +6292,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-v17",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-v18",
     );
     assert.equal(
       ready.displayProfileId,
@@ -14644,6 +14661,114 @@ function validateDsoundBufferLockUnlockPlayResult(result) {
   ]);
 }
 
+function validateSetTimerResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_597);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_652);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_551,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_945_186,
+  );
+  assert.equal(result.hostDeltas.length, 17_288);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_502);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "SetTimer",
+  );
+  assert.equal(calls.length, 1, "unexpected SetTimer completion count");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_577);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_945_256);
+  assert.deepEqual(call.arguments, [0x4801_0001, 1, 20, 0x1009_9600]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(
+    call.implementationId,
+    "user32.set-timer.live-window-callback-registration.v1",
+  );
+  assert.equal(call.returnAddress, 0x1009_9d4b);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 20);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.windowTimer, {
+    id: 1,
+    windowId: 1,
+    windowHandle: 0x4801_0001,
+    timerId: 1,
+    ownerThreadId: 8192,
+    requestedIntervalMilliseconds: 20,
+    effectiveIntervalMilliseconds: 20,
+    callbackAddress: 0x1009_9600,
+    registrationGeneration: 1,
+  });
+  assert.equal(
+    result.callbackEvents.some((event) => event.target === 0x1009_9600),
+    false,
+  );
+  assert.deepEqual(
+    result.supportedCalls.slice(-3).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_595, symbol: "InterlockedIncrement", occurrence: 7 },
+      { sequence: 18_596, symbol: "InterlockedIncrement", occurrence: 8 },
+      { sequence: 18_597, symbol: "LeaveCriticalSection", occurrence: 14 },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 50);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0310);
+  assert.equal(result.fault.endpoint.endpoint.module, "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "CreateThread",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1170);
+  assert.equal(result.fault.memory.physicalPages, 1_016);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "4e54af4735dfaab564f6eed4779693851ab8ca3bd8f234ea97a1f771906b397c",
+  );
+  assert.equal(result.terminal.instructionCount, 11_945_954);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 50);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0310);
+  assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "CreateThread");
+  assert.equal(result.terminal.terminal.returnAddress, 0x100a_1fad);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x100a_1fad,
+    0,
+    0,
+    0x100a_1ee8,
+    0x2013_9940,
+    4,
+    0x2013_9940,
+    1,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -17132,6 +17257,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setTimerEnabled
+        ? "vine.v86-bgi-user32-set-timer"
         : dsoundBufferTransferEnabled
         ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
         : dsoundInitialBuffersEnabled

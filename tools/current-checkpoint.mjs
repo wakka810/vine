@@ -900,12 +900,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_275 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_787 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_288 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_800 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 57_959 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_022 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !== JSON.stringify([8_192]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
     bgiBrowserEvidence.contextSwitches !== 0 ||
@@ -2188,7 +2188,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("runtime::audio::"),
       )
       .join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::timers::tests::window_timer_registration_replacement_and_teardown_preserve_identity,runtime::timers::tests::window_timer_capacity_rejection_is_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
@@ -2216,8 +2216,10 @@ export function validateCurrentCheckpoint(manifest) {
             "runtime::kernel::tests::d3d9_device_and_texture_commit_guest_com_and_graphics_state_as_one_lifetime" &&
            test !==
              "runtime::kernel::tests::direct_sound_cooperative_level_commits_the_live_window_relation" &&
+           test !==
+             "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime" &&
           test !==
-            "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime" &&
+            "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically" &&
           !test.startsWith("dinput8_dispatcher::") &&
           !test.startsWith("dsound_dispatcher::"),
       )
@@ -2265,6 +2267,11 @@ export function validateCurrentCheckpoint(manifest) {
       (test) =>
         test ===
           "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+          "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically",
     ).length !== 1 ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
@@ -5268,11 +5275,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 17 ||
+    user32Policy.schemaVersion !== 18 ||
     user32Policy.id !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-v17" ||
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-v18" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v17" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v18" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -5514,6 +5521,27 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.multiWindowActivationImplemented !== false ||
     user32Policy.generalWindowResizeImplemented !== false ||
     user32Policy.generalWindowZOrderImplemented !== false ||
+    user32Policy.setTimerProfileId !== "main-window-id-1-20ms-timerproc-v1" ||
+    user32Policy.setTimerVariants?.join(",") !==
+      "live-owner-thread-window-id-1-20ms-executable-timerproc" ||
+    user32Policy.setTimerMessage !== 275 ||
+    user32Policy.setTimerTimerId !== 1 ||
+    user32Policy.setTimerRequestedIntervalMilliseconds !== 20 ||
+    user32Policy.setTimerMinimumIntervalMilliseconds !== 10 ||
+    user32Policy.setTimerSuccessLastErrorPolicy !== "preserve" ||
+    user32Policy.setTimerInvalidWindowLastError !== 1_400 ||
+    user32Policy.logicalWindowTimerAuthority !==
+      "runtime/timers.rs::RuntimeTimers" ||
+    user32Policy.logicalWindowTimerNamespace !== "vine.logical-window-timer.v1" ||
+    user32Policy.logicalWindowTimerLimit !== 4_096 ||
+    user32Policy.logicalWindowTimerMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    user32Policy.logicalWindowTimerReplacement !==
+      "same-window-and-id-preserves-internal-identity-and-replaces-registration" ||
+    user32Policy.logicalWindowTimerProcessExitTeardown !== true ||
+    user32Policy.logicalWindowTimerCallbackDeliveryImplemented !== false ||
+    user32Policy.logicalWindowTimerBrowserClockImported !== false ||
+    user32Policy.setTimerFailureAtomicity !== true ||
     user32Policy.windowMessageQueueIntegrated !== false ||
     user32Policy.logicalWindowIconMutationImplemented !== true ||
     user32Policy.browserWindowIconMutationImplemented !== false ||
@@ -5923,7 +5951,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-dsound-buffer-lock-unlock-play.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-user32-set-timer.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6385,11 +6413,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_631 ||
-    latestEvidence.writebackDirtyPages !== 37_447 ||
-    latestEvidence.writebackChangedBytes !== 2_944_587 ||
-    latestEvidence.hostDeltaBatches !== 17_275 ||
-    latestEvidence.finalMemoryGeneration !== 36_468
+    latestEvidence.writebackBatches !== 18_652 ||
+    latestEvidence.writebackDirtyPages !== 37_551 ||
+    latestEvidence.writebackChangedBytes !== 2_945_186 ||
+    latestEvidence.hostDeltaBatches !== 17_288 ||
+    latestEvidence.finalMemoryGeneration !== 36_502
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8312,10 +8340,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "22e970df9e267bab5eb2f08a291c9bc741202a2e8f744c34d0301135f98b58a1" ||
+      "df0edbfbc34388c1837bc93223787f5ba8faabac7c4c30b015ff3b1d2d8121ee" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "8e563f6d8687d1aa9d40467b3ba45509256000cbbdfece784648510f4858cc81" ||
+      "4e54af4735dfaab564f6eed4779693851ab8ca3bd8f234ea97a1f771906b397c" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -8583,6 +8611,106 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.directSoundBufferTransferNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest DirectSound buffer-transfer evidence is invalid");
+  }
+  for (const field of [
+    "nativeSetTimerPrimaryTraceSha256",
+    "nativeSetTimerConfirmationTraceSha256",
+    "setTimerOracleSourceSha256",
+    "setTimerOracleExecutableSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeSetTimerPrimaryTraceBytes !== 1_610_985 ||
+    latestEvidence.nativeSetTimerPrimaryTraceLines !== 5_007 ||
+    latestEvidence.nativeSetTimerPrimaryTraceSha256 !==
+      "d848db2ee4c8b9a356baa1f77325614ca8047c8d8e84738a81f3cc4d60230636" ||
+    latestEvidence.nativeSetTimerConfirmationTraceBytes !== 1_611_913 ||
+    latestEvidence.nativeSetTimerConfirmationTraceLines !== 5_010 ||
+    latestEvidence.nativeSetTimerConfirmationTraceSha256 !==
+      "4fa263adc08521a7f82df1b8e586843a8eef4e338cfe5f9d2bdc00f906c1f1ab" ||
+    latestEvidence.nativeSetTimerTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSetTimerHookErrors !== 0 ||
+    latestEvidence.nativeSetTimerProfile !==
+      "x86-bgi-live-window-id-1-20ms-timerproc-v1" ||
+    latestEvidence.nativeSetTimerCallerReturnRva !== "0x00099d4b" ||
+    latestEvidence.nativeSetTimerArguments?.join(",") !==
+      "live-window,0x00000001,0x00000014,bgi+0x00099600" ||
+    latestEvidence.nativeSetTimerResult !== "0x00000001" ||
+    latestEvidence.nativeSetTimerLastErrors?.join(",") !== "0,0" ||
+    latestEvidence.nativeSetTimerConsumer !==
+      "return-value-discarded-by-zero-eax-wrapper" ||
+    latestEvidence.nativeSetTimerCallbacksPerTrace !== 16 ||
+    latestEvidence.nativeSetTimerCallbackMessage !== "0x00000113" ||
+    latestEvidence.nativeSetTimerCallbackTimerId !== 1 ||
+    latestEvidence.nativeSetTimerCallbackOwnerThreadMatches !== true ||
+    latestEvidence.nativeSetTimerKillObserved !== false ||
+    latestEvidence.nativeSetTimerExecutableHashUnchanged !== true ||
+    latestEvidence.setTimerOracleArchitecture !== "coff-i386" ||
+    latestEvidence.setTimerOracleSourceBytes !== 11_122 ||
+    latestEvidence.setTimerOracleSourceSha256 !==
+      "27dab91a5f2d579a4e491f628aae78f420a9920d700a2dd06f0596a7e3bdd894" ||
+    latestEvidence.setTimerOracleExecutableBytes !== 8_192 ||
+    latestEvidence.setTimerOracleExecutableSha256 !==
+      "896cb0ea2adc8f49984a2e8e6faced2977bbec5439ed3c96970f993e85c4fa2f" ||
+    latestEvidence.setTimerOracleLastErrorSentinel !== 23_130 ||
+    latestEvidence.setTimerOracleLiveWindowResult !== 1 ||
+    latestEvidence.setTimerOracleLiveWindowPreservesLastError !== true ||
+    latestEvidence.setTimerOracleReplacementPreservesTimerId !== true ||
+    latestEvidence.setTimerOracleReplacementStopsOldCallback !== true ||
+    latestEvidence.setTimerOracleReplacementCallbackOwnerThreadMatches !== true ||
+    latestEvidence.setTimerOracleFirstKillResult !== 1 ||
+    latestEvidence.setTimerOracleRepeatedKillResult !== 0 ||
+    latestEvidence.setTimerOracleKillPreservesLastError !== true ||
+    latestEvidence.setTimerOracleInvalidWindowResult !== 0 ||
+    latestEvidence.setTimerOracleInvalidWindowLastError !== 1_400 ||
+    latestEvidence.setTimerOracleNullWindowAllocatesTimerId !== true ||
+    latestEvidence.setTimerOracleNullWindowIgnoresRequestedTimerId !== true ||
+    latestEvidence.setTimerOracleLiveWindowZeroIdAllocatesTimerId !== true ||
+    latestEvidence.setTimerImplemented !== true ||
+    latestEvidence.setTimerImplementationId !==
+      "user32.set-timer.live-window-callback-registration.v1" ||
+    latestEvidence.setTimerPolicySchema !== "vine.user32-compatibility-policy" ||
+    latestEvidence.setTimerPolicySchemaVersion !== 18 ||
+    latestEvidence.setTimerPolicyId !==
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-v18" ||
+    latestEvidence.setTimerProfileId !== "main-window-id-1-20ms-timerproc-v1" ||
+    latestEvidence.setTimerStateAuthority !== "runtime/timers.rs::RuntimeTimers" ||
+    latestEvidence.setTimerWindowAuthority !== "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.setTimerNamespace !== "vine.logical-window-timer.v1" ||
+    latestEvidence.setTimerLimit !== 4_096 ||
+    latestEvidence.setTimerMinimumIntervalMilliseconds !== 10 ||
+    latestEvidence.setTimerSequence !== 18_577 ||
+    latestEvidence.setTimerInstructionCount !== 11_945_256 ||
+    latestEvidence.setTimerArguments?.join(",") !==
+      "0x48010001,0x00000001,0x00000014,0x10099600" ||
+    latestEvidence.setTimerReturnAddress !== "0x10099d4b" ||
+    latestEvidence.setTimerResult !== "0x00000001" ||
+    latestEvidence.setTimerLastError !== 0 ||
+    latestEvidence.setTimerGuestWriteBytes !== 0 ||
+    latestEvidence.setTimerInternalId !== 1 ||
+    latestEvidence.setTimerWindowId !== 1 ||
+    latestEvidence.setTimerWindowHandle !== "0x48010001" ||
+    latestEvidence.setTimerTimerId !== 1 ||
+    latestEvidence.setTimerOwnerThreadId !== 8_192 ||
+    latestEvidence.setTimerRequestedIntervalMilliseconds !== 20 ||
+    latestEvidence.setTimerEffectiveIntervalMilliseconds !== 20 ||
+    latestEvidence.setTimerCallbackAddress !== "0x10099600" ||
+    latestEvidence.setTimerRegistrationGeneration !== 1 ||
+    latestEvidence.setTimerRegistrationOnly !== true ||
+    latestEvidence.setTimerCallbackDeliveryImplemented !== false ||
+    latestEvidence.setTimerHostClockImported !== false ||
+    latestEvidence.setTimerBrowserClockImported !== false ||
+    latestEvidence.setTimerFailureAtomicity !== true ||
+    latestEvidence.setTimerNodeCompletions !== 1 ||
+    latestEvidence.setTimerChromeCompletions !== 1 ||
+    latestEvidence.setTimerNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest SetTimer registration evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -9197,7 +9325,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "DirectSound 8 root plus Rust-owned primary and secondary buffer descriptors, lazy sample backing, exact Lock/Unlock content transition, looping playback state, and COM lifetimes" ||
+      "Rust-owned live-window SetTimer registration identity, owner-thread relation, bounded interval and TIMERPROC metadata, replacement generation, and process teardown" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

@@ -15,6 +15,8 @@ const focusedSetWindowLongAObservation =
 const focusedSetWindowPosSizeObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-pos-size");
+const focusedSetTimerObservation =
+  selectedObservations.size === 1 && selectedObservations.has("set-timer");
 const focusedD3d9CreateDeviceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-create-device");
@@ -240,6 +242,12 @@ let createWaitableTimerAOracleEvidence = null;
 let createWaitableTimerACompletionRecorded = false;
 let createWaitableTimerADrainCheckScheduled = false;
 const createWaitableTimerAMainModuleCalls = [];
+let setTimerCompletionRecorded = false;
+let setTimerDrainCheckScheduled = false;
+const setTimerMainModuleCalls = [];
+const setTimerCallbackCalls = [];
+const killTimerMainModuleCalls = [];
+const attachedTimerProcedures = new Set();
 let loadIconAOracleScheduled = false;
 let loadIconAOracleCall = null;
 let loadIconAOracleComplete = false;
@@ -7618,6 +7626,215 @@ function maybeCompleteGetClientRectObservation() {
   }
 }
 
+function attachTimerProcedure(callback) {
+  if (callback.isNull()) {
+    return;
+  }
+  const key = callback.toString().toLowerCase();
+  if (attachedTimerProcedures.has(key)) {
+    return;
+  }
+  attachedTimerProcedures.add(key);
+  Interceptor.attach(callback, {
+    onEnter(args) {
+      if (setTimerCallbackCalls.length >= 16) {
+        this.timerProcedureCall = null;
+        return;
+      }
+      const record = {
+        callback: callback.toString(),
+        callbackIdentity: describeCaller(callback),
+        caller: describeCaller(this.returnAddress),
+        threadId: Process.getCurrentThreadId(),
+        window: args[0].toString(),
+        message: args[1].toUInt32(),
+        timerId: args[2].toUInt32(),
+        tickCount: args[3].toUInt32(),
+        lastErrorBefore: Number(this.lastError) >>> 0,
+      };
+      this.timerProcedureCall = record;
+      setTimerCallbackCalls.push(record);
+    },
+    onLeave() {
+      const record = this.timerProcedureCall;
+      if (record === null) {
+        return;
+      }
+      record.lastErrorAfter = Number(this.lastError) >>> 0;
+      setImmediate(maybeCompleteSetTimerObservation);
+    },
+  });
+}
+
+function attachSetTimerHook(module) {
+  const name = "SetTimer";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.window = args[0];
+      this.timerId = args[1].toUInt32();
+      this.intervalMilliseconds = args[2].toUInt32();
+      this.timerProcedure = args[3];
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          32,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          12,
+          16,
+        ),
+      };
+      attachTimerProcedure(this.timerProcedure);
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.window.toString(),
+            this.timerId,
+            this.intervalMilliseconds,
+            this.timerProcedure.toString(),
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          setTimer: {
+            window: this.window.toString(),
+            timerId: this.timerId,
+            intervalMilliseconds: this.intervalMilliseconds,
+            timerProcedure: this.timerProcedure.toString(),
+            timerProcedureIdentity: describeCaller(this.timerProcedure),
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          setTimer: {
+            result: resultValue,
+            resultNonzero: resultValue !== 0,
+            resultMatchesRequestedId: resultValue === this.timerId,
+          },
+        },
+        this.lastError,
+      );
+      setTimerMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        caller: this.traceFrame.caller,
+        threadId: this.traceFrame.threadId,
+        window: this.window.toString(),
+        timerId: this.timerId,
+        intervalMilliseconds: this.intervalMilliseconds,
+        timerProcedure: this.timerProcedure.toString(),
+        timerProcedureIdentity: describeCaller(this.timerProcedure),
+        result: resultValue,
+        resultNonzero: resultValue !== 0,
+        resultMatchesRequestedId: resultValue === this.timerId,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      });
+      setImmediate(maybeCompleteSetTimerObservation);
+    },
+  });
+}
+
+function attachKillTimerHook(module) {
+  const name = "KillTimer";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.window = args[0];
+      this.timerId = args[1].toUInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.window.toString(), this.timerId],
+          lastErrorBefore: this.lastErrorBefore,
+          killTimer: {
+            window: this.window.toString(),
+            timerId: this.timerId,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toUInt32();
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          killTimer: { result: resultValue },
+        },
+        this.lastError,
+      );
+      killTimerMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        caller: this.traceFrame.caller,
+        threadId: this.traceFrame.threadId,
+        window: this.window.toString(),
+        timerId: this.timerId,
+        result: resultValue,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+      });
+      setImmediate(maybeCompleteSetTimerObservation);
+    },
+  });
+}
+
 function attachGetMonitorInfoAHook(module) {
   const name = "GetMonitorInfoA";
   const address = findExport(module, name);
@@ -13909,6 +14126,51 @@ function scheduleCreateWaitableTimerAOracle(module) {
   });
 }
 
+function maybeCompleteSetTimerObservation() {
+  if (
+    setTimerCompletionRecorded ||
+    setTimerMainModuleCalls.length === 0 ||
+    setTimerCallbackCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSetTimerObservation, 10);
+    return;
+  }
+  if (setTimerDrainCheckScheduled) {
+    return;
+  }
+  setTimerDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  const expectedCallbackCount = setTimerCallbackCalls.length;
+  setTimeout(() => {
+    setTimerDrainCheckScheduled = false;
+    if (setTimerCompletionRecorded) {
+      return;
+    }
+    if (
+      activeCallsByThread.size !== 0 ||
+      nextCallId !== expectedNextCallId ||
+      setTimerCallbackCalls.length !== expectedCallbackCount
+    ) {
+      maybeCompleteSetTimerObservation();
+      return;
+    }
+    setTimerCompletionRecorded = true;
+    emit("set-timer-complete", {
+      profile: "x86-bgi-window-timer-registration-and-first-callback-v1",
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: setTimerMainModuleCalls.map((call) => ({ ...call })),
+      callbackCalls: setTimerCallbackCalls.map((call) => ({ ...call })),
+      killTimerCalls: killTimerMainModuleCalls.map((call) => ({ ...call })),
+    });
+    if (stopOnEvent === "set-timer-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
 function maybeCompleteSendMessageAObservation() {
   if (
     sendMessageACompletionRecorded ||
@@ -16957,6 +17219,25 @@ Process.attachModuleObserver({
           api: "SendMessageA",
           error: error.message,
         });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      focusedSetTimerObservation
+    ) {
+      for (const [name, attach] of [
+        ["SetTimer", attachSetTimerHook],
+        ["KillTimer", attachKillTimerHook],
+      ]) {
+        try {
+          attach(module);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
       }
     }
     if (

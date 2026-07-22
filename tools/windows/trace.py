@@ -51,6 +51,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-system-metrics",
     "get-client-rect",
     "get-monitor-info-a",
+    "set-timer",
     "window-dc",
     "set-window-long-a",
     "get-string-type-w",
