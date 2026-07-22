@@ -45,6 +45,11 @@ const focusedDinput8Observation =
   focusedDinput8RootObservation || focusedDinput8EnumDevicesObservation;
 const focusedDsoundRootObservation =
   selectedObservations.size === 1 && selectedObservations.has("dsound-root");
+const focusedDsoundCreateBufferObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("dsound-create-sound-buffer");
+const focusedDsoundObservation =
+  focusedDsoundRootObservation || focusedDsoundCreateBufferObservation;
 const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
@@ -88,6 +93,10 @@ let focusedDsoundRootObject = null;
 let focusedDsoundRootComplete = false;
 let focusedDsoundFactoryCall = null;
 const focusedDsoundRootCalls = [];
+let focusedDsoundCreateBufferComplete = false;
+const focusedDsoundCreateBufferCalls = [];
+const focusedDsoundBufferObjects = new Set();
+const focusedDsoundBufferCalls = [];
 const attached = new Set();
 const attachedVtableMethods = new Set();
 const observedVtables = new Set();
@@ -2483,6 +2492,81 @@ function snapshotD3d9RasterStatus(pointer) {
   }
 }
 
+function snapshotWaveFormatEx(pointer) {
+  const minimumSize = 16;
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      size: minimumSize,
+      error: "null pointer",
+    };
+  }
+  try {
+    const prefix = pointer.readByteArray(minimumSize);
+    const prefixView = new DataView(prefix);
+    const formatTag = prefixView.getUint16(0, true);
+    const size = formatTag === 1 ? minimumSize : 18;
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      fields: {
+        formatTag,
+        channels: view.getUint16(2, true),
+        samplesPerSecond: view.getUint32(4, true),
+        averageBytesPerSecond: view.getUint32(8, true),
+        blockAlign: view.getUint16(12, true),
+        bitsPerSample: view.getUint16(14, true),
+        extraBytes: size === 18 ? view.getUint16(16, true) : 0,
+      },
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      size: minimumSize,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotDirectSoundBufferDesc(pointer) {
+  const size = 36;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 DSBUFFERDESC observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    const buffer = pointer.readByteArray(size);
+    const view = new DataView(buffer);
+    const formatAddress = view.getUint32(16, true);
+    return {
+      pointer: pointer.toString(),
+      size,
+      bytes: [...new Uint8Array(buffer)],
+      fields: {
+        size: view.getUint32(0, true),
+        flags: view.getUint32(4, true),
+        bufferBytes: view.getUint32(8, true),
+        reserved: view.getUint32(12, true),
+        format: formatAddress,
+        algorithmGuid: [...new Uint8Array(buffer.slice(20, 36))],
+      },
+      format:
+        formatAddress === 0 ? null : snapshotWaveFormatEx(ptr(formatAddress)),
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
 function snapshotFixedAnsiBuffer(pointer, maximumBytes) {
   const raw = snapshotBoundedRawBytes(pointer, maximumBytes, maximumBytes);
   if (!Array.isArray(raw.bytes)) {
@@ -3055,6 +3139,30 @@ const idirectsound8Methods = [
   [9, "SetSpeakerConfig", 1],
   [10, "Initialize", 1],
   [11, "VerifyCertification", 1],
+];
+
+const idirectsoundbufferMethods = [
+  [0, "QueryInterface", 2],
+  [1, "AddRef", 0],
+  [2, "Release", 0],
+  [3, "GetCaps", 1],
+  [4, "GetCurrentPosition", 2],
+  [5, "GetFormat", 3],
+  [6, "GetVolume", 1],
+  [7, "GetPan", 1],
+  [8, "GetFrequency", 1],
+  [9, "GetStatus", 1],
+  [10, "Initialize", 2],
+  [11, "Lock", 7],
+  [12, "Play", 3],
+  [13, "SetCurrentPosition", 1],
+  [14, "SetFormat", 1],
+  [15, "SetVolume", 1],
+  [16, "SetPan", 1],
+  [17, "SetFrequency", 1],
+  [18, "Stop", 0],
+  [19, "Unlock", 4],
+  [20, "Restore", 0],
 ];
 
 const idirect3ddevice9Methods = [
@@ -4231,6 +4339,203 @@ function attachIdirect3ddevice9(object) {
   }
 }
 
+function attachIdirectsoundbuffer(object) {
+  if (object.isNull() || !focusedDsoundCreateBufferObservation) {
+    return;
+  }
+  try {
+    const objectAddress = object.toString().toLowerCase();
+    const vtable = object.readPointer();
+    const vtableKey = `IDirectSoundBuffer:${vtable}`;
+    if (observedVtables.has(vtableKey)) {
+      focusedDsoundBufferObjects.add(objectAddress);
+      return;
+    }
+    observedVtables.add(vtableKey);
+    focusedDsoundBufferObjects.add(objectAddress);
+    const slots = [];
+    for (const [slot, name, argumentCount] of idirectsoundbufferMethods) {
+      const address = vtable.add(slot * Process.pointerSize).readPointer();
+      slots.push({ slot, name, address: address.toString() });
+      const key = `IDirectSoundBuffer:${slot}:${address}`;
+      if (attachedVtableMethods.has(key)) {
+        continue;
+      }
+      attachedVtableMethods.add(key);
+      const implementationModule = Process.findModuleByAddress(address);
+      Interceptor.attach(address, {
+        onEnter(args) {
+          const caller = describeCaller(this.returnAddress);
+          const calledObject = args[0].toString().toLowerCase();
+          if (
+            focusedDsoundCreateBufferComplete ||
+            focusedDsoundBufferCalls.length >= 5 ||
+            !focusedDsoundBufferObjects.has(calledObject) ||
+            caller.module?.toLowerCase() !==
+              Process.mainModule.name.toLowerCase()
+          ) {
+            this.traceFrame = null;
+            return;
+          }
+          this.traceObject = calledObject;
+          this.traceArguments = Array.from(
+            { length: argumentCount },
+            (_, index) => args[index + 1].toString(),
+          );
+          this.traceDsoundBufferQueryOutput = slot === 0 ? args[2] : null;
+          this.traceDsoundBufferLockOutputs =
+            slot === 11
+              ? {
+                  data1: args[3],
+                  bytes1: args[4],
+                  data2: args[5],
+                  bytes2: args[6],
+                }
+              : null;
+          this.traceDsoundBufferMethod = {
+            ...(slot === 0
+              ? {
+                  queryInterface: {
+                    iid: snapshotBoundedRawBytes(args[1], 16, 16),
+                    output: {
+                      address: args[2].toString(),
+                      before: snapshotPointerSlot(args[2]),
+                    },
+                  },
+                }
+              : {}),
+            ...(slot === 14
+              ? { waveFormat: snapshotWaveFormatEx(args[1]) }
+              : {}),
+            ...(this.traceDsoundBufferLockOutputs === null
+              ? {}
+              : {
+                  lock: {
+                    offset: args[1].toUInt32(),
+                    requestedBytes: args[2].toUInt32(),
+                    flags: args[7].toUInt32(),
+                    outputsBefore: {
+                      data1: snapshotPointerSlot(args[3]),
+                      bytes1: snapshotPointerSlot(args[4]),
+                      data2: snapshotPointerSlot(args[5]),
+                      bytes2: snapshotPointerSlot(args[6]),
+                    },
+                  },
+                }),
+            immediateConsumer: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              96,
+            ),
+          };
+          this.traceFrame = beginCall(
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirectSoundBuffer",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+            },
+            this.returnAddress,
+          );
+        },
+        onLeave(result) {
+          if (this.traceFrame === null) {
+            return;
+          }
+          const lastError = Number(this.lastError) >>> 0;
+          let directSoundBufferMethod =
+            this.traceDsoundBufferQueryOutput === null
+              ? this.traceDsoundBufferMethod
+              : {
+                  ...this.traceDsoundBufferMethod,
+                  queryInterface: {
+                    ...this.traceDsoundBufferMethod.queryInterface,
+                    output: {
+                      ...this.traceDsoundBufferMethod.queryInterface.output,
+                      after: snapshotPointerSlot(
+                        this.traceDsoundBufferQueryOutput,
+                      ),
+                    },
+                  },
+                };
+          if (this.traceDsoundBufferLockOutputs !== null) {
+            directSoundBufferMethod = {
+              ...directSoundBufferMethod,
+              lock: {
+                ...directSoundBufferMethod.lock,
+                outputsAfter: {
+                  data1: snapshotPointerSlot(
+                    this.traceDsoundBufferLockOutputs.data1,
+                  ),
+                  bytes1: snapshotPointerSlot(
+                    this.traceDsoundBufferLockOutputs.bytes1,
+                  ),
+                  data2: snapshotPointerSlot(
+                    this.traceDsoundBufferLockOutputs.data2,
+                  ),
+                  bytes2: snapshotPointerSlot(
+                    this.traceDsoundBufferLockOutputs.bytes2,
+                  ),
+                },
+              },
+            };
+          }
+          finishCall(
+            this.traceFrame,
+            {
+              module: implementationModule?.name ?? "<unknown>",
+              api: name,
+              interface: "IDirectSoundBuffer",
+              vtableSlot: slot,
+              object: this.traceObject,
+              result: result.toString(),
+              directSoundBufferMethod,
+            },
+            lastError,
+          );
+          focusedDsoundBufferCalls.push({
+            callId: this.traceFrame.callId,
+            caller: this.traceFrame.caller,
+            returnAddress: this.returnAddress.toString(),
+            api: name,
+            interface: "IDirectSoundBuffer",
+            vtableSlot: slot,
+            object: this.traceObject,
+            arguments: this.traceArguments,
+            result: result.toString(),
+            signedResult: result.toInt32(),
+            lastError,
+            directSoundBufferMethod,
+          });
+          const queryOutput = directSoundBufferMethod.queryInterface?.output?.after?.value;
+          if (
+            slot === 0 &&
+            result.toInt32() >= 0 &&
+            typeof queryOutput === "string" &&
+            queryOutput !== "0x0"
+          ) {
+            attachIdirectsoundbuffer(ptr(queryOutput));
+          }
+          setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
+        },
+      });
+    }
+    emit("vtable-observed", {
+      interface: "IDirectSoundBuffer",
+      object: objectAddress,
+      vtable: vtable.toString(),
+      slots,
+    });
+  } catch (error) {
+    emit("vtable-error", {
+      interface: "IDirectSoundBuffer",
+      object: object.toString(),
+      error: error.message,
+    });
+  }
+}
+
 function attachIdirectsound8(object) {
   if (object.isNull()) {
     return;
@@ -4256,10 +4561,14 @@ function attachIdirectsound8(object) {
         onEnter(args) {
           const caller = describeCaller(this.returnAddress);
           if (
-            focusedDsoundRootObservation &&
-            (focusedDsoundRootComplete ||
-              caller.module?.toLowerCase() !==
-                Process.mainModule.name.toLowerCase())
+            focusedDsoundObservation &&
+            (caller.module?.toLowerCase() !==
+              Process.mainModule.name.toLowerCase() ||
+              (focusedDsoundRootObservation && focusedDsoundRootComplete) ||
+              (focusedDsoundCreateBufferObservation &&
+                (focusedDsoundCreateBufferComplete ||
+                  slot !== 3 ||
+                  focusedDsoundCreateBufferCalls.length >= 2)))
           ) {
             this.traceFrame = null;
             return;
@@ -4280,6 +4589,23 @@ function attachIdirectsound8(object) {
                   ),
                 }
               : null;
+          this.traceDsoundCreateBufferOutput =
+            focusedDsoundCreateBufferObservation && slot === 3 ? args[2] : null;
+          this.traceDsoundCreateBuffer =
+            this.traceDsoundCreateBufferOutput === null
+              ? null
+              : {
+                  descriptor: snapshotDirectSoundBufferDesc(args[1]),
+                  output: {
+                    address: args[2].toString(),
+                    before: snapshotPointerSlot(args[2]),
+                  },
+                  outerUnknown: args[3].toString(),
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                };
           this.traceFrame = beginCall(
             {
               module: implementationModule?.name ?? "<unknown>",
@@ -4296,7 +4622,19 @@ function attachIdirectsound8(object) {
           if (this.traceFrame === null) {
             return;
           }
-          const lastError = this.lastError;
+          const lastError = Number(this.lastError) >>> 0;
+          const directSoundCreateBuffer =
+            this.traceDsoundCreateBuffer === null
+              ? null
+              : {
+                  ...this.traceDsoundCreateBuffer,
+                  output: {
+                    ...this.traceDsoundCreateBuffer.output,
+                    after: snapshotPointerSlot(
+                      this.traceDsoundCreateBufferOutput,
+                    ),
+                  },
+                };
           finishCall(
             this.traceFrame,
             {
@@ -4312,6 +4650,9 @@ function attachIdirectsound8(object) {
                     directSoundSetCooperativeLevel:
                       this.traceDsoundSetCooperativeLevel,
                   }),
+              ...(directSoundCreateBuffer === null
+                ? {}
+                : { directSoundCreateBuffer }),
             },
             lastError,
           );
@@ -4330,7 +4671,7 @@ function attachIdirectsound8(object) {
               arguments: this.traceArguments,
               result: result.toString(),
               signedResult: result.toInt32(),
-              lastError: Number(lastError) >>> 0,
+              lastError,
               ...(this.traceDsoundSetCooperativeLevel === null
                 ? {}
                 : {
@@ -4339,6 +4680,36 @@ function attachIdirectsound8(object) {
                   }),
             });
             setImmediate(maybeCompleteFocusedDsoundRootObservation);
+          }
+          if (
+            focusedDsoundCreateBufferObservation &&
+            directSoundCreateBuffer !== null &&
+            focusedDsoundCreateBufferCalls.length < 2
+          ) {
+            const call = {
+              callId: this.traceFrame.callId,
+              caller: this.traceFrame.caller,
+              returnAddress: this.returnAddress.toString(),
+              api: name,
+              interface: "IDirectSound8",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              signedResult: result.toInt32(),
+              lastError,
+              directSoundCreateBuffer,
+            };
+            focusedDsoundCreateBufferCalls.push(call);
+            const output = directSoundCreateBuffer.output.after.value;
+            if (
+              result.toInt32() >= 0 &&
+              typeof output === "string" &&
+              output !== "0x0"
+            ) {
+              attachIdirectsoundbuffer(ptr(output));
+            }
+            setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
           }
         },
       });
@@ -4378,6 +4749,32 @@ function maybeCompleteFocusedDsoundRootObservation() {
     firstRootCall: focusedDsoundRootCalls[0],
   });
   if (stopOnEvent === "dsound-root-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedDsoundCreateBufferObservation() {
+  if (
+    focusedDsoundCreateBufferComplete ||
+    focusedDsoundFactoryCall === null ||
+    focusedDsoundCreateBufferCalls.length !== 2 ||
+    focusedDsoundBufferCalls.length !== 5
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedDsoundCreateBufferObservation, 10);
+    return;
+  }
+  focusedDsoundCreateBufferComplete = true;
+  emit("dsound-create-sound-buffer-complete", {
+    profile: "x86-bgi-direct-sound-create-buffer-v1",
+    rootObject: focusedDsoundRootObject,
+    factory: focusedDsoundFactoryCall,
+    createCalls: focusedDsoundCreateBufferCalls,
+    bufferCalls: focusedDsoundBufferCalls,
+  });
+  if (stopOnEvent === "dsound-create-sound-buffer-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -7999,8 +8396,9 @@ function attachHook(module, name, decoders) {
         name === "DirectInput8Create" &&
         isMainModuleCaller;
       const tracesDsoundFactory =
-        focusedDsoundRootObservation &&
+        focusedDsoundObservation &&
         !focusedDsoundRootComplete &&
+        !focusedDsoundCreateBufferComplete &&
         focusedDsoundFactoryCall === null &&
         name === "DirectSoundCreate8" &&
         isMainModuleCaller;
@@ -10013,7 +10411,11 @@ function attachHook(module, name, decoders) {
           directSoundCreate8,
         };
         attachIdirectsound8(ptr(rootObject));
-        setImmediate(maybeCompleteFocusedDsoundRootObservation);
+        if (focusedDsoundRootObservation) {
+          setImmediate(maybeCompleteFocusedDsoundRootObservation);
+        } else {
+          setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
+        }
       }
       if (
         this.traceSourceFileCreate !== null &&

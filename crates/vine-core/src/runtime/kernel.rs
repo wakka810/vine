@@ -32,10 +32,14 @@ use super::address_space::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::audio::{
-    RuntimeAudio, RuntimeAudioComRetirementPlan, RuntimeAudioCooperativeLevelPlan,
-    RuntimeAudioCooperativeLevelRequest, RuntimeAudioCooperativeLevelResult,
-    RuntimeAudioCooperativeLevelUpdateRequest, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
-    RuntimeAudioDeviceCreationPlan, RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
+    RuntimeAudio, RuntimeAudioBuffer, RuntimeAudioBufferCreateRequest,
+    RuntimeAudioBufferCreationPlan, RuntimeAudioBufferFormatPlan, RuntimeAudioBufferFormatRequest,
+    RuntimeAudioBufferFormatResult, RuntimeAudioBufferId, RuntimeAudioBufferPlayPlan,
+    RuntimeAudioBufferPlayRequest, RuntimeAudioBufferPlayResult, RuntimeAudioComRetirementPlan,
+    RuntimeAudioCooperativeLevelPlan, RuntimeAudioCooperativeLevelRequest,
+    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeLevelUpdateRequest,
+    RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceCreationPlan,
+    RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
 };
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
@@ -3499,6 +3503,65 @@ impl RuntimeKernel {
         self.gdi.surfaces()
     }
 
+    pub(crate) fn plan_audio_buffer_creation(
+        &self,
+        request: RuntimeAudioBufferCreateRequest,
+    ) -> Result<RuntimeAudioBufferCreationPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_buffer_creation(request)
+    }
+
+    pub(crate) fn preflight_audio_buffer_creation(
+        &self,
+        plan: &RuntimeAudioBufferCreationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_creation(plan)
+    }
+
+    pub(crate) fn commit_audio_buffer_creation(
+        &mut self,
+        plan: RuntimeAudioBufferCreationPlan,
+        com_object_id: RuntimeComObjectId,
+    ) -> RuntimeAudioBuffer {
+        debug_assert!(self.preflight_audio_buffer_creation(&plan).is_ok());
+        self.audio.commit_buffer_creation(plan, com_object_id)
+    }
+
+    pub(crate) fn plan_audio_buffer_format(
+        &self,
+        request: RuntimeAudioBufferFormatRequest,
+    ) -> Result<RuntimeAudioBufferFormatPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_buffer_format(request)
+    }
+
+    pub(crate) fn commit_audio_buffer_format(
+        &mut self,
+        plan: RuntimeAudioBufferFormatPlan,
+    ) -> Result<RuntimeAudioBufferFormatResult, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_format(&plan)?;
+        Ok(self.audio.commit_buffer_format(plan))
+    }
+
+    pub(crate) fn plan_audio_buffer_play(
+        &self,
+        request: RuntimeAudioBufferPlayRequest,
+    ) -> Result<RuntimeAudioBufferPlayPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_buffer_play(request)
+    }
+
+    pub(crate) fn commit_audio_buffer_play(
+        &mut self,
+        plan: RuntimeAudioBufferPlayPlan,
+    ) -> Result<RuntimeAudioBufferPlayResult, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_play(&plan)?;
+        Ok(self.audio.commit_buffer_play(plan))
+    }
+
     pub(crate) fn plan_audio_cooperative_level(
         &self,
         request: RuntimeAudioCooperativeLevelRequest,
@@ -3548,6 +3611,24 @@ impl RuntimeKernel {
 
     pub fn audio_devices(&self) -> &BTreeMap<RuntimeAudioDeviceId, RuntimeAudioDevice> {
         self.audio.devices()
+    }
+
+    pub fn audio_buffer(
+        &self,
+        id: RuntimeAudioBufferId,
+    ) -> Result<&RuntimeAudioBuffer, RuntimeStateError> {
+        self.audio.buffer(id)
+    }
+
+    pub fn audio_buffer_for_com_object(
+        &self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<&RuntimeAudioBuffer, RuntimeStateError> {
+        self.audio.buffer_by_com_object(com_object_id)
+    }
+
+    pub fn audio_buffers(&self) -> &BTreeMap<RuntimeAudioBufferId, RuntimeAudioBuffer> {
+        self.audio.buffers()
     }
 
     pub(crate) fn plan_graphics_device_creation(
@@ -5671,19 +5752,21 @@ mod tests {
         dispatch_d3d9_com_call,
     };
     use crate::dsound::{
-        DSOUND_DSSCL_PRIORITY, DSOUND_IDIRECTSOUND8_IID, DsoundCompatibilityPolicy,
+        DSOUND_DSBPLAY_LOOPING, DSOUND_DSBUFFERDESC_BYTES, DSOUND_DSSCL_PRIORITY,
+        DSOUND_IDIRECTSOUND8_IID, DSOUND_IDIRECTSOUNDBUFFER8_IID, DSOUND_PRIMARY_BUFFER_FLAGS,
+        DSOUND_SECONDARY_BUFFER_BYTES, DSOUND_SECONDARY_BUFFER_FLAGS, DsoundCompatibilityPolicy,
         direct_sound8_object_spec, dispatch_dsound_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
     use crate::runtime::{
         RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE,
         RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_ENCODING,
-        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeGraphicsColorFormat,
-        RuntimeGraphicsCullMode, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStates,
-        RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBufferPool,
-        RuntimeGraphicsVertexBufferUsage, RuntimeWindowClassModule, RuntimeWindowClassNameA,
-        RuntimeWindowClassReference, RuntimeWindowGeometry, RuntimeWindowNameA,
-        RuntimeWindowProcedureCallingConvention,
+        RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RuntimeAudioBufferKind, RuntimeAudioPlaybackState,
+        RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsPresentMode,
+        RuntimeGraphicsRenderStates, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
+        RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUsage,
+        RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
+        RuntimeWindowGeometry, RuntimeWindowNameA, RuntimeWindowProcedureCallingConvention,
     };
     use crate::{ExecutionSession, RuntimeRect, Rva};
 
@@ -7730,7 +7813,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_sound_cooperative_level_commits_the_live_window_relation() {
+    fn direct_sound_initial_buffers_commit_com_memory_and_audio_as_one_lifetime() {
         let mut runtime = d3d9_fixture_runtime();
         let window = seed_created_d3d9_window(&mut runtime);
         let mut memory = d3d9_fixture_memory();
@@ -7801,6 +7884,298 @@ mod tests {
             cooperative.level,
             super::super::RuntimeAudioCooperativeLevel::Priority
         );
+
+        let policy = DsoundCompatibilityPolicy::controlled_v1();
+        let pcm_words = [0x0002_0001, 44_100, 176_400, 0x0010_0004];
+        let format_address = GuestAddress(D3D9_FIXTURE_PRESENTATION.0 + 0x40);
+        let iid_address = GuestAddress(D3D9_FIXTURE_PRESENTATION.0 + 0x60);
+        write_d3d9_fixture_words(&mut memory, format_address, &pcm_words);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_PRESENTATION,
+            &[
+                DSOUND_DSBUFFERDESC_BYTES,
+                DSOUND_PRIMARY_BUFFER_FLAGS,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        );
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                interface.guest_pointer.0,
+                D3D9_FIXTURE_PRESENTATION.0,
+                D3D9_FIXTURE_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let create_primary = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: interface.methods[&3].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("primary CreateSoundBuffer did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            create_primary.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(create_primary.guest_writes.len(), 1);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let primary_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let primary_interface = runtime
+            .com_interface_for_pointer(GuestAddress(primary_pointer))
+            .expect("primary IDirectSoundBuffer8 output")
+            .clone();
+        assert_eq!(primary_interface.iid, DSOUND_IDIRECTSOUNDBUFFER8_IID);
+        let primary = runtime
+            .audio_buffer_for_com_object(primary_interface.object_id)
+            .expect("primary logical audio buffer");
+        assert_eq!(primary.descriptor.kind, RuntimeAudioBufferKind::Primary);
+        assert_eq!(primary.active_format, None);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                primary_interface.guest_pointer.0,
+                format_address.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let set_format = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: primary_interface.methods[&14].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("primary SetFormat did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(set_format.return_value, ComReturnValue::HResult(COM_S_OK));
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                primary_interface.guest_pointer.0,
+                0,
+                0,
+                DSOUND_DSBPLAY_LOOPING,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let play = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: primary_interface.methods[&12].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("primary Play did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(play.return_value, ComReturnValue::HResult(COM_S_OK));
+        let primary = runtime
+            .audio_buffer_for_com_object(primary_interface.object_id)
+            .expect("playing primary logical audio buffer");
+        assert_eq!(
+            primary.active_format,
+            policy.initial_buffers.as_ref().map(|p| p.pcm_format)
+        );
+        assert_eq!(primary.playback, RuntimeAudioPlaybackState::PlayingLooping);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_PRESENTATION,
+            &[
+                DSOUND_DSBUFFERDESC_BYTES,
+                DSOUND_SECONDARY_BUFFER_FLAGS,
+                DSOUND_SECONDARY_BUFFER_BYTES,
+                0,
+                format_address.0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        );
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_TEXTURE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                interface.guest_pointer.0,
+                D3D9_FIXTURE_PRESENTATION.0,
+                D3D9_FIXTURE_TEXTURE_OUTPUT.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let create_secondary = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: interface.methods[&3].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("secondary CreateSoundBuffer did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            create_secondary.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let secondary_pointer = u32::from_le_bytes(
+            memory
+                .read(D3D9_FIXTURE_TEXTURE_OUTPUT, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
+        let secondary_interface = runtime
+            .com_interface_for_pointer(GuestAddress(secondary_pointer))
+            .expect("secondary IDirectSoundBuffer8 output")
+            .clone();
+        assert_eq!(runtime.audio_buffers().len(), 2);
+        assert_eq!(
+            runtime
+                .audio_buffer_for_com_object(secondary_interface.object_id)
+                .unwrap()
+                .descriptor
+                .kind,
+            RuntimeAudioBufferKind::Secondary
+        );
+
+        let iid_words = DSOUND_IDIRECTSOUNDBUFFER8_IID
+            .windows_bytes()
+            .chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        write_d3d9_fixture_words(&mut memory, iid_address, &iid_words);
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_SURFACE_OUTPUT, &[0xcccc_cccc]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                iid_address.0,
+                D3D9_FIXTURE_SURFACE_OUTPUT.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let query = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&0].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(query) = query else {
+            panic!("IDirectSoundBuffer8 QueryInterface did not complete: {query:?}");
+        };
+        assert_eq!(query.return_value, ComReturnValue::HResult(COM_S_OK));
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_SURFACE_OUTPUT, 4).unwrap(),
+            secondary_pointer.to_le_bytes()
+        );
+        let release = dispatch_d3d9_fixture_release(
+            &mut memory,
+            &mut runtime,
+            &secondary_interface,
+            secondary_interface.guest_pointer,
+        );
+        assert_eq!(release.return_value, ComReturnValue::U32(1));
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                0,
+                DSOUND_SECONDARY_BUFFER_BYTES,
+                D3D9_FIXTURE_OUTPUT.0,
+                D3D9_FIXTURE_OUTPUT.0 + 4,
+                D3D9_FIXTURE_OUTPUT.0 + 8,
+                D3D9_FIXTURE_OUTPUT.0 + 12,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let lock = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&11].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Fault(lock) = lock else {
+            panic!("Lock unexpectedly completed: {lock:?}");
+        };
+        assert_eq!(lock.class, ComFaultClass::Unsupported);
+        assert_eq!(lock.code, "com-method-unsupported");
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
     }
 

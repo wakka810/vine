@@ -9,31 +9,49 @@ use crate::com::{
     COM_S_OK, ComCallTrap, ComDispatchOutcome, ComFaultClass, ComFrontendCall, ComHResult,
     ComInterfaceSpec, ComMethodSpec, ComObjectSpec, ComReturnValue,
 };
-use crate::memory::GuestAddress;
+use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
-    RuntimeAudioCooperativeLevel, RuntimeAudioCooperativeLevelRequest,
-    RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
-    RuntimeComIid, RuntimeComReturnKind, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeAudioBufferCreateRequest, RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatRequest,
+    RuntimeAudioBufferKind, RuntimeAudioBufferPlayRequest, RuntimeAudioCooperativeLevel,
+    RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
+    RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioPcmFormat,
+    RuntimeAudioPlaybackState, RuntimeComIid, RuntimeComReturnKind, RuntimeStateError,
+    RuntimeStateErrorClass,
 };
 use serde::Serialize;
 
 pub const DSOUND_DIRECT_SOUND_CREATE_8_ORDINAL: u16 = 11;
 pub const DSOUND_DIRECT_SOUND_CREATE_8_IMPLEMENTATION: &str = "dsound.direct-sound-create-8.v1";
 pub const DSOUND_IDIRECTSOUND8_CLASS_IDENTITY: &str = "dsound.idirectsound8-root.v1";
+pub const DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY: &str = "dsound.idirectsoundbuffer8.v1";
 pub const DSOUND_IDIRECTSOUND_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0x83, 0xfa, 0x9a, 0x27, 0x81, 0x49, 0xce, 0x11, 0xa5, 0x21, 0x00, 0x20, 0xaf, 0x0b, 0xe5, 0x60,
 ]);
 pub const DSOUND_IDIRECTSOUND8_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0x93, 0x7e, 0x0a, 0xc5, 0x95, 0xf3, 0x34, 0x48, 0x9e, 0xf6, 0x7f, 0xa9, 0x9d, 0xe5, 0x09, 0x66,
 ]);
+pub const DSOUND_IDIRECTSOUNDBUFFER_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0x85, 0xfa, 0x9a, 0x27, 0x81, 0x49, 0xce, 0x11, 0xa5, 0x21, 0x00, 0x20, 0xaf, 0x0b, 0xe5, 0x60,
+]);
+pub const DSOUND_IDIRECTSOUNDBUFFER8_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0x49, 0xa4, 0x25, 0x68, 0x24, 0x75, 0x82, 0x4d, 0x92, 0x0f, 0x50, 0xe3, 0x6a, 0xb3, 0xab, 0x1e,
+]);
 pub const DSOUND_CLASS_E_NOAGGREGATION: ComHResult = ComHResult(0x8004_0110_u32 as i32);
 pub const DSOUND_E_INVALIDARG: ComHResult = ComHResult(0x8007_0057_u32 as i32);
+pub const DSOUND_DSERR_CONTROLUNAVAIL: ComHResult = ComHResult(0x8878_0032_u32 as i32);
 pub const DSOUND_DSSCL_NORMAL: u32 = 1;
 pub const DSOUND_DSSCL_PRIORITY: u32 = 2;
 pub const DSOUND_DSSCL_EXCLUSIVE: u32 = 3;
 pub const DSOUND_DSSCL_WRITEPRIMARY: u32 = 4;
 pub const DSOUND_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.dsound-compatibility-policy";
 pub const DSOUND_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+pub const DSOUND_DSBUFFERDESC_BYTES: u32 = 36;
+pub const DSOUND_DSBCAPS_PRIMARYBUFFER: u32 = 0x0000_0001;
+pub const DSOUND_PRIMARY_BUFFER_FLAGS: u32 = DSOUND_DSBCAPS_PRIMARYBUFFER;
+pub const DSOUND_SECONDARY_BUFFER_FLAGS: u32 = 0x0000_80a8;
+pub const DSOUND_SECONDARY_BUFFER_BYTES: u32 = 88_200;
+pub const DSOUND_WAVE_FORMAT_PCM: u16 = 1;
+pub const DSOUND_DSBPLAY_LOOPING: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,11 +64,23 @@ pub struct DsoundCooperativeLevelPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DsoundInitialBuffersPolicy {
+    pub profile_id: String,
+    pub primary_flags: u32,
+    pub secondary_flags: u32,
+    pub secondary_buffer_bytes: u32,
+    pub pcm_format: RuntimeAudioPcmFormat,
+    pub primary_play_flags: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DsoundCompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub set_cooperative_level: Option<DsoundCooperativeLevelPolicy>,
+    pub initial_buffers: Option<DsoundInitialBuffersPolicy>,
 }
 
 impl DsoundCompatibilityPolicy {
@@ -64,6 +94,20 @@ impl DsoundCompatibilityPolicy {
                 level: DSOUND_DSSCL_PRIORITY,
                 require_live_top_level_window: true,
                 require_window_owner_thread: true,
+            }),
+            initial_buffers: Some(DsoundInitialBuffersPolicy {
+                profile_id: "primary-stereo-pcm-and-secondary-88200-v1".to_owned(),
+                primary_flags: DSOUND_PRIMARY_BUFFER_FLAGS,
+                secondary_flags: DSOUND_SECONDARY_BUFFER_FLAGS,
+                secondary_buffer_bytes: DSOUND_SECONDARY_BUFFER_BYTES,
+                pcm_format: RuntimeAudioPcmFormat {
+                    channels: 2,
+                    samples_per_second: 44_100,
+                    average_bytes_per_second: 176_400,
+                    block_align: 4,
+                    bits_per_sample: 16,
+                },
+                primary_play_flags: DSOUND_DSBPLAY_LOOPING,
             }),
         }
     }
@@ -89,6 +133,27 @@ impl DsoundCompatibilityPolicy {
                 "dsound-compatibility-policy",
                 "dsound-cooperative-level-profile-invalid",
                 "DirectSound cooperative policy must describe the evidenced live top-level priority relation",
+            ));
+        }
+        if let Some(buffers) = self.initial_buffers.as_ref()
+            && (!valid_policy_id(&buffers.profile_id)
+                || buffers.primary_flags != DSOUND_PRIMARY_BUFFER_FLAGS
+                || buffers.secondary_flags != DSOUND_SECONDARY_BUFFER_FLAGS
+                || buffers.secondary_buffer_bytes != DSOUND_SECONDARY_BUFFER_BYTES
+                || buffers.pcm_format
+                    != (RuntimeAudioPcmFormat {
+                        channels: 2,
+                        samples_per_second: 44_100,
+                        average_bytes_per_second: 176_400,
+                        block_align: 4,
+                        bits_per_sample: 16,
+                    })
+                || buffers.primary_play_flags != DSOUND_DSBPLAY_LOOPING)
+        {
+            return Err(ApiFault::runtime_defect(
+                "dsound-compatibility-policy",
+                "dsound-initial-buffers-profile-invalid",
+                "DirectSound initial-buffer policy must match the evidenced PCM setup sequence",
             ));
         }
         Ok(())
@@ -133,14 +198,16 @@ fn dispatch_dsound_frontend_call(
     policy: &DsoundCompatibilityPolicy,
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
-    if call.class_identity() != DSOUND_IDIRECTSOUND8_CLASS_IDENTITY
-        || call.frame().iid != DSOUND_IDIRECTSOUND8_IID
-    {
+    let root_target = call.class_identity() == DSOUND_IDIRECTSOUND8_CLASS_IDENTITY
+        && call.frame().iid == DSOUND_IDIRECTSOUND8_IID;
+    let buffer_target = call.class_identity() == DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY
+        && call.frame().iid == DSOUND_IDIRECTSOUNDBUFFER8_IID;
+    if !root_target && !buffer_target {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "dsound-com-dispatch",
             "dsound-com-target-mismatch",
-            "DirectSound frontend received a COM object outside its owned root interface",
+            "DirectSound frontend received a COM object outside its owned interfaces",
         );
     }
     if let Err(fault) = policy.validate() {
@@ -151,20 +218,307 @@ fn dispatch_dsound_frontend_call(
             fault.message,
         );
     }
-    if call.frame().vtable_slot != 6
-        || call.frame().method != "SetCooperativeLevel"
-        || call.explicit_argument_words() != 2
-        || call.frame().explicit_arguments.len() != 2
-        || call.return_kind() != RuntimeComReturnKind::HResult
-    {
-        return call.fault(
+    match (
+        root_target,
+        buffer_target,
+        call.frame().vtable_slot,
+        call.frame().method.as_str(),
+        call.explicit_argument_words(),
+        call.frame().explicit_arguments.len(),
+        call.return_kind(),
+    ) {
+        (true, false, 3, "CreateSoundBuffer", 3, 3, RuntimeComReturnKind::HResult) => {
+            handle_create_sound_buffer(policy, call)
+        }
+        (true, false, 6, "SetCooperativeLevel", 2, 2, RuntimeComReturnKind::HResult) => {
+            handle_set_cooperative_level(policy, call)
+        }
+        (false, true, 12, "Play", 3, 3, RuntimeComReturnKind::HResult) => {
+            handle_buffer_play(policy, call)
+        }
+        (false, true, 14, "SetFormat", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_set_format(policy, call)
+        }
+        _ => call.fault(
             ComFaultClass::RuntimeDefect,
             "dsound-com-dispatch",
             "dsound-com-abi-mismatch",
-            "registered IDirectSound8 frontend ABI does not match SetCooperativeLevel",
+            "registered DirectSound frontend ABI does not match its method contract",
+        ),
+    }
+}
+
+fn handle_create_sound_buffer(
+    policy: &DsoundCompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let [descriptor_pointer, output_pointer, outer_unknown] =
+        call.frame().explicit_arguments.as_slice()
+    else {
+        unreachable!("frontend ABI preflight fixed the DirectSound argument count");
+    };
+    let (descriptor_pointer, output_pointer, outer_unknown) =
+        (*descriptor_pointer, *output_pointer, *outer_unknown);
+    if descriptor_pointer == 0 || output_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    if outer_unknown != 0 {
+        return call.complete(
+            ComReturnValue::HResult(DSOUND_CLASS_E_NOAGGREGATION),
+            Vec::new(),
         );
     }
-    handle_set_cooperative_level(policy, call)
+    let Some(buffers_policy) = policy.initial_buffers.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "com-dispatch",
+            "com-method-unsupported",
+            "COM interface IDirectSound8 slot 3 (CreateSoundBuffer) is not enabled by the active policy",
+        );
+    };
+    let output_address = GuestAddress(output_pointer);
+    if let Err(error) = call
+        .memory()
+        .validate_access(output_address, 4, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    let descriptor_bytes = match call.memory().read(
+        GuestAddress(descriptor_pointer),
+        DSOUND_DSBUFFERDESC_BYTES as usize,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let Some(descriptor) = parse_buffer_descriptor(&descriptor_bytes) else {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    };
+    if descriptor.size != DSOUND_DSBUFFERDESC_BYTES
+        || descriptor.reserved != 0
+        || descriptor.algorithm.iter().any(|byte| *byte != 0)
+    {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+
+    let logical_descriptor = if descriptor.flags & DSOUND_DSBCAPS_PRIMARYBUFFER != 0 {
+        if descriptor.byte_length != 0 || descriptor.format_pointer != 0 {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
+        if descriptor.flags != buffers_policy.primary_flags {
+            return unsupported_buffer_variant(
+                call,
+                "primary DirectSound buffer flags are not evidenced",
+            );
+        }
+        RuntimeAudioBufferDescriptor {
+            kind: RuntimeAudioBufferKind::Primary,
+            flags: descriptor.flags,
+            byte_length: 0,
+            format: None,
+        }
+    } else {
+        if descriptor.byte_length == 0 || descriptor.format_pointer == 0 {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
+        let format_bytes = match call
+            .memory()
+            .read(GuestAddress(descriptor.format_pointer), 16)
+        {
+            Ok(bytes) => bytes,
+            Err(error) => return call.memory_fault(error),
+        };
+        let Some(format) = parse_pcm_format(&format_bytes) else {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        };
+        if descriptor.flags != buffers_policy.secondary_flags
+            || descriptor.byte_length != buffers_policy.secondary_buffer_bytes
+            || format != buffers_policy.pcm_format
+        {
+            return unsupported_buffer_variant(
+                call,
+                "secondary DirectSound buffer descriptor is not evidenced",
+            );
+        }
+        RuntimeAudioBufferDescriptor {
+            kind: RuntimeAudioBufferKind::Secondary,
+            flags: descriptor.flags,
+            byte_length: descriptor.byte_length,
+            format: Some(format),
+        }
+    };
+
+    let audio_plan =
+        match call
+            .runtime()
+            .plan_audio_buffer_creation(RuntimeAudioBufferCreateRequest {
+                device_com_object_id: call.frame().object_id,
+                descriptor: logical_descriptor,
+            }) {
+            Ok(plan) => plan,
+            Err(error) => return call.runtime_fault(error),
+        };
+    if let Err(error) = call.runtime().preflight_audio_buffer_creation(&audio_plan) {
+        return call.runtime_fault(error);
+    }
+    let planned_buffer_id = audio_plan.id();
+    let planned_device_id = audio_plan.device_id();
+    let planned_descriptor = audio_plan.descriptor();
+    let mut call = call;
+    let (installed, guest_writes) = match call.install_child_com_object_with_guest_writes(
+        direct_sound_buffer8_object_spec(),
+        |object| {
+            let interface = object
+                .interfaces
+                .iter()
+                .find(|interface| interface.iid == DSOUND_IDIRECTSOUNDBUFFER8_IID)
+                .ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "dsound-create-sound-buffer",
+                        "idirectsoundbuffer8-installation-missing",
+                        "installed DirectSound buffer object has no IDirectSoundBuffer8 interface",
+                    )
+                })?;
+            Ok(vec![(
+                output_address,
+                interface.guest_pointer.0.to_le_bytes().to_vec(),
+            )])
+        },
+    ) {
+        Ok(result) => result,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let buffer = call
+        .runtime_mut()
+        .commit_audio_buffer_creation(audio_plan, installed.object.id);
+    debug_assert_eq!(buffer.id, planned_buffer_id);
+    debug_assert_eq!(buffer.device_id, planned_device_id);
+    debug_assert_eq!(buffer.descriptor, planned_descriptor);
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+}
+
+fn handle_buffer_set_format(
+    policy: &DsoundCompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let format_pointer = call.frame().explicit_arguments[0];
+    if format_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let Some(buffers_policy) = policy.initial_buffers.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-set-format",
+            "dsound-initial-buffers-policy-disabled",
+            "DirectSound initial-buffer support is disabled by the active policy",
+        );
+    };
+    let format_bytes = match call.memory().read(GuestAddress(format_pointer), 16) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let Some(format) = parse_pcm_format(&format_bytes) else {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    };
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if buffer.descriptor.kind == RuntimeAudioBufferKind::Secondary {
+        return call.complete(
+            ComReturnValue::HResult(DSOUND_DSERR_CONTROLUNAVAIL),
+            Vec::new(),
+        );
+    }
+    if format != buffers_policy.pcm_format {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-set-format",
+            "dsound-buffer-format-variant-unsupported",
+            "DirectSound primary format is outside the evidenced PCM policy",
+        );
+    }
+    let plan = match call
+        .runtime()
+        .plan_audio_buffer_format(RuntimeAudioBufferFormatRequest {
+            buffer_com_object_id: call.frame().object_id,
+            format,
+        }) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let mut call = call;
+    if let Err(error) = call.runtime_mut().commit_audio_buffer_format(plan) {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn handle_buffer_play(
+    policy: &DsoundCompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let [reserved, priority, flags] = call.frame().explicit_arguments.as_slice() else {
+        unreachable!("frontend ABI preflight fixed the DirectSound argument count");
+    };
+    let (reserved, priority, flags) = (*reserved, *priority, *flags);
+    if reserved != 0 || priority != 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let Some(buffers_policy) = policy.initial_buffers.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-play",
+            "dsound-initial-buffers-policy-disabled",
+            "DirectSound initial-buffer support is disabled by the active policy",
+        );
+    };
+    if flags != buffers_policy.primary_play_flags {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if buffer.descriptor.kind != RuntimeAudioBufferKind::Primary {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-play",
+            "dsound-secondary-buffer-play-unsupported",
+            "secondary DirectSound playback has not been reached",
+        );
+    }
+    let plan = match call
+        .runtime()
+        .plan_audio_buffer_play(RuntimeAudioBufferPlayRequest {
+            buffer_com_object_id: call.frame().object_id,
+            playback: RuntimeAudioPlaybackState::PlayingLooping,
+        }) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let mut call = call;
+    if let Err(error) = call.runtime_mut().commit_audio_buffer_play(plan) {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn unsupported_buffer_variant(
+    call: ComFrontendCall<'_>,
+    message: &'static str,
+) -> ComDispatchOutcome {
+    call.fault(
+        ComFaultClass::Unsupported,
+        "dsound-create-sound-buffer",
+        "dsound-buffer-descriptor-variant-unsupported",
+        message,
+    )
 }
 
 fn handle_set_cooperative_level(
@@ -367,7 +721,7 @@ pub fn direct_sound8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::query_interface(),
                     ComMethodSpec::add_ref(),
                     ComMethodSpec::release(),
-                    ComMethodSpec::unsupported_hresult("CreateSoundBuffer", 3),
+                    ComMethodSpec::frontend_hresult("CreateSoundBuffer", 3),
                     ComMethodSpec::unsupported_hresult("GetCaps", 1),
                     ComMethodSpec::unsupported_hresult("DuplicateSoundBuffer", 2),
                     ComMethodSpec::frontend_hresult("SetCooperativeLevel", 2),
@@ -380,6 +734,110 @@ pub fn direct_sound8_object_spec() -> ComObjectSpec {
             },
         ],
     }
+}
+
+pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
+    ComObjectSpec {
+        class_identity: DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY.to_owned(),
+        interfaces: vec![
+            ComInterfaceSpec::iunknown(),
+            ComInterfaceSpec {
+                iid: DSOUND_IDIRECTSOUNDBUFFER8_IID,
+                name: "IDirectSoundBuffer8".to_owned(),
+                methods: vec![
+                    ComMethodSpec::query_interface(),
+                    ComMethodSpec::add_ref(),
+                    ComMethodSpec::release(),
+                    ComMethodSpec::unsupported_hresult("GetCaps", 1),
+                    ComMethodSpec::unsupported_hresult("GetCurrentPosition", 2),
+                    ComMethodSpec::unsupported_hresult("GetFormat", 3),
+                    ComMethodSpec::unsupported_hresult("GetVolume", 1),
+                    ComMethodSpec::unsupported_hresult("GetPan", 1),
+                    ComMethodSpec::unsupported_hresult("GetFrequency", 1),
+                    ComMethodSpec::unsupported_hresult("GetStatus", 1),
+                    ComMethodSpec::unsupported_hresult("Initialize", 2),
+                    ComMethodSpec::unsupported_hresult("Lock", 7),
+                    ComMethodSpec::frontend_hresult("Play", 3),
+                    ComMethodSpec::unsupported_hresult("SetCurrentPosition", 1),
+                    ComMethodSpec::frontend_hresult("SetFormat", 1),
+                    ComMethodSpec::unsupported_hresult("SetVolume", 1),
+                    ComMethodSpec::unsupported_hresult("SetPan", 1),
+                    ComMethodSpec::unsupported_hresult("SetFrequency", 1),
+                    ComMethodSpec::unsupported_hresult("Stop", 0),
+                    ComMethodSpec::unsupported_hresult("Unlock", 4),
+                    ComMethodSpec::unsupported_hresult("Restore", 0),
+                    ComMethodSpec::unsupported_hresult("SetFX", 3),
+                    ComMethodSpec::unsupported_hresult("AcquireResources", 3),
+                    ComMethodSpec::unsupported_hresult("GetObjectInPath", 4),
+                ],
+            },
+        ],
+    }
+}
+
+struct DsoundBufferDescriptor {
+    size: u32,
+    flags: u32,
+    byte_length: u32,
+    reserved: u32,
+    format_pointer: u32,
+    algorithm: [u8; 16],
+}
+
+fn parse_buffer_descriptor(bytes: &[u8]) -> Option<DsoundBufferDescriptor> {
+    if bytes.len() != DSOUND_DSBUFFERDESC_BYTES as usize {
+        return None;
+    }
+    let mut algorithm = [0_u8; 16];
+    algorithm.copy_from_slice(bytes.get(20..36)?);
+    Some(DsoundBufferDescriptor {
+        size: read_u32(bytes, 0)?,
+        flags: read_u32(bytes, 4)?,
+        byte_length: read_u32(bytes, 8)?,
+        reserved: read_u32(bytes, 12)?,
+        format_pointer: read_u32(bytes, 16)?,
+        algorithm,
+    })
+}
+
+fn parse_pcm_format(bytes: &[u8]) -> Option<RuntimeAudioPcmFormat> {
+    if bytes.len() != 16 || read_u16(bytes, 0)? != DSOUND_WAVE_FORMAT_PCM {
+        return None;
+    }
+    let format = RuntimeAudioPcmFormat {
+        channels: read_u16(bytes, 2)?,
+        samples_per_second: read_u32(bytes, 4)?,
+        average_bytes_per_second: read_u32(bytes, 8)?,
+        block_align: read_u16(bytes, 12)?,
+        bits_per_sample: read_u16(bytes, 14)?,
+    };
+    let bytes_per_sample = u32::from(format.bits_per_sample).checked_div(8)?;
+    let expected_block_align = u32::from(format.channels).checked_mul(bytes_per_sample)?;
+    let expected_average = format
+        .samples_per_second
+        .checked_mul(expected_block_align)?;
+    if format.channels == 0
+        || format.samples_per_second == 0
+        || format.bits_per_sample == 0
+        || !format.bits_per_sample.is_multiple_of(8)
+        || expected_block_align != u32::from(format.block_align)
+        || expected_average != format.average_bytes_per_second
+    {
+        return None;
+    }
+    Some(format)
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        bytes.get(offset..offset + 2)?.try_into().ok()?,
+    ))
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn opaque_pointer(name: &str, nullable: bool) -> ApiArgumentSchema {
@@ -452,6 +910,17 @@ mod tests {
             header.validate().unwrap_err().code,
             "dsound-compatibility-policy-header-invalid"
         );
+
+        let mut buffers = DsoundCompatibilityPolicy::controlled_v1();
+        buffers
+            .initial_buffers
+            .as_mut()
+            .expect("initial-buffer policy")
+            .secondary_buffer_bytes += 1;
+        assert_eq!(
+            buffers.validate().unwrap_err().code,
+            "dsound-initial-buffers-profile-invalid"
+        );
     }
 
     #[test]
@@ -469,13 +938,59 @@ mod tests {
                 .all(|interface| interface.iid != DSOUND_IDIRECTSOUND_IID)
         );
         assert_eq!(spec.interfaces[1].methods.len(), 12);
+        assert_eq!(spec.interfaces[1].methods[3].name, "CreateSoundBuffer");
         assert_eq!(spec.interfaces[1].methods[6].name, "SetCooperativeLevel");
+    }
+
+    #[test]
+    fn buffer_spec_exposes_only_the_reached_extended_identity() {
+        let spec = direct_sound_buffer8_object_spec();
+        assert_eq!(spec.interfaces.len(), 2);
+        assert_eq!(spec.interfaces[1].iid, DSOUND_IDIRECTSOUNDBUFFER8_IID);
+        assert!(
+            spec.interfaces
+                .iter()
+                .all(|interface| interface.iid != DSOUND_IDIRECTSOUNDBUFFER_IID)
+        );
+        let methods = &spec.interfaces[1].methods;
+        assert_eq!(methods.len(), 24);
+        assert_eq!(methods[11].name, "Lock");
+        assert_eq!(methods[12].name, "Play");
+        assert_eq!(methods[14].name, "SetFormat");
+    }
+
+    #[test]
+    fn evidenced_descriptors_and_pcm_format_parse_exactly() {
+        let mut primary = vec![0_u8; DSOUND_DSBUFFERDESC_BYTES as usize];
+        primary[0..4].copy_from_slice(&DSOUND_DSBUFFERDESC_BYTES.to_le_bytes());
+        primary[4..8].copy_from_slice(&DSOUND_PRIMARY_BUFFER_FLAGS.to_le_bytes());
+        let parsed = parse_buffer_descriptor(&primary).expect("primary descriptor");
+        assert_eq!(parsed.flags, DSOUND_PRIMARY_BUFFER_FLAGS);
+        assert_eq!(parsed.byte_length, 0);
+        assert_eq!(parsed.format_pointer, 0);
+
+        let format = [
+            0x01, 0x00, 0x02, 0x00, 0x44, 0xac, 0x00, 0x00, 0x10, 0xb1, 0x02, 0x00, 0x04, 0x00,
+            0x10, 0x00,
+        ];
+        assert_eq!(
+            parse_pcm_format(&format),
+            DsoundCompatibilityPolicy::controlled_v1()
+                .initial_buffers
+                .expect("initial-buffer policy")
+                .pcm_format
+                .into()
+        );
+        let mut incoherent = format;
+        incoherent[12] = 2;
+        assert_eq!(parse_pcm_format(&incoherent), None);
     }
 
     #[test]
     fn native_hresult_constants_are_fixed() {
         assert_eq!(DSOUND_CLASS_E_NOAGGREGATION.bits(), 0x8004_0110);
         assert_eq!(DSOUND_E_INVALIDARG.bits(), 0x8007_0057);
+        assert_eq!(DSOUND_DSERR_CONTROLUNAVAIL.bits(), 0x8878_0032);
         assert_eq!(crate::com::COM_E_NOINTERFACE.bits(), 0x8000_4002);
     }
 }

@@ -269,6 +269,13 @@ preflightしてからaudio planをtargeted commitする。Browser側の`AudioCon
 user activation、device lifecycleは別namespaceのadapter stateであり、DirectSound device／buffer／cursorの
 第二の正本にしない。
 
+Primary／secondary bufferは`RuntimeAudio`内のdevice-child relationとして所有し、descriptor、PCM format、
+playback state、COM object relationを一つのlifetimeに束ねる。Primary format変更とlooping playはaudio ownerの
+mutation-free planで検証し、buffer作成はCOM backing、guest output pointer、audio child publicationを全owner
+preflight後にcommitする。Invalid descriptor、duplicate primary、capacity、stale plan、unwritable outputでは
+buffer ID／COM ID／address allocation／guest bytesを部分更新しない。Lock／Unlockで必要になるsample backingと
+browser transportはこのlogical descriptor stateとは別の次段transactionとして追加する。
+
 Mutable process module recordsはprivate `runtime/modules.rs::RuntimeModuleRecords`、graph、mapped
 images、import bindings、runtime export tableはprivate
 `runtime/modules.rs::RuntimeModules`だけが所有する。既存`process.modules`／root `moduleGraph`

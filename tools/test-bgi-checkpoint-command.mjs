@@ -171,6 +171,10 @@ assert.equal(
   bgiProfileOutputDirectory("dsound-root-and-cooperative-level"),
   "v86-bgi-dsound-root-and-cooperative-level",
 );
+assert.equal(
+  bgiProfileOutputDirectory("dsound-initial-buffers"),
+  "v86-bgi-dsound-initial-buffers",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

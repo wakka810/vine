@@ -4276,3 +4276,40 @@ Reportは947,266 bytes／SHA-256
 `0x006FFD3C`、endpoint `0x01031120`、return `0x1005A746`の`com-method-unsupported`である。Logical
 surface identityは実装済みだが、HDC identity／lifetime、pixel storage、pitch、Lock、renderer、draw、Present、
 Reset、device loss、first visible frameはこのcheckpointで実装済みとしない。
+
+## 130. BGI DirectSound initial buffers
+
+Focused `dsound-create-sound-buffer` observationを独立に2回取得した。Primary raw traceは382,086 bytes／
+801 records／SHA-256 `6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33`、
+confirmationは382,124 bytes／801 records／SHA-256
+`adb5fc01b96004ca5b571fa7dbfff5008f79c02d6ae34d37d5068fc830be669c`で、diagnosticsは0、
+address以外のsemanticsは一致した。Raw traceは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+各traceはBGI caller RVA `0x0009C916／0x0009C988／0x0009C99B／0x0009CA37／0x0009CA82／
+0x0009CA8D／0x0009CAB2`から、primary `CreateSoundBuffer`、primary `SetFormat`、looping `Play`、secondary
+`CreateSoundBuffer`、`QueryInterface(IID_IDirectSoundBuffer8)`、`Release`、`Lock`をこの順で一回ずつ
+完了する。Primary descriptorは36 bytes／flags 1／buffer bytes 0／format NULL、formatはPCM／stereo／
+44,100 samples/s／176,400 average bytes/s／block align 4／16 bits、play flagsは1である。Secondaryはflags
+`0x000080A8`／88,200 bytes／同じPCM formatである。QueryInterfaceはsame pointer、Releaseは1を返す。
+Lockはoffset 0／88,200 bytes／flags 0で、first segmentはnon-NULL／88,200 bytes、second segmentはNULL／0、
+resultはS_OKである。Native pointerとLastErrorはartifact identityでありVine semanticsへimportしない。
+
+Controlled COFF-i386 oracleはsource 11,546 bytes／SHA-256
+`2a4a5a2607d48f62ac56b317164a55bf6db4e74d871f537353d926c54dd7d462`、executable 6,656 bytes／
+SHA-256 `52b332822134f18dcfd8e0ecb5329187eccddcf96082a9c383311370a69b71d2`である。NULL descriptor／
+output、bad size、invalid primary bytes／format、zero secondary bytesは`E_INVALIDARG`かつoutput preserve、
+aggregationは`CLASS_E_NOAGGREGATION`かつoutput preserveとなる。Primary SetFormat／looping PlayはS_OK、
+non-looping Playは`E_INVALIDARG`、secondary SetFormatは`DSERR_CONTROLUNAVAIL`、Buffer8 QueryInterfaceは
+same pointerである。
+
+Runtimeはprimary／secondary descriptor、PCM format、looping playback state、COM child identityを
+Rust-owned stateとして実装した。Nodeは18,460 supported calls、18,515 writebacks／36,973 dirty pages／
+2,931,873 changed bytes、17,160 host deltas、generation 36,232、semantic SHA-256
+`d20eb73d871ff9952d17ab436413846bc1af47134496c398a61d5f700b27e2fd`を通した。Chrome Workerも
+same semantics／terminal memoryを再現し、19,215 slices、19,213 writebacks／38,591 pages、17,160 mapping
+deltas／18,647 dirty pages、generation 27→36,932、55,204 Wasm crossings、57,611 success transitions、clean
+cancel／watchdogを通した。次stopはinstruction 11,921,896、`IDirectSoundBuffer8::Lock` slot 11、this
+`0x01090004`、endpoint `0x010910E0`、return `0x1009CAB2`の`com-method-unsupported`である。Sample backing、
+Lock／Unlock content、cursor、secondary playback、browser audio transport、audible primary outputは未実装である。

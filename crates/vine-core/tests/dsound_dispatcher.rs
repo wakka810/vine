@@ -1,16 +1,17 @@
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiReturnSchema, ApiTrap, ApiValueSchema,
     ComCallTrap, ComDispatchOutcome, ComFaultClass, DSOUND_CLASS_E_NOAGGREGATION,
-    DSOUND_DIRECT_SOUND_CREATE_8_ORDINAL, DSOUND_DSSCL_NORMAL, DSOUND_DSSCL_PRIORITY,
-    DSOUND_E_INVALIDARG, DSOUND_IDIRECTSOUND8_CLASS_IDENTITY, DSOUND_IDIRECTSOUND8_IID,
-    DispatchOutcome, DsoundCompatibilityPolicy, ExecutionSession, GuestAddress, GuestMemory,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeComMethodImplementation, RuntimeComReturnKind,
-    RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH, direct_sound_create_8_contract,
-    dispatch_dsound_api, dispatch_dsound_com_call, dsound_contract_for_endpoint,
+    DSOUND_DIRECT_SOUND_CREATE_8_ORDINAL, DSOUND_DSBCAPS_PRIMARYBUFFER, DSOUND_DSBUFFERDESC_BYTES,
+    DSOUND_DSSCL_NORMAL, DSOUND_DSSCL_PRIORITY, DSOUND_E_INVALIDARG,
+    DSOUND_IDIRECTSOUND8_CLASS_IDENTITY, DSOUND_IDIRECTSOUND8_IID, DispatchOutcome,
+    DsoundCompatibilityPolicy, ExecutionSession, GuestAddress, GuestMemory, ImportTarget,
+    ImportThunk, ImportThunkDisposition, ImportThunkId, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
+    RuntimeComMethodImplementation, RuntimeComReturnKind, RuntimeCurrentDirectoryA,
+    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    X86_STARTUP_INFO_W_BYTE_LENGTH, direct_sound_create_8_contract, dispatch_dsound_api,
+    dispatch_dsound_com_call, dsound_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -19,6 +20,8 @@ const STACK: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x100);
 const COM_STACK: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x180);
 const DEVICE_GUID: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x400);
 const OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x420);
+const BUFFER_DESCRIPTOR: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x500);
+const BUFFER_FORMAT: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x540);
 const IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2000);
 const ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0010);
 const RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_ccd8);
@@ -58,6 +61,12 @@ fn direct_sound_create_8_installs_one_owned_root_and_audio_lifetime() {
     assert_eq!(interface.iid, DSOUND_IDIRECTSOUND8_IID);
     assert_eq!(interface.name, "IDirectSound8");
     assert_eq!(interface.methods.len(), 12);
+    assert_eq!(interface.methods[&3].name, "CreateSoundBuffer");
+    assert_eq!(interface.methods[&3].explicit_argument_words, 3);
+    assert_eq!(
+        interface.methods[&3].implementation,
+        RuntimeComMethodImplementation::Frontend
+    );
     assert_eq!(interface.methods[&6].name, "SetCooperativeLevel");
     assert_eq!(interface.methods[&6].explicit_argument_words, 2);
     assert_eq!(
@@ -98,6 +107,119 @@ fn direct_sound_create_8_installs_one_owned_root_and_audio_lifetime() {
         fixture.runtime.current_last_error().unwrap(),
         LAST_ERROR_SENTINEL
     );
+}
+
+#[test]
+fn buffer_oracle_argument_failures_preserve_output_and_authorities() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    immediate(fixture.dispatch_factory(0, OUTPUT_ADDRESS.0, 0));
+    fixture.acknowledge();
+    let root_pointer = GuestAddress(read_u32(&fixture.memory, OUTPUT_ADDRESS));
+    let root_interface = fixture
+        .runtime
+        .com_interface_for_pointer(root_pointer)
+        .expect("IDirectSound8 pointer")
+        .clone();
+    let policy = DsoundCompatibilityPolicy::controlled_v1();
+
+    let invalid_descriptors = [
+        [
+            DSOUND_DSBUFFERDESC_BYTES - 1,
+            DSOUND_DSBCAPS_PRIMARYBUFFER,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ],
+        [
+            DSOUND_DSBUFFERDESC_BYTES,
+            DSOUND_DSBCAPS_PRIMARYBUFFER,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ],
+        [
+            DSOUND_DSBUFFERDESC_BYTES,
+            DSOUND_DSBCAPS_PRIMARYBUFFER,
+            0,
+            0,
+            BUFFER_FORMAT.0,
+            0,
+            0,
+            0,
+            0,
+        ],
+        [DSOUND_DSBUFFERDESC_BYTES, 0x80a8, 0, 0, 0, 0, 0, 0, 0],
+    ];
+    for descriptor in invalid_descriptors {
+        write_words(&mut fixture.memory, BUFFER_DESCRIPTOR, &descriptor);
+        write_words(&mut fixture.memory, OUTPUT_ADDRESS, &[OUTPUT_SENTINEL]);
+        write_words(
+            &mut fixture.memory,
+            COM_STACK,
+            &[
+                SET_COOPERATIVE_CALL_SITE.0,
+                root_pointer.0,
+                BUFFER_DESCRIPTOR.0,
+                OUTPUT_ADDRESS.0,
+                0,
+            ],
+        );
+        fixture.acknowledge();
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let completion = match fixture.dispatch_com_with_policy(&policy, &root_interface, 3) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("invalid descriptor did not return E_INVALIDARG: {other:?}"),
+        };
+        assert_eq!(completion.return_value.eax(), DSOUND_E_INVALIDARG.bits());
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(read_u32(&fixture.memory, OUTPUT_ADDRESS), OUTPUT_SENTINEL);
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
+
+    for (descriptor, output, outer, expected) in [
+        (0, OUTPUT_ADDRESS.0, 0, DSOUND_E_INVALIDARG.bits()),
+        (BUFFER_DESCRIPTOR.0, 0, 0, DSOUND_E_INVALIDARG.bits()),
+        (
+            BUFFER_DESCRIPTOR.0,
+            OUTPUT_ADDRESS.0,
+            0x2000_0100,
+            DSOUND_CLASS_E_NOAGGREGATION.bits(),
+        ),
+    ] {
+        write_words(&mut fixture.memory, OUTPUT_ADDRESS, &[OUTPUT_SENTINEL]);
+        write_words(
+            &mut fixture.memory,
+            COM_STACK,
+            &[
+                SET_COOPERATIVE_CALL_SITE.0,
+                root_pointer.0,
+                descriptor,
+                output,
+                outer,
+            ],
+        );
+        fixture.acknowledge();
+        let before_memory = fixture.memory.stats();
+        let before_runtime = fixture.runtime.clone();
+        let completion = match fixture.dispatch_com_with_policy(&policy, &root_interface, 3) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("invalid CreateSoundBuffer arguments did not complete: {other:?}"),
+        };
+        assert_eq!(completion.return_value.eax(), expected);
+        assert_eq!(read_u32(&fixture.memory, OUTPUT_ADDRESS), OUTPUT_SENTINEL);
+        assert_eq!(fixture.memory.stats(), before_memory);
+        assert_eq!(fixture.runtime, before_runtime);
+    }
 }
 
 #[test]

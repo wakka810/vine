@@ -35,11 +35,19 @@ pub use address_space::{
     validate_process_address_mapping_allocation,
 };
 pub use audio::{
-    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT, RuntimeAudioCooperativeLevel,
+    RUNTIME_AUDIO_BUFFER_ID_NAMESPACE, RUNTIME_AUDIO_BUFFER_LIMIT,
+    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT, RuntimeAudioBuffer,
+    RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatResult, RuntimeAudioBufferId,
+    RuntimeAudioBufferKind, RuntimeAudioBufferPlayResult, RuntimeAudioCooperativeLevel,
     RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState, RuntimeAudioDevice,
-    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
+    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioPcmFormat,
+    RuntimeAudioPlaybackState,
 };
-pub(crate) use audio::{RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest};
+pub(crate) use audio::{
+    RuntimeAudioBufferCreateRequest, RuntimeAudioBufferFormatRequest,
+    RuntimeAudioBufferPlayRequest, RuntimeAudioCooperativeLevelRequest,
+    RuntimeAudioDeviceCreateRequest,
+};
 pub use com::{
     RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,
     RUNTIME_COM_MAX_METHODS_PER_INTERFACE, RuntimeCom, RuntimeComBacking, RuntimeComIid,

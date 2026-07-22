@@ -204,6 +204,7 @@ enum GenericRuntimeCapability {
     Dinput8Factory,
     Dinput8EnumDevices,
     DsoundRootAndCooperativeLevel,
+    DsoundInitialBuffers,
 }
 
 struct GenericRuntimeProcess {
@@ -2342,6 +2343,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::Dinput8Factory
                     | GenericRuntimeCapability::Dinput8EnumDevices
                     | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+                    | GenericRuntimeCapability::DsoundInitialBuffers
             )
         ) {
             let loader = kernel32_policy
@@ -2996,6 +2998,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::Dinput8Factory
                 | GenericRuntimeCapability::Dinput8EnumDevices
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+                | GenericRuntimeCapability::DsoundInitialBuffers
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3003,17 +3006,26 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::Dinput8EnumDevices
                 | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+                | GenericRuntimeCapability::DsoundInitialBuffers
         )
     );
     let dsound_root_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DsoundRootAndCooperativeLevel)
+        Some(
+            GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+                | GenericRuntimeCapability::DsoundInitialBuffers
+        )
+    );
+    let dsound_initial_buffers_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::DsoundInitialBuffers)
     );
     let requested_capability = match enabled_capability {
         Some(
             GenericRuntimeCapability::Dinput8Factory
             | GenericRuntimeCapability::Dinput8EnumDevices
-            | GenericRuntimeCapability::DsoundRootAndCooperativeLevel,
+            | GenericRuntimeCapability::DsoundRootAndCooperativeLevel
+            | GenericRuntimeCapability::DsoundInitialBuffers,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3346,7 +3358,10 @@ fn run_v86_generic_runtime_session(
         dinput8_policy.enum_devices = None;
     }
     dinput8_policy.validate().map_err(api_fault)?;
-    let dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
+    let mut dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
+    if !dsound_initial_buffers_enabled {
+        dsound_policy.initial_buffers = None;
+    }
     dsound_policy.validate().map_err(api_fault)?;
     if matches!(
         endpoint_capability,
@@ -11547,6 +11562,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "dsound-root-and-cooperative-level" => {
                     GenericRuntimeCapability::DsoundRootAndCooperativeLevel
                 }
+                "dsound-initial-buffers" => GenericRuntimeCapability::DsoundInitialBuffers,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

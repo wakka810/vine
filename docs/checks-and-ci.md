@@ -113,12 +113,14 @@ four device slot 57 `SetRenderState` calls, then completes slot 19
 `GetRasterStatus`, reads the 10 MHz performance frequency, and advances the
 deterministic performance counter through the reached raster-polling loop before
 publishing `GetMonitorInfoA`, creating the Rust-owned `IDirectInput8A` root,
-completing the exact empty attached-game-controller `EnumDevices` query, and
-stopping at `DSOUND.dll` ordinal 11 (`DirectSoundCreate8`). Every summary-evidence
+  completing the exact empty attached-game-controller `EnumDevices` query, creating
+  the DirectSound root, and establishing its priority cooperative level. Every summary-evidence
 repetition checks call count, digest algorithm／SHA, terminal semantics, and
 teardown while the standalone Chrome check retains ordered-call equivalence, and
 applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
-and Wasm-crossing thresholds. Its result and non-claims are recorded in
+  and Wasm-crossing thresholds. This accepted observation predates the current
+  primary／secondary buffer initialization slice and is not evidence for buffer
+  content or transport performance. Its result and non-claims are recorded in
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
 because the private executable is never distributed.
 

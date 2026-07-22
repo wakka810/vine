@@ -159,6 +159,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "dinput8-api-contract",
         "dinput8-enum-devices",
         "dsound-root-and-cooperative-level",
+        "dsound-initial-buffers",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -237,6 +238,7 @@ assert(
       "dinput8-api-contract",
       "dinput8-enum-devices",
       "dsound-root-and-cooperative-level",
+      "dsound-initial-buffers",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -279,6 +281,7 @@ if (
     "dinput8-api-contract",
     "dinput8-enum-devices",
     "dsound-root-and-cooperative-level",
+    "dsound-initial-buffers",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -314,7 +317,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-get-monitor-info-a" ||
     genericRuntimeCapability === "dinput8-api-contract" ||
     genericRuntimeCapability === "dinput8-enum-devices" ||
-    genericRuntimeCapability === "dsound-root-and-cooperative-level"
+    genericRuntimeCapability === "dsound-root-and-cooperative-level" ||
+    genericRuntimeCapability === "dsound-initial-buffers"
       ? "kernel32-d3dx-runtime-module-v1.json"
       : genericRuntimeCapability === "kernel32-source-file-read" ||
     genericRuntimeCapability === "user32-create-window-ex-a" ||
@@ -449,7 +453,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const dsoundInitialBuffersEnabled =
+  genericRuntimeCapability === "dsound-initial-buffers";
 const dsoundRootEnabled =
+  dsoundInitialBuffersEnabled ||
   genericRuntimeCapability === "dsound-root-and-cooperative-level";
 const dinput8EnumDevicesEnabled =
   dsoundRootEnabled || genericRuntimeCapability === "dinput8-enum-devices";
@@ -697,7 +704,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? dsoundRootEnabled
+      ? dsoundInitialBuffersEnabled
+      ? "v86-bgi-dsound-initial-buffers"
+      : dsoundRootEnabled
       ? "v86-bgi-dsound-root-and-cooperative-level"
       : dinput8EnumDevicesEnabled
       ? "v86-bgi-dinput8-enum-devices"
@@ -4681,6 +4690,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (dsoundInitialBuffersEnabled) {
+        validateDsoundInitialBuffersResult(genericResult);
       } else if (dsoundRootEnabled) {
         validateDsoundRootResult(genericResult);
       } else if (dinput8EnumDevicesEnabled) {
@@ -4870,6 +4881,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dsoundInitialBuffersEnabled
+          ? "bgi DirectSound 8 initial primary and secondary buffers"
           : dsoundRootEnabled
           ? "bgi DirectSound 8 root and cooperative window relation"
           : dinput8EnumDevicesEnabled
@@ -6862,6 +6875,8 @@ function validateGenericComEndpoint(actual, endpoint) {
         ? "dinput8.idirectinput8a-root.v1"
       : target.interface.name === "IDirectSound8"
         ? "dsound.idirectsound8-root.v1"
+      : target.interface.name === "IDirectSoundBuffer8"
+        ? "dsound.idirectsoundbuffer8.v1"
         : null;
   assert(expectedClassIdentity, `unexpected generic COM interface ${target.interface.name}`);
   assert.equal(target.method.slot, endpoint.vtableSlot);
@@ -6938,6 +6953,8 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
       : interfaceName === "IDirectInput8A"
         ? "com-method-dispatch"
       : interfaceName === "IDirectSound8"
+        ? "com-method-dispatch"
+      : interfaceName === "IDirectSoundBuffer8"
         ? "com-method-dispatch"
         : "d3d9-idirect3dvertexbuffer9-method",
   );
@@ -14152,6 +14169,257 @@ function validateDsoundRootResult(result) {
   ]);
 }
 
+function validateDsoundInitialBuffersResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_460);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_515);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    36_973,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_931_873,
+  );
+  assert.equal(result.hostDeltas.length, 17_160);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_232);
+
+  const calls = result.supportedCalls.slice(-8);
+  assert.deepEqual(
+    calls.map((call) => call.symbol),
+    [
+      "#11",
+      "IDirectSound8.SetCooperativeLevel",
+      "IDirectSound8.CreateSoundBuffer",
+      "IDirectSoundBuffer8.SetFormat",
+      "IDirectSoundBuffer8.Play",
+      "IDirectSound8.CreateSoundBuffer",
+      "IDirectSoundBuffer8.QueryInterface",
+      "IDirectSoundBuffer8.Release",
+    ],
+  );
+  const [factory, cooperative, primary, setFormat, play, secondary, query, release] = calls;
+  const rootPointer = Buffer.from(factory.guestWrites[0].bytes).readUInt32LE(0);
+  assert.equal(rootPointer, 0x0107_0004);
+  assert.equal(factory.sequence, 18_453);
+  assert.equal(cooperative.sequence, 18_454);
+
+  assert.equal(primary.sequence, 18_455);
+  assert.equal(primary.occurrence, 1);
+  assert.equal(primary.trapInstructionCount, 11_921_781);
+  assert.equal(primary.interface, "IDirectSound8");
+  assert.equal(primary.vtableSlot, 3);
+  assert.deepEqual(primary.arguments, [
+    rootPointer,
+    0x100f_eae8,
+    0x100f_eb18,
+    0,
+  ]);
+  assert.deepEqual(primary.result, { kind: "h-result", value: 0 });
+  assert.equal(primary.returnAddress, 0x1009_c916);
+  assert.equal(primary.stackPointerAfter, primary.stackPointerBefore + 20);
+  assert.equal(primary.referenceCount, 1);
+  assert.equal(primary.objectRetired, false);
+  assert.equal(primary.guestWrites.length, 1);
+  assert.equal(primary.guestWrites[0].address, 0x100f_eb18);
+  assert.deepEqual(primary.guestWrites[0].bytes, [4, 0, 8, 1]);
+  assert.equal(primary.guestWrites[0].result.bytesWritten, 4);
+  assert.equal(primary.guestWrites[0].result.dirtyPages, 1);
+  assert.equal(primary.guestWrites[0].result.invalidation.generation, 36_187);
+  const primaryPointer = Buffer.from(primary.guestWrites[0].bytes).readUInt32LE(0);
+  assert.equal(primaryPointer, 0x0108_0004);
+
+  const primaryDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === primary.sequence,
+  );
+  assert(primaryDelta, "primary CreateSoundBuffer host delta is missing");
+  assert.equal(primaryDelta.fromGeneration, 36_149);
+  assert.equal(primaryDelta.generation, 36_187);
+  assert.equal(primaryDelta.mappingOperations, 5);
+  assert.deepEqual(primaryDelta.dirtyPages, [
+    { address: 0x0108_0000, owner: 24 },
+    { address: 0x0108_1000, owner: 24 },
+    { address: 0x100f_e000, owner: 1 },
+  ]);
+  assert.equal(
+    primaryDelta.payloadSha256,
+    "8fe4c8666bb45ab4a98a5e8ea80b0549ee858ec12866e9ee4d6f0a0262fc9fe9",
+  );
+
+  assert.equal(setFormat.sequence, 18_456);
+  assert.equal(setFormat.occurrence, 2);
+  assert.equal(setFormat.trapInstructionCount, 11_921_800);
+  assert.equal(setFormat.interface, "IDirectSoundBuffer8");
+  assert.equal(setFormat.vtableSlot, 14);
+  assert.deepEqual(setFormat.arguments, [primaryPointer, 0x006f_fe58]);
+  assert.deepEqual(setFormat.result, { kind: "h-result", value: 0 });
+  assert.equal(setFormat.returnAddress, 0x1009_c988);
+  assert.equal(setFormat.stackPointerAfter, setFormat.stackPointerBefore + 12);
+  assert.equal(setFormat.referenceCount, 1);
+  assert.equal(setFormat.objectRetired, false);
+  assert.deepEqual(setFormat.guestWrites, []);
+
+  assert.equal(play.sequence, 18_457);
+  assert.equal(play.occurrence, 2);
+  assert.equal(play.trapInstructionCount, 11_921_809);
+  assert.equal(play.interface, "IDirectSoundBuffer8");
+  assert.equal(play.vtableSlot, 12);
+  assert.deepEqual(play.arguments, [primaryPointer, 0, 0, 1]);
+  assert.deepEqual(play.result, { kind: "h-result", value: 0 });
+  assert.equal(play.returnAddress, 0x1009_c99b);
+  assert.equal(play.stackPointerAfter, play.stackPointerBefore + 20);
+  assert.equal(play.referenceCount, 1);
+  assert.equal(play.objectRetired, false);
+  assert.deepEqual(play.guestWrites, []);
+
+  assert.equal(secondary.sequence, 18_458);
+  assert.equal(secondary.occurrence, 2);
+  assert.equal(secondary.trapInstructionCount, 11_921_862);
+  assert.equal(secondary.interface, "IDirectSound8");
+  assert.equal(secondary.vtableSlot, 3);
+  assert.deepEqual(secondary.arguments, [
+    rootPointer,
+    0x006f_fe34,
+    0x006f_fe24,
+    0,
+  ]);
+  assert.deepEqual(secondary.result, { kind: "h-result", value: 0 });
+  assert.equal(secondary.returnAddress, 0x1009_ca37);
+  assert.equal(secondary.stackPointerAfter, secondary.stackPointerBefore + 20);
+  assert.equal(secondary.referenceCount, 2);
+  assert.equal(secondary.objectRetired, false);
+  assert.equal(secondary.guestWrites.length, 1);
+  assert.equal(secondary.guestWrites[0].address, 0x006f_fe24);
+  assert.deepEqual(secondary.guestWrites[0].bytes, [4, 0, 9, 1]);
+  assert.equal(secondary.guestWrites[0].result.bytesWritten, 4);
+  assert.equal(secondary.guestWrites[0].result.dirtyPages, 1);
+  assert.equal(secondary.guestWrites[0].result.invalidation.generation, 36_228);
+  const secondaryPointer = Buffer.from(secondary.guestWrites[0].bytes).readUInt32LE(0);
+  assert.equal(secondaryPointer, 0x0109_0004);
+
+  const secondaryDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === secondary.sequence,
+  );
+  assert(secondaryDelta, "secondary CreateSoundBuffer host delta is missing");
+  assert.equal(secondaryDelta.fromGeneration, 36_190);
+  assert.equal(secondaryDelta.generation, 36_228);
+  assert.equal(secondaryDelta.mappingOperations, 5);
+  assert.deepEqual(secondaryDelta.dirtyPages, [
+    { address: 0x006f_f000, owner: 4 },
+    { address: 0x0109_0000, owner: 25 },
+    { address: 0x0109_1000, owner: 25 },
+  ]);
+  assert.equal(
+    secondaryDelta.payloadSha256,
+    "61691975341102def2aae557fa743a195fb8f0fd4d61c0e93630e2abbbfeff5b",
+  );
+
+  assert.equal(query.sequence, 18_459);
+  assert.equal(query.occurrence, 1);
+  assert.equal(query.trapInstructionCount, 11_921_872);
+  assert.equal(query.interface, "IDirectSoundBuffer8");
+  assert.equal(query.vtableSlot, 0);
+  assert.deepEqual(query.arguments, [
+    secondaryPointer,
+    0x100d_2228,
+    0x100f_eb14,
+  ]);
+  assert.deepEqual(query.result, { kind: "h-result", value: 0 });
+  assert.equal(query.returnAddress, 0x1009_ca82);
+  assert.equal(query.stackPointerAfter, query.stackPointerBefore + 16);
+  assert.equal(query.referenceCount, 2);
+  assert.equal(query.objectRetired, false);
+  assert.equal(query.guestWrites.length, 1);
+  assert.equal(query.guestWrites[0].address, 0x100f_eb14);
+  assert.deepEqual(query.guestWrites[0].bytes, [4, 0, 9, 1]);
+  assert.equal(query.guestWrites[0].result.invalidation.generation, 36_230);
+  assert.equal(
+    Buffer.from(query.guestWrites[0].bytes).readUInt32LE(0),
+    secondaryPointer,
+  );
+
+  const queryDelta = result.hostDeltas.find(
+    (delta) => delta.sequence === query.sequence,
+  );
+  assert(queryDelta, "IDirectSoundBuffer8 QueryInterface host delta is missing");
+  assert.equal(queryDelta.fromGeneration, 36_229);
+  assert.equal(queryDelta.generation, 36_230);
+  assert.equal(queryDelta.mappingOperations, 0);
+  assert.deepEqual(queryDelta.dirtyPages, [
+    { address: 0x100f_e000, owner: 1 },
+  ]);
+  assert.equal(
+    queryDelta.payloadSha256,
+    "6983da45720d05c632ba127e2fab52a41242391a41c7166ac0a3258cb35e6fae",
+  );
+
+  assert.equal(release.sequence, 18_460);
+  assert.equal(release.occurrence, 3);
+  assert.equal(release.trapInstructionCount, 11_921_878);
+  assert.equal(release.interface, "IDirectSoundBuffer8");
+  assert.equal(release.vtableSlot, 2);
+  assert.deepEqual(release.arguments, [secondaryPointer]);
+  assert.deepEqual(release.result, { kind: "u32", value: 1 });
+  assert.equal(release.returnAddress, 0x1009_ca8d);
+  assert.equal(release.stackPointerAfter, release.stackPointerBefore + 8);
+  assert.equal(release.referenceCount, 1);
+  assert.equal(release.objectRetired, false);
+  assert.deepEqual(release.guestWrites, []);
+
+  const endpoint = result.fault.endpoint;
+  assert.equal(result.fault.capabilityCluster, "com-method-dispatch");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1009_cab2);
+  assert.equal(result.fault.memory.physicalPages, 994);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "7dedfbcb0926c81f62fcfd19af56f4403bc7913be7011933bd8e84419dc9ad0d",
+  );
+  assert.equal(endpoint.target.object.classIdentity, "dsound.idirectsoundbuffer8.v1");
+  assert.equal(endpoint.target.object.id, "12");
+  assert.equal(endpoint.target.object.referenceCount, 1);
+  assert.equal(endpoint.target.object.parentInterfaceId, "20");
+  assert.equal(endpoint.target.object.backing.range.base, 0x0109_0000);
+  assert.equal(endpoint.target.object.backing.range.byteLength, 8_192);
+  assert.equal(endpoint.target.interface.id, "24");
+  assert.equal(endpoint.target.interface.name, "IDirectSoundBuffer8");
+  assert.equal(endpoint.target.interface.guestPointer, secondaryPointer);
+  assert.equal(endpoint.target.method.slot, 11);
+  assert.equal(endpoint.target.method.name, "Lock");
+  assert.equal(endpoint.target.method.endpoint, 0x0109_10e0);
+  assert.equal(result.terminal.instructionCount, 11_921_896);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0109_10e0);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 11);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_cab2);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1009_cab2,
+    secondaryPointer,
+    0,
+    88_200,
+    0x006f_fe2c,
+    0x006f_fe30,
+    0x006f_fe20,
+    0x006f_fe28,
+    0,
+  ]);
+}
+
 function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -16640,6 +16908,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dsoundInitialBuffersEnabled
+        ? "vine.v86-bgi-dsound-initial-buffers"
         : dsoundRootEnabled
         ? "vine.v86-bgi-dsound-root-and-cooperative-level"
         : dinput8EnumDevicesEnabled

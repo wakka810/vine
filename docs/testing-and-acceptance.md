@@ -454,6 +454,20 @@ execution mirrorは18,219,008 bytesとなるため、新fixtureだけに24 MiB c
 `b9bbd3d6ba8a8e5dbde7876f4913fb361f58e9972ab1d4077d20ddadbbffd507`である。Callback-producing enumeration、
 device identity／create／acquire／state、DOM inputは受け入れていない。
 
+Reached DirectSound initializationは`DirectSoundCreate8`、live top-level windowへのpriority
+`SetCooperativeLevel`、primary buffer作成、stereo 44.1 kHz／16-bit PCM `SetFormat`、looping `Play`、
+88,200-byte secondary buffer作成、`IDirectSoundBuffer8` QueryInterface／Releaseを順に固定する。Rust
+`RuntimeAudio`がdevice／buffer descriptor／format／playback relation、`RuntimeCom`がinterface identityと
+refcountを所有し、guest output publicationを含むcross-owner failureをatomicにする。Controlled x86 oracleは
+NULL／bad-size／primary-format／secondary-size等のinvalid descriptor、aggregation、primary non-looping play、
+secondary SetFormat、Buffer8 identityを検査する。
+
+Node／Chrome semantic gateは同じordered calls、terminal memory、clean cancel／watchdogを要求し、次の
+`IDirectSoundBuffer8::Lock`でstructured stopする。ここで受け入れるのはlogical initializationまでであり、
+sample backing、Lock／Unlock content、cursor、secondary playback、browser audio transport、audible primary output、
+WinMM audioをclaimしない。既存180-second observationはDirectSound root／cooperative-level workloadのartifactで、
+buffer-content経路のcurrent performance evidenceとして扱わない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device
