@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-22T00:43:41.480Z",
+  "recordedAt": "2026-07-22T01:08:30.254Z",
   "repository": {
-    "implementationCommit": "36d935effa6e1c4db7de47d248c2ceb442afc1b8",
-    "implementationTree": "ee94d205bae8b481413f2ee88560531312e8364a",
-    "headCommit": "36d935effa6e1c4db7de47d248c2ceb442afc1b8",
+    "implementationCommit": "08ff2409e6e87002f21b9ce14b7eae762b776b87",
+    "implementationTree": "3f095cf330bd6ddd8397336d205cc647755283a2",
+    "headCommit": "08ff2409e6e87002f21b9ce14b7eae762b776b87",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -45,7 +45,7 @@
     "node": "v24.18.0",
     "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
     "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
-    "chrome": "150.0.7871.129",
+    "chrome": "150.0.7871.130",
     "llvm": {
       "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
       "wasmClang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
@@ -174,8 +174,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 116642,
-      "sha256": "f8eac0779f0846f0efa7458d9afd16aca35322be2d8fba44a5206a820b6c5c33"
+      "bytes": 116646,
+      "sha256": "fcb3a5bb4bbf46cbc3021667610c6723271d46482c30b2764ca990f1bc34ec7c"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -190,7 +190,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "7af070aa091fa4675e8e2f726f084697352d3b14ba5f1a1f19c87e17fce81e5e"
+      "sha256": "a3cf84a230ecd84266fa2ecf0ebc6efe53b5fa3ec06090c807539040e2414926"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -227,7 +227,7 @@
     "thresholdFailureIds": [
       "maximum-p99-heartbeat-gap-milliseconds"
     ],
-    "reportSha256": "68d66db730712da40f924defbd5669db55a97d40c3b095d00f1a27986ea8d4d9"
+    "reportSha256": "331c40331b46c4893b8e7b699abc224b765650ec28aaade65c130f16e8cd1ab5"
   },
-  "payloadSha256": "e5516dde6b761c797efa6320772a7ceb001274ccd6cdb0150342f392373144ea"
+  "payloadSha256": "411ce327fc5df3d7c4d0a61b5a62ac8dd1a03f0dab97cb86a235240641beae97"
 }
