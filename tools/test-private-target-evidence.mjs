@@ -10,6 +10,7 @@ import {
   PRIVATE_TARGET_EVIDENCE_VERSION,
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
+import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkpoint = loadCurrentCheckpoint(
@@ -47,6 +48,28 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
   bytes,
   sha256: digest,
 });
+
+assert.equal(
+  formatRuntimeEndpointSymbol({ name: "DirectSoundCreate8" }),
+  "DirectSoundCreate8",
+);
+assert.equal(
+  formatRuntimeEndpointSymbol({
+    symbol: { kind: "name", name: "DirectInput8Create" },
+  }),
+  "DirectInput8Create",
+);
+assert.equal(
+  formatRuntimeEndpointSymbol({ symbol: { kind: "ordinal", ordinal: 11 } }),
+  "#11",
+);
+assert.throws(
+  () =>
+    formatRuntimeEndpointSymbol({
+      symbol: { kind: "ordinal", ordinal: 0x1_0000 },
+    }),
+  /unsigned 16-bit integer/u,
+);
 
 function validEvidence() {
   const browser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;

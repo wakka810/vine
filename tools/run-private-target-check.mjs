@@ -14,6 +14,7 @@ import {
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
 } from "./private-target-evidence.mjs";
+import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutput = path.join(root, "docs", "private-target-evidence.json");
@@ -174,13 +175,6 @@ function optionalHex32(value) {
   return value === undefined ? undefined : hex32(value);
 }
 
-function endpointName(endpoint) {
-  const name = endpoint.name ?? endpoint.symbol?.name;
-  assert.equal(typeof name, "string", "endpoint name is missing");
-  assert(name.length > 0, "endpoint name is empty");
-  return name;
-}
-
 function executionStateEvidence(report) {
   const context = report.watchdogContext;
   return {
@@ -307,7 +301,9 @@ function assertReportSemantics({
     assert.equal(hex32(nodeEndpoint.address), expectedNext.endpointAddress);
     assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedNext.iatAddress);
     assert.equal(
-      `${nodeEndpoint.module}!${endpointName(nodeEndpoint)}`.toLowerCase(),
+      `${nodeEndpoint.module}!${formatRuntimeEndpointSymbol(
+        nodeEndpoint,
+      )}`.toLowerCase(),
       expectedNext.api.toLowerCase(),
     );
     assert.equal(
@@ -384,7 +380,9 @@ function assertReportSemantics({
       expectedNext.iatAddress,
     );
     assert.equal(
-      `${browserUnsupported.endpoint.module}!${endpointName(browserUnsupported.endpoint)}`.toLowerCase(),
+      `${browserUnsupported.endpoint.module}!${formatRuntimeEndpointSymbol(
+        browserUnsupported.endpoint,
+      )}`.toLowerCase(),
       expectedNext.api.toLowerCase(),
     );
   }
