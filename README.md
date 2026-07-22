@@ -17,7 +17,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Runtime diagnostics | `d3d9-initial-render-states`: 17865 calls across 85 API contracts, memory generation 34924 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-blocked` (46 sessions) |
-| Active blocker | `d3d9-initial-render-states-heartbeat-threshold-v1`: `maximum-p99-heartbeat-gap-milliseconds`; Use an isolated or quiescent browser host and rerun with unchanged thresholds, or approve a separately evidenced versioned performance-contract change, before accepting this checkpoint and advancing to GetRasterStatus. |
+| Active blocker | `d3d9-initial-render-states-heartbeat-threshold-v2`: `maximum-p99-heartbeat-gap-milliseconds`; Profile and correct the repeated browser heartbeat or scheduling failure, then pass the unchanged 180-second gate, or approve a separately evidenced versioned performance-contract change, before accepting this checkpoint and advancing to GetRasterStatus. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `IDirect3DDevice9::GetRasterStatus(0x00000000, 0x006ffcf0)` at instruction 11808586: `com-method-unsupported` |
 

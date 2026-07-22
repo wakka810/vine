@@ -31,7 +31,7 @@ assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 assert.equal(
   manifest.browserCheckpoint.bgiBenchmarkBlocker.id,
-  "d3d9-initial-render-states-heartbeat-threshold-v1",
+  "d3d9-initial-render-states-heartbeat-threshold-v2",
 );
 assert.ok(rendered.includes("| Active blocker |"));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.resumeCondition));
@@ -162,6 +162,24 @@ mismatchedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker.first
   25;
 assert.ok(
   validateCurrentCheckpoint(mismatchedStructuredBenchmarkBlocker).some((error) =>
+    error.includes("structured performance blocker"),
+  ),
+);
+
+const mismatchedConfirmedBenchmarkBlocker = structuredClone(manifest);
+mismatchedConfirmedBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.observed =
+  25;
+assert.ok(
+  validateCurrentCheckpoint(mismatchedConfirmedBenchmarkBlocker).some((error) =>
+    error.includes("structured performance blocker"),
+  ),
+);
+
+const missingHostQuiescenceEvidence = structuredClone(manifest);
+delete missingHostQuiescenceEvidence.browserCheckpoint.bgiBenchmarkBlocker.evidence
+  .hostQuiescenceObservation;
+assert.ok(
+  validateCurrentCheckpoint(missingHostQuiescenceEvidence).some((error) =>
     error.includes("structured performance blocker"),
   ),
 );

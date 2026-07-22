@@ -8,7 +8,7 @@
 - Observation status: `current-d3d9-initial-render-states-observation`
 - Duration: 180 seconds
 - Configuration: [`fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json`](../fixtures/benchmarks/bgi-browser-d3d9-initial-render-states-v1.json)
-- Evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
+- Evidence: `.work/browser-runtime/bgi-browser-benchmark-report-d3d9-initial-render-states-quiescent-r2.json`
 
 This observation repeats the complete `d3d9-initial-render-states` BGI
 session in one Chrome Dedicated Worker. Each session starts from a new Rust
@@ -76,11 +76,21 @@ reason, the exact evaluation count, and failure IDs. The current decision is
 
 ## Result
 
-The clean-profile Chrome run completed 46 sessions with no semantic failure.
-The D3D9 Initial Render States version 1 configuration retained all 17 existing
-threshold values unchanged. Sixteen thresholds passed; heartbeat P99 exceeded
-its bound. Of 24,487 heartbeat samples, 405 exceeded 25 ms and 260 exceeded
-30 ms, so this is a distribution failure rather than one maximum outlier.
+The first clean-profile Chrome run completed 46 sessions with no semantic
+failure. The D3D9 Initial Render States version 1 configuration retained all 17
+existing threshold values unchanged. Sixteen thresholds passed; heartbeat P99
+was 30.505 ms. Of 24,487 heartbeat samples, 405 exceeded 25 ms and 260 exceeded
+30 ms, so this was a distribution failure rather than one maximum outlier.
+
+The prescribed quiescent-host confirmation was then performed without changing
+the fixture or thresholds. A diagnostic 15-sample／18.499-second preflight saw
+total host CPU mean 12.267%, P95／maximum 17%, and no sample above 25%; the
+largest attributed process used 1.964% of total host capacity. These values are
+host-observation evidence, not a new performance threshold. The clean commit
+confirmation again completed 46 sessions with no semantic failure and failed
+only heartbeat P99. Of 23,815 samples, 601 exceeded 25 ms and 411 exceeded 30
+ms; P99 was 33.340 ms. The repeated failure means ordinary host contention is
+not an adequate explanation and a pass-producing retry is not acceptable.
 Previous workload configurations remain unchanged as historical evidence.
 
 | Metric | Threshold | Result |
@@ -88,25 +98,27 @@ Previous workload configurations remain unchanged as historical evidence.
 | Completed sessions | >= 24 | 46 |
 | Failed sessions | <= 0 | 0 |
 | Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 4,142.755 ms |
-| Maximum slice p99 | <= 10 ms | 3.015 ms |
-| Main heartbeat gap p99 | <= 25 ms | **30.505 ms (failed)** |
-| Main heartbeat gap maximum | <= 250 ms | 43.960 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 3,261,694 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 15,122.36 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 18,101,484 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | 1,674,213.91 bytes/min |
-| Worker heap capacity maximum | <= 67,108,864 bytes | 58,720,256 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 24,012,334 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | 2,256,614.36 bytes/min |
+| Session latency p95 | <= 8,000 ms | 4,230.730 ms |
+| Maximum slice p99 | <= 10 ms | 3.840 ms |
+| Main heartbeat gap p99 | <= 25 ms | **33.340 ms (failed)** |
+| Main heartbeat gap maximum | <= 250 ms | 40.925 ms |
+| Main used heap maximum | <= 16,777,216 bytes | 3,155,423 bytes |
+| Main heap slope | <= 2,097,152 bytes/min | 32,443.25 bytes/min |
+| Worker used heap maximum | <= 33,554,432 bytes | 28,475,408 bytes |
+| Worker heap slope | <= 8,388,608 bytes/min | 2,271,908.80 bytes/min |
+| Worker heap capacity maximum | <= 67,108,864 bytes | 58,458,112 bytes |
+| Worker backing storage maximum | <= 67,108,864 bytes | 31,740,235 bytes |
+| Worker backing slope | <= 10,485,760 bytes/min | 1,559,190.44 bytes/min |
 | Rust linear memory | <= 16,777,216 bytes | 10,092,544 bytes |
 | Execution-engine linear memory | <= 16,777,216 bytes | 14,024,704 bytes |
 
-The exact report is 642,010 bytes with SHA-256
+The confirmation report is 626,139 bytes with SHA-256
+`331c40331b46c4893b8e7b699abc224b765650ec28aaade65c130f16e8cd1ab5`.
+The first failed report was 642,010 bytes with SHA-256
 `68d66db730712da40f924defbd5669db55a97d40c3b095d00f1a27986ea8d4d9`.
-The hash identifies this run; the versioned thresholds and semantic assertions
-are the regression gate. The report also carries the six-class policy from
-[evidence-classification.md](evidence-classification.md).
+These hashes identify the two runs; the versioned thresholds and semantic
+assertions are the regression gate. Both reports carry the six-class policy
+from [evidence-classification.md](evidence-classification.md).
 
 A same-host three-run Node A/B compared the preceding vertex-buffer profile
 with the render-state profile. Their medians were 29,258.362 ms and 29,105.955
@@ -115,11 +127,12 @@ regression as the cause of the Chrome heartbeat shift. The comparison is 1,108
 bytes with SHA-256
 `7320265a1c826761d751c93e6f7fa30ad228444db4441348f2e3993e749b32fb`.
 
-The failed run was not retried as acceptance evidence and no threshold was
-relaxed. The structured blocker requires an isolated or quiescent browser host
-with unchanged thresholds, or an explicitly approved and separately evidenced
-versioned performance-contract change, before this checkpoint can be accepted
-and work can advance to `GetRasterStatus`.
+The second run discharged the quiescent-host confirmation condition; it was not
+accepted as a retry and no threshold was relaxed. The structured blocker now
+requires a profiled, correctness-preserving browser heartbeat／scheduling
+remediation that passes the unchanged 180-second gate, or an explicitly
+approved and separately evidenced versioned performance-contract change, before
+this checkpoint can be accepted and work can advance to `GetRasterStatus`.
 
 ## Surface DC heap-capacity correction
 

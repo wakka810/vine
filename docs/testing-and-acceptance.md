@@ -367,9 +367,13 @@ partial mutationせず、same-value reapplyはsuccess／zero generation deltaと
 call digest、logical values、次のslot 19 `GetRasterStatus` stop、browser-owned render-state tableとrendererが
 未生成であることを比較する。
 このgatewayはbrowser schedulingに到達するため、同じ180-second／17-threshold workloadの全通過もacceptance
-条件とする。Current observationはsemantic failure 0だがheartbeat P99 30.505 msが25 ms上限を超え、16／17
-のみ通過したため`threshold-blocked`である。Retryをpass evidenceにせず、unchanged thresholdsをisolated／
-quiescent hostで通すか、別evidenceに基づくversioned performance-contract変更の明示判断までacceptしない。
+条件とする。Initial observationはsemantic failure 0だがheartbeat P99 30.505 msが25 ms上限を超え、16／17
+のみ通過した。15-sample／18.499-second preflightでhost CPU mean 12.267%、P95／maximum 17%、25%超sample 0を
+確認した静穏hostでも、unchanged confirmationはsemantic failure 0／heartbeat P99 33.340 ms、25 ms超601／
+23,815 samplesで同じfailure IDを再現したため`threshold-blocked`である。このpreflight値はversioned thresholdでは
+なくhost observationである。Retryをpass evidenceにせず、profiledでcorrectness-preservingなbrowser heartbeat／
+scheduling remediation後にunchanged gateを通すか、別evidenceに基づくversioned performance-contract変更を
+明示判断するまでacceptしない。
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

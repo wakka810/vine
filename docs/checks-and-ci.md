@@ -113,11 +113,13 @@ because the private executable is never distributed.
 
 `threshold-blocked` is a required failure outcome, not a soft pass. The current
 manifest must retain the failing threshold ID, full distribution count, exact
-report and Node A/B identities, attempted isolation evidence, protected
+first／confirmation report and Node A/B identities, attempted isolation evidence, protected
 threshold／retry invariants, and resume condition.
-No downstream primary checkpoint or private-evidence commit proceeds until the
-same 180-second fixture passes unchanged on an isolated host, or a repeated
-isolated failure leads to a profiled bounded optimization.
+The unchanged fixture has repeated the same heartbeat failure after a quiescent
+host preflight. No downstream primary checkpoint proceeds until a profiled,
+correctness-preserving browser heartbeat／scheduling remediation passes the same
+180-second gate, or a separately evidenced versioned performance-contract
+change is explicitly approved.
 
 The canonical commit-bound private target gate is:
 

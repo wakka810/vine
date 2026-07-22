@@ -1454,12 +1454,41 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmarkBlocker.firstFailure.threshold",
       errors,
     );
+    const confirmationBenchmarkFailure = requireRecord(
+      benchmarkBlocker.confirmationFailure,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure",
+      errors,
+    );
+    requireString(
+      confirmationBenchmarkFailure.thresholdId,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.thresholdId",
+      errors,
+    );
+    requireString(
+      confirmationBenchmarkFailure.comparison,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.comparison",
+      errors,
+    );
+    requireFiniteNumber(
+      confirmationBenchmarkFailure.observed,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.observed",
+      errors,
+    );
+    requireFiniteNumber(
+      confirmationBenchmarkFailure.threshold,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.threshold",
+      errors,
+    );
     const benchmarkBlockerEvidence = requireRecord(
       benchmarkBlocker.evidence,
       "browserCheckpoint.bgiBenchmarkBlocker.evidence",
       errors,
     );
-    for (const field of ["benchmarkReport", "nodeComparisonReport"]) {
+    for (const field of [
+      "firstBenchmarkReport",
+      "confirmationBenchmarkReport",
+      "nodeComparisonReport",
+    ]) {
       requireString(
         benchmarkBlockerEvidence[field],
         `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
@@ -1467,14 +1496,18 @@ export function validateCurrentCheckpoint(manifest) {
       );
     }
     for (const field of [
-      "benchmarkReportBytes",
+      "firstBenchmarkReportBytes",
+      "firstHeartbeatSamples",
+      "firstHeartbeatSamplesOverThreshold",
+      "firstHeartbeatSamplesOverThirtyMilliseconds",
+      "confirmationBenchmarkReportBytes",
       "passingThresholds",
       "thresholdEvaluations",
-      "completedSessions",
-      "failedSessions",
-      "heartbeatSamples",
-      "heartbeatSamplesOverThreshold",
-      "heartbeatSamplesOverThirtyMilliseconds",
+      "confirmationCompletedSessions",
+      "confirmationFailedSessions",
+      "confirmationHeartbeatSamples",
+      "confirmationHeartbeatSamplesOverThreshold",
+      "confirmationHeartbeatSamplesOverThirtyMilliseconds",
       "nodeComparisonReportBytes",
       "logicalCpus",
     ]) {
@@ -1485,8 +1518,10 @@ export function validateCurrentCheckpoint(manifest) {
       );
     }
     for (const field of [
-      "heartbeatP99Milliseconds",
-      "maximumHeartbeatGapMilliseconds",
+      "firstHeartbeatP99Milliseconds",
+      "firstMaximumHeartbeatGapMilliseconds",
+      "confirmationHeartbeatP99Milliseconds",
+      "confirmationMaximumHeartbeatGapMilliseconds",
       "vertexBufferMedianMilliseconds",
       "renderStatesMedianMilliseconds",
       "nodeMedianIncreasePercent",
@@ -1497,10 +1532,50 @@ export function validateCurrentCheckpoint(manifest) {
         errors,
       );
     }
-    for (const field of ["benchmarkReportSha256", "nodeComparisonReportSha256"]) {
+    for (const field of [
+      "firstBenchmarkReportSha256",
+      "confirmationBenchmarkReportSha256",
+      "nodeComparisonReportSha256",
+    ]) {
       requireSha256(
         benchmarkBlockerEvidence[field],
         `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    const hostQuiescenceObservation = requireRecord(
+      benchmarkBlockerEvidence.hostQuiescenceObservation,
+      "browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation",
+      errors,
+    );
+    for (const field of ["classification", "topProcess"]) {
+      requireString(
+        hostQuiescenceObservation[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "durationMilliseconds",
+      "samples",
+      "samplesOver25Percent",
+      "samplesOver50Percent",
+    ]) {
+      requireInteger(
+        hostQuiescenceObservation[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "meanCpuPercent",
+      "p95CpuPercent",
+      "maximumCpuPercent",
+      "topProcessHostPercent",
+    ]) {
+      requireFiniteNumber(
+        hostQuiescenceObservation[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.hostQuiescenceObservation.${field}`,
         errors,
       );
     }
@@ -1524,37 +1599,70 @@ export function validateCurrentCheckpoint(manifest) {
     if (
       browser.bgiBenchmark !== "threshold-blocked" ||
       benchmarkBlocker.schema !== "vine.structured-blocker" ||
-      benchmarkBlocker.schemaVersion !== 1 ||
+      benchmarkBlocker.schemaVersion !== 2 ||
       benchmarkBlocker.id !==
-        "d3d9-initial-render-states-heartbeat-threshold-v1" ||
+        "d3d9-initial-render-states-heartbeat-threshold-v2" ||
       benchmarkBlocker.kind !== "feasibility-blocker" ||
       benchmarkBlocker.reason !==
-        "browser-heartbeat-p99-exceeds-versioned-threshold-without-node-cost-regression" ||
+        "browser-heartbeat-p99-repeats-above-versioned-threshold-on-quiescent-host-without-node-cost-regression" ||
       benchmarkBlocker.status !== "blocked" ||
       benchmarkBlocker.blockedWork !==
         "accept-d3d9-initial-render-states-and-advance-to-get-raster-status" ||
       benchmarkBlocker.exactReproduction !==
         "npm run check:runtime:bgi-browser-benchmark:prepared" ||
       firstBenchmarkFailure.thresholdId !== benchmarkFailureIds[0] ||
-      firstBenchmarkFailure.observed !== bgiBenchmarkEvidence.heartbeatP99Milliseconds ||
+      firstBenchmarkFailure.observed !== 30.50500000268221 ||
       firstBenchmarkFailure.comparison !== "<=" ||
       firstBenchmarkFailure.threshold !== 25 ||
-      benchmarkBlockerEvidence.benchmarkReportBytes !== bgiBenchmarkEvidence.reportBytes ||
-      benchmarkBlockerEvidence.benchmarkReportSha256 !==
+      confirmationBenchmarkFailure.thresholdId !== benchmarkFailureIds[0] ||
+      confirmationBenchmarkFailure.observed !==
+        bgiBenchmarkEvidence.heartbeatP99Milliseconds ||
+      confirmationBenchmarkFailure.comparison !== "<=" ||
+      confirmationBenchmarkFailure.threshold !== 25 ||
+      benchmarkBlockerEvidence.firstBenchmarkReport !==
+        ".work/browser-runtime/bgi-browser-benchmark-report.json" ||
+      benchmarkBlockerEvidence.firstBenchmarkReportBytes !== 642_010 ||
+      benchmarkBlockerEvidence.firstBenchmarkReportSha256 !==
+        "68d66db730712da40f924defbd5669db55a97d40c3b095d00f1a27986ea8d4d9" ||
+      benchmarkBlockerEvidence.firstHeartbeatSamples !== 24_487 ||
+      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThreshold !== 405 ||
+      benchmarkBlockerEvidence.firstHeartbeatSamplesOverThirtyMilliseconds !== 260 ||
+      benchmarkBlockerEvidence.firstHeartbeatP99Milliseconds !==
+        firstBenchmarkFailure.observed ||
+      benchmarkBlockerEvidence.firstMaximumHeartbeatGapMilliseconds !==
+        43.96000000089407 ||
+      benchmarkBlockerEvidence.confirmationBenchmarkReport !==
+        ".work/browser-runtime/bgi-browser-benchmark-report-d3d9-initial-render-states-quiescent-r2.json" ||
+      benchmarkBlockerEvidence.confirmationBenchmarkReportBytes !==
+        bgiBenchmarkEvidence.reportBytes ||
+      benchmarkBlockerEvidence.confirmationBenchmarkReportSha256 !==
         bgiBenchmarkEvidence.reportSha256 ||
       benchmarkBlockerEvidence.passingThresholds !==
         bgiBenchmarkEvidence.thresholdEvaluationCount - bgiBenchmarkEvidence.thresholdFailures ||
       benchmarkBlockerEvidence.thresholdEvaluations !==
         bgiBenchmarkEvidence.thresholdEvaluationCount ||
-      benchmarkBlockerEvidence.completedSessions !== bgiBenchmarkEvidence.completedSessions ||
-      benchmarkBlockerEvidence.failedSessions !== bgiBenchmarkEvidence.failedSessions ||
-      benchmarkBlockerEvidence.heartbeatSamples !== 24_487 ||
-      benchmarkBlockerEvidence.heartbeatSamplesOverThreshold !== 405 ||
-      benchmarkBlockerEvidence.heartbeatSamplesOverThirtyMilliseconds !== 260 ||
-      benchmarkBlockerEvidence.heartbeatP99Milliseconds !==
+      benchmarkBlockerEvidence.confirmationCompletedSessions !==
+        bgiBenchmarkEvidence.completedSessions ||
+      benchmarkBlockerEvidence.confirmationFailedSessions !==
+        bgiBenchmarkEvidence.failedSessions ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamples !== 23_815 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThreshold !== 601 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatSamplesOverThirtyMilliseconds !== 411 ||
+      benchmarkBlockerEvidence.confirmationHeartbeatP99Milliseconds !==
         bgiBenchmarkEvidence.heartbeatP99Milliseconds ||
-      benchmarkBlockerEvidence.maximumHeartbeatGapMilliseconds !==
+      benchmarkBlockerEvidence.confirmationMaximumHeartbeatGapMilliseconds !==
         bgiBenchmarkEvidence.maximumHeartbeatGapMilliseconds ||
+      hostQuiescenceObservation.classification !==
+        "diagnostic-preflight-not-versioned-threshold" ||
+      hostQuiescenceObservation.durationMilliseconds !== 18_499 ||
+      hostQuiescenceObservation.samples !== 15 ||
+      hostQuiescenceObservation.meanCpuPercent !== 12.267 ||
+      hostQuiescenceObservation.p95CpuPercent !== 17 ||
+      hostQuiescenceObservation.maximumCpuPercent !== 17 ||
+      hostQuiescenceObservation.samplesOver25Percent !== 0 ||
+      hostQuiescenceObservation.samplesOver50Percent !== 0 ||
+      hostQuiescenceObservation.topProcess !== "codex" ||
+      hostQuiescenceObservation.topProcessHostPercent !== 1.964 ||
       benchmarkBlockerEvidence.nodeComparisonReportBytes !== 1_108 ||
       benchmarkBlockerEvidence.nodeComparisonReportSha256 !==
         "7320265a1c826761d751c93e6f7fa30ad228444db4441348f2e3993e749b32fb" ||
@@ -1567,11 +1675,11 @@ export function validateCurrentCheckpoint(manifest) {
       benchmarkBlockerEvidence.logicalCpus !== 16 ||
       benchmarkBlockerEvidence.chromeVersion !== bgiBenchmarkEvidence.chromeVersion ||
       benchmarkBlockerEvidence.nodeVersion !== "v24.18.0" ||
-      attemptedOptions.length < 3 ||
+      attemptedOptions.length < 5 ||
       protectedInvariants.length < 3 ||
       benchmarkBlocker.requiredAuthority !==
-        "isolated-or-quiescent-browser-host-or-versioned-performance-contract-decision" ||
-      !benchmarkBlocker.resumeCondition.includes("unchanged thresholds") ||
+        "profiled-browser-scheduling-remediation-or-versioned-performance-contract-decision" ||
+      !benchmarkBlocker.resumeCondition.includes("unchanged 180-second gate") ||
       !benchmarkBlocker.resumeCondition.includes("GetRasterStatus")
     ) {
       errors.push("browser BGI structured performance blocker is invalid");
