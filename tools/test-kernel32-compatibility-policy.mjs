@@ -45,6 +45,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-source-file-read-v1.json",
   "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json",
   "fixtures/runtime-policies/kernel32-create-thread-v1.json",
+  "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -109,6 +110,20 @@ for (const relative of policyFiles) {
       allowedCreationFlags: [0, 4],
       maximumThreads: 256,
     });
+  }
+  const threadPriority = policy.threadPriority ?? null;
+  if (threadPriority !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(threadPriority.allowedPriorities.length > 0);
+    assert.equal(
+      new Set(threadPriority.allowedPriorities).size,
+      threadPriority.allowedPriorities.length,
+    );
+    assert(
+      threadPriority.allowedPriorities.every((priority) =>
+        [-15, -2, -1, 0, 1, 2, 15].includes(priority),
+      ),
+    );
   }
   const systemInfo = policy.systemInfo ?? null;
   if (systemInfo !== null) {
@@ -267,6 +282,10 @@ assert.deepEqual(
   summary.heapAllocator.largeAllocationBytes,
 );
 assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
+assert.deepEqual(
+  activePolicy.threadPriority?.allowedPriorities ?? null,
+  summary.threadPriorityAllowedPriorities ?? null,
+);
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
 assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
 assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);

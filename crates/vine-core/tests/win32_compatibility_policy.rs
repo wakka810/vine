@@ -57,6 +57,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-source-file-read-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-thread-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-set-thread-priority-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -399,5 +400,33 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         missing_locale_layer.validate().unwrap_err().code,
         "kernel32-policy-system-default-lang-id-invalid"
+    );
+
+    let thread_priority: Kernel32CompatibilityPolicy = serde_json::from_str(policies[37]).unwrap();
+    assert!(thread_priority.allows_thread_priority(1));
+    assert!(!thread_priority.allows_thread_priority(0));
+    assert!(!thread_priority.allows_thread_priority(3));
+
+    let mut duplicate_priority = thread_priority.clone();
+    duplicate_priority
+        .thread_priority
+        .as_mut()
+        .unwrap()
+        .allowed_priorities
+        .push(1);
+    assert_eq!(
+        duplicate_priority.validate().unwrap_err().code,
+        "kernel32-policy-thread-priority-invalid"
+    );
+
+    let mut invalid_priority = thread_priority;
+    invalid_priority
+        .thread_priority
+        .as_mut()
+        .unwrap()
+        .allowed_priorities = vec![3];
+    assert_eq!(
+        invalid_priority.validate().unwrap_err().code,
+        "kernel32-policy-thread-priority-invalid"
     );
 }

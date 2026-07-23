@@ -19,6 +19,11 @@ const focusedSetTimerObservation =
   selectedObservations.size === 1 && selectedObservations.has("set-timer");
 const focusedCreateThreadObservation =
   selectedObservations.size === 1 && selectedObservations.has("create-thread");
+const focusedSetThreadPriorityObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("set-thread-priority");
+const focusedGuestThreadObservation =
+  focusedCreateThreadObservation || focusedSetThreadPriorityObservation;
 const focusedD3d9CreateDeviceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-create-device");
@@ -2955,7 +2960,7 @@ const hooks = {
   ],
 };
 
-if (focusedCreateThreadObservation) {
+if (focusedGuestThreadObservation) {
   hooks["kernel32.dll"] = hooks["kernel32.dll"].filter(
     ([name]) => name !== "CreateThread",
   );
@@ -8066,7 +8071,9 @@ function attachCreatedThreadLifecycleHook(module, name) {
         ),
       };
       const extraArgument =
-        name === "SetThreadAffinityMask" || name === "WaitForSingleObject"
+        name === "SetThreadAffinityMask" ||
+        name === "SetThreadPriority" ||
+        name === "WaitForSingleObject"
           ? args[1].toUInt32()
           : null;
       this.extraArgument = extraArgument;
@@ -8144,6 +8151,45 @@ function maybeCompleteCreateThreadObservation() {
       (call.threadId === targetCall.createdThreadId &&
         call.startRoutine.toLowerCase() === targetCall.startRoutine.toLowerCase()),
   );
+  if (focusedSetThreadPriorityObservation) {
+    const targetPriorityCall = targetLifecycleCalls.find(
+      (call) =>
+        call.api === "SetThreadPriority" && call.caller.rva === 0x00091b77,
+    );
+    if (targetPriorityCall === undefined) {
+      return;
+    }
+    if (createThreadDrainCheckScheduled) {
+      return;
+    }
+    createThreadDrainCheckScheduled = true;
+    const expectedLifecycleCount = createThreadLifecycleCalls.length;
+    const expectedStartCount = createThreadStartCalls.length;
+    setTimeout(() => {
+      createThreadDrainCheckScheduled = false;
+      if (
+        createThreadCompletionRecorded ||
+        createThreadLifecycleCalls.length !== expectedLifecycleCount ||
+        createThreadStartCalls.length !== expectedStartCount
+      ) {
+        maybeCompleteCreateThreadObservation();
+        return;
+      }
+      createThreadCompletionRecorded = true;
+      emit("set-thread-priority-complete", {
+        profile: "x86-bgi-created-thread-priority-v1",
+        createThreadCall: targetCall,
+        targetCall: targetPriorityCall,
+        mainModuleCalls: createThreadMainModuleCalls.map((call) => ({ ...call })),
+        lifecycleCalls: createThreadLifecycleCalls.map((call) => ({ ...call })),
+        startCalls: createThreadStartCalls.map((call) => ({ ...call })),
+      });
+      if (stopOnEvent === "set-thread-priority-complete") {
+        recv("vine-trace-stop", () => {}).wait();
+      }
+    }, 100);
+    return;
+  }
   if (
     !targetLifecycleCalls.some((call) => call.api === "ResumeThread") ||
     targetStartCalls.length === 0
@@ -17554,12 +17600,13 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&
-      focusedCreateThreadObservation
+      focusedGuestThreadObservation
     ) {
       for (const [name, attach] of [
         ["CreateThread", attachCreateThreadHook],
         ["ResumeThread", attachCreatedThreadLifecycleHook],
         ["SuspendThread", attachCreatedThreadLifecycleHook],
+        ["SetThreadPriority", attachCreatedThreadLifecycleHook],
         ["SetThreadAffinityMask", attachCreatedThreadLifecycleHook],
         ["WaitForSingleObject", attachCreatedThreadLifecycleHook],
         ["GetExitCodeThread", attachCreatedThreadLifecycleHook],

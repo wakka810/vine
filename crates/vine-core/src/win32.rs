@@ -20,8 +20,8 @@ use crate::runtime::{
     RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
     RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
-    RuntimeSourceReadHostResponse, RuntimeStateErrorClass, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeSourceReadHostResponse, RuntimeStateErrorClass, RuntimeThreadPriority,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -37,7 +37,8 @@ pub use policy::{
     Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
-    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
+    Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy, Kernel32TickCountPolicy,
+    Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -46,6 +47,7 @@ pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-pr
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
+pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priority.v1";
 pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
 pub const RESUME_THREAD_IMPLEMENTATION: &str = "kernel32.resume-thread.v1";
 pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
@@ -171,6 +173,9 @@ pub fn dispatch_kernel32_api_with_policy(
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
             handle_set_thread_affinity_mask(policy, contract, frame, session)
+        }
+        SET_THREAD_PRIORITY_IMPLEMENTATION => {
+            handle_set_thread_priority(policy, contract, frame, session)
         }
         CREATE_THREAD_IMPLEMENTATION => handle_create_thread(policy, contract, frame, session),
         RESUME_THREAD_IMPLEMENTATION => handle_resume_thread(contract, frame, session),
@@ -299,6 +304,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
+        "SetThreadPriority" => set_thread_priority_contract(endpoint)?,
         "CreateThread" => create_thread_contract(endpoint)?,
         "ResumeThread" => resume_thread_contract(endpoint)?,
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
@@ -444,6 +450,62 @@ fn handle_set_thread_affinity_mask(
         .set_current_thread_affinity_mask(process_mask, requested_mask)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(previous_mask)).with_last_error(preserved_last_error))
+}
+
+fn handle_set_thread_priority(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let thread_handle = required_argument(contract, frame, 0, "thread handle")?;
+    let priority_value =
+        i32::from_le_bytes(required_argument(contract, frame, 1, "thread priority")?.to_le_bytes());
+    let Some(priority) = RuntimeThreadPriority::from_win32_value(priority_value) else {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+            .with_last_error(ERROR_INVALID_PARAMETER));
+    };
+    if !policy.allows_thread_priority(priority_value) {
+        return Err(ApiFault::unsupported(
+            "win32-thread-priority",
+            "set-thread-priority-value-unsupported",
+            format!(
+                "compatibility policy {} does not enable thread priority {priority_value}",
+                policy.id
+            ),
+        ));
+    }
+    if thread_handle == RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
+        return Err(ApiFault::unsupported(
+            "win32-thread-priority",
+            "set-thread-priority-pseudo-handle-unsupported",
+            "SetThreadPriority currently requires a typed logical thread handle",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .set_thread_priority(RuntimeHandle(thread_handle), priority)
+    {
+        Ok(_) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_create_thread(
@@ -3635,6 +3697,20 @@ pub fn set_thread_affinity_mask_contract(
         ],
         ApiReturnSchema::U32,
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn set_thread_priority_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetThreadPriority",
+        vec![u32_argument("threadHandle"), u32_argument("priority")],
+        ApiReturnSchema::Bool32,
+        SET_THREAD_PRIORITY_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

@@ -123,6 +123,45 @@ pub enum RuntimeThreadLifecycleState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeThreadPriority {
+    Idle,
+    Lowest,
+    BelowNormal,
+    Normal,
+    AboveNormal,
+    Highest,
+    TimeCritical,
+}
+
+impl RuntimeThreadPriority {
+    pub const fn from_win32_value(value: i32) -> Option<Self> {
+        match value {
+            -15 => Some(Self::Idle),
+            -2 => Some(Self::Lowest),
+            -1 => Some(Self::BelowNormal),
+            0 => Some(Self::Normal),
+            1 => Some(Self::AboveNormal),
+            2 => Some(Self::Highest),
+            15 => Some(Self::TimeCritical),
+            _ => None,
+        }
+    }
+
+    pub const fn win32_value(self) -> i32 {
+        match self {
+            Self::Idle => -15,
+            Self::Lowest => -2,
+            Self::BelowNormal => -1,
+            Self::Normal => 0,
+            Self::AboveNormal => 1,
+            Self::Highest => 2,
+            Self::TimeCritical => 15,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCancellation {
     pub thread_id: RuntimeThreadId,
@@ -144,6 +183,8 @@ pub struct RuntimeThreadState {
     pub com_apartment: Option<RuntimeComApartmentState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affinity_mask: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<RuntimeThreadPriority>,
     pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
     pub fls_storage_initialized: bool,
     pub fls_values: BTreeMap<u32, u32>,
@@ -286,6 +327,11 @@ pub(super) struct RuntimeThreadAffinityPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeThreadPriorityPlan {
+    mutation: RuntimeThreadMutationPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeComInitializationPlan {
     previous: RuntimeThreadState,
     next: Option<RuntimeThreadState>,
@@ -358,6 +404,7 @@ impl RuntimeThreads {
             last_error: initial_last_error,
             com_apartment: None,
             affinity_mask: None,
+            priority: None,
             tls_values: BTreeMap::new(),
             fls_storage_initialized: false,
             fls_values: BTreeMap::new(),
@@ -609,6 +656,7 @@ impl RuntimeThreads {
                 last_error: initial_last_error,
                 com_apartment: None,
                 affinity_mask: None,
+                priority: None,
                 tls_values: BTreeMap::new(),
                 fls_storage_initialized: false,
                 fls_values: BTreeMap::new(),
@@ -1032,6 +1080,57 @@ impl RuntimeThreads {
                 "runtime-thread-affinity",
                 "thread-affinity-plan-stale",
                 "runtime thread changed after affinity preflight",
+            ));
+        }
+        Ok(self.commit(plan.mutation))
+    }
+
+    pub(super) fn effective_priority(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeThreadPriority, RuntimeStateError> {
+        Ok(self
+            .current_state(thread_id)?
+            .priority
+            .unwrap_or(RuntimeThreadPriority::Normal))
+    }
+
+    pub(super) fn plan_priority(
+        &self,
+        thread_id: RuntimeThreadId,
+        requested_priority: RuntimeThreadPriority,
+    ) -> Result<(RuntimeThreadPriorityPlan, RuntimeThreadPriority), RuntimeStateError> {
+        let previous = self.current_state(thread_id)?.clone();
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-priority",
+                "thread-priority-lifecycle-state-invalid",
+                "thread priority can change only for a running runtime thread",
+            ));
+        }
+        let previous_priority = previous.priority.unwrap_or(RuntimeThreadPriority::Normal);
+        let mut next = previous.clone();
+        next.priority = Some(requested_priority);
+        Ok((
+            RuntimeThreadPriorityPlan {
+                mutation: RuntimeThreadMutationPlan {
+                    previous: Some(previous),
+                    next,
+                },
+            },
+            previous_priority,
+        ))
+    }
+
+    pub(super) fn commit_priority(
+        &mut self,
+        plan: RuntimeThreadPriorityPlan,
+    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
+        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-priority",
+                "thread-priority-plan-stale",
+                "runtime thread changed after priority preflight",
             ));
         }
         Ok(self.commit(plan.mutation))
@@ -1531,6 +1630,59 @@ mod tests {
         assert_eq!(
             threads.commit_affinity_mask(stale).unwrap_err().code,
             "thread-affinity-plan-stale"
+        );
+        assert_eq!(threads, before_stale);
+    }
+
+    #[test]
+    fn priority_plans_use_normal_default_and_commit_per_thread() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+        let registration = threads.plan_registration(SECOND, 33).unwrap();
+        threads.commit(registration);
+
+        assert_eq!(
+            threads.effective_priority(INITIAL),
+            Ok(RuntimeThreadPriority::Normal)
+        );
+        assert_eq!(
+            threads.effective_priority(SECOND),
+            Ok(RuntimeThreadPriority::Normal)
+        );
+        let before = threads.clone();
+        let (plan, previous) = threads
+            .plan_priority(INITIAL, RuntimeThreadPriority::AboveNormal)
+            .unwrap();
+        assert_eq!(previous, RuntimeThreadPriority::Normal);
+        assert_eq!(threads, before, "priority planning must not mutate state");
+        threads.commit_priority(plan).unwrap();
+        assert_eq!(
+            threads.effective_priority(INITIAL),
+            Ok(RuntimeThreadPriority::AboveNormal)
+        );
+        assert_eq!(
+            threads.effective_priority(SECOND),
+            Ok(RuntimeThreadPriority::Normal)
+        );
+
+        let (restore, previous) = threads
+            .plan_priority(INITIAL, RuntimeThreadPriority::Normal)
+            .unwrap();
+        assert_eq!(previous, RuntimeThreadPriority::AboveNormal);
+        let stale = threads
+            .plan_priority(INITIAL, RuntimeThreadPriority::Highest)
+            .unwrap()
+            .0;
+        threads.commit_priority(restore).unwrap();
+        assert_eq!(
+            threads.effective_priority(INITIAL),
+            Ok(RuntimeThreadPriority::Normal)
+        );
+        let before_stale = threads.clone();
+        assert_eq!(
+            threads.commit_priority(stale).unwrap_err().code,
+            "thread-priority-plan-stale"
         );
         assert_eq!(threads, before_stale);
     }

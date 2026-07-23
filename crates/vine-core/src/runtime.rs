@@ -170,8 +170,8 @@ pub use thread::{
     RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome, RuntimeCreateThreadRequest,
     RuntimeCreateThreadResult, RuntimeFlsSlot, RuntimeGuestThreadBootstrap,
     RuntimeResumeThreadResult, RuntimeThreadEnvironment, RuntimeThreadId,
-    RuntimeThreadLifecycleState, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
-    RuntimeTlsValue, TLS_OUT_OF_INDEXES,
+    RuntimeThreadLifecycleState, RuntimeThreadPriority, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTlsValue, TLS_OUT_OF_INDEXES,
 };
 pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
 pub use timers::{

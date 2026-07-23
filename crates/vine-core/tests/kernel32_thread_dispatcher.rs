@@ -1,13 +1,14 @@
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ApiSymbol, DispatchOutcome, ExecutionSession,
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CompatibilityPolicy, Kernel32CreateThreadPolicy, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
-    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH, dispatch_kernel32_api_with_policy,
-    install_initial_thread_stack, install_runtime_return_sentinels, kernel32_contract_for_endpoint,
+    ImportThunkId, Kernel32CompatibilityPolicy, Kernel32CreateThreadPolicy,
+    Kernel32ThreadPriorityPolicy, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    PageProtection, ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RegisterUpdate,
+    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeThreadPriority, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    dispatch_kernel32_api_with_policy, install_initial_thread_stack,
+    install_runtime_return_sentinels, kernel32_contract_for_endpoint,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -16,19 +17,24 @@ const ENTRY: GuestAddress = GuestAddress(0x1000_0000);
 const DATA: GuestAddress = GuestAddress(0x2000_0000);
 const CREATE_STACK: GuestAddress = GuestAddress(0x2000_0100);
 const RESUME_STACK: GuestAddress = GuestAddress(0x2000_0140);
-const CLOSE_STACK: GuestAddress = GuestAddress(0x2000_0160);
-const INVALID_RESUME_STACK: GuestAddress = GuestAddress(0x2000_0180);
+const SET_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_0160);
+const INVALID_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_0180);
+const CLOSE_STACK: GuestAddress = GuestAddress(0x2000_01a0);
+const CLOSED_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_01c0);
+const INVALID_RESUME_STACK: GuestAddress = GuestAddress(0x2000_01e0);
 
 #[test]
-fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
+fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracle() {
     let (mut memory, mut runtime, owner) = prepared_runtime();
     let create = endpoint(owner, 1, 0x7f00_0310, 0x2000_0800, "CreateThread");
     let resume = endpoint(owner, 2, 0x7f00_0320, 0x2000_0804, "ResumeThread");
-    let close = endpoint(owner, 3, 0x7f00_0330, 0x2000_0808, "CloseHandle");
+    let set_priority = endpoint(owner, 3, 0x7f00_0330, 0x2000_0808, "SetThreadPriority");
+    let close = endpoint(owner, 4, 0x7f00_0340, 0x2000_080c, "CloseHandle");
     for (iat, address) in [
         (0x2000_0800, create.address.0),
         (0x2000_0804, resume.address.0),
-        (0x2000_0808, close.address.0),
+        (0x2000_0808, set_priority.address.0),
+        (0x2000_080c, close.address.0),
     ] {
         memory
             .write_initialization(owner, GuestAddress(iat), &address.to_le_bytes())
@@ -41,12 +47,20 @@ fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
         &[0x401000, 0, 0, ENTRY.0, 0x1234_5678, 4, DATA.0],
     );
     write_words(&mut memory, owner, RESUME_STACK, &[0x401100, 0]);
-    write_words(&mut memory, owner, CLOSE_STACK, &[0x401200, 0]);
+    write_words(&mut memory, owner, SET_PRIORITY_STACK, &[0x401200, 0, 1]);
+    write_words(
+        &mut memory,
+        owner,
+        INVALID_PRIORITY_STACK,
+        &[0x401300, 0, 3],
+    );
+    write_words(&mut memory, owner, CLOSE_STACK, &[0x401400, 0]);
+    write_words(&mut memory, owner, CLOSED_PRIORITY_STACK, &[0x401500, 0, 1]);
     write_words(
         &mut memory,
         owner,
         INVALID_RESUME_STACK,
-        &[0x401300, u32::MAX],
+        &[0x401600, u32::MAX],
     );
     memory.seal_owner(owner).unwrap();
     let reflection = memory.pending_reflection().unwrap();
@@ -54,7 +68,7 @@ fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
         .acknowledge_delta(reflection.invalidation.generation)
         .unwrap();
 
-    let contracts = [&create, &resume, &close]
+    let contracts = [&create, &resume, &set_priority, &close]
         .into_iter()
         .map(|endpoint| {
             kernel32_contract_for_endpoint(endpoint.clone())
@@ -62,8 +76,16 @@ fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    let dispatcher =
-        ApiDispatcher::new([create.clone(), resume.clone(), close.clone()], contracts).unwrap();
+    let dispatcher = ApiDispatcher::new(
+        [
+            create.clone(),
+            resume.clone(),
+            set_priority.clone(),
+            close.clone(),
+        ],
+        contracts,
+    )
+    .unwrap();
     let policy = thread_policy();
 
     let creation = dispatch(
@@ -112,6 +134,69 @@ fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
         SchedulerThreadState::Runnable
     );
 
+    write_runtime_u32(&mut memory, GuestAddress(SET_PRIORITY_STACK.0 + 4), handle);
+    let priority = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        SET_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(priority.eax, RegisterUpdate::Set(1));
+    assert_eq!(
+        priority.stack_pointer,
+        GuestAddress(SET_PRIORITY_STACK.0 + 12)
+    );
+    assert_eq!(priority.last_error, 0x5a5a);
+    assert_eq!(
+        runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
+        RuntimeThreadPriority::AboveNormal
+    );
+
+    write_runtime_u32(
+        &mut memory,
+        GuestAddress(INVALID_PRIORITY_STACK.0 + 4),
+        handle,
+    );
+    let invalid_priority = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        INVALID_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(invalid_priority.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_priority.last_error, 87);
+    assert_eq!(
+        runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
+        RuntimeThreadPriority::AboveNormal
+    );
+    runtime.set_current_last_error(0x5a5a).unwrap();
+
+    write_runtime_u32(
+        &mut memory,
+        GuestAddress(INVALID_PRIORITY_STACK.0 + 4),
+        runtime.process_handle().unwrap().0,
+    );
+    write_runtime_u32(&mut memory, GuestAddress(INVALID_PRIORITY_STACK.0 + 8), 1);
+    let wrong_kind_priority = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        INVALID_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(wrong_kind_priority.eax, RegisterUpdate::Set(0));
+    assert_eq!(wrong_kind_priority.last_error, 6);
+    assert_eq!(
+        runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
+        RuntimeThreadPriority::AboveNormal
+    );
+    runtime.set_current_last_error(0x5a5a).unwrap();
+
     write_runtime_u32(&mut memory, GuestAddress(CLOSE_STACK.0 + 4), handle);
     let closed = dispatch(
         &dispatcher,
@@ -127,6 +212,26 @@ fn create_resume_and_close_thread_follow_x86_contract_and_last_error_oracle() {
         runtime
             .object_for_handle(vine_core::RuntimeHandle(handle), RuntimeObjectKind::Thread)
             .is_err()
+    );
+
+    write_runtime_u32(
+        &mut memory,
+        GuestAddress(CLOSED_PRIORITY_STACK.0 + 4),
+        handle,
+    );
+    let closed_priority = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        CLOSED_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(closed_priority.eax, RegisterUpdate::Set(0));
+    assert_eq!(closed_priority.last_error, 6);
+    assert_eq!(
+        runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
+        RuntimeThreadPriority::AboveNormal
     );
 
     let invalid = dispatch(
@@ -217,6 +322,9 @@ fn thread_policy() -> Kernel32CompatibilityPolicy {
         default_stack_commit_bytes: GUEST_PAGE_SIZE as u32,
         allowed_creation_flags: vec![0, 4],
         maximum_threads: 8,
+    });
+    policy.thread_priority = Some(Kernel32ThreadPriorityPolicy {
+        allowed_priorities: vec![1],
     });
     policy.validate().unwrap();
     policy

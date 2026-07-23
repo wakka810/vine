@@ -7,7 +7,7 @@ use crate::runtime::{
     RUNTIME_GUEST_THREAD_LIMIT, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeThreadPriority,
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
@@ -65,6 +65,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub processor_features: Vec<Kernel32ProcessorFeaturePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_affinity: Option<Kernel32ThreadAffinityPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_priority: Option<Kernel32ThreadPriorityPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_thread: Option<Kernel32CreateThreadPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -232,6 +234,12 @@ pub struct Kernel32ThreadAffinityPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32ThreadPriorityPolicy {
+    pub allowed_priorities: Vec<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32CreateThreadPolicy {
     pub default_stack_reserve_bytes: u32,
     pub default_stack_commit_bytes: u32,
@@ -321,6 +329,7 @@ impl Kernel32CompatibilityPolicy {
             system_default_lang_id: None,
             processor_features: Vec::new(),
             thread_affinity: None,
+            thread_priority: None,
             create_thread: None,
             system_info: None,
             os_version_info_a: None,
@@ -617,6 +626,25 @@ impl Kernel32CompatibilityPolicy {
                 "thread-affinity policy requires a nonzero virtual process mask",
             ));
         }
+        if let Some(priority) = self.thread_priority.as_ref() {
+            let priorities = priority
+                .allowed_priorities
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || priorities.is_empty()
+                || priorities.len() != priority.allowed_priorities.len()
+                || priorities
+                    .iter()
+                    .any(|value| RuntimeThreadPriority::from_win32_value(*value).is_none())
+            {
+                return Err(policy_error(
+                    "kernel32-policy-thread-priority-invalid",
+                    "thread-priority policy requires schema v2 and unique implemented Win32 priority values",
+                ));
+            }
+        }
         if let Some(thread) = self.create_thread.as_ref() {
             let flags = thread
                 .allowed_creation_flags
@@ -873,6 +901,12 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn thread_affinity_process_mask(&self) -> Option<u32> {
         self.thread_affinity.map(|affinity| affinity.process_mask)
+    }
+
+    pub fn allows_thread_priority(&self, priority: i32) -> bool {
+        self.thread_priority
+            .as_ref()
+            .is_some_and(|policy| policy.allowed_priorities.contains(&priority))
     }
 
     pub fn create_thread(&self) -> Option<&Kernel32CreateThreadPolicy> {

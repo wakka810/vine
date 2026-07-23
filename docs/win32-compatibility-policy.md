@@ -459,8 +459,19 @@ capacity exhaustion returns NULL／8. Success preserves LastError.
 `ResumeThread` is not policy-selected. It resolves a typed live thread handle, returns
 the previous positive suspend count, and preserves LastError; invalid／non-suspended
 handles return `0xFFFFFFFF`／6. Rust owns the suspend counter and scheduler transition.
-The policy does not authorize host threads, parallel Workers, native TIDs, thread
-priority, DLL thread callbacks, arbitrary stack sizes, or additional creation flags.
+The `createThread` option does not authorize host threads, parallel Workers, native TIDs,
+DLL thread callbacks, arbitrary stack sizes, or additional creation flags.
+
+`SetThreadPriority` uses a separate optional `threadPriority` policy object containing
+only unique implemented Win32 priority values. The active profile admits the reached
+`THREAD_PRIORITY_ABOVE_NORMAL` (`1`) value. The handler first parses the complete Win32
+priority enum: an unknown numeric value returns FALSE／87, while a known but policy-disabled
+value stops as typed unsupported before mutation. A typed live thread handle selects the
+Rust-owned record; success returns TRUE and preserves LastError. Invalid, closed, or
+wrong-kind handles return FALSE／6. The owner-local plan and stale-checked commit update
+only logical per-thread priority. Policy does not authorize pseudo handles in this
+unreached variant, host scheduler priority, browser task priority, or priority-weighted
+cooperative selection.
 
 `LoadLibraryA` uses one policy-backed one-argument semantic handler for
 Vine-provided runtime-system modules. The policy contains only a bounded ASCII

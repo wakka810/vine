@@ -834,6 +834,15 @@ export function validateCurrentCheckpoint(manifest) {
     "setWindowPosActivationGuestWriteBytes",
     "timeGetTimeCompletions",
     "timeGetTimeIncrementPerRead",
+    "threadPriorityCompletions",
+    "threadPrioritySequence",
+    "threadPriorityInstructionCount",
+    "threadPriorityResult",
+    "threadPriorityLastError",
+    "threadPriorityGuestWriteBytes",
+    "threadPriorityThreadId",
+    "threadPriorityNodeCompletions",
+    "threadPriorityChromeCompletions",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -900,12 +909,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_289 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_803 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_295 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_810 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_028 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_052 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -1673,6 +1682,36 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.guestThreadExecutedBeforeNextStop !== false
   ) {
     errors.push("browser BGI guest-thread bootstrap evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.threadPriorityCompletions !== 1 ||
+    bgiBrowserEvidence.threadPrioritySequence !== 18_600 ||
+    bgiBrowserEvidence.threadPriorityInstructionCount !== 11_945_977 ||
+    bgiBrowserEvidence.threadPriorityArguments?.join(",") !==
+      "0x54010002,0x00000001" ||
+    bgiBrowserEvidence.threadPriorityResult !== 1 ||
+    bgiBrowserEvidence.threadPriorityReturnAddress !== "0x10091b77" ||
+    bgiBrowserEvidence.threadPriorityLastError !== 0 ||
+    bgiBrowserEvidence.threadPriorityGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.threadPriorityImplementationId !==
+      "kernel32.set-thread-priority.v1" ||
+    bgiBrowserEvidence.threadPriorityHandle !== "0x54010002" ||
+    bgiBrowserEvidence.threadPriorityThreadId !== 8_193 ||
+    bgiBrowserEvidence.threadPriorityValue !== "above-normal" ||
+    bgiBrowserEvidence.threadPriorityStateAuthority !==
+      "runtime/thread.rs::RuntimeThreads" ||
+    bgiBrowserEvidence.threadPriorityMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    bgiBrowserEvidence.threadPrioritySchedulerPolicy !==
+      "logical-state-only-cooperative-selection-unchanged" ||
+    bgiBrowserEvidence.threadPriorityHostSchedulerImported !== false ||
+    bgiBrowserEvidence.threadPriorityBrowserSchedulerImported !== false ||
+    bgiBrowserEvidence.threadPriorityFailureAtomicity !== true ||
+    bgiBrowserEvidence.threadPriorityNodeCompletions !== 1 ||
+    bgiBrowserEvidence.threadPriorityChromeCompletions !== 1 ||
+    bgiBrowserEvidence.threadPriorityNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("browser BGI logical thread-priority evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -4837,7 +4876,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    threads.schema !== "vine.runtime-thread-registry.v6" ||
+    threads.schema !== "vine.runtime-thread-registry.v7" ||
     threads.stateOwner !== "runtime/thread.rs::RuntimeThreads" ||
     threads.mutableCollectionVisibility !== "private" ||
     threads.serializedRuntimeField !== "threads" ||
@@ -4875,7 +4914,13 @@ export function validateCurrentCheckpoint(manifest) {
     threads.dynamicThreadAddressReuseVerified !== true ||
     !Array.isArray(threads.perThreadState) ||
     threads.perThreadState.join(",") !==
-      "last-error,tls-values,fls-values,callback-frames,stack-metadata,environment-metadata,guest-bootstrap,logical-affinity-mask,com-apartment" ||
+      "last-error,tls-values,fls-values,callback-frames,stack-metadata,environment-metadata,guest-bootstrap,logical-affinity-mask,logical-priority,com-apartment" ||
+    threads.priorityDefault !== "normal" ||
+    threads.priorityMutation !== "owner-plan-stale-check-targeted-commit" ||
+    threads.priorityPolicyAllowedValues?.join(",") !== "1" ||
+    threads.priorityAffectsCooperativeSelection !== false ||
+    threads.priorityHostSchedulerImported !== false ||
+    threads.priorityBrowserSchedulerImported !== false ||
     threads.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime thread subsystem boundary is invalid");
@@ -5126,9 +5171,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-create-thread-v1" ||
+    kernel32Policy.id !== "kernel32-set-thread-priority-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-create-thread-v1.json" ||
+      "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -5191,6 +5236,7 @@ export function validateCurrentCheckpoint(manifest) {
     createThread.memoryAuthority !== "rust-guest-memory" ||
     createThread.browserOwnsWindowsThreadState !== false ||
     kernel32Policy.threadAffinityProcessMask !== 1 ||
+    kernel32Policy.threadPriorityAllowedPriorities?.join(",") !== "1" ||
     systemInfo.processorArchitecture !== 0 ||
     systemInfo.pageSize !== 4096 ||
     systemInfo.minimumApplicationAddress !== 0x00010000 ||
@@ -6049,7 +6095,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-kernel32-create-thread.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-kernel32-set-thread-priority.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6511,11 +6557,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_654 ||
-    latestEvidence.writebackDirtyPages !== 37_555 ||
-    latestEvidence.writebackChangedBytes !== 2_945_206 ||
-    latestEvidence.hostDeltaBatches !== 17_289 ||
-    latestEvidence.finalMemoryGeneration !== 36_513
+    latestEvidence.writebackBatches !== 18_662 ||
+    latestEvidence.writebackDirtyPages !== 37_576 ||
+    latestEvidence.writebackChangedBytes !== 2_946_750 ||
+    latestEvidence.hostDeltaBatches !== 17_295 ||
+    latestEvidence.finalMemoryGeneration !== 36_527
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8438,10 +8484,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "bfc8c1e4811d3587474e2bbad777d89ab182a5417bd963cc1229b86d7b590fdc" ||
+      "0348d8d9dd42b0999d8536fa85a897e3da5348768d218ecf0932e1c74f6a9199" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "ae690b5dc75ce9ae4c63dd9a0dc169bb88121dd12838c9227b10f74c96f0cd79" ||
+      "d9013c8f67bf8522affc7b11041d969a9dadf432e92b1bdf5eaea01a5aede2fa" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -8957,6 +9003,97 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.createThreadNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest CreateThread and ResumeThread evidence is invalid");
+  }
+  for (const field of [
+    "nativeSetThreadPriorityPrimaryTraceSha256",
+    "nativeSetThreadPriorityConfirmationTraceSha256",
+    "setThreadPriorityOracleSourceSha256",
+    "setThreadPriorityOracleExecutableSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeSetThreadPriorityPrimaryTraceBytes !== 2_773_117 ||
+    latestEvidence.nativeSetThreadPriorityPrimaryTraceLines !== 953 ||
+    latestEvidence.nativeSetThreadPriorityPrimaryTraceSha256 !==
+      "dd98137e23b5c9cdf34dff09eb14e39b15d653086c0334a557768f5008e7caac" ||
+    latestEvidence.nativeSetThreadPriorityConfirmationTraceBytes !== 2_774_186 ||
+    latestEvidence.nativeSetThreadPriorityConfirmationTraceLines !== 953 ||
+    latestEvidence.nativeSetThreadPriorityConfirmationTraceSha256 !==
+      "9370aec65046b6269eb27a77c37c40ae31c9dd9e5b34aaeeed63a8210d87cd2f" ||
+    latestEvidence.nativeSetThreadPriorityTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSetThreadPriorityHookErrors !== 0 ||
+    latestEvidence.nativeSetThreadPriorityProfile !==
+      "x86-bgi-created-thread-priority-v1" ||
+    latestEvidence.nativeSetThreadPriorityCallsPerTrace !== 31 ||
+    latestEvidence.nativeSetThreadPriorityTargetCallsPerTrace !== 1 ||
+    latestEvidence.nativeSetThreadPriorityCallerReturnRva !== "0x00091b77" ||
+    latestEvidence.nativeSetThreadPriorityValue !== 1 ||
+    latestEvidence.nativeSetThreadPriorityCreatedHandleRelation !== true ||
+    latestEvidence.nativeSetThreadPriorityResult !== 1 ||
+    latestEvidence.nativeSetThreadPriorityLastError !== 0 ||
+    latestEvidence.nativeSetThreadPrioritySuccessLastErrorPreserved !== true ||
+    latestEvidence.nativeSetThreadPriorityConsumer !==
+      "restore-seh-frame-and-return-without-reading-eax" ||
+    latestEvidence.nativeSetThreadPriorityExecutableHashUnchanged !== true ||
+    latestEvidence.setThreadPriorityOracleArchitecture !== "coff-i386" ||
+    latestEvidence.setThreadPriorityOracleSourceBytes !== 7_253 ||
+    latestEvidence.setThreadPriorityOracleSourceSha256 !==
+      "5a79901aa8a5c77d17d9ba9d916c418dc204c52504118118225e3eddbfffa79c" ||
+    latestEvidence.setThreadPriorityOracleExecutableBytes !== 8_704 ||
+    latestEvidence.setThreadPriorityOracleExecutableSha256 !==
+      "a181fe64363e2970393123a2389719fcaee689db89dc3c3132662fd8aa08f76f" ||
+    latestEvidence.setThreadPriorityOracleLastErrorSentinel !== 23_130 ||
+    latestEvidence.setThreadPriorityOracleInitialPriority !== 0 ||
+    latestEvidence.setThreadPriorityOracleAboveNormalPriority !== 1 ||
+    latestEvidence.setThreadPriorityOracleRepeatPreservesPriority !== true ||
+    latestEvidence.setThreadPriorityOracleRestorePriority !== 0 ||
+    latestEvidence.setThreadPriorityOracleSuccessPreservesLastError !== true ||
+    latestEvidence.setThreadPriorityOracleInvalidPriorityResult !== 0 ||
+    latestEvidence.setThreadPriorityOracleInvalidPriorityLastError !== 87 ||
+    latestEvidence.setThreadPriorityOracleInvalidPriorityPreservesState !== true ||
+    latestEvidence.setThreadPriorityOracleInvalidHandleResult !== 0 ||
+    latestEvidence.setThreadPriorityOracleInvalidHandleLastError !== 6 ||
+    latestEvidence.setThreadPriorityOracleClosedHandleResult !== 0 ||
+    latestEvidence.setThreadPriorityOracleClosedHandleLastError !== 6 ||
+    latestEvidence.setThreadPriorityImplemented !== true ||
+    latestEvidence.setThreadPriorityImplementationId !==
+      "kernel32.set-thread-priority.v1" ||
+    latestEvidence.setThreadPriorityPolicySchema !==
+      "vine.kernel32-compatibility-policy" ||
+    latestEvidence.setThreadPriorityPolicySchemaVersion !== 2 ||
+    latestEvidence.setThreadPriorityPolicyId !==
+      "kernel32-set-thread-priority-v1" ||
+    latestEvidence.setThreadPriorityAllowedPriorities?.join(",") !== "1" ||
+    latestEvidence.setThreadPrioritySequence !== 18_600 ||
+    latestEvidence.setThreadPriorityInstructionCount !== 11_945_977 ||
+    latestEvidence.setThreadPriorityArguments?.join(",") !==
+      "0x54010002,0x00000001" ||
+    latestEvidence.setThreadPriorityReturnAddress !== "0x10091b77" ||
+    latestEvidence.setThreadPriorityResult !== 1 ||
+    latestEvidence.setThreadPriorityLastError !== 0 ||
+    latestEvidence.setThreadPriorityGuestWriteBytes !== 0 ||
+    latestEvidence.setThreadPriorityHandle !== "0x54010002" ||
+    latestEvidence.setThreadPriorityThreadId !== 8_193 ||
+    latestEvidence.setThreadPriorityValue !== "above-normal" ||
+    latestEvidence.setThreadPriorityStateAuthority !==
+      "runtime/thread.rs::RuntimeThreads" ||
+    latestEvidence.setThreadPriorityMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    latestEvidence.setThreadPrioritySchedulerPolicy !==
+      "logical-state-only-cooperative-selection-unchanged" ||
+    latestEvidence.setThreadPriorityHostSchedulerImported !== false ||
+    latestEvidence.setThreadPriorityBrowserSchedulerImported !== false ||
+    latestEvidence.setThreadPriorityFailureAtomicity !== true ||
+    latestEvidence.setThreadPriorityNodeCompletions !== 1 ||
+    latestEvidence.setThreadPriorityChromeCompletions !== 1 ||
+    latestEvidence.setThreadPriorityNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest SetThreadPriority evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",

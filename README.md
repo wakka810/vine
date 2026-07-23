@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-create-thread`: 18599 calls across 92 API contracts, memory generation 36513 |
+| Runtime diagnostics | `kernel32-set-thread-priority`: 18607 calls across 93 API contracts, memory generation 36527 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!SetThreadPriority(0x54010002, 0x00000001)` at instruction 11945977: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!GetDC(0x00000000)` at instruction 11957736: `null-logical-handle-forbidden` |
 
-The active semantic report is 55,093 bytes with SHA-256
-`d12d10919c4016bb2645bc92d85fd51d1459c3d94f0e690d2ab3dc45b2e02d6c`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 55,874 bytes with SHA-256
+`46ac2be20bce1059ddb57b5892f8607c11087a8c9ac0219abea97de0e041ab6d`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -131,6 +131,7 @@ The active semantic report is 55,093 bytes with SHA-256
 - `USER32.dll!SetTimer`
 - `KERNEL32.dll!CreateThread`
 - `KERNEL32.dll!ResumeThread`
+- `KERNEL32.dll!SetThreadPriority`
 
 ### Reproduce Current Checkpoint
 

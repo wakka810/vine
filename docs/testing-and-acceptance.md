@@ -496,8 +496,21 @@ output writeを一つのtransactionとして検査し、unmapped outputとpage q
 releaseし、同じaddressを再利用できなければならない。Node／Chrome gateはsequence 18,598のCreateThread、18,599の
 ResumeThread、Chrome CPU context registration、caller-only execution、same semantic digest／terminal memory、続く
 `SetThreadPriority` stopを要求する。Synchronous resumeはcallerを即時preemptせず、blockまたはexplicit scheduleまで
-child contextをreadyに保つ。Priority semantics、DLL thread notification、TLS／FLS cleanup callback、last-thread process
+child contextをreadyに保つ。DLL thread notification、TLS／FLS cleanup callback、last-thread process
 exit、simultaneous guest executionはclaimしない。
+
+Reached `SetThreadPriority` gateは直前に作成したtyped thread handleと
+`THREAD_PRIORITY_ABOVE_NORMAL` (`1`)をexact profileとして固定する。Focused native two-run evidenceは同じ
+CreateThread handle relation、TRUE、LastError preserve、callerがEAXを読まずframeを復元してreturnすることを要求する。
+Controlled COFF-i386 oracleはnormal default、above-normalへの変更とrepeat、normalへの復元、success LastError
+preserve、unknown numeric priorityのFALSE／ERROR_INVALID_PARAMETER／state preserve、invalid／closed handleの
+FALSE／ERROR_INVALID_HANDLEを固定する。
+
+Rust testsはper-thread isolation、mutation-free plan、stale／duplicate commit rejection、invalid／closed／wrong-kind
+handleとpolicy-disabled variantのfailure atomicityを検査する。Node／Chrome gateはsequence 18,600、logical thread
+8193のabove-normal state、guest write 0、LastError preserve、同じsemantic digest／terminal memoryと、続く
+`USER32.dll!GetDC(NULL)` stopを要求する。Logical priorityはcooperative lane selectionを変更せず、host scheduler class、
+browser task priority、pseudo-handle variant、priority boostをclaimしない。
 
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは

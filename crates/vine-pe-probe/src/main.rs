@@ -34,21 +34,22 @@ use vine_core::{
     RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadStack, RuntimeThreadStackGrowth,
-    RuntimeThreadState, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
-    RuntimeWindowTimer, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
-    SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
-    TIME_GET_TIME_IMPLEMENTATION, UnsupportedPoint, User32CompatibilityPolicy,
-    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    encode_pointer_contract, gdi32_contract_for_endpoint, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerResolutionState, RuntimeTlsValue,
+    RuntimeWaitableTimer, RuntimeWindowTimer, SET_THREAD_PRIORITY_IMPLEMENTATION,
+    SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState,
+    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
+    UnsupportedPoint, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
+    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
@@ -209,6 +210,7 @@ enum GenericRuntimeCapability {
     DsoundBufferLockUnlockPlay,
     SetTimer,
     CreateThread,
+    SetThreadPriority,
 }
 
 struct GenericRuntimeProcess {
@@ -449,6 +451,8 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    thread_priority: Option<GenericRuntimeThreadPriority>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     created_thread: Option<GenericRuntimeCreatedThread>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resumed_thread: Option<GenericRuntimeResumedThread>,
@@ -536,6 +540,14 @@ struct GenericRuntimeThreadAffinity {
     thread_id: u32,
     process_mask: u32,
     affinity_mask: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeThreadPriority {
+    handle: RuntimeHandle,
+    thread_id: RuntimeThreadId,
+    priority: RuntimeThreadPriority,
 }
 
 #[derive(Debug, Serialize)]
@@ -2375,6 +2387,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                     | GenericRuntimeCapability::SetTimer
                     | GenericRuntimeCapability::CreateThread
+                    | GenericRuntimeCapability::SetThreadPriority
             )
         ) {
             let loader = kernel32_policy
@@ -3033,6 +3046,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3044,6 +3058,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
         )
     );
     let dsound_root_enabled = matches!(
@@ -3054,6 +3069,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3063,6 +3079,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3071,6 +3088,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::DsoundBufferLockUnlockPlay
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
         )
     );
     let requested_capability = match enabled_capability {
@@ -3081,7 +3099,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::DsoundInitialBuffers
             | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
             | GenericRuntimeCapability::SetTimer
-            | GenericRuntimeCapability::CreateThread,
+            | GenericRuntimeCapability::CreateThread
+            | GenericRuntimeCapability::SetThreadPriority,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3270,7 +3289,11 @@ fn run_v86_generic_runtime_session(
     }
     if !matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::SetTimer | GenericRuntimeCapability::CreateThread)
+        Some(
+            GenericRuntimeCapability::SetTimer
+                | GenericRuntimeCapability::CreateThread
+                | GenericRuntimeCapability::SetThreadPriority
+        )
     ) {
         user32_policy.set_timer = None;
     }
@@ -3968,6 +3991,7 @@ fn run_v86_generic_runtime_session(
                             window,
                             window_timer: None,
                             thread_affinity: None,
+                            thread_priority: None,
                             created_thread: None,
                             resumed_thread: None,
                             tick_count: None,
@@ -4556,6 +4580,41 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let thread_priority = if completion.implementation_id
+                            == SET_THREAD_PRIORITY_IMPLEMENTATION
+                        {
+                            let handle = RuntimeHandle(
+                                completion.frame.argument_u32(0).ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "set-thread-priority-handle-argument-missing",
+                                        "SetThreadPriority completion has no thread handle argument",
+                                    )
+                                })?,
+                            );
+                            let object = session
+                                .runtime()
+                                .object_for_handle(handle, RuntimeObjectKind::Thread)
+                                .map_err(runtime_state_error)?;
+                            let RuntimeObjectKey::Thread { thread_id } = &object.key else {
+                                return Err(LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "set-thread-priority-object-identity-invalid",
+                                    "SetThreadPriority completion resolved to a non-thread object",
+                                ));
+                            };
+                            let thread_id = RuntimeThreadId(*thread_id);
+                            Some(GenericRuntimeThreadPriority {
+                                handle,
+                                thread_id,
+                                priority: session
+                                    .runtime()
+                                    .thread_priority(thread_id)
+                                    .map_err(runtime_state_error)?,
+                            })
+                        } else {
+                            None
+                        };
                         let created_thread = if completion.implementation_id
                             == CREATE_THREAD_IMPLEMENTATION
                         {
@@ -4762,6 +4821,7 @@ fn run_v86_generic_runtime_session(
                                 window,
                                 window_timer,
                                 thread_affinity,
+                                thread_priority,
                                 created_thread,
                                 resumed_thread,
                                 tick_count,
@@ -4959,6 +5019,7 @@ fn run_v86_generic_runtime_session(
                                 window: None,
                                 window_timer: None,
                                 thread_affinity: None,
+                                thread_priority: None,
                                 created_thread: None,
                                 resumed_thread: None,
                                 tick_count: None,
@@ -5062,6 +5123,7 @@ fn run_v86_generic_runtime_session(
                                 window: None,
                                 window_timer: None,
                                 thread_affinity: None,
+                                thread_priority: None,
                                 created_thread: None,
                                 resumed_thread: None,
                                 tick_count: None,
@@ -11769,6 +11831,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-set-timer" => GenericRuntimeCapability::SetTimer,
                 "kernel32-create-thread" => GenericRuntimeCapability::CreateThread,
+                "kernel32-set-thread-priority" => GenericRuntimeCapability::SetThreadPriority,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

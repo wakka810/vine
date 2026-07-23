@@ -163,6 +163,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "dsound-buffer-lock-unlock-play",
         "user32-set-timer",
         "kernel32-create-thread",
+        "kernel32-set-thread-priority",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -245,6 +246,7 @@ assert(
       "dsound-buffer-lock-unlock-play",
       "user32-set-timer",
       "kernel32-create-thread",
+      "kernel32-set-thread-priority",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -291,6 +293,7 @@ if (
     "dsound-buffer-lock-unlock-play",
     "user32-set-timer",
     "kernel32-create-thread",
+    "kernel32-set-thread-priority",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -305,7 +308,9 @@ if (
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-create-thread"
+    genericRuntimeCapability === "kernel32-set-thread-priority"
+      ? "kernel32-set-thread-priority-v1.json"
+      : genericRuntimeCapability === "kernel32-create-thread"
       ? "kernel32-create-thread-v1.json"
       : genericRuntimeCapability === "kernel32-load-library-a" ||
     genericRuntimeCapability === "user32-get-client-rect" ||
@@ -466,7 +471,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const createThreadEnabled = genericRuntimeCapability === "kernel32-create-thread";
+const setThreadPriorityEnabled =
+  genericRuntimeCapability === "kernel32-set-thread-priority";
+const createThreadEnabled =
+  setThreadPriorityEnabled || genericRuntimeCapability === "kernel32-create-thread";
 const setTimerEnabled =
   createThreadEnabled || genericRuntimeCapability === "user32-set-timer";
 const dsoundBufferTransferEnabled =
@@ -724,7 +732,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? createThreadEnabled
+      ? setThreadPriorityEnabled
+      ? "v86-bgi-set-thread-priority"
+      : createThreadEnabled
       ? "v86-bgi-create-thread"
       : setTimerEnabled
       ? "v86-bgi-set-timer"
@@ -4716,6 +4726,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setThreadPriorityEnabled) {
+        validateSetThreadPriorityResult(genericResult);
       } else if (createThreadEnabled) {
         validateCreateThreadResult(genericResult);
       } else if (setTimerEnabled) {
@@ -4913,6 +4925,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setThreadPriorityEnabled
+          ? "bgi SetThreadPriority logical created-thread priority"
           : createThreadEnabled
           ? "bgi CreateThread and ResumeThread bootstrap"
           : setTimerEnabled
@@ -6093,6 +6107,9 @@ function buildGenericCallRecord(
     ...(completionFrame.threadAffinity === undefined
       ? {}
       : { threadAffinity: completionFrame.threadAffinity }),
+    ...(completionFrame.threadPriority === undefined
+      ? {}
+      : { threadPriority: completionFrame.threadPriority }),
     ...(completionFrame.createdThread === undefined
       ? {}
       : { createdThread: completionFrame.createdThread }),
@@ -6167,6 +6184,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : setThreadPriorityEnabled
+          ? 80
         : createThreadEnabled
           ? 79
         : setTimerEnabled
@@ -7001,6 +7020,13 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
       setWindowPosInitialPlacementEnabled &&
       fault.fault.class === "resource-limit" &&
       fault.fault.code === "critical-section-limit-exceeded"
+    ) &&
+    !(
+      setThreadPriorityEnabled &&
+      endpoint.module.toLowerCase() === "user32.dll" &&
+      endpoint.symbol === "GetDC" &&
+      fault.fault.class === "invalid-call" &&
+      fault.fault.code === "null-logical-handle-forbidden"
     )
   ) {
     assert.equal(
@@ -14700,6 +14726,100 @@ function validateDsoundBufferLockUnlockPlayResult(result) {
   ]);
 }
 
+function validateSetThreadPriorityResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_607);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_662);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_576,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_946_750,
+  );
+  assert.equal(result.hostDeltas.length, 17_295);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_527);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "SetThreadPriority" && call.returnAddress === 0x1009_1b77,
+  );
+  assert.equal(calls.length, 1, "unexpected primary SetThreadPriority completion count");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_600);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_945_977);
+  assert.equal(call.implementationId, "kernel32.set-thread-priority.v1");
+  assert.deepEqual(call.arguments, [0x5401_0002, 1]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.returnAddress, 0x1009_1b77);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 12);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.threadPriority, {
+    handle: 0x5401_0002,
+    threadId: 8_193,
+    priority: "above-normal",
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-8).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_600, symbol: "SetThreadPriority", occurrence: 1 },
+      { sequence: 18_601, symbol: "InitializeCriticalSection", occurrence: 16_394 },
+      { sequence: 18_602, symbol: "HeapAlloc", occurrence: 154 },
+      { sequence: 18_603, symbol: "HeapAlloc", occurrence: 155 },
+      { sequence: 18_604, symbol: "InitializeCriticalSection", occurrence: 16_395 },
+      { sequence: 18_605, symbol: "GetSystemDefaultLangID", occurrence: 2 },
+      { sequence: 18_606, symbol: "HeapAlloc", occurrence: 156 },
+      { sequence: 18_607, symbol: "HeapAlloc", occurrence: 157 },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "invalid-call");
+  assert.equal(result.fault.fault.stage, "abi-gateway");
+  assert.equal(result.fault.fault.code, "null-logical-handle-forbidden");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 239);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0ee0);
+  assert.equal(result.fault.endpoint.endpoint.module, "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetDC",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1494);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "d9013c8f67bf8522affc7b11041d969a9dadf432e92b1bdf5eaea01a5aede2fa",
+  );
+  assert.equal(result.terminal.instructionCount, 11_957_736);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 239);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0ee0);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "GetDC");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c155);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
+    0x1002_c155,
+    0,
+  ]);
+}
+
 function validateCreateThreadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -17489,10 +17609,20 @@ function buildGenericRuntimeReentryReport({
     assert(resumeThreadCall, "CreateThread report summary has no resume call");
     assert(createThreadDelta, "CreateThread report summary has no host delta");
   }
+  const setThreadPriorityCall = setThreadPriorityEnabled
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "SetThreadPriority" && call.returnAddress === 0x1009_1b77,
+      )
+    : null;
+  if (setThreadPriorityEnabled) {
+    assert(setThreadPriorityCall, "SetThreadPriority report summary has no primary call");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setThreadPriorityEnabled
+        ? "vine.v86-bgi-kernel32-set-thread-priority"
         : createThreadEnabled
         ? "vine.v86-bgi-kernel32-create-thread"
         : setTimerEnabled
@@ -17755,6 +17885,14 @@ function buildGenericRuntimeReentryReport({
             schedulingPolicy: "synchronous-resume-preserves-caller-until-block-or-explicit-schedule",
             nodeExecutedThreadIds: [8_192],
             nodeContextSwitches: 0,
+          },
+        }
+      : {}),
+    ...(setThreadPriorityEnabled
+      ? {
+          threadPriority: {
+            call: setThreadPriorityCall,
+            schedulerPolicy: "logical-state-only-cooperative-selection-unchanged",
           },
         }
       : {}),

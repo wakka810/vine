@@ -53,6 +53,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-monitor-info-a",
     "set-timer",
     "create-thread",
+    "set-thread-priority",
     "window-dc",
     "set-window-long-a",
     "get-string-type-w",

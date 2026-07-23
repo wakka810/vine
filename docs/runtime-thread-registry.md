@@ -6,7 +6,7 @@ reviewのruntime responsibility splitとして、single controlled processのthr
 `runtime/thread.rs`のprivate `RuntimeThreads`へ移した。Initial threadとは別のlogical threadを登録する
 既存contractに加え、reached guest `CreateThread`／`ResumeThread`がthread identity、typed object／handle、
 stack／TEB／FS bootstrap、LastError／TLS／FLS／callback state、logical affinity、COM apartment、scheduler
-lane、exitを同じRust authorityへ接続する。
+lane、logical priority、exitを同じRust authorityへ接続する。
 
 Rustはguest-visible bootstrap metadataとlifetimeを所有し、Runtime WorkerはTIDでkeyedしたopaque execution-engine
 CPU contextだけを保持する。Worker側にWin32 thread record、handle、suspend count、TEB lifetimeの第二の正本は
@@ -19,7 +19,8 @@ FLS slot map、TLS／FLS／callback-frame ID allocatorを所有する。Collecti
 `runtime/thread.rs`の外へ公開せず、aggregateはimmutable state viewと
 `RuntimeThreadMutationPlan`だけを受け取る。Registration、initial start、LastError、TLS／FLS、
 callback push／pop、stack registration／growth、logical affinity、exit request／completionはすべてprevious／next
-recordを持つmutation-free planを返し、scheduler、object、message、wait、GuestMemoryのpreflightが
+recordを持つmutation-free planを返す。Logical priorityも同じowner-local plan／commitを使い、scheduler、
+object、message、wait、GuestMemoryのpreflightが
 成功した後にcommitする。
 
 Aggregateはthread mapへ`get_mut`／`insert`せず、thread recordを直接変更しない。Scheduler lane／
@@ -27,8 +28,8 @@ host-request table／request ID、wait registration、message queueはそれぞ�
 mapを参照またはmutateしない。Serialized `RuntimeState.threads` shapeはtransparent newtypeで維持する。
 Existing `process.allocatedTlsIndices`／`process.flsSlots`とroot `nextTlsIndex`／`nextFlsIndex`／
 `nextCallbackFrameId`はborrowed compatibility viewであり、aggregate-owned stateではない。
-Manifest boundary version `vine.runtime-thread-registry.v6` includes optional serialized
-`affinityMask`、`comApartment`、`environment`、`guestBootstrap` fields and the owner-local
+Manifest boundary version `vine.runtime-thread-registry.v7` includes optional serialized
+`affinityMask`、`priority`、`comApartment`、`environment`、`guestBootstrap` fields and the owner-local
 `nextThreadId` allocator. Unset state is omitted, so historical reports retain their previous shape;
 active records materialize each field only after its owner commit. There is no persistent snapshot
 migration or duplicate compatibility field.
@@ -118,6 +119,17 @@ delegating to the ordinary targeted thread-record replacement. Selecting
 another logical thread exposes its independent effective mask; no native handle,
 host CPU mask, or browser scheduler state enters the subsystem.
 
+An unset priority resolves to Win32 `THREAD_PRIORITY_NORMAL` (`0`).
+`plan_priority` validates a running logical thread and returns the previous
+effective value with a mutation-free replacement for that record only.
+`commit_priority` compares the complete preflight record and rejects stale or
+duplicate use before targeted commit. The semantic enum covers the Win32
+priority values implemented by the handler, while the active compatibility
+policy admits only the reached `THREAD_PRIORITY_ABOVE_NORMAL` (`1`) variant.
+Priority is logical state in this checkpoint: it does not change cooperative
+lane selection and imports neither host scheduler class nor browser task
+priority.
+
 An unset COM apartment is uninitialized. `plan_com_initialization` creates
 count 1 for the requested model, checked-increments a same-model count, or
 returns changed-mode without a next record. `plan_com_uninitialization`
@@ -174,8 +186,8 @@ next structured stopはこのhistorical foundation文書へ複製せず
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement thread priority, natural last-thread process exit, simultaneous
-multi-core guest execution, TLS／FLS cleanup callbacks, DLL thread attach／detach,
+This checkpoint does not implement priority-weighted scheduling, natural last-thread process exit,
+simultaneous multi-core guest execution, TLS／FLS cleanup callbacks, DLL thread attach／detach,
 waiter registration, timeout, wait-any／wait-all, APC, message wake, host affinity control,
 arbitrary thread-handle affinity, host topology discovery, guest `CoInitializeEx`／`CoUninitialize`,
 cross-thread COM marshaling, or apartment message pumping. It is partial evidence for
@@ -190,7 +202,9 @@ and resumes deterministically after signal. The controlled message queue is impl
 remaining process／kernel ownership audit. API-created CPU bootstrap now uses the same Worker context table
 as the controlled second-thread fixture. `GetCurrentThread` consumes only the logical selector; it does
 not claim CPU switching or host-thread identity. The reached `SetThreadAffinityMask` adds only a
-policy-bounded logical mask to that selected record. The current next capability is recorded only in the
+policy-bounded logical mask to that selected record. Reached `SetThreadPriority` likewise adds only a
+policy-bounded logical priority to the resolved typed thread record; it does not affect runnable-lane
+selection or host/browser scheduling. The current next capability is recorded only in the
 current checkpoint manifest.
 
 The x86 `GetSystemInfo` contract reuses that policy-owned process mask for

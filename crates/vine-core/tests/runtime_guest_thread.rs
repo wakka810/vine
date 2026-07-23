@@ -3,9 +3,9 @@ use vine_core::{
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose,
     ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCreateThreadRequest,
     RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWaitState,
-    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH, install_initial_thread_stack,
-    install_runtime_return_sentinels,
+    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeThreadPriority, RuntimeWaitState, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    install_initial_thread_stack, install_runtime_return_sentinels,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -132,6 +132,39 @@ fn suspended_guest_thread_materializes_stack_teb_handle_and_resumes() {
         .expect("resume runnable thread");
     assert_eq!(already_runnable.previous_suspend_count, 0);
     assert!(!already_runnable.became_runnable);
+    assert_eq!(
+        runtime.thread_priority(result.thread_id).unwrap(),
+        RuntimeThreadPriority::Normal
+    );
+    assert_eq!(
+        runtime
+            .set_thread_priority(result.handle, RuntimeThreadPriority::AboveNormal)
+            .unwrap(),
+        RuntimeThreadPriority::Normal
+    );
+    assert_eq!(
+        runtime.thread_priority(result.thread_id).unwrap(),
+        RuntimeThreadPriority::AboveNormal
+    );
+    assert_eq!(
+        runtime.thread_priority(INITIAL_THREAD_ID).unwrap(),
+        RuntimeThreadPriority::Normal
+    );
+    let before_invalid_handle = runtime.clone();
+    assert!(
+        runtime
+            .set_thread_priority(RuntimeHandle(u32::MAX), RuntimeThreadPriority::Highest)
+            .is_err()
+    );
+    assert_eq!(runtime, before_invalid_handle);
+    let process_handle = runtime.process_handle().unwrap();
+    let before_wrong_kind = runtime.clone();
+    assert!(
+        runtime
+            .set_thread_priority(process_handle, RuntimeThreadPriority::Highest)
+            .is_err()
+    );
+    assert_eq!(runtime, before_wrong_kind);
 
     let retired_stack_address = result.stack.reserved_range.start();
     let retired_stack_allocation = result.stack.address_allocation_id;
@@ -196,6 +229,11 @@ fn suspended_guest_thread_materializes_stack_teb_handle_and_resumes() {
     assert!(
         runtime
             .object_for_handle(result.handle, RuntimeObjectKind::Thread)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .set_thread_priority(result.handle, RuntimeThreadPriority::AboveNormal)
             .is_err()
     );
     runtime

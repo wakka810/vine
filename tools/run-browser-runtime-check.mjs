@@ -544,7 +544,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assertExecutionEngine(evidence.report);
     assert.deepEqual(
       evidence.report.registeredThreadIds,
-      bgiProfile === "kernel32-create-thread" && scenario === "success"
+      ["kernel32-create-thread", "kernel32-set-thread-priority"].includes(bgiProfile) &&
+        scenario === "success"
         ? [8192, 8193]
         : [8192],
     );

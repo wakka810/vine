@@ -4442,3 +4442,47 @@ cancel／watchdogを通した。Browser reportは43,943 bytes／SHA-256
 `0x100D12D4`／return `0x10091B77`の`api-endpoint-contract-missing`である。Argumentsはcreated logical handle
 `0x54010002`とpriority `1`である。Thread priority、DLL thread attach／detach、TLS／FLS cleanup callbacks、natural
 last-thread process exit、simultaneous multi-core guest executionはこのcheckpointで実装済みとしない。
+
+## 134. BGI logical thread priority
+
+Focused `set-thread-priority` observationを独立に2回取得した。Primary raw traceは2,773,117 bytes／953 records／
+SHA-256 `dd98137e23b5c9cdf34dff09eb14e39b15d653086c0334a557768f5008e7caac`、confirmationは
+2,774,186 bytes／953 records／SHA-256
+`9370aec65046b6269eb27a77c37c40ae31c9dd9e5b34aaeeed63a8210d87cd2f`で、diagnostics／hook errorsは0である。
+Raw traceは`.work/`に保持しGitへ追加しない。Source executableのhashは変更していない。
+
+各traceには`SetThreadPriority`が31 callあるが、reached targetは1 callだけである。BGI callerはRVA
+`0x00091B77`へ戻るcallで、直前の`CreateThread`が返した同じhandleと
+`THREAD_PRIORITY_ABOVE_NORMAL` (`1`)を渡す。ResultはTRUE、LastErrorは0のままである。CallerはEAXを読まず、
+SEH／frameを復元してreturnする。他の30 callはpriority 0の別thread initializationであり、このtarget profileへ
+一般化しない。Native handle値やhost scheduling effectはartifact identityで、Vineへimportしない。
+
+Controlled COFF-i386 oracleはsource 7,253 bytes／SHA-256
+`5a79901aa8a5c77d17d9ba9d916c418dc204c52504118118225e3eddbfffa79c`、executable 8,704 bytes／SHA-256
+`a181fe64363e2970393123a2389719fcaee689db89dc3c3132662fd8aa08f76f`である。New threadのinitial priorityは
+normal (`0`)で、above-normalへの変更と同値repeat、normalへの復元はいずれもTRUEかつLastError sentinel
+`0x5A5A`を保存する。Unknown numeric value `3`はFALSE／ERROR_INVALID_PARAMETER 87でpriorityを保存し、invalid
+handleとclosed handleはFALSE／ERROR_INVALID_HANDLE 6となる。
+
+RuntimeはWin32 priority enumをlogical valueへ変換し、typed live thread handleからTID 8193を解決する。
+`RuntimeThreads`がnormal default、optional stored value、mutation-free plan、complete-record stale check、targeted
+commitを所有する。Active schema-v2 kernel32 policyはpriority `1`だけを許可する。Unknown numeric value、
+policy-disabled known value、invalid／closed／wrong-kind handleはthread record、LastError以外のstate、guest memoryを
+部分更新しない。Successはguest write 0でLastErrorを保存する。Cooperative lane selectionは変えず、host scheduler
+classとbrowser task priorityも取り込まない。
+
+Nodeは18,607 supported calls、18,662 writebacks／37,576 dirty pages／2,946,750 changed bytes、17,295 host
+deltas、generation 36,527、semantic SHA-256
+`0348d8d9dd42b0999d8536fa85a897e3da5348768d218ecf0932e1c74f6a9199`、terminal memory SHA-256
+`d9013c8f67bf8522affc7b11041d969a9dadf432e92b1bdf5eaea01a5aede2fa`を通した。Node reportは55,874 bytes／
+SHA-256 `46ac2be20bce1059ddb57b5892f8607c11087a8c9ac0219abea97de0e041ab6d`である。Chrome Runtime Workerもsame
+ordered semantics／terminal memoryを再現し、19,362 slices、19,360 writebacks／39,194 pages、17,295 mapping
+deltas／18,810 dirty pages、generation 27→37,227、55,635 Wasm crossings、58,052 success transitions、clean
+cancel／watchdogを通した。Browser reportは43,905 bytes／SHA-256
+`17583f364d2e89bc8137314c8f5e6d012dfc71fb6b6fd6770f551b9f0c96620a`である。
+
+次stopはinstruction 11,957,736、`USER32.dll!GetDC` endpoint ID 239／address `0x7F000EE0`／IAT
+`0x100D1494`／return `0x1002C155`で、argumentはNULL HWNDである。既存window-only `GetDC` contractがNULLを
+`null-logical-handle-forbidden`としてmutation前に止めるため、次checkpointはscreen DCをGDI subsystem gateway
+として分類する。Priority-weighted scheduling、pseudo-thread-handle variant、priority boost、DLL thread
+attach／detach、TLS／FLS cleanup callbacks、natural last-thread process exitはこのcheckpointでclaimしない。

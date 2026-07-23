@@ -134,8 +134,9 @@ use super::thread::{
     RuntimeComApartmentState, RuntimeComInitializationOutcome, RuntimeComUninitializationOutcome,
     RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeFlsSlot,
     RuntimeGuestThreadBootstrap, RuntimeResumeThreadResult, RuntimeThreadEnvironment,
-    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads, RuntimeTlsValue,
+    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMutationPlan, RuntimeThreadPriority,
+    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeThreads,
+    RuntimeTlsValue,
 };
 use super::timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
@@ -2087,6 +2088,35 @@ impl RuntimeKernel {
         )?;
         self.threads.commit_affinity_mask(plan)?;
         Ok(previous_mask)
+    }
+
+    pub fn thread_priority(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeThreadPriority, RuntimeStateError> {
+        self.threads.effective_priority(thread_id)
+    }
+
+    pub fn set_thread_priority(
+        &mut self,
+        handle: RuntimeHandle,
+        requested_priority: RuntimeThreadPriority,
+    ) -> Result<RuntimeThreadPriority, RuntimeStateError> {
+        let object = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Thread)?;
+        let RuntimeObjectKey::Thread { thread_id } = object.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-priority",
+                "thread-priority-object-key-invalid",
+                "thread handle resolved to a different object identity",
+            ));
+        };
+        let thread_id = RuntimeThreadId(thread_id);
+        let (plan, previous_priority) =
+            self.threads.plan_priority(thread_id, requested_priority)?;
+        self.threads.commit_priority(plan)?;
+        Ok(previous_priority)
     }
 
     pub fn scheduler_state(&self) -> Result<SchedulerThreadState, RuntimeStateError> {
