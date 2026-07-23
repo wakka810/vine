@@ -164,6 +164,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-timer",
         "kernel32-create-thread",
         "kernel32-set-thread-priority",
+        "gdi-screen-dc",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -247,6 +248,7 @@ assert(
       "user32-set-timer",
       "kernel32-create-thread",
       "kernel32-set-thread-priority",
+      "gdi-screen-dc",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -294,6 +296,7 @@ if (
     "user32-set-timer",
     "kernel32-create-thread",
     "kernel32-set-thread-priority",
+    "gdi-screen-dc",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -471,8 +474,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const screenDcEnabled = genericRuntimeCapability === "gdi-screen-dc";
 const setThreadPriorityEnabled =
-  genericRuntimeCapability === "kernel32-set-thread-priority";
+  screenDcEnabled || genericRuntimeCapability === "kernel32-set-thread-priority";
 const createThreadEnabled =
   setThreadPriorityEnabled || genericRuntimeCapability === "kernel32-create-thread";
 const setTimerEnabled =
@@ -732,7 +736,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setThreadPriorityEnabled
+      ? screenDcEnabled
+      ? "v86-bgi-screen-dc"
+      : setThreadPriorityEnabled
       ? "v86-bgi-set-thread-priority"
       : createThreadEnabled
       ? "v86-bgi-create-thread"
@@ -4726,6 +4732,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (screenDcEnabled) {
+        validateScreenDcResult(genericResult);
       } else if (setThreadPriorityEnabled) {
         validateSetThreadPriorityResult(genericResult);
       } else if (createThreadEnabled) {
@@ -4925,6 +4933,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : screenDcEnabled
+          ? "bgi NULL-window primary screen DC acquisition"
           : setThreadPriorityEnabled
           ? "bgi SetThreadPriority logical created-thread priority"
           : createThreadEnabled
@@ -6332,7 +6342,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-v18",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-v19",
     );
     assert.equal(
       ready.displayProfileId,
@@ -12432,10 +12442,10 @@ function validateWindowDcFillResult(result) {
   assert.deepEqual(
     calls.map((call) => call.implementationId),
     [
-      "user32.get-dc.window-acquisition.v1",
+      "user32.get-dc.window-or-screen-acquisition.v2",
       "gdi32.get-stock-object.black-brush.v1",
       "user32.fill-rect.logical-surface.v1",
-      "user32.release-dc.window-acquisition.v1",
+      "user32.release-dc.window-or-screen-acquisition.v2",
     ],
   );
   assert.deepEqual(
@@ -14816,6 +14826,115 @@ function validateSetThreadPriorityResult(result) {
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c155);
   assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
     0x1002_c155,
+    0,
+  ]);
+}
+
+function validateScreenDcResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_608);
+  assert.equal(result.callbackEvents.length, 38);
+  assert.equal(result.writebacks.length, 18_663);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_577,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_946_766,
+  );
+  assert.equal(result.hostDeltas.length, 17_295);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_528);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "GetDC" && call.returnAddress === 0x1002_c155,
+  );
+  assert.equal(calls.length, 1, "unexpected primary screen GetDC completion count");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_608);
+  assert.equal(call.occurrence, 2);
+  assert.equal(call.trapInstructionCount, 11_957_736);
+  assert.deepEqual(call.arguments, [0]);
+  assert.equal(call.implementationId, "user32.get-dc.window-or-screen-acquisition.v2");
+  assert.deepEqual(call.result, { action: "set", value: 0x4701_0003 });
+  assert.equal(call.returnAddress, 0x1002_c155);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.gdi, {
+    action: "screen-device-context-acquired",
+    deviceContext: {
+      id: 3,
+      handle: 0x4701_0003,
+      namespace: "vine.logical-gdi-dc.v1",
+      ownerThreadId: 8192,
+      targetKind: "screen",
+      monitorHandle: 0x4f01_0001,
+      rect: { left: 0, top: 0, right: 1920, bottom: 1080 },
+    },
+    liveDeviceContexts: 1,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-9).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_600, symbol: "SetThreadPriority", occurrence: 1 },
+      { sequence: 18_601, symbol: "InitializeCriticalSection", occurrence: 16_394 },
+      { sequence: 18_602, symbol: "HeapAlloc", occurrence: 154 },
+      { sequence: 18_603, symbol: "HeapAlloc", occurrence: 155 },
+      { sequence: 18_604, symbol: "InitializeCriticalSection", occurrence: 16_395 },
+      { sequence: 18_605, symbol: "GetSystemDefaultLangID", occurrence: 2 },
+      { sequence: 18_606, symbol: "HeapAlloc", occurrence: 156 },
+      { sequence: 18_607, symbol: "HeapAlloc", occurrence: 157 },
+      { sequence: 18_608, symbol: "GetDC", occurrence: 2 },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 253);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0fc0);
+  assert.equal(result.fault.endpoint.endpoint.module, "gdi32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "EnumFontFamiliesExA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1080);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "9a0fd6e08b3ac1e3c2a8cdc8343b32528ca672c01d341aa2a0df96be5020b632",
+  );
+  assert.equal(result.terminal.instructionCount, 11_957_745);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 253);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0fc0);
+  assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "EnumFontFamiliesExA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c16a);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1002_c16a,
+    0x4701_0003,
+    0x006f_fd00,
+    0x1002_d2e0,
+    0x100d_ce7c,
+    0,
+    0x100d_ce7c,
     0,
   ]);
 }
@@ -17617,10 +17736,20 @@ function buildGenericRuntimeReentryReport({
   if (setThreadPriorityEnabled) {
     assert(setThreadPriorityCall, "SetThreadPriority report summary has no primary call");
   }
+  const screenDcCall = screenDcEnabled
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "GetDC" && call.returnAddress === 0x1002_c155,
+      )
+    : null;
+  if (screenDcEnabled) {
+    assert(screenDcCall, "screen DC report summary has no primary GetDC call");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : screenDcEnabled
+        ? "vine.v86-bgi-gdi-screen-dc"
         : setThreadPriorityEnabled
         ? "vine.v86-bgi-kernel32-set-thread-priority"
         : createThreadEnabled
@@ -17893,6 +18022,16 @@ function buildGenericRuntimeReentryReport({
           threadPriority: {
             call: setThreadPriorityCall,
             schedulerPolicy: "logical-state-only-cooperative-selection-unchanged",
+          },
+        }
+      : {}),
+    ...(screenDcEnabled
+      ? {
+          screenDeviceContext: {
+            call: screenDcCall,
+            targetAuthority: "runtime-displays-primary-monitor-non-owning-relation",
+            acquisitionIdentity: "distinct-monotonic-logical-hdc",
+            rendererResourceCreated: false,
           },
         }
       : {}),

@@ -9,6 +9,8 @@ const selectedVtables = new Set(agentOptions.vtables ?? []);
 const selectedObservations = new Set(agentOptions.observations ?? []);
 const focusedWindowDcObservation =
   selectedObservations.size === 1 && selectedObservations.has("window-dc");
+const focusedScreenDcObservation =
+  selectedObservations.size === 1 && selectedObservations.has("screen-dc");
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
@@ -335,6 +337,13 @@ let windowDcOracleComplete = false;
 let windowDcOracleEvidence = null;
 let windowDcCompletionRecorded = false;
 const windowDcMainModuleCalls = [];
+let screenDcOracleScheduled = false;
+let screenDcOracleCall = null;
+let screenDcOracleComplete = false;
+let screenDcOracleEvidence = null;
+let screenDcCompletionRecorded = false;
+let screenDcTargetHandle = null;
+const screenDcMainModuleCalls = [];
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
 let setWindowLongAOracleComplete = false;
@@ -8896,6 +8905,269 @@ function maybeCompleteWindowDcObservation() {
   }
 }
 
+function attachScreenDcHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        screenDcOracleCall !== null &&
+        screenDcOracleCall.api === name;
+      this.windowHandle = name === "GetDC" || name === "ReleaseDC" ? args[0] : null;
+      this.dc =
+        name === "EnumFontFamiliesExA" ? args[0] : name === "ReleaseDC" ? args[1] : null;
+      this.logFontPointer = name === "EnumFontFamiliesExA" ? args[1] : null;
+      this.fontCallback = name === "EnumFontFamiliesExA" ? args[2] : null;
+      this.callbackParameter = name === "EnumFontFamiliesExA" ? args[3] : null;
+      this.flags = name === "EnumFontFamiliesExA" ? args[4].toUInt32() : null;
+      this.logFont =
+        name === "EnumFontFamiliesExA"
+          ? snapshotBoundedRawBytes(this.logFontPointer, 60, 60)
+          : null;
+      const relevantMainCall =
+        isMainModuleCaller &&
+        !screenDcCompletionRecorded &&
+        ((name === "GetDC" &&
+          this.windowHandle.isNull() &&
+          caller.rva === 0x0002c155) ||
+          (name === "EnumFontFamiliesExA" &&
+            screenDcTargetHandle !== null &&
+            this.dc.toString() === screenDcTargetHandle) ||
+          (name === "ReleaseDC" &&
+            this.windowHandle.isNull() &&
+            screenDcTargetHandle !== null &&
+            this.dc.toString() === screenDcTargetHandle));
+      if (!relevantMainCall && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+
+      this.api = name;
+      this.mainModuleCaller = relevantMainCall;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = screenDcOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.arguments =
+        name === "GetDC"
+          ? [this.windowHandle.toString()]
+          : name === "ReleaseDC"
+            ? [this.windowHandle.toString(), this.dc.toString()]
+            : [
+                this.dc.toString(),
+                this.logFontPointer.toString(),
+                this.fontCallback.toString(),
+                this.callbackParameter.toString(),
+                this.flags,
+              ];
+      this.immediateConsumer = relevantMainCall
+        ? snapshotInstructions(this.returnAddress, 48)
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          screenDc: {
+            immediateConsumer: this.immediateConsumer,
+            logFont: this.logFont,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = this.api === "GetDC" ? result.toString() : signed32(result);
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        screenDcOracleCall.hookResult = resultValue;
+        screenDcOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: result.toString(),
+          screenDc: {
+            result: resultValue,
+            logFont: this.logFont,
+          },
+        },
+        this.lastError,
+      );
+      if (!this.mainModuleCaller) {
+        return;
+      }
+      if (this.api === "GetDC" && resultValue !== "0x0") {
+        screenDcTargetHandle = resultValue;
+      }
+      screenDcMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        result: resultValue,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        logFont: this.logFont,
+        immediateConsumer: this.immediateConsumer,
+      });
+      if (this.api === "ReleaseDC" && resultValue === 1) {
+        scheduleScreenDcOracle();
+        setImmediate(maybeCompleteScreenDcObservation);
+      }
+    },
+  });
+}
+
+function scheduleScreenDcOracle() {
+  if (screenDcOracleScheduled) {
+    return;
+  }
+  screenDcOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const user32 = Process.getModuleByName("user32.dll");
+      const getDcAddress = findExport(user32, "GetDC");
+      const releaseDcAddress = findExport(user32, "ReleaseDC");
+      if (getDcAddress === null || releaseDcAddress === null) {
+        throw new Error("screen DC oracle export is unavailable");
+      }
+      const getDc = new SystemFunction(getDcAddress, "pointer", ["pointer"], "stdcall");
+      const releaseDc = new SystemFunction(
+        releaseDcAddress,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = (id, api, sentinel, callback) => {
+        screenDcOracleCall = {
+          api,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = callback();
+          const systemResult =
+            api === "GetDC" ? outcome.value.toString() : Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            screenDcOracleCall.hookResult === null ||
+            screenDcOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(`${api} screen oracle did not pass through the hook`);
+          }
+          return {
+            id,
+            api,
+            sentinel,
+            systemResult,
+            systemLastError,
+            hookResult: screenDcOracleCall.hookResult,
+            hookLastErrorAfter: screenDcOracleCall.hookLastErrorAfter,
+            hookResultMatches: screenDcOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              screenDcOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          screenDcOracleCall = null;
+        }
+      };
+
+      const calls = [];
+      const first = invoke("screen-get-dc-first", "GetDC", 0x11112222, () =>
+        getDc(ptr(0)),
+      );
+      calls.push(first);
+      const second = invoke("screen-get-dc-second", "GetDC", 0x22223333, () =>
+        getDc(ptr(0)),
+      );
+      calls.push(second);
+      if (first.systemResult === "0x0" || second.systemResult === "0x0") {
+        throw new Error("screen GetDC oracle returned NULL");
+      }
+      calls.push(
+        invoke("screen-release-first", "ReleaseDC", 0x33334444, () =>
+          releaseDc(ptr(0), ptr(first.systemResult)),
+        ),
+      );
+      calls.push(
+        invoke("screen-release-repeat", "ReleaseDC", 0x44445555, () =>
+          releaseDc(ptr(0), ptr(first.systemResult)),
+        ),
+      );
+      calls.push(
+        invoke("screen-release-second", "ReleaseDC", 0x55556666, () =>
+          releaseDc(ptr(0), ptr(second.systemResult)),
+        ),
+      );
+
+      screenDcOracleEvidence = {
+        profile: "x86-screen-dc-lifetime-v1",
+        calls,
+        relations: {
+          concurrentGetDcSameIdentity: first.systemResult === second.systemResult,
+        },
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      screenDcOracleComplete = true;
+      emit("screen-dc-oracle", screenDcOracleEvidence);
+      maybeCompleteScreenDcObservation();
+    } catch (error) {
+      emit("screen-dc-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteScreenDcObservation() {
+  if (
+    screenDcCompletionRecorded ||
+    !screenDcOracleComplete ||
+    !screenDcMainModuleCalls.some((call) => call.api === "GetDC") ||
+    !screenDcMainModuleCalls.some((call) => call.api === "EnumFontFamiliesExA") ||
+    !screenDcMainModuleCalls.some((call) => call.api === "ReleaseDC")
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteScreenDcObservation, 10);
+    return;
+  }
+  screenDcCompletionRecorded = true;
+  emit("screen-dc-complete", {
+    profile: "x86-bgi-screen-dc-font-enumeration-lifetime-v1",
+    mainModuleCalls: screenDcMainModuleCalls,
+    oracle: screenDcOracleEvidence,
+  });
+  if (stopOnEvent === "screen-dc-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
 function attachSetWindowLongAHook(module) {
   const name = "SetWindowLongA";
   const address = findExport(module, name);
@@ -17415,6 +17687,7 @@ Process.attachModuleObserver({
     }
     if (
       !focusedWindowDcObservation &&
+      !focusedScreenDcObservation &&
       !focusedSetWindowLongAObservation &&
       !focusedSetWindowPosSizeObservation
     ) {
@@ -17802,6 +18075,22 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("screen-dc")
+    ) {
+      for (const name of ["GetDC", "ReleaseDC"]) {
+        try {
+          attachScreenDcHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
       selectedObservations.has("d3d9-surface-get-dc")
     ) {
       try {
@@ -17838,6 +18127,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetStockObject",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "gdi32.dll" &&
+      selectedObservations.has("screen-dc")
+    ) {
+      try {
+        attachScreenDcHook(module, "EnumFontFamiliesExA");
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "EnumFontFamiliesExA",
           error: error.message,
         });
       }

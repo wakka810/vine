@@ -767,10 +767,11 @@ lock staging、upload、browser renderer resourceの代用ではない。
 ### 13.2 GDI frontend
 
 `RuntimeGdi`はHDC／GDI object／window surface identityとwindow fill historyを所有する。Window targetは
-`RuntimeUser32`、graphics-surface targetは`RuntimeGraphics`へのnon-owning relationとしてkernelが毎回再検証し、
-frontend間でsurface authorityを複製しない。DC state、selected object、mapping、clip、ROP、font metricは必要な
-到達caseごとにruntime modelへ追加する。Canvas textの結果をWindows GDIと同一と仮定せず、glyph
-rasterizationとfont substitutionの選択をADRにする。
+`RuntimeUser32`、screen targetは`RuntimeDisplays`、graphics-surface targetは`RuntimeGraphics`へのnon-owning
+relationとしてkernelが毎回再検証し、frontend間でsurface／display authorityを複製しない。NULL-window
+screen acquisitionはtyped HDCだけを作り、window surface、pixel storage、browser renderer resourceを作らない。
+DC state、selected object、mapping、clip、ROP、font metricは必要な到達caseごとにruntime modelへ追加する。
+Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend
 

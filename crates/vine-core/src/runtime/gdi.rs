@@ -39,6 +39,13 @@ pub(super) struct RuntimeGdiWindowTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeGdiScreenTarget {
+    pub monitor_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub rect: RuntimeRect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeGdiGraphicsSurfaceTarget {
     pub surface_id: RuntimeGraphicsSurfaceId,
     pub surface_com_object_id: RuntimeComObjectId,
@@ -59,6 +66,10 @@ pub enum RuntimeDeviceContextTarget {
         window_id: RuntimeWindowId,
         window_handle: u32,
         surface_id: RuntimeGdiSurfaceId,
+    },
+    Screen {
+        monitor_handle: u32,
+        rect: RuntimeRect,
     },
     GraphicsSurface {
         surface_id: RuntimeGraphicsSurfaceId,
@@ -82,7 +93,8 @@ impl RuntimeDeviceContext {
     pub fn window_surface_id(&self) -> Option<RuntimeGdiSurfaceId> {
         match self.target {
             RuntimeDeviceContextTarget::Window { surface_id, .. } => Some(surface_id),
-            RuntimeDeviceContextTarget::GraphicsSurface { .. } => None,
+            RuntimeDeviceContextTarget::Screen { .. }
+            | RuntimeDeviceContextTarget::GraphicsSurface { .. } => None,
         }
     }
 }
@@ -106,6 +118,20 @@ impl Serialize for RuntimeDeviceContext {
                 state.serialize_field("windowHandle", &window_handle)?;
                 state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
                 state.serialize_field("surfaceId", &surface_id)?;
+                state.end()
+            }
+            RuntimeDeviceContextTarget::Screen {
+                monitor_handle,
+                rect,
+            } => {
+                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 7)?;
+                state.serialize_field("id", &self.id)?;
+                state.serialize_field("handle", &self.handle)?;
+                state.serialize_field("namespace", &self.namespace)?;
+                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
+                state.serialize_field("targetKind", "screen")?;
+                state.serialize_field("monitorHandle", &monitor_handle)?;
+                state.serialize_field("rect", &rect)?;
                 state.end()
             }
             RuntimeDeviceContextTarget::GraphicsSurface {
@@ -179,6 +205,14 @@ pub struct RuntimeGetDcResult {
     pub handle: u32,
     pub surface_id: RuntimeGdiSurfaceId,
     pub surface_created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGetScreenDcResult {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub handle: u32,
+    pub monitor_handle: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -265,6 +299,29 @@ pub(super) struct RuntimeGetDcPlan {
     next_device_context_id: u64,
     next_device_context_handle: u32,
     next_surface_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeGetScreenDcPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_context: RuntimeDeviceContext,
+    next_device_context_id: u64,
+    next_device_context_handle: u32,
+}
+
+impl RuntimeGetScreenDcPlan {
+    fn result(&self) -> RuntimeGetScreenDcResult {
+        let RuntimeDeviceContextTarget::Screen { monitor_handle, .. } = self.device_context.target
+        else {
+            unreachable!("screen DC plan must target a logical monitor")
+        };
+        RuntimeGetScreenDcResult {
+            device_context_id: self.device_context.id,
+            handle: self.device_context.handle,
+            monitor_handle,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -374,41 +431,21 @@ pub(super) struct RuntimeGdiTeardownPlan {
     surfaces: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeDeviceContextAllocation {
+    id: RuntimeDeviceContextId,
+    handle: u32,
+    next_id: u64,
+    next_handle: u32,
+}
+
 impl RuntimeGdi {
     pub(super) fn plan_get_dc(
         &self,
         target: RuntimeGdiWindowTarget,
     ) -> Result<RuntimeGetDcPlan, RuntimeStateError> {
         validate_window_target(target)?;
-        if self.device_contexts.len() >= RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-capacity-exhausted",
-                "logical device-context capacity is exhausted",
-            ));
-        }
-        let device_context_id = RuntimeDeviceContextId(self.next_device_context_id);
-        let next_device_context_id = checked_next_identity(
-            self.next_device_context_id,
-            "device-context-identity-exhausted",
-        )?;
-        let handle = self.next_device_context_handle;
-        if handle < RUNTIME_DEVICE_CONTEXT_HANDLE_BASE
-            || self.device_context_handle_index.contains_key(&handle)
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "device-context-handle-allocator-invalid",
-                "logical device-context handle allocator is not at a free namespace value",
-            ));
-        }
-        let next_device_context_handle = handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-handle-exhausted",
-                "logical device-context handle namespace is exhausted",
-            )
-        })?;
+        let allocation = self.plan_device_context_allocation()?;
 
         let (surface_id, new_surface, next_surface_id) =
             if let Some(surface_id) = self.window_surface_index.get(&target.window_id).copied() {
@@ -459,8 +496,8 @@ impl RuntimeGdi {
             expected_generation: self.generation,
             next_generation,
             device_context: RuntimeDeviceContext {
-                id: device_context_id,
-                handle,
+                id: allocation.id,
+                handle: allocation.handle,
                 namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
                 owner_thread_id: target.owner_thread_id,
                 target: RuntimeDeviceContextTarget::Window {
@@ -470,8 +507,8 @@ impl RuntimeGdi {
                 },
             },
             new_surface,
-            next_device_context_id,
-            next_device_context_handle,
+            next_device_context_id: allocation.next_id,
+            next_device_context_handle: allocation.next_handle,
             next_surface_id,
         })
     }
@@ -531,6 +568,55 @@ impl RuntimeGdi {
         })
     }
 
+    pub(super) fn plan_get_screen_dc(
+        &self,
+        target: RuntimeGdiScreenTarget,
+    ) -> Result<RuntimeGetScreenDcPlan, RuntimeStateError> {
+        validate_screen_target(target)?;
+        let allocation = self.plan_device_context_allocation()?;
+        Ok(RuntimeGetScreenDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context: RuntimeDeviceContext {
+                id: allocation.id,
+                handle: allocation.handle,
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                owner_thread_id: target.owner_thread_id,
+                target: RuntimeDeviceContextTarget::Screen {
+                    monitor_handle: target.monitor_handle,
+                    rect: target.rect,
+                },
+            },
+            next_device_context_id: allocation.next_id,
+            next_device_context_handle: allocation.next_handle,
+        })
+    }
+
+    pub(super) fn commit_get_screen_dc(
+        &mut self,
+        plan: RuntimeGetScreenDcPlan,
+    ) -> Result<RuntimeGetScreenDcResult, RuntimeStateError> {
+        let result = plan.result();
+        if self.generation != plan.expected_generation
+            || self.next_device_context_id != plan.device_context.id.0
+            || self.next_device_context_handle != plan.device_context.handle
+            || self
+                .device_context_handle_index
+                .contains_key(&plan.device_context.handle)
+            || self.device_contexts.contains_key(&plan.device_context.id)
+        {
+            return Err(stale_plan("screen-get-dc-plan-stale"));
+        }
+        self.device_context_handle_index
+            .insert(plan.device_context.handle, plan.device_context.id);
+        self.device_contexts
+            .insert(plan.device_context.id, plan.device_context);
+        self.next_device_context_id = plan.next_device_context_id;
+        self.next_device_context_handle = plan.next_device_context_handle;
+        self.generation = plan.next_generation;
+        Ok(result)
+    }
+
     pub(crate) fn plan_get_graphics_surface_dc(
         &self,
         target: RuntimeGdiGraphicsSurfaceTarget,
@@ -546,41 +632,13 @@ impl RuntimeGdi {
                 "logical graphics surface already has an outstanding HDC",
             ));
         }
-        if self.device_contexts.len() >= RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-capacity-exhausted",
-                "logical device-context capacity is exhausted",
-            ));
-        }
-        let device_context_id = RuntimeDeviceContextId(self.next_device_context_id);
-        let next_device_context_id = checked_next_identity(
-            self.next_device_context_id,
-            "device-context-identity-exhausted",
-        )?;
-        let handle = self.next_device_context_handle;
-        if handle < RUNTIME_DEVICE_CONTEXT_HANDLE_BASE
-            || self.device_context_handle_index.contains_key(&handle)
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "device-context-handle-allocator-invalid",
-                "logical device-context handle allocator is not at a free namespace value",
-            ));
-        }
-        let next_device_context_handle = handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-handle-exhausted",
-                "logical device-context handle namespace is exhausted",
-            )
-        })?;
+        let allocation = self.plan_device_context_allocation()?;
         Ok(RuntimeGetGraphicsSurfaceDcPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
             device_context: RuntimeDeviceContext {
-                id: device_context_id,
-                handle,
+                id: allocation.id,
+                handle: allocation.handle,
                 namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
                 owner_thread_id: target.owner_thread_id,
                 target: RuntimeDeviceContextTarget::GraphicsSurface {
@@ -591,8 +649,8 @@ impl RuntimeGdi {
                     color_format: target.color_format,
                 },
             },
-            next_device_context_id,
-            next_device_context_handle,
+            next_device_context_id: allocation.next_id,
+            next_device_context_handle: allocation.next_handle,
         })
     }
 
@@ -806,6 +864,37 @@ impl RuntimeGdi {
         })
     }
 
+    pub(super) fn plan_release_screen_dc(
+        &self,
+        target: RuntimeGdiScreenTarget,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
+        validate_screen_target(target)?;
+        let device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if target.owner_thread_id != thread_id
+            || device_context.owner_thread_id != thread_id
+            || device_context.target
+                != (RuntimeDeviceContextTarget::Screen {
+                    monitor_handle: target.monitor_handle,
+                    rect: target.rect,
+                })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "screen-device-context-relation-mismatch",
+                "ReleaseDC requires the exact screen HDC and acquiring guest thread relation",
+            ));
+        }
+        Ok(RuntimeReleaseDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context,
+        })
+    }
+
     pub(super) fn commit_release_dc(
         &mut self,
         plan: RuntimeReleaseDcPlan,
@@ -855,7 +944,7 @@ impl RuntimeGdi {
             return Err(RuntimeStateError::conflict(
                 "runtime-gdi",
                 "fill-rect-target-mismatch",
-                "window FillRect planning received a graphics-surface HDC",
+                "window FillRect planning received a non-window HDC",
             ));
         };
         let brush_id = self
@@ -940,7 +1029,8 @@ impl RuntimeGdi {
             .surfaces
             .get_mut(&match plan.device_context.target {
                 RuntimeDeviceContextTarget::Window { surface_id, .. } => surface_id,
-                RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
+                RuntimeDeviceContextTarget::Screen { .. }
+                | RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
                     return Err(stale_plan("fill-rect-plan-stale"));
                 }
             })
@@ -1170,6 +1260,46 @@ impl RuntimeGdi {
     pub(super) fn is_empty(&self) -> bool {
         self.device_contexts.is_empty() && self.objects.is_empty() && self.surfaces.is_empty()
     }
+
+    fn plan_device_context_allocation(
+        &self,
+    ) -> Result<RuntimeDeviceContextAllocation, RuntimeStateError> {
+        if self.device_contexts.len() >= RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "device-context-capacity-exhausted",
+                "logical device-context capacity is exhausted",
+            ));
+        }
+        let id = RuntimeDeviceContextId(self.next_device_context_id);
+        let next_id = checked_next_identity(
+            self.next_device_context_id,
+            "device-context-identity-exhausted",
+        )?;
+        let handle = self.next_device_context_handle;
+        if handle < RUNTIME_DEVICE_CONTEXT_HANDLE_BASE
+            || self.device_context_handle_index.contains_key(&handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "device-context-handle-allocator-invalid",
+                "logical device-context handle allocator is not at a free namespace value",
+            ));
+        }
+        let next_handle = handle.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "device-context-handle-exhausted",
+                "logical device-context handle namespace is exhausted",
+            )
+        })?;
+        Ok(RuntimeDeviceContextAllocation {
+            id,
+            handle,
+            next_id,
+            next_handle,
+        })
+    }
 }
 
 fn validate_window_target(target: RuntimeGdiWindowTarget) -> Result<(), RuntimeStateError> {
@@ -1184,6 +1314,23 @@ fn validate_window_target(target: RuntimeGdiWindowTarget) -> Result<(), RuntimeS
             "runtime-gdi",
             "window-dc-target-invalid",
             "logical window DC target requires nonzero identity and x86 RECT-sized client geometry",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_screen_target(target: RuntimeGdiScreenTarget) -> Result<(), RuntimeStateError> {
+    if target.monitor_handle == 0
+        || target.owner_thread_id.0 == 0
+        || target.rect.left != 0
+        || target.rect.top != 0
+        || target.rect.right <= target.rect.left
+        || target.rect.bottom <= target.rect.top
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "screen-dc-target-invalid",
+            "logical screen DC target requires a live monitor, guest thread, and positive origin-based rectangle",
         ));
     }
     Ok(())
@@ -1308,6 +1455,19 @@ mod tests {
         }
     }
 
+    fn screen_target() -> RuntimeGdiScreenTarget {
+        RuntimeGdiScreenTarget {
+            monitor_handle: 0x4f01_0001,
+            owner_thread_id: RuntimeThreadId(8192),
+            rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+        }
+    }
+
     #[test]
     fn device_context_serialization_preserves_window_shape_and_types_graphics_targets() {
         let mut gdi = RuntimeGdi::default();
@@ -1348,6 +1508,94 @@ mod tests {
                 "colorFormat": "b8g8r8x8-unorm",
             })
         );
+    }
+
+    #[test]
+    fn screen_device_context_acquisitions_are_distinct_typed_and_relation_checked() {
+        let mut gdi = RuntimeGdi::default();
+        let invalid_before = gdi.clone();
+        let mut invalid_target = screen_target();
+        invalid_target.monitor_handle = 0;
+        assert_eq!(
+            gdi.plan_get_screen_dc(invalid_target).unwrap_err().code,
+            "screen-dc-target-invalid"
+        );
+        assert_eq!(gdi, invalid_before);
+
+        let first_plan = gdi.plan_get_screen_dc(screen_target()).unwrap();
+        let stale_acquisition = first_plan.clone();
+        let first = gdi.commit_get_screen_dc(first_plan).unwrap();
+        assert_eq!(first.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        assert_eq!(first.monitor_handle, screen_target().monitor_handle);
+        assert_eq!(
+            serde_json::to_value(gdi.device_context_by_handle(first.handle).unwrap()).unwrap(),
+            serde_json::json!({
+                "id": 1,
+                "handle": 0x4701_0001_u32,
+                "namespace": "vine.logical-gdi-dc.v1",
+                "ownerThreadId": 8192,
+                "targetKind": "screen",
+                "monitorHandle": 0x4f01_0001_u32,
+                "rect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1920,
+                    "bottom": 1080,
+                },
+            })
+        );
+        assert_eq!(
+            gdi.commit_get_screen_dc(stale_acquisition)
+                .unwrap_err()
+                .code,
+            "screen-get-dc-plan-stale"
+        );
+
+        let second = gdi
+            .commit_get_screen_dc(gdi.plan_get_screen_dc(screen_target()).unwrap())
+            .unwrap();
+        assert_ne!(first.handle, second.handle);
+        assert!(gdi.surfaces.is_empty());
+
+        let before_wrong_release = gdi.clone();
+        let mut wrong_target = screen_target();
+        wrong_target.monitor_handle += 1;
+        assert_eq!(
+            gdi.plan_release_screen_dc(
+                wrong_target,
+                first.handle,
+                screen_target().owner_thread_id,
+            )
+            .unwrap_err()
+            .code,
+            "screen-device-context-relation-mismatch"
+        );
+        assert_eq!(gdi, before_wrong_release);
+
+        let before_wrong_thread = gdi.clone();
+        assert_eq!(
+            gdi.plan_release_screen_dc(screen_target(), first.handle, RuntimeThreadId(8193))
+                .unwrap_err()
+                .code,
+            "screen-device-context-relation-mismatch"
+        );
+        assert_eq!(gdi, before_wrong_thread);
+
+        let release = gdi
+            .plan_release_screen_dc(
+                screen_target(),
+                first.handle,
+                screen_target().owner_thread_id,
+            )
+            .unwrap();
+        let stale_release = release.clone();
+        gdi.commit_release_dc(release).unwrap();
+        assert_eq!(
+            gdi.commit_release_dc(stale_release).unwrap_err().code,
+            "release-dc-plan-stale"
+        );
+        assert!(gdi.device_context_by_handle(first.handle).is_err());
+        assert!(gdi.device_context_by_handle(second.handle).is_ok());
     }
 
     #[test]

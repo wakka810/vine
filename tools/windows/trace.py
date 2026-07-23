@@ -55,6 +55,7 @@ SUPPORTED_OBSERVATIONS = (
     "create-thread",
     "set-thread-priority",
     "window-dc",
+    "screen-dc",
     "set-window-long-a",
     "get-string-type-w",
     "lc-map-string-w",

@@ -3,12 +3,13 @@
 ## Purpose and current boundary
 
 The GDI frontend owns guest-visible GDI identity, lifetime, and logical drawing
-state in Rust. The current bounded slice implements `USER32!GetDC`,
-`GDI32!GetStockObject` for `BLACK_BRUSH`, `USER32!FillRect`, and
-`USER32!ReleaseDC` for both a logical window and the reached D3D9 system-memory
-surface. It establishes the responsibility boundary needed for later GDI work
-without claiming a pixel renderer, general DC behavior, or a shared Direct3D
-device.
+state in Rust. The current bounded slice implements `USER32!GetDC` and
+`USER32!ReleaseDC` for a logical window, the NULL-window primary screen
+acquisition, and the reached D3D9 system-memory surface. `GDI32!GetStockObject`
+for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
+graphics-surface paths. This establishes the responsibility boundary needed for
+later GDI work without claiming a pixel renderer, screen drawing, general DC
+behavior, or a shared Direct3D device.
 
 `RuntimeGdi` is a private subsystem owned by `RuntimeKernel`. It owns the HDC,
 GDI-object, and window-surface collections; their indexes and identity allocators;
@@ -16,6 +17,13 @@ bounded window fill history; and the subsystem generation. `RuntimeUser32` remai
 authority for windows and client geometry. The kernel passes GDI an opaque,
 non-owning window relation only after revalidating the live HWND, owner thread,
 and client geometry. GDI never owns or mutates the window record.
+
+For `GetDC(NULL)`, `RuntimeDisplays` remains the authority for the configured
+primary monitor identity and rectangle. The kernel resolves that monitor and
+the current guest thread, passes a typed non-owning relation to `RuntimeGdi`,
+and revalidates the display relation before commit and release. GDI owns only
+the acquisition HDC and its typed target. It does not allocate a window
+surface, screen pixel storage, or browser renderer resource.
 
 For a D3D9 surface HDC, `RuntimeGraphics` remains the authority for the logical
 surface descriptor, association, fill command history, and content generation.
@@ -30,6 +38,14 @@ in namespace `vine.logical-gdi-dc.v1`. Concurrent acquisitions therefore have
 different HDCs even when they refer to the same window surface. Native numeric
 HDC reuse after `ReleaseDC` varies between runs and is not imported as a
 semantic contract.
+
+Each successful `GetDC(NULL)` likewise creates a distinct monotonic HDC. The
+record contains the acquiring guest thread and the non-owning logical primary
+monitor handle and rectangle. It creates no logical surface. Bounded
+`ReleaseDC(NULL, hdc)` accepts only the live screen acquisition from the same
+guest thread and retires that HDC; an unknown, repeated, wrong-target, or
+wrong-thread release returns FALSE without changing LastError or another
+acquisition. Native HDC values are opaque artifact identity.
 
 The first acquisition for a window creates one logical client surface. Later
 acquisitions share that surface identity while retaining distinct HDC
@@ -78,6 +94,12 @@ with COLORREF `0`. GDI state is not a second copy of that fill. Failure cannot
 append a command, advance either owner, consume an identity, or change guest
 memory.
 
+A screen HDC has no drawing surface in this checkpoint. Passing it to the
+current `FillRect` path produces the typed `screen-dc-drawing-unsupported`
+failure before mutation. Font enumeration, DC selection state, text metrics,
+and rasterization remain separate reached gateways rather than being inferred
+from successful screen acquisition.
+
 ## Direct3D and renderer separation
 
 GDI, D3D8, D3D9, and any future D3D10/11 support remain separate guest-facing
@@ -105,12 +127,13 @@ oracle are recorded in
 [windows-native-evidence.md](windows-native-evidence.md); raw traces remain
 ignored under `.work/`.
 
-Rust model tests cover distinct acquisition identity, shared surface and stock
-object lifetime, wrong relation, stale commit, capacity and generation failure,
-empty and invalid rectangles, graphics-surface HDC uniqueness, COM-retirement
-guarding, cross-owner fill preflight, and process teardown. The dispatcher
-integration tests cover x86 ABI, LastError, guest pointer preflight, and failure
-atomicity.
+Rust model tests cover distinct window and screen acquisition identity, typed
+screen serialization, same-thread and monitor relations, shared surface and
+stock object lifetime, stale commit, capacity and generation failure, empty and
+invalid rectangles, graphics-surface HDC uniqueness, COM-retirement guarding,
+cross-owner fill preflight, and process teardown. The dispatcher integration
+tests cover nullable HWND ABI, LastError, guest pointer preflight, repeated
+screen release, policy/display authority, and failure atomicity.
 The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
@@ -121,16 +144,17 @@ Representative commands are:
 cargo test -p vine-core --lib runtime::gdi::tests --locked
 cargo test -p vine-core --lib runtime::graphics::tests --locked
 cargo test -p vine-core --test user32_dispatcher window_dc --locked
+cargo test -p vine-core --test user32_dispatcher screen_dc --locked
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:runtime:bgi-browser
 ```
 
 ## Non-claims
 
-- Desktop/null-window DCs, child or multiple windows, cross-thread DC use,
-  class/private/cached DC policy, SaveDC/RestoreDC, selection, clipping, mapping
-  modes, DIBs, palettes, text, BitBlt, StretchBlt, and general GDI objects are
-  not implemented.
+- Drawing through the primary screen HDC, non-primary or multiple monitors,
+  child or multiple windows, cross-thread DC use, class/private/cached DC
+  policy, SaveDC/RestoreDC, selection, clipping, mapping modes, DIBs, palettes,
+  text, BitBlt, StretchBlt, and general GDI objects are not implemented.
 - Neither logical fill history is a raster buffer; the reached D3D9 fill does
   not allocate pixel storage or produce a browser-visible frame.
 - Native numeric HDC values and their reuse are artifact identity, not a Vine

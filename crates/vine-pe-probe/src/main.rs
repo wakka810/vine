@@ -211,6 +211,7 @@ enum GenericRuntimeCapability {
     SetTimer,
     CreateThread,
     SetThreadPriority,
+    ScreenDc,
 }
 
 struct GenericRuntimeProcess {
@@ -481,6 +482,10 @@ enum GenericRuntimeGdiCompletion {
     DeviceContextAcquired {
         device_context: vine_core::RuntimeDeviceContext,
         surface: vine_core::RuntimeGdiSurface,
+        live_device_contexts: usize,
+    },
+    ScreenDeviceContextAcquired {
+        device_context: vine_core::RuntimeDeviceContext,
         live_device_contexts: usize,
     },
     StockObjectResolved {
@@ -2388,6 +2393,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SetTimer
                     | GenericRuntimeCapability::CreateThread
                     | GenericRuntimeCapability::SetThreadPriority
+                    | GenericRuntimeCapability::ScreenDc
             )
         ) {
             let loader = kernel32_policy
@@ -3047,6 +3053,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3059,6 +3066,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     );
     let dsound_root_enabled = matches!(
@@ -3070,6 +3078,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3080,6 +3089,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3089,6 +3099,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     );
     let requested_capability = match enabled_capability {
@@ -3100,7 +3111,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::DsoundBufferLockUnlockPlay
             | GenericRuntimeCapability::SetTimer
             | GenericRuntimeCapability::CreateThread
-            | GenericRuntimeCapability::SetThreadPriority,
+            | GenericRuntimeCapability::SetThreadPriority
+            | GenericRuntimeCapability::ScreenDc,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3180,7 +3192,7 @@ fn run_v86_generic_runtime_session(
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v18();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
         user32_capability,
         Some(
@@ -3293,9 +3305,13 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::SetTimer
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
+                | GenericRuntimeCapability::ScreenDc
         )
     ) {
         user32_policy.set_timer = None;
+    }
+    if !matches!(enabled_capability, Some(GenericRuntimeCapability::ScreenDc)) {
+        user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -10660,28 +10676,39 @@ fn generic_runtime_gdi_completion(
                 .gdi_device_context(handle)
                 .map_err(runtime_state_error)?
                 .clone();
-            let surface = runtime
-                .gdi_surfaces()
-                .get(&device_context.window_surface_id().ok_or_else(|| {
-                    LoaderError::runtime_defect(
+            match device_context.target {
+                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
+                    let surface = runtime
+                        .gdi_surfaces()
+                        .get(&surface_id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-gdi",
+                                "get-dc-surface-missing-after-dispatch",
+                                "completed window GetDC has no matching logical surface",
+                            )
+                        })?;
+                    Ok(Some(GenericRuntimeGdiCompletion::DeviceContextAcquired {
+                        device_context,
+                        surface,
+                        live_device_contexts: runtime.gdi_device_contexts().len(),
+                    }))
+                }
+                vine_core::RuntimeDeviceContextTarget::Screen { .. } => Ok(Some(
+                    GenericRuntimeGdiCompletion::ScreenDeviceContextAcquired {
+                        device_context,
+                        live_device_contexts: runtime.gdi_device_contexts().len(),
+                    },
+                )),
+                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
+                    Err(LoaderError::runtime_defect(
                         "runtime-gdi",
                         "get-dc-target-invalid-after-dispatch",
-                        "completed GetDC resolved to a non-window logical HDC",
-                    )
-                })?)
-                .cloned()
-                .ok_or_else(|| {
-                    LoaderError::runtime_defect(
-                        "runtime-gdi",
-                        "get-dc-surface-missing-after-dispatch",
-                        "completed GetDC has no matching logical surface",
-                    )
-                })?;
-            Ok(Some(GenericRuntimeGdiCompletion::DeviceContextAcquired {
-                device_context,
-                surface,
-                live_device_contexts: runtime.gdi_device_contexts().len(),
-            }))
+                        "USER32 GetDC resolved to a graphics-surface logical HDC",
+                    ))
+                }
+            }
         }
         vine_core::GET_STOCK_OBJECT_IMPLEMENTATION => {
             let handle = set_eax_result(
@@ -10752,6 +10779,13 @@ fn generic_runtime_gdi_completion(
                         device_context,
                         surface,
                     }))
+                }
+                vine_core::RuntimeDeviceContextTarget::Screen { .. } => {
+                    Err(LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "fill-rect-screen-target-unexpected",
+                        "screen FillRect completed outside the reached GDI support band",
+                    ))
                 }
             }
         }
@@ -11832,6 +11866,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-set-timer" => GenericRuntimeCapability::SetTimer,
                 "kernel32-create-thread" => GenericRuntimeCapability::CreateThread,
                 "kernel32-set-thread-priority" => GenericRuntimeCapability::SetThreadPriority,
+                "gdi-screen-dc" => GenericRuntimeCapability::ScreenDc,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -512,6 +512,19 @@ handleとpolicy-disabled variantのfailure atomicityを検査する。Node／Chr
 `USER32.dll!GetDC(NULL)` stopを要求する。Logical priorityはcooperative lane selectionを変更せず、host scheduler class、
 browser task priority、pseudo-handle variant、priority boostをclaimしない。
 
+Reached `GetDC(NULL)` gateはconfigured primary monitorとcurrent guest threadへのnon-owning relationを持つdistinct
+logical HDCを固定する。Focused native two-run evidenceはnon-NULL screen HDC、直後の同じHDCを使う
+`EnumFontFamiliesExA`、`ReleaseDC(NULL, hdc)` TRUE、全success LastError preserveを要求する。In-process oracleは
+concurrent二acquisitionがdistinctで、first／second releaseがTRUE、firstのrepeat releaseがFALSE、各callが異なる
+LastError sentinelを保存することを固定する。
+
+Rust model／dispatcher testsはnullable HWND ABI、policyとdisplay authority、monotonic identity、typed monitor／rect、
+same-thread release、stale／duplicate plan、unknown／repeated release、capacity failureがsurface、allocator、HDC
+collection、guest memoryを部分更新しないことを検査する。Node／Chrome gateはsequence 18,608、HDC
+`0x47010003`、monitor `0x4f010001`、1920x1080 rect、guest write 0、LastError preserve、renderer resource 0と、
+続く`GDI32.dll!EnumFontFamiliesExA` stopを要求する。Screen drawing、font callback／catalog／metrics、host HDC、
+DOM screen topology、cross-thread releaseはclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

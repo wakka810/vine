@@ -352,7 +352,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v18();
+        let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -521,7 +521,7 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v18();
+        let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2696,18 +2696,27 @@ fn bgi_gdi_completion_metadata(
                 return Err("GetDC completion did not set EAX".to_owned());
             };
             let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            let surface = runtime
-                .gdi_surfaces()
-                .get(&device_context.window_surface_id().ok_or_else(|| {
-                    "GetDC completion resolved to a non-window logical HDC".to_owned()
-                })?)
-                .ok_or_else(|| "GetDC completion has no matching logical surface".to_owned())?;
-            Ok(Some(json!({
-                "action": "device-context-acquired",
-                "deviceContext": device_context,
-                "surface": surface,
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-            })))
+            match device_context.target {
+                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
+                    let surface = runtime.gdi_surfaces().get(&surface_id).ok_or_else(|| {
+                        "window GetDC completion has no matching logical surface".to_owned()
+                    })?;
+                    Ok(Some(json!({
+                        "action": "device-context-acquired",
+                        "deviceContext": device_context,
+                        "surface": surface,
+                        "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+                    })))
+                }
+                vine_core::RuntimeDeviceContextTarget::Screen { .. } => Ok(Some(json!({
+                    "action": "screen-device-context-acquired",
+                    "deviceContext": device_context,
+                    "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+                }))),
+                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
+                    Err("USER32 GetDC completion resolved to a graphics-surface HDC".to_owned())
+                }
+            }
         }
         vine_core::GET_STOCK_OBJECT_IMPLEMENTATION => {
             let RegisterUpdate::Set(handle) = completion.eax else {
@@ -2757,6 +2766,9 @@ fn bgi_gdi_completion_metadata(
                         "deviceContext": device_context,
                         "surface": surface,
                     })))
+                }
+                vine_core::RuntimeDeviceContextTarget::Screen { .. } => {
+                    Err("screen FillRect completed outside the reached GDI support band".to_owned())
                 }
             }
         }

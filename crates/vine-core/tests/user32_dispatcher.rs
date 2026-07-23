@@ -12,16 +12,16 @@ use vine_core::{
     ModuleSnapshot, PageProtection, Pe32Limits, PreparedGuestCallback, ProcessAddressSpaceLayout,
     RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorSource,
-    RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeInputProfile, RuntimeModule,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeStartupInfo, RuntimeState,
-    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
-    User32CompatibilityPolicy, build_pe32_load_plan, create_window_ex_a_contract,
-    def_window_proc_a_contract, dispatch_gdi32_api, dispatch_user32_api_with_policy,
-    enable_menu_item_contract, enum_display_monitors_contract, fill_rect_contract,
-    gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
+    RuntimeDeviceContextTarget, RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction,
+    RuntimeInputProfile, RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind, RuntimeThreadId,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
+    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, build_pe32_load_plan,
+    create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
+    dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
+    fill_rect_contract, gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
     get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
     get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
     load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
@@ -194,7 +194,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v18();
+        let policy = User32CompatibilityPolicy::controlled_v19();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -285,7 +285,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v18();
+        let mut policy = User32CompatibilityPolicy::controlled_v19();
         policy
             .swap_mouse_button
             .as_mut()
@@ -382,7 +382,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v18();
+        let policy = User32CompatibilityPolicy::controlled_v19();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -537,7 +537,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v18(),
+            policy: User32CompatibilityPolicy::controlled_v19(),
         }
     }
 
@@ -783,7 +783,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v18(),
+            policy: User32CompatibilityPolicy::controlled_v19(),
         }
     }
 
@@ -984,7 +984,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v18(),
+            policy: User32CompatibilityPolicy::controlled_v19(),
         }
     }
 
@@ -1657,7 +1657,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v18();
+        let policy = User32CompatibilityPolicy::controlled_v19();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -2697,6 +2697,11 @@ fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
         .expect("GetDC contract");
     assert_eq!(get_dc.abi.arguments.len(), 1);
     assert!(matches!(
+        &get_dc.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && *nullable
+    ));
+    assert!(matches!(
         &get_dc.abi.return_value,
         ApiReturnSchema::LogicalHandle { namespace, nullable }
             if namespace == "vine.logical-gdi-dc.v1" && *nullable
@@ -2721,6 +2726,11 @@ fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
         .expect("ReleaseDC catalog lookup")
         .expect("ReleaseDC contract");
     assert_eq!(release_dc.abi.arguments.len(), 2);
+    assert!(matches!(
+        &release_dc.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && *nullable
+    ));
     assert_eq!(release_dc.abi.return_value, ApiReturnSchema::Bool32);
 
     assert!(
@@ -2742,6 +2752,100 @@ fn window_dc_slice_contracts_keep_user32_and_gdi32_frontends_separate() {
             .expect("GDI32 rejects User32 endpoint")
             .is_none()
     );
+}
+
+#[test]
+fn screen_dc_acquisition_and_release_preserve_null_window_native_lifetime() {
+    let mut fixture = RegisterClassFixture::new();
+    let sentinel = 0x5566_7788;
+    let screen_dc_policy = fixture.policy.screen_dc.take();
+    let before_disabled = fixture.runtime.clone();
+    let disabled = match fixture.dispatch_get_dc(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected policy-disabled screen GetDC fault, got {other:?}"),
+    };
+    assert_eq!(disabled.class, ApiFaultClass::Unsupported);
+    assert_eq!(disabled.code, "screen-dc-policy-disabled");
+    assert_eq!(fixture.runtime, before_disabled);
+    fixture.policy.screen_dc = screen_dc_policy;
+
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed screen GetDC LastError");
+
+    let first = match fixture.dispatch_get_dc(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected first screen GetDC completion, got {other:?}"),
+    };
+    let first_handle = match first.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("screen GetDC did not set EAX: {other:?}"),
+    };
+    assert_eq!(first_handle, 0x4701_0001);
+    assert_eq!(first.last_error, sentinel);
+    assert!(first.guest_writes.is_empty());
+    assert!(matches!(
+        fixture
+            .runtime
+            .gdi_device_context(first_handle)
+            .unwrap()
+            .target,
+        RuntimeDeviceContextTarget::Screen {
+            monitor_handle: RUNTIME_PRIMARY_MONITOR_HANDLE,
+            rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1080,
+            },
+        }
+    ));
+    assert!(fixture.runtime.gdi_surfaces().is_empty());
+
+    let second = match fixture.dispatch_get_dc(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected second screen GetDC completion, got {other:?}"),
+    };
+    let second_handle = match second.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("second screen GetDC did not set EAX: {other:?}"),
+    };
+    assert_eq!(second_handle, 0x4701_0002);
+    assert_ne!(first_handle, second_handle);
+    assert_eq!(second.last_error, sentinel);
+    assert!(second.guest_writes.is_empty());
+    assert!(fixture.runtime.gdi_surfaces().is_empty());
+
+    let released = match fixture.dispatch_release_dc(0, first_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected screen ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(released.eax, RegisterUpdate::Set(1));
+    assert_eq!(released.last_error, sentinel);
+    assert!(fixture.runtime.gdi_device_context(first_handle).is_err());
+    assert!(fixture.runtime.gdi_device_context(second_handle).is_ok());
+
+    let contexts_before_repeat = fixture.runtime.gdi_device_contexts().clone();
+    let repeated = match fixture.dispatch_release_dc(0, first_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated screen ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(0));
+    assert_eq!(repeated.last_error, sentinel);
+    assert_eq!(
+        fixture.runtime.gdi_device_contexts(),
+        &contexts_before_repeat
+    );
+
+    let released_second = match fixture.dispatch_release_dc(0, second_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected second screen ReleaseDC completion, got {other:?}"),
+    };
+    assert_eq!(released_second.eax, RegisterUpdate::Set(1));
+    assert_eq!(released_second.last_error, sentinel);
+    assert!(fixture.runtime.gdi_device_contexts().is_empty());
+    assert!(fixture.runtime.gdi_surfaces().is_empty());
 }
 
 #[test]

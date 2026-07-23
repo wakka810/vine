@@ -60,9 +60,9 @@ use super::files::{
 use super::gdi::{
     RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi,
     RuntimeGdiComRetirementGuard, RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject,
-    RuntimeGdiObjectId, RuntimeGdiSurface, RuntimeGdiSurfaceId, RuntimeGdiWindowTarget,
-    RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult,
-    RuntimeGetStockObjectResult,
+    RuntimeGdiObjectId, RuntimeGdiScreenTarget, RuntimeGdiSurface, RuntimeGdiSurfaceId,
+    RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcPlan,
+    RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult, RuntimeGetStockObjectResult,
 };
 use super::graphics::{
     RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
@@ -4020,6 +4020,22 @@ impl RuntimeKernel {
         self.gdi.commit_get_dc(plan)
     }
 
+    pub(crate) fn acquire_screen_dc(
+        &mut self,
+    ) -> Result<RuntimeGetScreenDcResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_screen_target()?;
+        let plan = self.gdi.plan_get_screen_dc(target)?;
+        if self.resolve_gdi_screen_target()? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "screen-get-dc-target-stale",
+                "logical display changed after screen GetDC was planned",
+            ));
+        }
+        self.gdi.commit_get_screen_dc(plan)
+    }
+
     pub(crate) fn plan_graphics_surface_dc_acquisition(
         &self,
         surface_com_object_id: RuntimeComObjectId,
@@ -4139,6 +4155,11 @@ impl RuntimeKernel {
                 self.graphics.commit_surface_fill(graphics_plan);
                 Ok(())
             }
+            RuntimeDeviceContextTarget::Screen { .. } => Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "screen-dc-drawing-unsupported",
+                "drawing through a logical screen HDC is outside the reached GDI support band",
+            )),
         }
     }
 
@@ -4161,6 +4182,27 @@ impl RuntimeKernel {
         )?;
         let current_target = self.resolve_gdi_window_target(window_handle)?;
         validate_device_context_target(&device_context, current_target)?;
+        self.gdi.commit_release_dc(plan)
+    }
+
+    pub(crate) fn release_screen_dc(
+        &mut self,
+        device_context_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_screen_target()?;
+        let device_context = self
+            .gdi
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        validate_screen_device_context_target(&device_context, target)?;
+        let plan = self.gdi.plan_release_screen_dc(
+            target,
+            device_context_handle,
+            self.current_thread_id(),
+        )?;
+        let current_target = self.resolve_gdi_screen_target()?;
+        validate_screen_device_context_target(&device_context, current_target)?;
         self.gdi.commit_release_dc(plan)
     }
 
@@ -4914,6 +4956,28 @@ impl RuntimeKernel {
             owner_thread_id: window.creation.owner_thread_id,
             client_width: window.creation.geometry.client_width,
             client_height: window.creation.geometry.client_height,
+        })
+    }
+
+    fn resolve_gdi_screen_target(&self) -> Result<RuntimeGdiScreenTarget, RuntimeStateError> {
+        let monitor = self.displays.primary_monitor().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "screen-dc-display-authority-missing",
+                "screen DC access requires a configured logical primary monitor",
+            )
+        })?;
+        if !monitor.primary {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "screen-dc-primary-monitor-invalid",
+                "configured screen DC target is not the logical primary monitor",
+            ));
+        }
+        Ok(RuntimeGdiScreenTarget {
+            monitor_handle: monitor.handle,
+            owner_thread_id: self.current_thread_id(),
+            rect: monitor.rect,
         })
     }
 
@@ -6376,6 +6440,26 @@ fn validate_device_context_target(
             "runtime-gdi",
             "device-context-window-target-mismatch",
             "logical HDC does not reference the current window identity and owner thread",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_screen_device_context_target(
+    device_context: &RuntimeDeviceContext,
+    target: RuntimeGdiScreenTarget,
+) -> Result<(), RuntimeStateError> {
+    if device_context.owner_thread_id != target.owner_thread_id
+        || device_context.target
+            != (RuntimeDeviceContextTarget::Screen {
+                monitor_handle: target.monitor_handle,
+                rect: target.rect,
+            })
+    {
+        return Err(RuntimeStateError::conflict(
+            "runtime-gdi",
+            "device-context-screen-target-mismatch",
+            "logical HDC does not reference the current primary monitor and owner thread",
         ));
     }
     Ok(())

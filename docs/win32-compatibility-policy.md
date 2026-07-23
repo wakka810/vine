@@ -125,10 +125,11 @@ runtime or memory mutation.
 
 `User32CompatibilityPolicy` is a distinct versioned policy because logical
 display, input, and User32 resource selection do not belong to Kernel32 process
-policy. Version 17 composes display profile
+policy. Version 19 composes display profile
 `single-monitor-1920x1080-work-1920x1032-v2`, input profile
 `normal-mouse-buttons-v1`, bounded icon／cursor／class variants, the initial-window
-metrics profile, and the reached 40-byte `MONITORINFO` variant.
+metrics profile, the reached 40-byte `MONITORINFO` variant, and the NULL-window
+primary screen DC acquisition policy.
 `runtime/displays.rs::RuntimeDisplays` owns the configured monitor and contained
 work area; `runtime/input.rs::RuntimeInput` separately owns initial／
 current mouse-button mapping and its generation; `RuntimeUser32` owns icon,
@@ -161,6 +162,17 @@ LastError `87`. The successful 40-byte variant atomically publishes monitor rect
 a reached consumer requires its device-name contract. Failure buffers remain
 unchanged, and no native monitor value, taskbar state, browser screen bounds, or
 DOM geometry is imported.
+
+`GetDC(NULL)` is enabled only by the `null-window-primary-screen-same-thread-v1`
+policy. The handler first requires that the policy display profile and
+`RuntimeDisplays` identify the same configured primary monitor and rectangle.
+`RuntimeGdi` then allocates a distinct typed HDC with a non-owning monitor
+relation and no logical surface. `ReleaseDC(NULL, hdc)` retires only the exact
+live acquisition from the acquiring guest thread. Success and failed unknown／
+repeated releases preserve LastError. Disabling the policy or mismatching the
+display authority stops before identity allocation or mutation. The policy
+does not authorize screen drawing, font enumeration, host HDCs, DOM screen
+geometry, or browser renderer resources.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only

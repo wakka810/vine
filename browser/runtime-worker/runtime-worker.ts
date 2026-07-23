@@ -1341,10 +1341,10 @@ class BrowserRuntimeSession {
       "BGI COM apartment completion metadata mismatch",
     );
     const isGdiCompletion = [
-      "user32.get-dc.window-acquisition.v1",
+      "user32.get-dc.window-or-screen-acquisition.v2",
       "gdi32.get-stock-object.black-brush.v1",
       "user32.fill-rect.logical-surface.v1",
-      "user32.release-dc.window-acquisition.v1",
+      "user32.release-dc.window-or-screen-acquisition.v2",
     ].includes(completion.implementationId);
     invariant(
       isGdiCompletion === (metadata.gdi !== undefined),

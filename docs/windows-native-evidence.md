@@ -4486,3 +4486,43 @@ cancel／watchdogを通した。Browser reportは43,905 bytes／SHA-256
 `null-logical-handle-forbidden`としてmutation前に止めるため、次checkpointはscreen DCをGDI subsystem gateway
 として分類する。Priority-weighted scheduling、pseudo-thread-handle variant、priority boost、DLL thread
 attach／detach、TLS／FLS cleanup callbacks、natural last-thread process exitはこのcheckpointでclaimしない。
+
+## 135. BGI primary screen DC acquisition
+
+Focused `screen-dc` observationを独立に2回取得した。Primary raw traceは46,976 bytes／91 records／SHA-256
+`874c9744b015213963164d37073bc9edbfed25301501febcbccf0f3c4409ff80`、confirmationは46,849 bytes／91
+records／SHA-256 `b06ec143734cb4d93fb5df3f5fe9849ddf95a4e804ba1a23e8648181ab32ee59`で、diagnostics／hook
+errorsは0である。Profileは`x86-bgi-screen-dc-font-enumeration-lifetime-v1`、raw traceは`.work/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+両traceでBGIはRVA `0x0002C155`へ戻る`GetDC(NULL)`からnon-NULL HDCを取得し、LastError 0を保存する。
+直後のRVA `0x0002C16A`へ戻る`EnumFontFamiliesExA`は同じHDC、60-byte `LOGFONTA` pointer、callback RVA
+`0x0002D2E0`、LPARAM RVA `0x000DCE7C`、flags 0を受け、0を返してLastError 0を保存する。Stable request bytesは
+charset `0x80`とWindows-932 face `ＭＳ ゴシック`であり、未初期化stack由来の他fieldをpolicyへimportしない。
+Callerはenum result 0を`neg`／`sbb`／`lea`でBOOL TRUEへ写像する。その後RVA `0x0002C177`へ戻る
+`ReleaseDC(NULL, same HDC)`が1を返し、LastError 0を保存する。Native numeric HDCとstack addressはrunごとに
+異なるartifact identityである。
+
+同じtrace内の`x86-screen-dc-lifetime-v1` oracleは異なるsentinelを設定して
+`GetDC(NULL)`を二回実行し、両方non-NULLかつdistinctであることを確認する。First releaseは1、同じHDCのrepeat
+releaseは0、second releaseは1で、全五callが各LastError sentinelを保存しhook／SystemFunction結果が一致した。
+Vineはこれをmonotonic logical acquisition identityとsame-thread exact release relationとして実装し、screen HDCに
+window surface、pixel storage、browser renderer resourceを割り当てない。Unknown／repeated／wrong-target／
+wrong-thread releaseは他HDCとallocatorを変更せずFALSEでLastErrorを保存する。
+
+Nodeは18,608 supported calls、18,663 writebacks／37,577 dirty pages／2,946,766 changed bytes、17,295 host
+deltas、generation 36,528、semantic SHA-256
+`f7594f50a471b084263cdd5156fe7754b27c204fc9ac6d6b4258c199679ff712`、terminal memory SHA-256
+`9a0fd6e08b3ac1e3c2a8cdc8343b32528ca672c01d341aa2a0df96be5020b632`を通した。Node reportは57,126
+bytes／SHA-256 `ae916c7d12a432eb9291afa079c9bfff4d32f2643664833b5b41a10fa2fbe86d`である。Chrome Runtime
+Workerもsame ordered semantics／terminal memoryを再現し、19,363 slices、19,361 writebacks／39,195 pages、
+17,295 mapping deltas／18,810 dirty pages、generation 27→37,228、55,637 Wasm crossings、58,055 success
+transitions、clean cancel／watchdogを通した。Browser reportは43,932 bytes／SHA-256
+`7fa24d25ae9ebacaf30fc595516dc8f8b036781be0db4c6011dd562eb0b5a800`である。
+
+次stopはinstruction 11,957,745、`GDI32.dll!EnumFontFamiliesExA` endpoint ID 253／address `0x7F000FC0`／IAT
+`0x100D1080`／return `0x1002C16A`である。Argumentsはlogical HDC `0x47010003`、LOGFONTA
+`0x006FFD00`、callback `0x1002D2E0`、LPARAM `0x100DCE7C`、flags 0で、faultは
+`gdi32-api-contract／endpoint-contract-missing`である。Font catalog、callback delivery、metrics、text rasterization、
+screen drawing、host font／HDC／DOM topologyはこのcheckpointでclaimしない。

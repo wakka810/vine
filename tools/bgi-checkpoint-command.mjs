@@ -109,7 +109,7 @@ export function planBgiCheckpointCommand(arguments_, manifest, root) {
         manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
       ),
     );
-    if (capability === "kernel32-source-file-read") {
+    if (manifest.activeRuntimeCheckpoint.sourceSnapshot !== undefined) {
       runnerArguments.push(
         "--source-manifest",
         path.join(

@@ -93,6 +93,10 @@ assert.equal(
   active.runnerArguments[8],
   path.join(root, manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source),
 );
+assert.deepEqual(active.runnerArguments.slice(9), [
+  "--source-manifest",
+  path.join(root, manifest.activeRuntimeCheckpoint.sourceSnapshot.source),
+]);
 assert.deepEqual(planBgiCheckpointCommand(["--profile", "active"], manifest, root), active);
 
 const fullEvidence = planBgiCheckpointCommand(
@@ -191,6 +195,7 @@ assert.equal(
   bgiProfileOutputDirectory("kernel32-set-thread-priority"),
   "v86-bgi-set-thread-priority",
 );
+assert.equal(bgiProfileOutputDirectory("gdi-screen-dc"), "v86-bgi-screen-dc");
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");
