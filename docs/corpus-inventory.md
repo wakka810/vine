@@ -67,7 +67,7 @@ Static import に現れない dependency があるため、この表だけで su
 - Kernel32 は thread、wait、TLS、file mapping、file I/O、process creation、virtual memory を含む 146 symbol を import する
 - title root 直下には `BGI.gdb`、`BGI.hvl` と 48 個の `.arc` がある。個別 asset decoder は作らず、guest file I/O と engine code に処理させる
 
-60秒 startup trace v1では main window、`Direct3DCreate9`、`DirectInput8Create`、`DirectSoundCreate8`、`GdiplusStartup`、title-local archive loadに到達した。`d3dx9_43.dll` と `D3DXCreateEffect` の動的解決も観測した。WinMM moduleはloadされたが、hook対象entryは未到達だった。続く15秒trace v2は`IDirect3D9` rootだけを選択し、11 methods／53 callsをcaller module＋RVA付きで分離した。`CreateDevice` slot 16はBGI RVA `0x5ACA5`から3回到達した。詳細と未観測範囲は [windows-native-evidence.md](windows-native-evidence.md) を参照する。
+60秒 startup trace v1では main window、`Direct3DCreate9`、`DirectInput8Create`、`DirectSoundCreate8`、`GdiplusStartup`、title-local archive loadに到達した。`d3dx9_43.dll` と `D3DXCreateEffect` の動的解決も観測した。WinMM moduleはloadされたが、hook対象entryは未到達だった。続く15秒trace v2は`IDirect3D9` rootだけを選択し、11 methods／53 callsをcaller module＋RVA付きで分離した。`CreateDevice` slot 16はBGI RVA `0x5ACA5`から3回到達した。Focused GDI+ two-run traceはcallback-free version 1 startup、opaque token、cleanup時shutdown relationを固定したが、image／codec methodのprimary到達性はまだ分類していない。詳細と未観測範囲は [windows-native-evidence.md](windows-native-evidence.md) を参照する。
 
 `WININET.dll` も静的 importされ、process module setにも現れた。historical trace v1にはcaller attributionがなく、trace v2でもこの15秒captureのselected root以外をBGI direct requirementとして再分類していない。静的に存在する、またはprocess内でloadされただけのAPIをcompletionの必須実装へ昇格させず、caller付きruntime call evidenceで判断する。
 
@@ -86,7 +86,7 @@ Static import に現れない dependency があるため、この表だけで su
 1. manual marker／screenshot付きでサクラノ詩のvisual title checkpointを固定する。
 2. `IDirect3DDevice9`／resourceのselected vtable traceでpresentation parameters、format、render state、vertex path、Present、Reset／device-lost pathを記録する。
 3. DirectInput 8 の device type、data format、cooperative level、Acquire／GetDeviceState／GetDeviceData の実利用を記録する。
-4. DirectSound、WinMM／MCI、GDI+、COM class の primary scenario method到達性をcaller付きで記録する。
+4. DirectSound、WinMM／MCI、GDI+ image／codec、COM class の primary scenario method到達性をcaller付きで記録する。
 5. executed instruction／CPU featureとthread／wait patternをPhase 1 workloadへ落とす。
 6. file access／share／disposition／LastErrorとregistry accessをsource volume／save overlayの設計入力へ落とす。
 

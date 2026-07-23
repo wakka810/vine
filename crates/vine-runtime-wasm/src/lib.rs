@@ -11,9 +11,9 @@ use vine_core::{
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
     CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
     DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
-    Gdi32CompatibilityPolicy, GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy,
-    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding,
-    ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress, GuestCallbackArgument,
+    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
+    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
     MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
@@ -27,12 +27,13 @@ use vine_core::{
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
     dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
     dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    dispatch_gdiplus_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -298,6 +299,7 @@ enum BrowserRuntimeTarget {
         kernel32_policy: Box<Kernel32CompatibilityPolicy>,
         user32_policy: Box<User32CompatibilityPolicy>,
         gdi32_policy: Box<Gdi32CompatibilityPolicy>,
+        gdiplus_policy: Box<GdiplusCompatibilityPolicy>,
         winmm_policy: Box<WinmmCompatibilityPolicy>,
     },
 }
@@ -526,6 +528,8 @@ impl BrowserRuntime {
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
+        let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
+        gdiplus_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
         let d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
@@ -657,6 +661,7 @@ impl BrowserRuntime {
                 "kernel32Policy": kernel32_policy.id,
                 "user32Policy": user32_policy.id,
                 "gdi32Policy": gdi32_policy.id,
+                "gdiplusPolicy": gdiplus_policy.id,
                 "winmmPolicy": winmm_policy.id,
             },
         });
@@ -680,6 +685,7 @@ impl BrowserRuntime {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
                     gdi32_policy: Box::new(gdi32_policy),
+                    gdiplus_policy: Box::new(gdiplus_policy),
                     winmm_policy: Box::new(winmm_policy),
                 },
             },
@@ -1146,6 +1152,7 @@ impl BrowserRuntime {
                         kernel32_policy,
                         user32_policy,
                         gdi32_policy,
+                        gdiplus_policy,
                         winmm_policy,
                         ..
                     } => {
@@ -1161,6 +1168,13 @@ impl BrowserRuntime {
                             dispatch_gdi32_api_with_policy(
                                 gdi32_policy,
                                 callback_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
+                            dispatch_gdiplus_api_with_policy(
+                                gdiplus_policy,
                                 contract,
                                 frame,
                                 session,
@@ -1302,7 +1316,11 @@ impl BrowserRuntime {
                     | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
                         completion_metadata("api-complete", &completion)
                     }
-                    BrowserRuntimeTarget::Bgi { gdi32_policy, .. } => {
+                    BrowserRuntimeTarget::Bgi {
+                        gdi32_policy,
+                        gdiplus_policy,
+                        ..
+                    } => {
                         let mut metadata = json!({
                             "kind": "api-complete",
                             "endpoint": endpoint,
@@ -1441,6 +1459,13 @@ impl BrowserRuntime {
                             bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
                         {
                             metadata["gdi"] = gdi;
+                        }
+                        if let Some(gdiplus) = bgi_gdiplus_completion_metadata(
+                            &completion,
+                            &self.runtime,
+                            gdiplus_policy,
+                        )? {
+                            metadata["gdiplus"] = gdiplus;
                         }
                         metadata
                     }
@@ -1862,11 +1887,22 @@ impl BrowserRuntime {
                     )) => metadata["window"] = json!(window),
                     _ => {}
                 }
-                if let BrowserRuntimeTarget::Bgi { gdi32_policy, .. } = &self.target
-                    && let Some(gdi) =
-                        bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
+                if let BrowserRuntimeTarget::Bgi {
+                    gdi32_policy,
+                    gdiplus_policy,
+                    ..
+                } = &self.target
                 {
-                    metadata["gdi"] = gdi;
+                    if let Some(gdi) =
+                        bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
+                    {
+                        metadata["gdi"] = gdi;
+                    }
+                    if let Some(gdiplus) =
+                        bgi_gdiplus_completion_metadata(&completion, &self.runtime, gdiplus_policy)?
+                    {
+                        metadata["gdiplus"] = gdiplus;
+                    }
                 }
                 Ok((metadata, delta))
             }
@@ -2451,6 +2487,9 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = gdiplus_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
@@ -2703,6 +2742,94 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
         "kind": kind,
         "completion": completion,
     })
+}
+
+fn bgi_gdiplus_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    policy: &GdiplusCompatibilityPolicy,
+) -> Result<Option<Value>, String> {
+    match completion.implementation_id.as_str() {
+        vine_core::GDIPLUS_STARTUP_IMPLEMENTATION => {
+            let RegisterUpdate::Set(status) = completion.eax else {
+                return Err("GdiplusStartup completion did not set EAX".to_owned());
+            };
+            if status != vine_core::GDIPLUS_STATUS_OK {
+                return Err(format!(
+                    "primary GdiplusStartup completed with status {status}"
+                ));
+            }
+            let token_output = completion.frame.argument_u32(0).ok_or_else(|| {
+                "GdiplusStartup completion has no token output argument".to_owned()
+            })?;
+            if completion.guest_writes.len() != 1 {
+                return Err(
+                    "successful GdiplusStartup must commit exactly one token write".to_owned(),
+                );
+            }
+            let write = &completion.guest_writes[0].write;
+            if write.address.0 != token_output || write.bytes.len() != 4 {
+                return Err(
+                    "GdiplusStartup token write does not match the decoded x86 output".to_owned(),
+                );
+            }
+            let token = u32::from_le_bytes(
+                write.bytes[..4]
+                    .try_into()
+                    .map_err(|_| "GdiplusStartup token is not one x86 ULONG_PTR".to_owned())?,
+            );
+            let session = runtime
+                .gdiplus_sessions()
+                .values()
+                .find(|session| session.token == token)
+                .ok_or_else(|| {
+                    "GdiplusStartup completion has no matching logical session".to_owned()
+                })?;
+            let startup = policy.startup.as_ref().ok_or_else(|| {
+                "GdiplusStartup completed with its compatibility policy disabled".to_owned()
+            })?;
+            if session.token_namespace != vine_core::RUNTIME_GDIPLUS_SESSION_TOKEN_NAMESPACE
+                || session.startup.profile_id != startup.profile_id
+            {
+                return Err(
+                    "logical GDI+ session identity does not match the active startup policy"
+                        .to_owned(),
+                );
+            }
+            Ok(Some(json!({
+                "action": "session-started",
+                "policyId": policy.id,
+                "session": session,
+                "liveSessions": runtime.gdiplus_sessions().len(),
+                "browserResourceCreated": false,
+                "nativeTokenImported": false,
+            })))
+        }
+        vine_core::GDIPLUS_SHUTDOWN_IMPLEMENTATION => {
+            if !matches!(completion.eax, RegisterUpdate::Preserve) {
+                return Err("void GdiplusShutdown completion unexpectedly changed EAX".to_owned());
+            }
+            let token = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "GdiplusShutdown completion has no logical token".to_owned())?;
+            if runtime
+                .gdiplus_sessions()
+                .values()
+                .any(|session| session.token == token)
+            {
+                return Err(
+                    "GdiplusShutdown completion did not retire its logical session".to_owned(),
+                );
+            }
+            Ok(Some(json!({
+                "action": "session-shutdown",
+                "token": token,
+                "liveSessions": runtime.gdiplus_sessions().len(),
+            })))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn bgi_gdi_completion_metadata(

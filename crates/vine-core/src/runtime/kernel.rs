@@ -68,6 +68,7 @@ use super::gdi::{
     RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult, RuntimeGetStockObjectResult,
     RuntimeLogFontA, RuntimeSelectGdiObjectResult,
 };
+use super::gdiplus::{RuntimeGdiplus, RuntimeGdiplusSession, RuntimeGdiplusStartupRequest};
 use super::graphics::{
     RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
     RuntimeGraphicsDevice, RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
@@ -462,6 +463,7 @@ pub struct RuntimeKernel {
     audio: RuntimeAudio,
     user32: RuntimeUser32,
     gdi: RuntimeGdi,
+    gdiplus: RuntimeGdiplus,
     graphics: RuntimeGraphics,
     timers: RuntimeTimers,
     objects: RuntimeObjectTable,
@@ -559,6 +561,8 @@ struct RuntimeStateSnapshot<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<&'a RuntimeGdi>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    gdiplus: Option<&'a RuntimeGdiplus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     graphics: Option<&'a RuntimeGraphics>,
     objects: &'a RuntimeObjectTable,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -605,6 +609,7 @@ impl Serialize for RuntimeKernel {
             audio: (!self.audio.is_empty()).then_some(&self.audio),
             user32: (!self.user32.is_empty()).then_some(&self.user32),
             gdi: (!self.gdi.is_empty()).then_some(&self.gdi),
+            gdiplus: (!self.gdiplus.is_empty()).then_some(&self.gdiplus),
             graphics: (!self.graphics.is_empty()).then_some(&self.graphics),
             objects: &self.objects,
             com: (!self.com.is_empty()).then_some(&self.com),
@@ -726,6 +731,7 @@ impl RuntimeKernel {
             audio: RuntimeAudio::default(),
             user32: RuntimeUser32::default(),
             gdi: RuntimeGdi::default(),
+            gdiplus: RuntimeGdiplus::default(),
             graphics: RuntimeGraphics::default(),
             timers: RuntimeTimers::default(),
             objects,
@@ -4392,6 +4398,37 @@ impl RuntimeKernel {
         Ok((result, write_result))
     }
 
+    pub(crate) fn start_gdiplus_session(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeGdiplusStartupRequest,
+        token_output: GuestAddress,
+    ) -> Result<(RuntimeGdiplusSession, GuestWriteResult), RuntimeStateError> {
+        self.require_gdiplus_operation_state()?;
+        memory
+            .validate_access(token_output, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let plan = self.gdiplus.plan_startup(request)?;
+        let token_bytes = plan.session().token.to_le_bytes();
+        let mut transaction = memory.begin_transaction();
+        let token_write = transaction
+            .write(token_output, &token_bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.gdiplus.preflight_startup(&plan)?;
+        let session = self.gdiplus.commit_startup(plan)?;
+        transaction.commit_transaction();
+        Ok((session, token_write))
+    }
+
+    pub(crate) fn shutdown_gdiplus_session(
+        &mut self,
+        token: u32,
+    ) -> Result<RuntimeGdiplusSession, RuntimeStateError> {
+        self.require_gdiplus_operation_state()?;
+        let plan = self.gdiplus.plan_shutdown(token)?;
+        self.gdiplus.commit_shutdown(plan)
+    }
+
     pub(crate) fn select_gdi_object(
         &mut self,
         device_context_handle: u32,
@@ -4598,6 +4635,12 @@ impl RuntimeKernel {
 
     pub fn gdi_surfaces(&self) -> &BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface> {
         self.gdi.surfaces()
+    }
+
+    pub fn gdiplus_sessions(
+        &self,
+    ) -> &BTreeMap<super::RuntimeGdiplusSessionId, RuntimeGdiplusSession> {
+        self.gdiplus.sessions()
     }
 
     pub(crate) fn plan_audio_buffer_creation(
@@ -5592,6 +5635,23 @@ impl RuntimeKernel {
         Ok(())
     }
 
+    fn require_gdiplus_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdiplus",
+                "gdiplus-operation-state-invalid",
+                "GDI+ operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
     fn require_audio_operation_state(&self) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -6288,10 +6348,14 @@ impl RuntimeKernel {
         let payload_teardown = self.plan_payload_object_teardown(&BTreeSet::new())?;
         let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
+        let gdiplus_teardown = self.gdiplus.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
             self.gdi.preflight_process_teardown(gdi_plan)?;
+        }
+        if let Some(gdiplus_plan) = gdiplus_teardown.as_ref() {
+            self.gdiplus.preflight_process_teardown(gdiplus_plan)?;
         }
         if let Some(graphics_plan) = graphics_teardown.as_ref() {
             self.graphics.preflight_process_teardown(graphics_plan)?;
@@ -6302,6 +6366,9 @@ impl RuntimeKernel {
         self.commit_payload_object_teardown(payload_teardown)?;
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
+        }
+        if let Some(gdiplus_plan) = gdiplus_teardown {
+            self.gdiplus.commit_process_teardown(gdiplus_plan);
         }
         if let Some(graphics_plan) = graphics_teardown {
             self.graphics.commit_process_teardown(graphics_plan);
@@ -6380,6 +6447,7 @@ impl RuntimeKernel {
         let payload_teardown = self.plan_payload_object_teardown(&cancelling_source_reads)?;
         let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
+        let gdiplus_teardown = self.gdiplus.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_teardown.as_ref() {
@@ -6387,6 +6455,9 @@ impl RuntimeKernel {
         }
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
             self.gdi.preflight_process_teardown(gdi_plan)?;
+        }
+        if let Some(gdiplus_plan) = gdiplus_teardown.as_ref() {
+            self.gdiplus.preflight_process_teardown(gdiplus_plan)?;
         }
         if let Some(graphics_plan) = graphics_teardown.as_ref() {
             self.graphics.preflight_process_teardown(graphics_plan)?;
@@ -6411,6 +6482,9 @@ impl RuntimeKernel {
         self.commit_payload_object_teardown(payload_teardown)?;
         if let Some(gdi_plan) = gdi_teardown {
             self.gdi.commit_process_teardown(gdi_plan);
+        }
+        if let Some(gdiplus_plan) = gdiplus_teardown {
+            self.gdiplus.commit_process_teardown(gdiplus_plan);
         }
         if let Some(graphics_plan) = graphics_teardown {
             self.graphics.commit_process_teardown(graphics_plan);

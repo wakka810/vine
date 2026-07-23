@@ -16,16 +16,17 @@ use vine_core::{
     CREATE_THREAD_IMPLEMENTATION, CallbackReturnSentinel, ComCallCompletion, ComCallTrap,
     ComDispatchOutcome, ComFault, CpuWritebackReceipt, D3d9CompatibilityPolicy,
     Dinput8CompatibilityPolicy, DispatchOutcome, DsoundCompatibilityPolicy, DynamicExportThunk,
-    ExecutionSession, Gdi32CompatibilityPolicy, GuestAddress, GuestMemory, GuestMemoryError,
-    GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult, ImageMaterialization,
-    ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
-    InitialProcessEnvironment, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
-    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
-    ModuleSnapshot, Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RESUME_THREAD_IMPLEMENTATION, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
+    ExecutionSession, Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress,
+    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
+    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
+    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass,
+    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
+    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RESUME_THREAD_IMPLEMENTATION,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
     RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
@@ -43,14 +44,15 @@ use vine_core::{
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
-    gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
+    encode_pointer_contract, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -218,6 +220,7 @@ enum GenericRuntimeCapability {
     DibLifecycle,
     OutlineTextMetrics,
     TextRaster,
+    GdiplusStartup,
 }
 
 struct GenericRuntimeProcess {
@@ -390,6 +393,8 @@ struct GenericRuntimeSessionReady {
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi32_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    gdiplus_compatibility_policy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     winmm_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_profile_id: Option<String>,
@@ -477,7 +482,29 @@ struct GenericRuntimeCompletion {
     runtime_module: Option<GenericRuntimeModuleLoad>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<GenericRuntimeGdiCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gdiplus: Option<GenericRuntimeGdiplusCompletion>,
     memory: MemoryStats,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+enum GenericRuntimeGdiplusCompletion {
+    SessionStarted {
+        policy_id: String,
+        session: vine_core::RuntimeGdiplusSession,
+        live_sessions: usize,
+        browser_resource_created: bool,
+        native_token_imported: bool,
+    },
+    SessionShutdown {
+        token: u32,
+        live_sessions: usize,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -2481,6 +2508,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::DibLifecycle
                     | GenericRuntimeCapability::OutlineTextMetrics
                     | GenericRuntimeCapability::TextRaster
+                    | GenericRuntimeCapability::GdiplusStartup
             )
         ) {
             let loader = kernel32_policy
@@ -3106,6 +3134,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = gdiplus_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
@@ -3147,6 +3178,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3166,6 +3198,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let dsound_root_enabled = matches!(
@@ -3184,6 +3217,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3201,6 +3235,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3217,6 +3252,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let requested_capability = match enabled_capability {
@@ -3235,7 +3271,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::CompatibleDc
             | GenericRuntimeCapability::DibLifecycle
             | GenericRuntimeCapability::OutlineTextMetrics
-            | GenericRuntimeCapability::TextRaster,
+            | GenericRuntimeCapability::TextRaster
+            | GenericRuntimeCapability::GdiplusStartup,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3324,6 +3361,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let font_creation_enabled = matches!(
@@ -3334,6 +3372,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let compatible_dc_enabled = matches!(
@@ -3343,6 +3382,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let dib_lifecycle_enabled = matches!(
@@ -3351,15 +3391,24 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     );
     let outline_text_metrics_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::OutlineTextMetrics | GenericRuntimeCapability::TextRaster)
+        Some(
+            GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
+        )
     );
     let text_raster_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::TextRaster)
+        Some(GenericRuntimeCapability::TextRaster | GenericRuntimeCapability::GdiplusStartup)
+    );
+    let gdiplus_startup_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::GdiplusStartup)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3481,6 +3530,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     ) {
         user32_policy.set_timer = None;
@@ -3495,6 +3545,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
         )
     ) {
         user32_policy.screen_dc = None;
@@ -3520,6 +3571,8 @@ fn run_v86_generic_runtime_session(
         gdi32_policy.text_out_a = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
+    let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
+    gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
     let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
@@ -3874,6 +3927,8 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             font_creation_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
+            gdiplus_startup_enabled
         } else {
             runtime_capability_enables_endpoint(requested_capability, endpoint)
         };
@@ -4063,6 +4118,8 @@ fn run_v86_generic_runtime_session(
             .then(|| user32_policy.id.clone()),
             gdi32_compatibility_policy_id: (font_enumeration_enabled || font_creation_enabled)
                 .then(|| gdi32_policy.id.clone()),
+            gdiplus_compatibility_policy_id: gdiplus_startup_enabled
+                .then(|| gdiplus_policy.id.clone()),
             winmm_compatibility_policy_id: matches!(
                 endpoint_capability,
                 Some(
@@ -4211,6 +4268,11 @@ fn run_v86_generic_runtime_session(
                         session.runtime(),
                         &gdi32_policy,
                     )?;
+                    let gdiplus = generic_runtime_gdiplus_completion(
+                        &completion,
+                        session.runtime(),
+                        &gdiplus_policy,
+                    )?;
                     send_pending_runtime_delta(input, memory)?;
                     write_runtime_json_frame(
                         RUNTIME_FRAME_API_COMPLETION,
@@ -4243,6 +4305,7 @@ fn run_v86_generic_runtime_session(
                             source_read: None,
                             runtime_module: None,
                             gdi,
+                            gdiplus,
                             memory: memory.stats(),
                         },
                     )?;
@@ -4517,6 +4580,13 @@ fn run_v86_generic_runtime_session(
                             dispatch_gdi32_api_with_policy(
                                 &gdi32_policy,
                                 callback_return_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
+                            dispatch_gdiplus_api_with_policy(
+                                &gdiplus_policy,
                                 contract,
                                 frame,
                                 session,
@@ -5051,6 +5121,11 @@ fn run_v86_generic_runtime_session(
                             session.runtime(),
                             &gdi32_policy,
                         )?;
+                        let gdiplus = generic_runtime_gdiplus_completion(
+                            &completion,
+                            session.runtime(),
+                            &gdiplus_policy,
+                        )?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -5083,6 +5158,7 @@ fn run_v86_generic_runtime_session(
                                 source_read: None,
                                 runtime_module,
                                 gdi,
+                                gdiplus,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -5281,6 +5357,7 @@ fn run_v86_generic_runtime_session(
                                 source_read: Some(source_read),
                                 runtime_module: None,
                                 gdi: None,
+                                gdiplus: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -5385,6 +5462,7 @@ fn run_v86_generic_runtime_session(
                                 source_read: None,
                                 runtime_module: None,
                                 gdi: None,
+                                gdiplus: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -10898,6 +10976,125 @@ fn set_eax_result(
     }
 }
 
+fn generic_runtime_gdiplus_completion(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    policy: &GdiplusCompatibilityPolicy,
+) -> Result<Option<GenericRuntimeGdiplusCompletion>, LoaderError> {
+    match completion.implementation_id.as_str() {
+        vine_core::GDIPLUS_STARTUP_IMPLEMENTATION => {
+            let status = set_eax_result(
+                completion,
+                "gdiplus-startup-return-register-invalid",
+                "GdiplusStartup dispatcher did not set EAX",
+            )?;
+            if status != vine_core::GDIPLUS_STATUS_OK {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-primary-status-invalid",
+                    format!("primary GdiplusStartup completed with status {status}"),
+                ));
+            }
+            let token_output = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-token-output-missing-after-dispatch",
+                    "completed GdiplusStartup frame has no token output argument",
+                )
+            })?;
+            if completion.guest_writes.len() != 1 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-token-write-count-invalid",
+                    "successful GdiplusStartup must commit exactly one token write",
+                ));
+            }
+            let write = &completion.guest_writes[0].write;
+            if write.address.0 != token_output || write.bytes.len() != 4 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-token-write-invalid",
+                    "GdiplusStartup token write does not match the decoded x86 output",
+                ));
+            }
+            let token = u32::from_le_bytes(write.bytes[..4].try_into().map_err(|_| {
+                LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-token-bytes-invalid",
+                    "GdiplusStartup token write is not one x86 ULONG_PTR",
+                )
+            })?);
+            let session = runtime
+                .gdiplus_sessions()
+                .values()
+                .find(|session| session.token == token)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdiplus",
+                        "gdiplus-startup-session-missing-after-dispatch",
+                        "completed GdiplusStartup has no matching logical session",
+                    )
+                })?;
+            let startup = policy.startup.as_ref().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-policy-missing-after-dispatch",
+                    "GdiplusStartup completed with its compatibility policy disabled",
+                )
+            })?;
+            if session.token_namespace != vine_core::RUNTIME_GDIPLUS_SESSION_TOKEN_NAMESPACE
+                || session.startup.profile_id != startup.profile_id
+            {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-startup-session-policy-mismatch",
+                    "logical GDI+ session identity does not match the active startup policy",
+                ));
+            }
+            Ok(Some(GenericRuntimeGdiplusCompletion::SessionStarted {
+                policy_id: policy.id.clone(),
+                session,
+                live_sessions: runtime.gdiplus_sessions().len(),
+                browser_resource_created: false,
+                native_token_imported: false,
+            }))
+        }
+        vine_core::GDIPLUS_SHUTDOWN_IMPLEMENTATION => {
+            if !matches!(completion.eax, RegisterUpdate::Preserve) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-shutdown-return-register-invalid",
+                    "void GdiplusShutdown dispatcher unexpectedly changed EAX",
+                ));
+            }
+            let token = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-shutdown-token-missing-after-dispatch",
+                    "completed GdiplusShutdown frame has no logical token",
+                )
+            })?;
+            if runtime
+                .gdiplus_sessions()
+                .values()
+                .any(|session| session.token == token)
+            {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdiplus",
+                    "gdiplus-shutdown-session-still-live",
+                    "completed GdiplusShutdown did not retire its logical session",
+                ));
+            }
+            Ok(Some(GenericRuntimeGdiplusCompletion::SessionShutdown {
+                token,
+                live_sessions: runtime.gdiplus_sessions().len(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn generic_runtime_gdi_completion(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
@@ -12651,6 +12848,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-dib-lifecycle" => GenericRuntimeCapability::DibLifecycle,
                 "gdi-outline-text-metrics" => GenericRuntimeCapability::OutlineTextMetrics,
                 "gdi-text-raster" => GenericRuntimeCapability::TextRaster,
+                "gdiplus-startup" => GenericRuntimeCapability::GdiplusStartup,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

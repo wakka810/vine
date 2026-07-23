@@ -4715,6 +4715,45 @@ crossings、58,087 success transitions、clean cancel／watchdogを通した。C
 `0x47010004`、size 0、output NULLである。Outline metric size query、nonzero output、text rasterization、host／browser
 font resolutionはこのcheckpointでclaimしない。
 
+## 141. BGI GDI+ startup and logical session lifetime
+
+`gdiplus-startup` observationを同じsource executableから独立に2回取得した。Primary raw traceは51,006 bytes／
+77 records／SHA-256 `456f66d1242523aa5a2d351ad426c01db23f3c0d3c75909f5e135ebc4f4aa3a6`、confirmationは
+51,076 bytes／77 records／SHA-256 `800aef21184c47b9d9052006618070457c1d3301972fa24c5d72a2168ec8c4f0`で、
+diagnostics／hook errorsは0である。Focused profileは`x86-bgi-gdiplus-startup-v1`で、raw traceは`.work/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGIのRVA `0x000652C8`へ戻る`GdiplusStartup`は16-byte inputとしてversion 1、debug callback NULL、
+suppress-background-thread 0、suppress-external-codecs 0を渡し、notification outputはNULLである。Token slotはcall前0、
+StatusとLastErrorは0、call後tokenはnonzeroである。Native tokenはprimaryとconfirmationで異なるためopaque artifact
+identityであり、Vineへ数値をimportしない。WrapperはEAXを検査せずstack frameを戻してreturnする。隣接cleanupは
+同じglobal slotからtokenをloadし、`GdiplusShutdown`をcallしてからslotを0へ戻す。Focused completionまでに別の
+GDI+ callはなく、shutdown自体のprimary runtime到達はこのcaptureでclaimしない。
+
+Vineはpolicy `gdiplus-primary-startup-v1`でこのexact callback-free inputだけを許可する。`RuntimeGdiplus`が
+process-local session、generation、`vine.logical-gdiplus-session-token.v1` namespaceを所有し、native tokenとは別の
+logical tokenをguestへpublishする。Sequence 18,638／instruction 12,073,229はStatus 0、LastError 0を返し、
+`0x10151F8C`へ`01 00 50 47`を書いてsession／token ID 1、generation 1、live session 1を生成した。Startup stateと
+guest bytesは同じpreflight後transactionでcommitし、shutdownはexact live tokenだけをretireする。Process teardownも
+owner-local plan／commitを通す。Native token、browser resource、image codecはimportしない。
+
+Nodeは18,640 supported calls、18,696 writebacks／37,628 dirty pages／2,949,586 changed bytes、17,315 host deltas、
+generation 36,584、semantic SHA-256
+`bc58f9c9dd15a6a98d84597022e571611b24ca008dc7fb6aaf7224b630aa4779`、terminal memory SHA-256
+`dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164`を通した。Summary reportは391,410 bytes／
+SHA-256 `5f9f6af3149ede65f3c2299a2ddd08d5e9896f5e8e8c3da53497e4de403f9d8b`である。
+
+Chrome Runtime Worker protocol v11もsame ordered completionとterminal memoryを再現し、19,402 slices、19,400
+writebacks／39,258 pages、17,315 mapping deltas／18,835 dirty pages、generation 27→37,290、55,729 Wasm
+crossings、58,171 success transitions、clean cancel／watchdogを通した。Chromeは150.0.7871.130、browser reportは
+44,215 bytes／SHA-256 `f6af954bc439f3062cace6a5d0a0676b153ab6017911d4dbcd282bc8b1b2c8c6`である。
+
+次stopはinstruction 12,073,370、`KERNEL32.dll!VirtualAlloc` endpoint ID 28／address `0x7F0001B0`／IAT
+`0x100D1118`／return `0x1008FBA8`の`endpoint-contract-missing`である。ArgumentsはNULL preferred address、
+size `0x06000000`、allocation type `0x00102000`、protection `0x00000004`である。GDI+ bitmap／codec／LockBits、
+browser image resource、native token compatibilityはこのcheckpointで実装済みとしない。
+
 ## 140. BGI selected-font outline metrics output
 
 Outline-metrics oracleを含むfont-object profileを独立に2回取得した。Primary raw traceは673,869 bytes／180

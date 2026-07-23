@@ -19,6 +19,7 @@ import {
   type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
   type RuntimeGdiSnapshot,
+  type RuntimeGdiplusSnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -170,6 +171,7 @@ interface CompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  gdiplus?: RuntimeGdiplusSnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -245,6 +247,7 @@ interface HostCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  gdiplus?: RuntimeGdiplusSnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -285,6 +288,7 @@ interface CallbackCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
+  gdiplus?: RuntimeGdiplusSnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -1360,6 +1364,14 @@ class BrowserRuntimeSession {
       isGdiCompletion === (metadata.gdi !== undefined),
       "BGI GDI completion metadata mismatch",
     );
+    const isGdiplusCompletion = [
+      "gdiplus.startup.primary-v1",
+      "gdiplus.shutdown.logical-session-v1",
+    ].includes(completion.implementationId);
+    invariant(
+      isGdiplusCompletion === (metadata.gdiplus !== undefined),
+      "BGI GDI+ completion metadata mismatch",
+    );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     const call = {
       sequence,
@@ -1403,6 +1415,7 @@ class BrowserRuntimeSession {
         : { comApartment: metadata.comApartment }),
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
+      ...(metadata.gdiplus === undefined ? {} : { gdiplus: metadata.gdiplus }),
     };
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;

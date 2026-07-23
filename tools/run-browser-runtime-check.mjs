@@ -554,6 +554,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "gdi-dib-lifecycle",
         "gdi-outline-text-metrics",
         "gdi-text-raster",
+        "gdiplus-startup",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]

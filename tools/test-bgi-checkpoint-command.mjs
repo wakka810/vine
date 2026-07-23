@@ -216,6 +216,10 @@ assert.equal(
   bgiProfileOutputDirectory("gdi-outline-text-metrics"),
   "v86-bgi-outline-text-metrics",
 );
+assert.equal(
+  bgiProfileOutputDirectory("gdiplus-startup"),
+  "v86-bgi-startup",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

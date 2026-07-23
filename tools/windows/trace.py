@@ -57,6 +57,7 @@ SUPPORTED_OBSERVATIONS = (
     "window-dc",
     "screen-dc",
     "font-object",
+    "gdiplus-startup",
     "set-window-long-a",
     "get-string-type-w",
     "lc-map-string-w",

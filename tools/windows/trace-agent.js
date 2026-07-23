@@ -13,6 +13,9 @@ const focusedScreenDcObservation =
   selectedObservations.size === 1 && selectedObservations.has("screen-dc");
 const focusedFontObjectObservation =
   selectedObservations.size === 1 && selectedObservations.has("font-object");
+const focusedGdiplusStartupObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("gdiplus-startup");
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
@@ -361,6 +364,9 @@ const fontObjectPrimaryHandles = new Set();
 const fontObjectSelectedDcHandles = new Map();
 const fontObjectDibSectionsByHandle = new Map();
 const fontObjectSelectedBitmapByDc = new Map();
+let gdiplusStartupCompletionRecorded = false;
+let gdiplusStartupActivityGeneration = 0;
+const gdiplusMainModuleCalls = [];
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
 let setWindowLongAOracleComplete = false;
@@ -2991,6 +2997,25 @@ function finishCall(frame, fields, lastError) {
   });
 }
 
+const gdiplusImportedFunctions = [
+  ["GdiplusShutdown", 1],
+  ["GdipGetImageHeight", 2],
+  ["GdipCreateBitmapFromGdiDib", 3],
+  ["GdipGetImagePixelFormat", 2],
+  ["GdipFree", 1],
+  ["GdipAlloc", 1],
+  ["GdipGetImageEncodersSize", 2],
+  ["GdipDisposeImage", 1],
+  ["GdipCreateBitmapFromFile", 2],
+  ["GdipBitmapUnlockBits", 2],
+  ["GdiplusStartup", 3],
+  ["GdipGetImageWidth", 2],
+  ["GdipCloneImage", 2],
+  ["GdipGetImageEncoders", 3],
+  ["GdipSaveImageToFile", 4],
+  ["GdipBitmapLockBits", 5],
+];
+
 const hooks = {
   "kernel32.dll": [
     ["LoadLibraryA", ["ansi"]],
@@ -3031,6 +3056,68 @@ if (focusedGuestThreadObservation) {
   hooks["kernel32.dll"] = hooks["kernel32.dll"].filter(
     ([name]) => name !== "CreateThread",
   );
+}
+
+function snapshotGdiplusStartupInput(pointer) {
+  const size = 16;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 GdiplusStartupInput observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, error: "null pointer" };
+  }
+  try {
+    return {
+      pointer: pointer.toString(),
+      size,
+      raw: snapshotBoundedRawBytes(pointer, size, size),
+      fields: {
+        gdiplusVersion: pointer.readU32(),
+        debugEventCallback: pointer.add(4).readPointer().toString(),
+        suppressBackgroundThread: pointer.add(8).readU32(),
+        suppressExternalCodecs: pointer.add(12).readU32(),
+      },
+    };
+  } catch (error) {
+    return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotGdiplusStartupOutput(pointer) {
+  const size = 8;
+  if (Process.pointerSize !== 4) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      error: `x86 GdiplusStartupOutput observation requires 4-byte pointers, got ${Process.pointerSize}`,
+    };
+  }
+  if (pointer.isNull()) {
+    return { pointer: pointer.toString(), size, isNull: true };
+  }
+  try {
+    return {
+      pointer: pointer.toString(),
+      size,
+      isNull: false,
+      raw: snapshotBoundedRawBytes(pointer, size, size),
+      fields: {
+        notificationHook: pointer.readPointer().toString(),
+        notificationUnhook: pointer.add(4).readPointer().toString(),
+      },
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      size,
+      isNull: false,
+      error: error.message,
+    };
+  }
 }
 
 if (selectedObservations.has("create-window-ex-a")) {
@@ -10246,6 +10333,144 @@ function attachFontPipelineHook(module, name) {
         immediateConsumer: this.immediateConsumer,
       });
       scheduleFontObjectCompletion();
+    },
+  });
+}
+
+function scheduleGdiplusStartupCompletion() {
+  const generation = ++gdiplusStartupActivityGeneration;
+  setTimeout(() => {
+    if (generation !== gdiplusStartupActivityGeneration) {
+      return;
+    }
+    maybeCompleteGdiplusStartupObservation(generation);
+  }, 250);
+}
+
+function maybeCompleteGdiplusStartupObservation(generation) {
+  if (
+    gdiplusStartupCompletionRecorded ||
+    generation !== gdiplusStartupActivityGeneration ||
+    !gdiplusMainModuleCalls.some((call) => call.api === "GdiplusStartup")
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(() => maybeCompleteGdiplusStartupObservation(generation), 10);
+    return;
+  }
+  gdiplusStartupCompletionRecorded = true;
+  emit("gdiplus-startup-complete", {
+    profile: "x86-bgi-gdiplus-startup-v1",
+    mainModuleCalls: gdiplusMainModuleCalls,
+  });
+  if (stopOnEvent === "gdiplus-startup-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachGdiplusHook(module, name, argumentCount) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const isMainModuleCaller =
+        caller.module?.toLowerCase() === Process.mainModule.name.toLowerCase();
+      if (!isMainModuleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+
+      this.api = name;
+      this.arguments = Array.from({ length: argumentCount }, (_, index) =>
+        args[index].toString(),
+      );
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.token = name === "GdiplusStartup" ? args[0] : null;
+      this.input =
+        name === "GdiplusStartup"
+          ? snapshotGdiplusStartupInput(args[1])
+          : null;
+      this.output =
+        name === "GdiplusStartup"
+          ? snapshotGdiplusStartupOutput(args[2])
+          : null;
+      this.tokenBefore =
+        this.token === null ? null : snapshotPointerSlot(this.token);
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructions(this.returnAddress, 96),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          8,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          gdiplus: {
+            startupInput: this.input,
+            startupOutput: this.output,
+            tokenBefore: this.tokenBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const isVoid = this.api === "GdiplusShutdown" || this.api === "GdipFree";
+      const resultValue = isVoid
+        ? null
+        : this.api === "GdipAlloc"
+          ? result.toString()
+          : signed32(result);
+      const tokenAfter =
+        this.token === null ? null : snapshotPointerSlot(this.token);
+      const lastError = Number(this.lastError) >>> 0;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: resultValue,
+          gdiplus: {
+            tokenAfter,
+          },
+        },
+        this.lastError,
+      );
+      gdiplusMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        result: resultValue,
+        startupInput: this.input,
+        startupOutput: this.output,
+        tokenBefore: this.tokenBefore,
+        tokenAfter,
+        immediateConsumer: this.immediateConsumer,
+      });
+      scheduleGdiplusStartupCompletion();
     },
   });
 }
@@ -19627,6 +19852,7 @@ Process.attachModuleObserver({
       !focusedWindowDcObservation &&
       !focusedScreenDcObservation &&
       !focusedFontObjectObservation &&
+      !focusedGdiplusStartupObservation &&
       !focusedSetWindowLongAObservation &&
       !focusedSetWindowPosSizeObservation
     ) {
@@ -20121,6 +20347,22 @@ Process.attachModuleObserver({
       ]) {
         try {
           attachFontPipelineHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "gdiplus.dll" &&
+      selectedObservations.has("gdiplus-startup")
+    ) {
+      for (const [name, argumentCount] of gdiplusImportedFunctions) {
+        try {
+          attachGdiplusHook(module, name, argumentCount);
         } catch (error) {
           emit("hook-error", {
             module: module.name,

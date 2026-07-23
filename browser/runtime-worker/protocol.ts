@@ -346,6 +346,7 @@ export interface SessionReport {
     comApartment?: RuntimeComApartmentSnapshot;
     sourceRead?: RuntimeSourceReadSnapshot;
     gdi?: RuntimeGdiSnapshot;
+    gdiplus?: RuntimeGdiplusSnapshot;
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
   firstUnsupported: {
@@ -374,6 +375,35 @@ export interface RuntimeSourceReadSnapshot {
   cursorAfter: number;
   contentSha256: string;
 }
+
+export type RuntimeGdiplusSnapshot =
+  | {
+      action: "session-started";
+      policyId: string;
+      session: {
+        id: number;
+        tokenNamespace: string;
+        tokenId: number;
+        token: number;
+        startup: {
+          profileId: string;
+          version: number;
+          debugEventCallback: number;
+          suppressBackgroundThread: boolean;
+          suppressExternalCodecs: boolean;
+          notificationOutputRequested: boolean;
+        };
+        generation: number;
+      };
+      liveSessions: number;
+      browserResourceCreated: false;
+      nativeTokenImported: false;
+    }
+  | {
+      action: "session-shutdown";
+      token: number;
+      liveSessions: number;
+    };
 
 export interface RuntimeGdiDeviceContextSnapshot {
   id: number;

@@ -10,6 +10,7 @@ mod com;
 mod displays;
 mod files;
 mod gdi;
+mod gdiplus;
 mod graphics;
 mod heaps;
 mod input;
@@ -85,6 +86,11 @@ pub use gdi::{
     RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId, RuntimeGdiTextRasterResult,
     RuntimeGdiTextRasterTarget, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcResult,
     RuntimeGetStockObjectResult, RuntimeLogFontA, RuntimeSelectGdiObjectResult,
+};
+pub use gdiplus::{
+    RUNTIME_GDIPLUS_SESSION_LIMIT, RUNTIME_GDIPLUS_SESSION_TOKEN_NAMESPACE,
+    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RuntimeGdiplusSession, RuntimeGdiplusSessionId,
+    RuntimeGdiplusStartupRequest,
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,

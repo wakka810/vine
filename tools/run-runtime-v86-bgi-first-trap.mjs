@@ -171,6 +171,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-dib-lifecycle",
         "gdi-outline-text-metrics",
         "gdi-text-raster",
+        "gdiplus-startup",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -261,6 +262,7 @@ assert(
       "gdi-dib-lifecycle",
       "gdi-outline-text-metrics",
       "gdi-text-raster",
+      "gdiplus-startup",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -315,6 +317,7 @@ if (
     "gdi-dib-lifecycle",
     "gdi-outline-text-metrics",
     "gdi-text-raster",
+    "gdiplus-startup",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -338,6 +341,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "gdi-dib-lifecycle",
       "gdi-outline-text-metrics",
       "gdi-text-raster",
+      "gdiplus-startup",
     ].includes(genericRuntimeCapability)
       ? "kernel32-set-thread-priority-v1.json"
       : genericRuntimeCapability === "kernel32-create-thread"
@@ -501,7 +505,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const textRasterEnabled = genericRuntimeCapability === "gdi-text-raster";
+const gdiplusStartupEnabled = genericRuntimeCapability === "gdiplus-startup";
+const textRasterEnabled =
+  gdiplusStartupEnabled || genericRuntimeCapability === "gdi-text-raster";
 const outlineTextMetricsEnabled =
   textRasterEnabled || genericRuntimeCapability === "gdi-outline-text-metrics";
 const dibLifecycleEnabled =
@@ -775,7 +781,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? textRasterEnabled
+      ? gdiplusStartupEnabled
+      ? "v86-bgi-startup"
+      : textRasterEnabled
       ? "v86-bgi-text-raster"
       : outlineTextMetricsEnabled
       ? "v86-bgi-outline-text-metrics"
@@ -4783,6 +4791,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (gdiplusStartupEnabled) {
+        validateGdiplusStartupResult(genericResult);
       } else if (textRasterEnabled) {
         validateTextRasterResult(genericResult);
       } else if (outlineTextMetricsEnabled) {
@@ -4996,6 +5006,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : gdiplusStartupEnabled
+          ? "bgi logical GDI+ startup session"
           : textRasterEnabled
           ? "bgi CP932 text raster write into selected 8bpp DIB"
           : outlineTextMetricsEnabled
@@ -6217,6 +6229,9 @@ function buildGenericCallRecord(
       ? {}
       : { runtimeModule: completionFrame.runtimeModule }),
     ...(completionFrame.gdi === undefined ? {} : { gdi: completionFrame.gdi }),
+    ...(completionFrame.gdiplus === undefined
+      ? {}
+      : { gdiplus: completionFrame.gdiplus }),
   };
 }
 
@@ -6269,6 +6284,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : gdiplusStartupEnabled
+          ? 92
         : textRasterEnabled
           ? 90
         : outlineTextMetricsEnabled
@@ -6465,6 +6482,14 @@ function validateGenericRuntimeReady(ready, offer) {
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
+  }
+  if (gdiplusStartupEnabled) {
+    assert.equal(
+      ready.gdiplusCompatibilityPolicyId,
+      "gdiplus-primary-startup-v1",
+    );
+  } else {
+    assert.equal(ready.gdiplusCompatibilityPolicyId, undefined);
   }
   if (timeGetDevCapsEnabled) {
     assert.equal(
@@ -15195,6 +15220,137 @@ function validateTextRasterResult(result) {
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_52c8);
 }
 
+function validateGdiplusStartupResult(result) {
+  validateOutlineTextMetricsResult(result);
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_640);
+  assert.equal(result.writebacks.length, 18_696);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_628,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_949_586,
+  );
+  assert.equal(result.hostDeltas.length, 17_315);
+  assert.equal(result.finalGeneration, 36_584);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.symbol === "TextOutA").length,
+    1,
+  );
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "gdiplus.dll" &&
+      call.symbol === "GdiplusStartup",
+  );
+  assert.equal(calls.length, 1, "expected one primary GdiplusStartup completion");
+  const [call] = calls;
+  assert.equal(call.sequence, 18_638);
+  assert.equal(call.trapInstructionCount, 12_073_229);
+  assert.deepEqual(call.arguments, [0x1015_1f8c, 0x006f_ff44, 0]);
+  assert.equal(call.implementationId, "gdiplus.startup.primary-v1");
+  assert.deepEqual(call.result, { action: "set", value: 0 });
+  assert.equal(call.returnAddress, 0x1006_52c8);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 16);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, call.arguments[0]);
+  assert.deepEqual(call.guestWrites[0].bytes, [1, 0, 0x50, 0x47]);
+  assert.deepEqual(call.gdiplus, {
+    action: "session-started",
+    policyId: "gdiplus-primary-startup-v1",
+    session: {
+      id: 1,
+      tokenNamespace: "vine.logical-gdiplus-session-token.v1",
+      tokenId: 1,
+      token: 0x4750_0001,
+      startup: {
+        profileId: "primary-x86-callback-free-v1",
+        version: 1,
+        debugEventCallback: 0,
+        suppressBackgroundThread: false,
+        suppressExternalCodecs: false,
+        notificationOutputRequested: false,
+      },
+      generation: 1,
+    },
+    liveSessions: 1,
+    browserResourceCreated: false,
+    nativeTokenImported: false,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-3).map(
+      ({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+        sequence,
+        symbol,
+        occurrence,
+        trapInstructionCount,
+      }),
+    ),
+    [
+      {
+        sequence: 18_638,
+        symbol: "GdiplusStartup",
+        occurrence: 1,
+        trapInstructionCount: 12_073_229,
+      },
+      {
+        sequence: 18_639,
+        symbol: "GetVersionExA",
+        occurrence: 3,
+        trapInstructionCount: 12_073_339,
+      },
+      {
+        sequence: 18_640,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_397,
+        trapInstructionCount: 12_073_364,
+      },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 28);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_01b0);
+  assert.equal(result.fault.endpoint.endpoint.module, "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "VirtualAlloc",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1118);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, 36_584);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164",
+  );
+  assert.equal(result.terminal.instructionCount, 12_073_370);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 28);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_01b0);
+  assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "VirtualAlloc");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_fba8);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 5), [
+    0x1008_fba8,
+    0,
+    0x0600_0000,
+    0x0010_2000,
+    4,
+  ]);
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -18889,10 +19045,26 @@ function buildGenericRuntimeReentryReport({
   if (textRasterEnabled) {
     assert.equal(textRasterCalls.length, 1, "text raster summary requires one call");
   }
+  const gdiplusStartupCalls = gdiplusStartupEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.module.toLowerCase() === "gdiplus.dll" &&
+          call.symbol === "GdiplusStartup",
+      )
+    : [];
+  if (gdiplusStartupEnabled) {
+    assert.equal(
+      gdiplusStartupCalls.length,
+      1,
+      "GDI+ startup summary requires one call",
+    );
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : gdiplusStartupEnabled
+        ? "vine.v86-bgi-gdiplus-startup"
         : textRasterEnabled
         ? "vine.v86-bgi-gdi-text-raster"
         : outlineTextMetricsEnabled
@@ -19254,6 +19426,19 @@ function buildGenericRuntimeReentryReport({
             mutation: "owner-plan-stale-check-transactional-commit",
             browserFontRasterizationUsed: false,
             browserBitmapResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(gdiplusStartupEnabled
+      ? {
+          gdiplusStartup: {
+            calls: gdiplusStartupCalls,
+            policyAuthority: "rust-gdiplus-compatibility-policy",
+            sessionAuthority: "runtime-gdiplus-logical-session",
+            tokenNamespace: "vine.logical-gdiplus-session-token.v1",
+            mutation: "owner-plan-stale-check-transactional-commit",
+            nativeTokenImported: false,
+            browserResourceCreated: false,
           },
         }
       : {}),

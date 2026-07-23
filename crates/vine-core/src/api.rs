@@ -25,13 +25,14 @@ use crate::runtime::{
     RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
     RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
     RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
-    RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGuestImport,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHeapAllocation,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
-    RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
+    RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGdiplusSession,
+    RuntimeGdiplusStartupRequest, RuntimeGuestImport, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
+    RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -1109,6 +1110,22 @@ impl<'a> ExecutionSession<'a> {
             expected_bytes,
             replacement_bytes,
         )
+    }
+
+    pub fn start_gdiplus_session(
+        &mut self,
+        request: RuntimeGdiplusStartupRequest,
+        token_output: GuestAddress,
+    ) -> Result<(RuntimeGdiplusSession, GuestWriteResult), RuntimeStateError> {
+        self.runtime
+            .start_gdiplus_session(self.memory, request, token_output)
+    }
+
+    pub fn shutdown_gdiplus_session(
+        &mut self,
+        token: u32,
+    ) -> Result<RuntimeGdiplusSession, RuntimeStateError> {
+        self.runtime.shutdown_gdiplus_session(token)
     }
 
     pub fn begin_guest_callback(

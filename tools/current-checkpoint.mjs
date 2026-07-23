@@ -945,6 +945,18 @@ export function validateCurrentCheckpoint(manifest) {
     "textRasterContentGeneration",
     "textRasterNodeCompletions",
     "textRasterChromeCompletions",
+    "gdiplusStartupCompletions",
+    "gdiplusStartupSequence",
+    "gdiplusStartupInstructionCount",
+    "gdiplusStartupResult",
+    "gdiplusStartupLastError",
+    "gdiplusStartupGuestWriteBytes",
+    "gdiplusStartupSessionId",
+    "gdiplusStartupTokenId",
+    "gdiplusStartupSessionGeneration",
+    "gdiplusStartupLiveSessions",
+    "gdiplusStartupNodeCompletions",
+    "gdiplusStartupChromeCompletions",
     "dibDeleteObjectSequence",
     "dibDeleteObjectInstructionCount",
     "dibDeleteObjectResult",
@@ -1022,12 +1034,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_312 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_832 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_315 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_835 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_162 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_171 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -2182,6 +2194,50 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browser BGI bounded TextOutA raster evidence is invalid");
   }
+  if (
+    bgiBrowserEvidence.gdiplusStartupCompletions !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupSequence !== 18_638 ||
+    bgiBrowserEvidence.gdiplusStartupInstructionCount !== 12_073_229 ||
+    bgiBrowserEvidence.gdiplusStartupArguments?.join(",") !==
+      "0x10151f8c,0x006fff44,0x00000000" ||
+    bgiBrowserEvidence.gdiplusStartupResult !== 0 ||
+    bgiBrowserEvidence.gdiplusStartupReturnAddress !== "0x100652c8" ||
+    bgiBrowserEvidence.gdiplusStartupLastError !== 0 ||
+    bgiBrowserEvidence.gdiplusStartupGuestWriteAddress !== "0x10151f8c" ||
+    bgiBrowserEvidence.gdiplusStartupGuestWriteBytes !== 4 ||
+    bgiBrowserEvidence.gdiplusStartupGuestWriteHex !== "01005047" ||
+    bgiBrowserEvidence.gdiplusStartupImplementationId !==
+      "gdiplus.startup.primary-v1" ||
+    bgiBrowserEvidence.gdiplusStartupPolicyId !==
+      "gdiplus-primary-startup-v1" ||
+    bgiBrowserEvidence.gdiplusStartupProfileId !==
+      "primary-x86-callback-free-v1" ||
+    bgiBrowserEvidence.gdiplusStartupSessionId !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupTokenNamespace !==
+      "vine.logical-gdiplus-session-token.v1" ||
+    bgiBrowserEvidence.gdiplusStartupToken !== "0x47500001" ||
+    bgiBrowserEvidence.gdiplusStartupTokenId !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupSessionGeneration !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupLiveSessions !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupPolicyAuthority !==
+      "rust-gdiplus-compatibility-policy" ||
+    bgiBrowserEvidence.gdiplusStartupSessionAuthority !==
+      "runtime-gdiplus-logical-session" ||
+    bgiBrowserEvidence.gdiplusStartupMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    bgiBrowserEvidence.gdiplusStartupFailureAtomicity !== true ||
+    bgiBrowserEvidence.gdiplusStartupNativeTokenImported !== false ||
+    bgiBrowserEvidence.gdiplusStartupBrowserResourceCreated !== false ||
+    bgiBrowserEvidence.gdiplusStartupImageCodecImported !== false ||
+    bgiBrowserEvidence.gdiplusStartupNodeCompletions !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupChromeCompletions !== 1 ||
+    bgiBrowserEvidence.gdiplusStartupNodeChromeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.gdiplusShutdownContractImplemented !== true ||
+    bgiBrowserEvidence.gdiplusShutdownReachedBeforeNextStop !== false ||
+    bgiBrowserEvidence.gdiplusProcessExitRetiresSessions !== true
+  ) {
+    errors.push("browser BGI GDI+ startup session evidence is invalid");
+  }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
     "browserCheckpoint.bgiBenchmarkEvidence",
@@ -2738,7 +2794,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernelRoles.join(",") !==
       "private-subsystem-ownership,cross-subsystem-transaction-coordination,compatibility-serialization" ||
     kernelFields.join(",") !==
-      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,user32,gdi,graphics,audio,timers,objects,com,heaps,files,module-records,synchronization,modules,registries" ||
+      "process-state,process-address-space-allocator,threads,scheduler-and-waits,messages,displays,input,user32,gdi,gdiplus,graphics,audio,timers,objects,com,heaps,files,module-records,synchronization,modules,registries" ||
     kernelBoundary.directMutableCollectionFields !== 0 ||
     kernelBoundary.directScalarAllocators !== 0 ||
     kernelBoundary.directSubsystemCollectionMutation !== false ||
@@ -2747,7 +2803,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime/process.rs::RuntimeProcessState" ||
     kernelBoundary.processMutableCollectionVisibility !== "private" ||
     processIndependentOwners.join(",") !==
-      "displays,input,user32,gdi,graphics,audio,timers,heaps,files,module-records,synchronization,com" ||
+      "displays,input,user32,gdi,gdiplus,graphics,audio,timers,heaps,files,module-records,synchronization,com" ||
     kernelBoundary.processSerializationView !==
       "runtime/kernel.rs::RuntimeProcessView" ||
     kernelBoundary.processSerializationViewAccess !== "immutable-borrow" ||
@@ -2760,6 +2816,7 @@ export function validateCurrentCheckpoint(manifest) {
       .filter(
         (test) =>
           !test.startsWith("runtime::gdi::") &&
+          !test.startsWith("runtime::gdiplus::") &&
           !test.startsWith("runtime::graphics::") &&
           !test.startsWith("runtime::audio::"),
       )
@@ -2769,6 +2826,10 @@ export function validateCurrentCheckpoint(manifest) {
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
       "runtime::gdi::tests::device_context_acquisitions_are_distinct_and_release_is_relation_checked,runtime::gdi::tests::stock_brush_and_surface_fill_preserve_failure_atomicity,runtime::gdi::tests::device_context_serialization_preserves_window_shape_and_types_graphics_targets,runtime::gdi::tests::screen_device_context_acquisitions_are_distinct_typed_and_relation_checked,runtime::gdi::tests::graphics_surface_dc_is_single_outstanding_and_guards_com_retirement,runtime::gdi::tests::graphics_surface_dc_capacity_failure_preserves_allocator_state,runtime::gdi::tests::font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans,runtime::gdi::tests::compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically,runtime::gdi::tests::compatible_memory_dc_multi_object_preflight_preserves_all_allocators" ||
+    representativeSubsystemTests
+      .filter((test) => test.startsWith("runtime::gdiplus::"))
+      .join(",") !==
+      "runtime::gdiplus::tests::startup_and_shutdown_plans_are_mutation_free_and_relation_checked,runtime::gdiplus::tests::distinct_sessions_have_non_native_monotonic_tokens_and_bounded_capacity,runtime::gdiplus::tests::process_teardown_rejects_stale_plan_and_clears_both_indexes,runtime::gdiplus::tests::invalid_profile_fails_before_allocator_mutation" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::graphics::"))
       .join(",") !==
@@ -2798,7 +2859,8 @@ export function validateCurrentCheckpoint(manifest) {
             "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically" &&
           !test.startsWith("dinput8_dispatcher::") &&
           !test.startsWith("dsound_dispatcher::") &&
-          !test.startsWith("gdi32_dispatcher::"),
+          !test.startsWith("gdi32_dispatcher::") &&
+          !test.startsWith("gdiplus_dispatcher::"),
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
@@ -2854,6 +2916,10 @@ export function validateCurrentCheckpoint(manifest) {
       .filter((test) => test.startsWith("gdi32_dispatcher::"))
       .join(",") !==
       "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically,gdi32_dispatcher::dib_object_catalog_exposes_bounded_x86_lifecycle_contracts,gdi32_dispatcher::dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle,gdi32_dispatcher::create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically,gdi32_dispatcher::outline_text_metrics_catalog_exposes_nullable_size_query_and_bounded_output,gdi32_dispatcher::outline_text_metrics_matches_native_size_partial_failure_and_full_buffer_contracts,gdi32_dispatcher::outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state,gdi32_dispatcher::outline_text_metrics_rejects_unprofiled_selection_or_disabled_policy_atomically,gdi32_dispatcher::text_out_catalog_exposes_nullable_counted_windows_932_input,gdi32_dispatcher::text_out_rasterizes_native_a_mask_into_selected_dib_and_zero_length_is_noop,gdi32_dispatcher::text_out_rejects_stale_selection_content_and_unwritable_backing_atomically" ||
+    representativeAtomicTests
+      .filter((test) => test.startsWith("gdiplus_dispatcher::"))
+      .join(",") !==
+      "gdiplus_dispatcher::catalog_exposes_x86_startup_and_shutdown_lifetime_contracts,gdiplus_dispatcher::startup_writes_distinct_logical_tokens_and_shutdown_retires_exact_session,gdiplus_dispatcher::unsupported_version_returns_status_without_writing_or_allocating,gdiplus_dispatcher::unreached_variants_and_bad_pointers_fail_before_authority_mutation" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -5980,6 +6046,42 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active GDI32 compatibility policy boundary is invalid");
   }
+  const gdiplusPolicy = requireRecord(
+    active.gdiplusCompatibilityPolicy,
+    "activeRuntimeCheckpoint.gdiplusCompatibilityPolicy",
+    errors,
+  );
+  if (
+    gdiplusPolicy.schema !== "vine.gdiplus-compatibility-policy" ||
+    gdiplusPolicy.schemaVersion !== 1 ||
+    gdiplusPolicy.id !== "gdiplus-primary-startup-v1" ||
+    gdiplusPolicy.source !==
+      "crates/vine-core/src/gdiplus.rs::GdiplusCompatibilityPolicy::controlled_v1" ||
+    gdiplusPolicy.handlerDispatch !==
+      "single-semantic-implementation-id-with-policy" ||
+    gdiplusPolicy.startupProfileId !== "primary-x86-callback-free-v1" ||
+    gdiplusPolicy.x86InputBytes !== 16 ||
+    gdiplusPolicy.version !== 1 ||
+    gdiplusPolicy.debugEventCallback !== "0x00000000" ||
+    gdiplusPolicy.suppressBackgroundThread !== false ||
+    gdiplusPolicy.suppressExternalCodecs !== false ||
+    gdiplusPolicy.notificationOutput !== "0x00000000" ||
+    gdiplusPolicy.statusOk !== 0 ||
+    gdiplusPolicy.lastErrorPolicy !== "preserve" ||
+    gdiplusPolicy.sessionAuthority !== "runtime/gdiplus.rs::RuntimeGdiplus" ||
+    gdiplusPolicy.tokenNamespace !== "vine.logical-gdiplus-session-token.v1" ||
+    gdiplusPolicy.tokenPrefix !== "0x47500000" ||
+    gdiplusPolicy.tokenMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    gdiplusPolicy.shutdownRetiresExactSession !== true ||
+    gdiplusPolicy.processExitRetiresSessions !== true ||
+    gdiplusPolicy.nativeTokenImported !== false ||
+    gdiplusPolicy.browserResourceCreated !== false ||
+    gdiplusPolicy.imageCodecImported !== false ||
+    gdiplusPolicy.failureAtomicity !== true
+  ) {
+    errors.push("active GDI+ compatibility policy boundary is invalid");
+  }
   const user32Policy = requireRecord(
     active.user32CompatibilityPolicy,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy",
@@ -6772,7 +6874,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdi-text-raster.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-gdiplus-startup.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7234,11 +7336,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_693 ||
-    latestEvidence.writebackDirtyPages !== 37_623 ||
-    latestEvidence.writebackChangedBytes !== 2_949_432 ||
-    latestEvidence.hostDeltaBatches !== 17_312 ||
-    latestEvidence.finalMemoryGeneration !== 36_578
+    latestEvidence.writebackBatches !== 18_696 ||
+    latestEvidence.writebackDirtyPages !== 37_628 ||
+    latestEvidence.writebackChangedBytes !== 2_949_586 ||
+    latestEvidence.hostDeltaBatches !== 17_315 ||
+    latestEvidence.finalMemoryGeneration !== 36_584
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9161,10 +9263,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "5985339a48bb0de56faf0d383f44bd05ddeeb1dd148d42d9c659e2ffa4722ba2" ||
+      "bc58f9c9dd15a6a98d84597022e571611b24ca008dc7fb6aaf7224b630aa4779" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "4cf34f8569192fb4195be85e0e8e32784079d49d1023cfd049b90f4a21d164c5" ||
+      "dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -10536,6 +10638,94 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest bounded TextOutA raster evidence is invalid");
   }
   for (const field of [
+    "nativeGdiplusStartupPrimaryTraceSha256",
+    "nativeGdiplusStartupConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeGdiplusStartupPrimaryTraceBytes !== 51_006 ||
+    latestEvidence.nativeGdiplusStartupPrimaryTraceLines !== 77 ||
+    latestEvidence.nativeGdiplusStartupPrimaryTraceSha256 !==
+      "456f66d1242523aa5a2d351ad426c01db23f3c0d3c75909f5e135ebc4f4aa3a6" ||
+    latestEvidence.nativeGdiplusStartupConfirmationTraceBytes !== 51_076 ||
+    latestEvidence.nativeGdiplusStartupConfirmationTraceLines !== 77 ||
+    latestEvidence.nativeGdiplusStartupConfirmationTraceSha256 !==
+      "800aef21184c47b9d9052006618070457c1d3301972fa24c5d72a2168ec8c4f0" ||
+    latestEvidence.nativeGdiplusStartupTraceDiagnostics !== 0 ||
+    latestEvidence.nativeGdiplusStartupHookErrors !== 0 ||
+    latestEvidence.nativeGdiplusStartupProfile !==
+      "x86-bgi-gdiplus-startup-v1" ||
+    latestEvidence.nativeGdiplusStartupCallsPerTrace !== 1 ||
+    latestEvidence.nativeGdiplusStartupCallerReturnRva !== "0x000652c8" ||
+    latestEvidence.nativeGdiplusStartupInputBytes !== 16 ||
+    latestEvidence.nativeGdiplusStartupVersion !== 1 ||
+    latestEvidence.nativeGdiplusStartupDebugEventCallback !== "0x00000000" ||
+    latestEvidence.nativeGdiplusStartupSuppressBackgroundThread !== false ||
+    latestEvidence.nativeGdiplusStartupSuppressExternalCodecs !== false ||
+    latestEvidence.nativeGdiplusStartupOutputNull !== true ||
+    latestEvidence.nativeGdiplusStartupTokenInitiallyZero !== true ||
+    latestEvidence.nativeGdiplusStartupTokenNonzero !== true ||
+    latestEvidence.nativeGdiplusStartupTokenVariesAcrossRuns !== true ||
+    latestEvidence.nativeGdiplusStartupResult !== 0 ||
+    latestEvidence.nativeGdiplusStartupLastError !== 0 ||
+    latestEvidence.nativeGdiplusStartupConsumer !==
+      "wrapper-return-without-eax-branch-cleanup-load-token-shutdown-and-zero-global" ||
+    latestEvidence.nativeGdiplusStartupDownstreamCallsBeforeFocusedCompletion !== 0 ||
+    latestEvidence.nativeGdiplusStartupExecutableHashUnchanged !== true ||
+    latestEvidence.gdiplusStartupImplemented !== true ||
+    latestEvidence.gdiplusStartupImplementationId !==
+      "gdiplus.startup.primary-v1" ||
+    latestEvidence.gdiplusStartupPolicySchema !==
+      "vine.gdiplus-compatibility-policy" ||
+    latestEvidence.gdiplusStartupPolicySchemaVersion !== 1 ||
+    latestEvidence.gdiplusStartupPolicyId !== "gdiplus-primary-startup-v1" ||
+    latestEvidence.gdiplusStartupProfileId !==
+      "primary-x86-callback-free-v1" ||
+    latestEvidence.gdiplusStartupSequence !== 18_638 ||
+    latestEvidence.gdiplusStartupInstructionCount !== 12_073_229 ||
+    latestEvidence.gdiplusStartupArguments?.join(",") !==
+      "0x10151f8c,0x006fff44,0x00000000" ||
+    latestEvidence.gdiplusStartupReturnAddress !== "0x100652c8" ||
+    latestEvidence.gdiplusStartupResult !== 0 ||
+    latestEvidence.gdiplusStartupLastError !== 0 ||
+    latestEvidence.gdiplusStartupGuestWriteAddress !== "0x10151f8c" ||
+    latestEvidence.gdiplusStartupGuestWriteBytes !== 4 ||
+    latestEvidence.gdiplusStartupGuestWriteHex !== "01005047" ||
+    latestEvidence.gdiplusStartupGuestWriteGeneration !== 36_579 ||
+    latestEvidence.gdiplusStartupTokenNamespace !==
+      "vine.logical-gdiplus-session-token.v1" ||
+    latestEvidence.gdiplusStartupToken !== "0x47500001" ||
+    latestEvidence.gdiplusStartupTokenId !== 1 ||
+    latestEvidence.gdiplusStartupSessionId !== 1 ||
+    latestEvidence.gdiplusStartupSessionGeneration !== 1 ||
+    latestEvidence.gdiplusStartupLiveSessions !== 1 ||
+    latestEvidence.gdiplusStartupPolicyAuthority !==
+      "rust-gdiplus-compatibility-policy" ||
+    latestEvidence.gdiplusStartupSessionAuthority !==
+      "runtime-gdiplus-logical-session" ||
+    latestEvidence.gdiplusStartupMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    latestEvidence.gdiplusStartupFailureAtomicity !== true ||
+    latestEvidence.gdiplusStartupNativeTokenImported !== false ||
+    latestEvidence.gdiplusStartupBrowserResourceCreated !== false ||
+    latestEvidence.gdiplusStartupImageCodecImported !== false ||
+    latestEvidence.gdiplusStartupNodeCompletions !== 1 ||
+    latestEvidence.gdiplusStartupChromeCompletions !== 1 ||
+    latestEvidence.gdiplusStartupNodeChromeOrderedSemanticsMatched !== true ||
+    latestEvidence.gdiplusShutdownContractImplemented !== true ||
+    latestEvidence.gdiplusShutdownImplementationId !==
+      "gdiplus.shutdown.logical-session-v1" ||
+    latestEvidence.gdiplusShutdownReachedBeforeNextStop !== false ||
+    latestEvidence.gdiplusProcessExitRetiresSessions !== true
+  ) {
+    errors.push("latest GDI+ startup session evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -11148,7 +11338,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned bounded CP932 font catalog, logical GDI object lifecycle, selected FontA outline metrics, and transactional TextOutA DIB raster" ||
+      "Rust-owned bounded CP932 GDI text raster plus policy-bounded logical GDI+ startup session and token lifetime" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

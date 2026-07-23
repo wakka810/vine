@@ -811,7 +811,18 @@ shader model や一般 D3D9 application compatibility はこの frontend の初�
 
 ### 13.5 GDI+ image subset
 
-GDI+ は一般的な drawing stack として再実装せず、サクラノ詩で到達する bitmap load／save、DIB conversion、LockBits／UnlockBits を GDI surface、VFS、browser image codec のどこで処理するか ADR-007 で決める。OS codec の暗黙差に依存せず、format と pixel result を fixture に記録する。
+到達済みの`GdiplusStartup`／`GdiplusShutdown`はimage backendより前のlifetime境界としてRustが所有する。
+`RuntimeGdiplus`はprocess-local session、generation、`vine.logical-gdiplus-session-token.v1` namespaceの
+logical tokenをprivateに管理し、startup inputのversion／callback／background-thread／external-codec flagsと
+nullable notification outputをversioned policyで検証する。Guest token bytes、session identity、allocatorは全て
+preflight後に一つのtransactionとしてpublishし、shutdownはexact live tokenだけをretireする。Process teardownも
+同じownerのplan／commitを通す。Native tokenをimportせず、TypeScriptはordered completion metadataを観測するだけで、
+Windows session stateやbrowser resourceを所有しない。
+
+GDI+ は一般的な drawing stack として再実装しない。サクラノ詩で後続到達するbitmap load／save、DIB conversion、
+LockBits／UnlockBitsをGDI surface、VFS、browser image codecのどこで処理するかはADR-007で決める。Startup成功だけを
+image／codec supportの根拠にせず、最初の到達image callでformat、pixel result、resource lifetimeをfixtureへ固定する。
+OS codecの暗黙差に依存しない。
 
 ### 13.6 Backend selection
 
