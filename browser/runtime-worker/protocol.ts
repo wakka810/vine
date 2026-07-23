@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 8 as const;
+export const protocolVersion = 9 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -444,6 +444,68 @@ export interface RuntimeGdiStockBitmapSnapshot {
   };
 }
 
+export interface RuntimeGdiFontSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: false;
+  object: {
+    kind: "font-a";
+    logFont: {
+      height: number;
+      width: number;
+      escapement: number;
+      orientation: number;
+      weight: number;
+      italic: number;
+      underline: number;
+      strikeOut: number;
+      characterSet: number;
+      outputPrecision: number;
+      clipPrecision: number;
+      quality: number;
+      pitchAndFamily: number;
+      faceNameWindows932: number[];
+    };
+  };
+}
+
+export interface RuntimeGdiDibSectionSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: false;
+  object: {
+    kind: "dib-section";
+    descriptor: {
+      width: number;
+      height: number;
+      planes: number;
+      bitsPerPixel: number;
+      compression: number;
+      strideBytes: number;
+      pixelByteLength: number;
+      palette: Array<{
+        blue: number;
+        green: number;
+        red: number;
+        reserved: number;
+      }>;
+    };
+    backing: {
+      addressAllocationId: number;
+      memoryOwner: number;
+      range: { start: number; byteLength: number };
+    };
+  };
+}
+
+export type RuntimeGdiSelectableObjectSnapshot =
+  | RuntimeGdiStockFontSnapshot
+  | RuntimeGdiStockBitmapSnapshot
+  | RuntimeGdiFontSnapshot
+  | RuntimeGdiDibSectionSnapshot;
+
 export type RuntimeGdiSnapshot =
   | {
       action: "device-context-acquired";
@@ -475,31 +537,7 @@ export type RuntimeGdiSnapshot =
     }
   | {
       action: "font-created";
-      object: {
-        id: number;
-        handle: number;
-        namespace: string;
-        shared: boolean;
-        object: {
-          kind: "font-a";
-          logFont: {
-            height: number;
-            width: number;
-            escapement: number;
-            orientation: number;
-            weight: number;
-            italic: number;
-            underline: number;
-            strikeOut: number;
-            characterSet: number;
-            outputPrecision: number;
-            clipPrecision: number;
-            quality: number;
-            pitchAndFamily: number;
-            faceNameWindows932: number[];
-          };
-        };
-      };
+      object: RuntimeGdiFontSnapshot;
       liveObjects: number;
     }
   | {
@@ -508,6 +546,50 @@ export type RuntimeGdiSnapshot =
       initialFont: RuntimeGdiStockFontSnapshot;
       initialBitmap: RuntimeGdiStockBitmapSnapshot;
       liveDeviceContexts: number;
+      liveObjects: number;
+    }
+  | {
+      action: "dib-section-created";
+      object: RuntimeGdiDibSectionSnapshot;
+      addressAllocation: {
+        id: number;
+        parentId: number;
+        purpose: { kind: "gdi-resource" };
+        owner: string;
+        range: { base: number; byteLength: number };
+        usableByteLength: number;
+        alignment: number;
+        guardPages: number;
+        classification: "graphics";
+        lifetime: "object";
+        releasePolicy: "explicit";
+        executable: false;
+      };
+      liveObjects: number;
+    }
+  | {
+      action: "dib-section-create-rejected";
+      liveObjects: number;
+    }
+  | {
+      action: "object-bytes-read";
+      handle: number;
+      byteLength: number;
+      object: RuntimeGdiSelectableObjectSnapshot | null;
+      liveObjects: number;
+    }
+  | {
+      action: "object-selected";
+      deviceContext: RuntimeGdiMemoryDeviceContextSnapshot;
+      selectedObject: RuntimeGdiSelectableObjectSnapshot | null;
+      previousObject: RuntimeGdiSelectableObjectSnapshot | null;
+      succeeded: boolean;
+      liveObjects: number;
+    }
+  | {
+      action: "object-deleted";
+      handle: number;
+      deleted: boolean;
       liveObjects: number;
     }
   | {

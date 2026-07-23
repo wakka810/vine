@@ -52,7 +52,7 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 7のstate machineは、Rust scheduler laneを`ready`、`running`、
+Worker protocol version 9のstate machineは、Rust scheduler laneを`ready`、`running`、
 `budget-yield`、`memory-fault`、`api-trap`、`thread-switch`、`thread-exit`、`waiting-host`、
 `host-completion`、`guest-callback`、`callback-return`、`stopping`、`stopped`の閉じたtransition
 graphで駆動する。illegal transitionはstate mutation前に
@@ -61,7 +61,7 @@ policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate comp
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
 
-Version 7はsessionごとに`full`／`summary` evidence levelを明示する。両modeは一つのordered
+Version 9はsessionごとに`full`／`summary` evidence levelを明示する。両modeは一つのordered
 semantic digestへ正規化callを流し、next sequenceとbounded out-of-order mapでduplicate／orderingを検証する。
 `full`だけがterminal時にordered call payloadを公開し、`summary`はprivate BGI benchmarkに限定してcall
 countとdigestを保持する。Digestはcanonical top-level fieldを直接streamし、ASCII fragmentをreusable SHA blockへ
@@ -81,7 +81,7 @@ nondeterministic value、artifact hashへ分類する。schedulerの独立event�
 request-before-completion等のrelationは必須とする。whole-report hashはartifact identityであり、
 historical production ABIにしない。詳細は[evidence-classification.md](evidence-classification.md)を正とする。
 
-protocol version 7のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
+protocol version 9のproduction CPU境界はgeneric `ExecutionEngine`とする。上位が扱うのはcaller
 budget、structured yield／trap／fault／halt、versioned opaque CPU contextの生成／保存／復元、guest mapping operation、
 owner／address付きchanged-page batch、data-TLB／instruction-fetch／generated-code effectだけである。
 現在のsource-v86 implementationはnon-PAE PTE、Dirty bit scan、private offset、native stop reason、
@@ -779,8 +779,11 @@ GDI-object allocator／collectionへdistinct nonshared identityと60-byte LOGFON
 browser font resolution、glyph dataはこのobjectのauthorityではない。`CreateCompatibleDC(NULL)`はaggregateでprimary
 display relationを再検証し、`RuntimeGdi`内でdistinct same-thread memory HDCとprocess-shared `SYSTEM_FONT`／1 x 1
 monochrome `DEFAULT_BITMAP`をfailure-atomicにpublishする。Selected object IDとgenerationもDC ownerが持ち、native HDC／
-Canvas resourceを第二のauthorityにしない。`DeleteDC`はmatching memory HDCだけをretireする。DIB、selection変更、
-mapping、clip、ROP、font deletion／rasterizationは必要な到達caseごとにruntime modelへ追加する。
+Canvas resourceを第二のauthorityにしない。`DeleteDC`はmatching memory HDCだけをretireする。Reached
+`CreateDIBSection`はdescriptor／palette／object lifetimeを`RuntimeGdi`、pixel bytesを`GuestMemory`、explicit-release
+address allocationを`ProcessAddressSpaceAllocator`に一意に置き、guest bits outputを含めて全owner preflight後にpublishする。
+`GetObjectA`／`SelectObject`／`DeleteObject`はこのfont／DIB lifecycleだけを扱い、selected object deleteはmutation-freeに
+拒否する。Mapping、clip、ROP、text metrics／rasterizationは必要な到達caseごとにruntime modelへ追加する。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend

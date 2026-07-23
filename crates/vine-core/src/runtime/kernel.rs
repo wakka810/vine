@@ -15,8 +15,8 @@ use crate::environment::InitialProcessEnvironment;
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, MemoryAccess, MemoryInvalidation, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    PageProtection,
+    GuestRange, GuestWriteResult, MemoryAccess, MemoryInvalidation, MemoryOwnerId, MemoryOwnerKind,
+    MemoryRegionKind, PageProtection,
 };
 use crate::module_graph::{RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleId};
 use crate::module_images::{
@@ -58,12 +58,14 @@ use super::files::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
 use super::gdi::{
-    RuntimeCreateCompatibleDcResult, RuntimeCreateFontAResult, RuntimeDeviceContext,
-    RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi, RuntimeGdiComRetirementGuard,
-    RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiScreenTarget,
-    RuntimeGdiSurface, RuntimeGdiSurfaceId, RuntimeGdiWindowTarget, RuntimeGetDcResult,
+    RUNTIME_GDI_RESOURCE_ADDRESS_OWNER, RuntimeCreateCompatibleDcResult,
+    RuntimeCreateDibSectionResult, RuntimeCreateFontAResult, RuntimeDeleteGdiObjectPlan,
+    RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi,
+    RuntimeGdiComRetirementGuard, RuntimeGdiDibSectionDescriptor, RuntimeGdiGraphicsSurfaceTarget,
+    RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiScreenTarget, RuntimeGdiSurface,
+    RuntimeGdiSurfaceId, RuntimeGdiWindowTarget, RuntimeGetDcResult,
     RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult,
-    RuntimeGetStockObjectResult, RuntimeLogFontA,
+    RuntimeGetStockObjectResult, RuntimeLogFontA, RuntimeSelectGdiObjectResult,
 };
 use super::graphics::{
     RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
@@ -4151,6 +4153,216 @@ impl RuntimeKernel {
         self.require_gdi_operation_state()?;
         let plan = self.gdi.plan_create_font_a(log_font)?;
         self.gdi.commit_create_font_a(plan)
+    }
+
+    pub(crate) fn create_gdi_dib_section(
+        &mut self,
+        memory: &mut GuestMemory,
+        device_context_handle: u32,
+        descriptor: RuntimeGdiDibSectionDescriptor,
+        bits_output: GuestAddress,
+    ) -> Result<(RuntimeCreateDibSectionResult, GuestWriteResult), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        memory
+            .validate_access(bits_output, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let arena = self
+            .address_space_allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)?;
+        if arena.range.base != super::RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE
+            || arena.range.byte_length != super::RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE
+            || arena.classification != ProcessAddressAllocationClassification::Graphics
+            || arena.lifetime != ProcessAddressAllocationLifetime::Process
+            || arena.release_policy != ProcessAddressAllocationReleasePolicy::Permanent
+            || arena.executable
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "gdi-resource-arena-invalid",
+                "GDI resource arena does not match the controlled process layout",
+            ));
+        }
+        let address_space = self.address_space_allocator.plan_reservations(vec![(
+            Some(arena.id),
+            ProcessAddressAllocationRequest {
+                purpose: ProcessAddressAllocationPurpose::GdiResource,
+                owner: RUNTIME_GDI_RESOURCE_ADDRESS_OWNER.to_owned(),
+                preferred_address: None,
+                search_range: arena.range,
+                reserve_size: u64::from(descriptor.pixel_byte_length),
+                alignment: GUEST_PAGE_SIZE as u32,
+                guard_pages: 0,
+                classification: ProcessAddressAllocationClassification::Graphics,
+                lifetime: ProcessAddressAllocationLifetime::Object,
+                release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                executable: false,
+            },
+        )])?;
+        let [allocation] = address_space.allocations() else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "dib-section-address-plan-shape-invalid",
+                "DIB section installation did not plan exactly one address allocation",
+            ));
+        };
+        let allocation = allocation.clone();
+        let backing_range = GuestRange::new(allocation.range.base, allocation.range.byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        let gdi = self.gdi.plan_create_dib_section(
+            device_context_handle,
+            self.current_thread_id(),
+            descriptor,
+            allocation.id,
+            backing_range,
+        )?;
+        let page_count = backing_range.page_count();
+        memory
+            .preflight_growth(1, 1, page_count, "runtime-gdi")
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .preflight_fixed_reservation(
+                backing_range.start(),
+                backing_range.byte_length(),
+                "runtime-gdi",
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+
+        let mut transaction = memory.begin_transaction();
+        let memory_owner = transaction
+            .create_owner(MemoryOwnerKind::Runtime)
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .reserve_fixed_for_address_allocation(
+                allocation.id.0,
+                memory_owner,
+                MemoryRegionKind::GdiResource,
+                backing_range.start(),
+                backing_range.byte_length(),
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .commit(
+                memory_owner,
+                backing_range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let bits_write = transaction
+            .write(bits_output, &backing_range.start().0.to_le_bytes())
+            .map_err(RuntimeStateError::from_memory)?;
+
+        self.address_space_allocator
+            .preflight_reservations_commit(&address_space)?;
+        self.gdi.preflight_create_dib_section(&gdi, memory_owner)?;
+        if allocation.parent_id != Some(arena.id)
+            || allocation.id != gdi.address_allocation_id()
+            || allocation.range.base != gdi.backing_range().start()
+            || allocation.range.byte_length != gdi.backing_range().byte_length()
+            || allocation.usable_byte_length != u64::from(gdi.descriptor().pixel_byte_length)
+            || allocation.purpose != ProcessAddressAllocationPurpose::GdiResource
+            || allocation.owner != RUNTIME_GDI_RESOURCE_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::Graphics
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "dib-section-backing-allocation-mismatch",
+                "logical DIB section backing does not match its planned process allocation",
+            ));
+        }
+        self.address_space_allocator
+            .commit_reservations(address_space);
+        let result = self.gdi.commit_create_dib_section(gdi, memory_owner)?;
+        transaction.commit_transaction();
+        Ok((result, bits_write))
+    }
+
+    pub(crate) fn get_gdi_object_bytes(
+        &self,
+        object_handle: u32,
+        requested_byte_length: u32,
+    ) -> Result<Vec<u8>, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi.object_bytes(object_handle, requested_byte_length)
+    }
+
+    pub(crate) fn select_gdi_object(
+        &mut self,
+        device_context_handle: u32,
+        object_handle: u32,
+    ) -> Result<RuntimeSelectGdiObjectResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let plan = self.gdi.plan_select_object(
+            device_context_handle,
+            object_handle,
+            self.current_thread_id(),
+        )?;
+        self.gdi.commit_select_object(plan)
+    }
+
+    pub(crate) fn delete_gdi_object(
+        &mut self,
+        memory: &mut GuestMemory,
+        object_handle: u32,
+    ) -> Result<RuntimeGdiObject, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let gdi: RuntimeDeleteGdiObjectPlan = self.gdi.plan_delete_object(object_handle)?;
+        let Some(backing) = gdi.backing() else {
+            return self.gdi.commit_delete_object(gdi);
+        };
+        let address_space = self
+            .address_space_allocator
+            .plan_releases(&[backing.address_allocation_id])?;
+        let [allocation] = address_space.allocations() else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "delete-dib-section-address-plan-shape-invalid",
+                "DIB section deletion did not plan exactly one address release",
+            ));
+        };
+        if allocation.range.base != backing.range.start()
+            || allocation.range.byte_length != backing.range.byte_length()
+            || allocation.usable_byte_length
+                != match &gdi.object().object {
+                    super::gdi::RuntimeGdiObjectKind::DibSection { descriptor, .. } => {
+                        u64::from(descriptor.pixel_byte_length)
+                    }
+                    _ => 0,
+                }
+            || allocation.purpose != ProcessAddressAllocationPurpose::GdiResource
+            || allocation.owner != RUNTIME_GDI_RESOURCE_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::Graphics
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Object
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "delete-dib-section-allocation-mismatch",
+                "retiring logical DIB section does not own its process address allocation",
+            ));
+        }
+
+        let mut transaction = memory.begin_transaction();
+        transaction
+            .release_region(backing.memory_owner, backing.range.start())
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .destroy_owner(backing.memory_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.address_space_allocator
+            .preflight_releases(&address_space)?;
+        self.gdi.preflight_delete_object(&gdi)?;
+        self.address_space_allocator.commit_releases(address_space);
+        let object = self.gdi.commit_delete_object(gdi)?;
+        transaction.commit_transaction();
+        Ok(object)
     }
 
     pub(crate) fn fill_gdi_rect(

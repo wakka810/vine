@@ -218,8 +218,25 @@ The paired `DeleteDC` contract retires only a live same-thread memory HDC and
 preserves LastError on TRUE and FALSE. NULL, unknown, repeated, wrong-thread,
 and non-memory handles cannot mutate another DC or the shared objects.
 `ReleaseDC` for memory HDCs, non-NULL compatible sources, native HDC import,
-browser DC resources, DIB storage, and object selection changes are not enabled
-by this policy.
+and browser DC resources are not enabled by this policy.
+
+DIB profile `primary-128x-96-8bpp-reverse-grayscale-v1` admits only the reached
+40-byte top-down `BITMAPINFOHEADER`: width 128, height -96, one plane, 8 bpp,
+`BI_RGB`, 256 reverse-grayscale RGBQUAD entries, `DIB_RGB_COLORS`, NULL section,
+and offset zero. Stride 128 and 12,288 backing bytes are checked derived values.
+`RuntimeGdi` owns the bitmap descriptor and object lifetime, `GuestMemory` owns
+the pixel bytes, and `ProcessAddressSpaceAllocator` owns their explicit-release
+allocation. Object identity, allocation, zero backing, and the guest bits-output
+write publish only after all three owners preflight successfully.
+
+`GetObjectA` is bounded to the exact 60-byte created font and 24-byte DIB
+`BITMAP` shapes. `SelectObject` accepts those font／bitmap objects only on a live
+same-thread memory DC and returns the previous handle. `DeleteObject` accepts a
+nonshared font or DIB only after it is restored out of all DCs; selected-object
+deletion is rejected without mutation even though native Windows may defer the
+selected bitmap lifetime. Other headers, dimensions, formats, palettes,
+section-backed DIBs, DC targets, object types, and raster operations are not
+enabled.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only

@@ -524,7 +524,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2869,6 +2869,103 @@ fn bgi_gdi_completion_metadata(
                 "initialFont": initial_font,
                 "initialBitmap": initial_bitmap,
                 "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::CREATE_DIB_SECTION_IMPLEMENTATION => {
+            let RegisterUpdate::Set(handle) = completion.eax else {
+                return Err("CreateDIBSection completion did not set EAX".to_owned());
+            };
+            if handle == 0 {
+                return Ok(Some(json!({
+                    "action": "dib-section-create-rejected",
+                    "created": false,
+                    "liveObjects": runtime.gdi_objects().len(),
+                })));
+            }
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .ok_or_else(|| {
+                    "CreateDIBSection completion has no matching logical bitmap object".to_owned()
+                })?;
+            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } = &object.object else {
+                return Err("CreateDIBSection completion resolved to a non-DIB object".to_owned());
+            };
+            let address_allocation = runtime
+                .process_address_space_allocator()
+                .allocation(backing.address_allocation_id)
+                .map_err(error_string)?;
+            Ok(Some(json!({
+                "action": "dib-section-created",
+                "object": object,
+                "addressAllocation": address_allocation,
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::GET_OBJECT_A_IMPLEMENTATION => {
+            let RegisterUpdate::Set(byte_length) = completion.eax else {
+                return Err("GetObjectA completion did not set EAX".to_owned());
+            };
+            let handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "GetObjectA completion has no logical object argument".to_owned())?;
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle);
+            Ok(Some(json!({
+                "action": "object-bytes-read",
+                "handle": handle,
+                "byteLength": byte_length,
+                "object": object,
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::SELECT_OBJECT_IMPLEMENTATION => {
+            let RegisterUpdate::Set(previous_handle) = completion.eax else {
+                return Err("SelectObject completion did not set EAX".to_owned());
+            };
+            let device_context_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "SelectObject completion has no logical HDC argument".to_owned())?;
+            let selected_handle = completion.frame.argument_u32(1).ok_or_else(|| {
+                "SelectObject completion has no logical object argument".to_owned()
+            })?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(error_string)?;
+            let selected_object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == selected_handle);
+            let previous_object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == previous_handle);
+            Ok(Some(json!({
+                "action": "object-selected",
+                "deviceContext": device_context,
+                "selectedObject": selected_object,
+                "previousObject": previous_object,
+                "succeeded": previous_handle != 0,
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::DELETE_OBJECT_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("DeleteObject completion did not set EAX".to_owned());
+            };
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                "DeleteObject completion has no logical object argument".to_owned()
+            })?;
+            Ok(Some(json!({
+                "action": "object-deleted",
+                "handle": handle,
+                "deleted": result != 0,
                 "liveObjects": runtime.gdi_objects().len(),
             })))
         }

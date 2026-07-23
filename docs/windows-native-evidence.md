@@ -4658,3 +4658,59 @@ crossings、58,072 success transitions、clean cancel／watchdogを通した。C
 `0x47010004`、`BITMAPINFO` `0x2013A250`、usage 0、bits output `0x006FFEF4`、section 0、offset 0である。
 DIB identity／bytes、palette、guest output publication、object selection／introspection／deletion、metrics、text output、
 glyph rasterizationは次checkpointで扱う。
+
+## 139. BGI 8-bpp DIB section and object lifecycle
+
+DIB lifecycle oracleを含むfont-object profileを独立に2回取得した。Primary raw traceは624,813 bytes／155 records／
+SHA-256 `7088a2950ad7337d2e08e33134ec3aebda929912e5517a6956cd00ab24709abc`、confirmationは624,940 bytes／
+156 records／SHA-256 `e8ff31fe0e6fdfb6c2115e41ccd0462cac149d6f01c44750b8aff3677787d7a3`で、diagnostics／hook
+errorsは0である。Main profileは`x86-bgi-gdi-font-object-lifecycle-v3`、outer oracleは
+`x86-create-font-a-object-lifecycle-v3`、DIB oracleは`x86-create-dib-section-8bpp-lifecycle-v1`である。Raw traceは
+`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGIのRVA `0x0002C8C5`へ戻る`CreateDIBSection`は40-byte `BITMAPINFOHEADER`、width 128、height -96、planes 1、
+8 bpp、`BI_RGB`、size-image／resolution 0、colors-used 256、important 0、usage `DIB_RGB_COLORS`、NULL section、
+offset 0を渡す。Paletteは256-entry reverse-grayscale RGBQUAD、strideは128、pixel backingは12,288 bytesで初期値は
+全zero、FNV-1aは`0x52965DC5`である。Resultとbits outputはいずれもnon-NULLでLastError 0を保存する。
+
+直後の`GetObjectA(bitmap, 24)`は24を返し、`BITMAP` fieldsはtype 0、width 128、height 96、width-bytes 128、
+planes 1、bits-pixel 8で、bits fieldはcreate outputと同じidentityを持つ。前後guardは不変である。続く二つの
+`SelectObject`はDIBとcreated fontをmemory DCへ選択し、primary pipelineはtext処理後にdefault bitmap／fontを
+同じidentityでrestoreしてから二つの`DeleteObject`を成功させる。Malformed zero headerはNULLを返してbits outputを
+NULLへし、deleted objectの`GetObjectA`は0かつoutput preserve、全success／failureはLastError sentinelを保存した。
+
+Native Windowsではselected DIBへの`DeleteObject`が1を返し、lifetimeをselection解除までdeferする。一方、primary
+pipelineはdelete前にrestoreするため、Vineはより明示的なlifetime invariantを採用し、selected object deleteを
+mutation-freeに拒否する。Native oracleではdeleted HDCを渡すDIB createも成功したがprimary未到達であり、Vineはlive
+same-thread memory HDCを要求する。これら二variantを一般互換性としてclaimしない。Native numeric HGDIOBJ、HDC、bits
+pointerはartifact identityである。
+
+Vineはsequence 18,614でDIB handle `0x47020005`／object ID 5とbits `0x44001000`を返した。Descriptorは
+`[128,-96,1,8,0,128,12288]`、allocation ID 59、memory owner 29、region kind `gdi-resource`、lifetime
+`object-explicit-release`である。Creation deltaはgeneration 36,537→36,540、mapping operation 2、stack output pageと
+三pixel pageの4 dirty pages、control 200 bytes、payload 16,384 bytes／SHA-256
+`fcd36d346f9edd7098ec07a2d73a83319e75c08e9ac1c9ded494bf2470dcabe2`である。これはHDC／policy、GDI identity、
+address allocation、memory owner／mapping／zero bytes、guest outputを全てpreflightしてからpublishした結果である。
+
+Sequence 18,616の`GetObjectA`は24-byte hex
+`000000008000000060000000800000000100080000100044`を書き、sequence 18,617／18,618の`SelectObject`はDIB／font
+handleに対してdefault bitmap／font handleを返し、selection generationを1／2へ進めた。Fixture lifecycleはrestore後の
+deleteでGDI object、memory region／owner、address allocationを一緒にretireし、selected delete、stale object、malformed／
+unreached descriptor、stale HDCをmutation前に拒否する。
+
+Nodeは18,618 supported calls、18,674 writebacks／37,589 dirty pages／2,948,065 changed bytes、17,300 host
+deltas、40 callbacks、generation 36,547、semantic SHA-256
+`0ec3628c95c953e17c795d0dfa27cfca876aef037c882e442402cd9bd96c410f`、terminal memory SHA-256
+`b90c095742be75c1d751865978199540e5f2bfbe4ff25844a03d4fa5f4fb5d50`を通した。Node reportは205,533
+bytes／SHA-256 `5e925915502cc3f7086697234facf77ffd0ec6246fe8f7f792359324dee5fc44`である。
+
+Chrome Runtime Worker protocol v9もsame ordered semantics／terminal memoryを再現し、19,374 slices、19,372
+writebacks／39,207 pages、17,300 mapping deltas／18,819 dirty pages、generation 27→37,247、55,664 Wasm
+crossings、58,087 success transitions、clean cancel／watchdogを通した。Chromeは150.0.7871.130、browser reportは
+44,128 bytes／SHA-256 `3245d4809b8099d5233926869cf597e13a50c891a8ad6499184084518abdf902`である。
+
+次stopはinstruction 11,960,243、`GDI32.dll!GetOutlineTextMetricsA` endpoint ID 259／address `0x7F001020`／IAT
+`0x100D1098`／return `0x1002C51F`の`endpoint-contract-missing`である。Argumentsはmemory HDC
+`0x47010004`、size 0、output NULLである。Outline metric size query、nonzero output、text rasterization、host／browser
+font resolutionはこのcheckpointでclaimしない。

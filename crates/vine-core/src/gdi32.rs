@@ -2,21 +2,24 @@ use serde::Serialize;
 
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
-    ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
-    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol,
-    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
+    ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault, ApiGuestWrite,
+    ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema, ApiPointerConstraint,
+    ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiValueSchema,
+    ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
     GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, LastErrorPolicy,
     ReentrancyPolicy, StackCleanup,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
-    RUNTIME_GDI_DEFAULT_BITMAP_INDEX, RUNTIME_GDI_SYSTEM_FONT_INDEX,
-    RUNTIME_LOG_FONT_A_BYTE_LENGTH, RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeLogFontA,
+    RUNTIME_GDI_BITMAP_BYTE_LENGTH, RUNTIME_GDI_DEFAULT_BITMAP_INDEX, RUNTIME_GDI_DIB_BI_RGB,
+    RUNTIME_GDI_DIB_RGB_COLORS, RUNTIME_GDI_SYSTEM_FONT_INDEX, RUNTIME_LOG_FONT_A_BYTE_LENGTH,
+    RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeGdiDibSectionDescriptor, RuntimeGdiRgbQuad,
+    RuntimeLogFontA, RuntimeStateErrorClass,
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 3;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 4;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
@@ -24,7 +27,16 @@ pub const CREATE_FONT_A_IMPLEMENTATION: &str = "gdi32.create-font-a.cp932-logica
 pub const CREATE_COMPATIBLE_DC_IMPLEMENTATION: &str =
     "gdi32.create-compatible-dc.null-screen-memory.v1";
 pub const DELETE_DC_IMPLEMENTATION: &str = "gdi32.delete-dc.logical-memory.v1";
+pub const CREATE_DIB_SECTION_IMPLEMENTATION: &str = "gdi32.create-dib-section.primary-8bpp.v1";
+pub const GET_OBJECT_A_IMPLEMENTATION: &str = "gdi32.get-object-a.font-or-dib.v1";
+pub const SELECT_OBJECT_IMPLEMENTATION: &str = "gdi32.select-object.memory-font-bitmap.v1";
+pub const DELETE_OBJECT_IMPLEMENTATION: &str = "gdi32.delete-object.font-or-dib.v1";
 pub const X86_LOGFONTA_BYTE_LENGTH: u32 = RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32;
+pub const X86_BITMAPINFOHEADER_BYTE_LENGTH: u32 = 40;
+pub const X86_BITMAP_BYTE_LENGTH: u32 = RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32;
+pub const X86_DIB_RGBQUAD_COUNT: usize = 256;
+pub const X86_DIB_BITMAPINFO_BYTE_LENGTH: usize =
+    X86_BITMAPINFOHEADER_BYTE_LENGTH as usize + X86_DIB_RGBQUAD_COUNT * 4;
 pub const X86_ENUMLOGFONTEXA_BYTE_LENGTH: usize = 188;
 pub const X86_NEWTEXTMETRICEXA_BYTE_LENGTH: usize = 96;
 
@@ -76,6 +88,22 @@ pub struct Gdi32CompatibleDcPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Gdi32DibSectionPolicy {
+    pub profile_id: String,
+    pub bitmap_info_header_size: u32,
+    pub size_image: u32,
+    pub x_pixels_per_meter: i32,
+    pub y_pixels_per_meter: i32,
+    pub colors_used: u32,
+    pub colors_important: u32,
+    pub usage: u32,
+    pub section_handle: u32,
+    pub offset: u32,
+    pub descriptor: RuntimeGdiDibSectionDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Gdi32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -83,17 +111,19 @@ pub struct Gdi32CompatibilityPolicy {
     pub enum_font_families_ex_a: Option<Gdi32FontEnumerationPolicy>,
     pub create_font_a: Option<Gdi32FontCreationPolicy>,
     pub create_compatible_dc: Option<Gdi32CompatibleDcPolicy>,
+    pub create_dib_section: Option<Gdi32DibSectionPolicy>,
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v3() -> Self {
+    pub fn controlled_v4() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-memory-dc-v3".to_owned(),
+            id: "gdi32-primary-cp932-dib-lifecycle-v4".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
             create_font_a: Some(controlled_font_creation_policy()),
             create_compatible_dc: Some(controlled_compatible_dc_policy()),
+            create_dib_section: Some(controlled_dib_section_policy()),
         }
     }
 
@@ -135,6 +165,15 @@ impl Gdi32CompatibilityPolicy {
                 "GDI32 compatible DC policy must match the evidenced NULL-screen memory DC request",
             ));
         }
+        if let Some(dib_section) = self.create_dib_section.as_ref()
+            && dib_section != &controlled_dib_section_policy()
+        {
+            return Err(ApiFault::runtime_defect(
+                "gdi32-compatibility-policy",
+                "gdi32-dib-section-profile-invalid",
+                "GDI32 DIB section policy must match the evidenced 128x-96 reverse-grayscale profile",
+            ));
+        }
         Ok(())
     }
 }
@@ -152,6 +191,18 @@ pub fn dispatch_gdi32_api(
             }
         }
         DELETE_DC_IMPLEMENTATION => match handle_delete_dc(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        GET_OBJECT_A_IMPLEMENTATION => match handle_get_object_a(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        SELECT_OBJECT_IMPLEMENTATION => match handle_select_object(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        DELETE_OBJECT_IMPLEMENTATION => match handle_delete_object(contract, frame, session) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
@@ -182,6 +233,12 @@ pub fn dispatch_gdi32_api_with_policy(
         }
         CREATE_FONT_A_IMPLEMENTATION => {
             match handle_create_font_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        CREATE_DIB_SECTION_IMPLEMENTATION => {
+            match handle_create_dib_section(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -255,6 +312,277 @@ fn handle_delete_dc(
         Err(error)
             if error.code == "device-context-handle-unknown"
                 || error.code == "delete-dc-relation-mismatch" =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_create_dib_section(
+    policy: &Gdi32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let dib_policy = policy.create_dib_section.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "gdi32-dib-section",
+            "create-dib-section-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable DIB section creation",
+                policy.id
+            ),
+        )
+    })?;
+    let device_context = required_argument(frame, 0, "device context")?;
+    let bitmap_info_address = GuestAddress(required_argument(frame, 1, "BITMAPINFO")?);
+    let usage = required_argument(frame, 2, "color usage")?;
+    let bits_output = GuestAddress(required_argument(frame, 3, "bits output")?);
+    let section_handle = required_argument(frame, 4, "section handle")?;
+    let offset = required_argument(frame, 5, "section offset")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let header = session
+        .memory()
+        .read(
+            bitmap_info_address,
+            X86_BITMAPINFOHEADER_BYTE_LENGTH as usize,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let header_size = read_u32(&header, 0);
+    let width = read_i32(&header, 4);
+    let height = read_i32(&header, 8);
+    let planes = read_u16(&header, 12);
+    let bits_per_pixel = read_u16(&header, 14);
+    let compression = read_u32(&header, 16);
+    let size_image = read_u32(&header, 20);
+    let x_pixels_per_meter = read_i32(&header, 24);
+    let y_pixels_per_meter = read_i32(&header, 28);
+    let colors_used = read_u32(&header, 32);
+    let colors_important = read_u32(&header, 36);
+    if header_size != X86_BITMAPINFOHEADER_BYTE_LENGTH
+        || width <= 0
+        || height == 0
+        || height == i32::MIN
+        || planes == 0
+        || bits_per_pixel == 0
+    {
+        return Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+            value: 0,
+        })
+        .with_guest_write(bits_output, 0_u32.to_le_bytes().to_vec())
+        .with_last_error(preserved_last_error));
+    }
+    if usage != dib_policy.usage
+        || section_handle != dib_policy.section_handle
+        || offset != dib_policy.offset
+        || header_size != dib_policy.bitmap_info_header_size
+        || size_image != dib_policy.size_image
+        || x_pixels_per_meter != dib_policy.x_pixels_per_meter
+        || y_pixels_per_meter != dib_policy.y_pixels_per_meter
+        || colors_used != dib_policy.colors_used
+        || colors_important != dib_policy.colors_important
+        || compression != RUNTIME_GDI_DIB_BI_RGB
+        || usage != RUNTIME_GDI_DIB_RGB_COLORS
+    {
+        return Err(ApiFault::unsupported(
+            "gdi32-dib-section",
+            "create-dib-section-variant-unsupported",
+            "CreateDIBSection currently supports only the evidenced RGB DIB request",
+        ));
+    }
+    let bitmap_info = session
+        .memory()
+        .read(bitmap_info_address, X86_DIB_BITMAPINFO_BYTE_LENGTH)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let palette = bitmap_info[X86_BITMAPINFOHEADER_BYTE_LENGTH as usize..]
+        .chunks_exact(4)
+        .map(|quad| RuntimeGdiRgbQuad {
+            blue: quad[0],
+            green: quad[1],
+            red: quad[2],
+            reserved: quad[3],
+        })
+        .collect::<Vec<_>>();
+    let width_u32 = u32::try_from(width).map_err(|_| {
+        ApiFault::invalid_call(
+            "gdi32-dib-section",
+            "create-dib-section-width-invalid",
+            "CreateDIBSection width does not fit unsigned pixel accounting",
+        )
+    })?;
+    let height_u32 = u32::try_from(height.abs()).map_err(|_| {
+        ApiFault::invalid_call(
+            "gdi32-dib-section",
+            "create-dib-section-height-invalid",
+            "CreateDIBSection height does not fit unsigned pixel accounting",
+        )
+    })?;
+    let stride_bytes = width_u32
+        .checked_mul(u32::from(bits_per_pixel))
+        .and_then(|bits| bits.checked_add(31))
+        .map(|bits| bits / 32)
+        .and_then(|words| words.checked_mul(4))
+        .ok_or_else(|| {
+            ApiFault::invalid_call(
+                "gdi32-dib-section",
+                "create-dib-section-stride-overflow",
+                "CreateDIBSection stride overflowed x86 accounting",
+            )
+        })?;
+    let pixel_byte_length = stride_bytes.checked_mul(height_u32).ok_or_else(|| {
+        ApiFault::invalid_call(
+            "gdi32-dib-section",
+            "create-dib-section-pixel-length-overflow",
+            "CreateDIBSection pixel byte length overflowed x86 accounting",
+        )
+    })?;
+    let descriptor = RuntimeGdiDibSectionDescriptor {
+        width,
+        height,
+        planes,
+        bits_per_pixel,
+        compression,
+        stride_bytes,
+        pixel_byte_length,
+        palette,
+    };
+    if descriptor != dib_policy.descriptor {
+        return Err(ApiFault::unsupported(
+            "gdi32-dib-section",
+            "create-dib-section-variant-unsupported",
+            "CreateDIBSection currently supports only the evidenced 128x-96 reverse-grayscale DIB",
+        ));
+    }
+    let (result, write_result) =
+        match session.create_gdi_dib_section(device_context, descriptor, bits_output) {
+            Ok(result) => result,
+            Err(error) if error.class == RuntimeStateErrorClass::ResourceLimit => {
+                return Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                    namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                    value: 0,
+                })
+                .with_guest_write(bits_output, 0_u32.to_le_bytes().to_vec())
+                .with_last_error(preserved_last_error));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        };
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+        value: result.handle,
+    })
+    .with_committed_guest_write(ApiGuestWriteReceipt {
+        write: ApiGuestWrite {
+            address: bits_output,
+            bytes: result.bits_address.0.to_le_bytes().to_vec(),
+        },
+        result: write_result,
+    })
+    .with_last_error(preserved_last_error))
+}
+
+fn handle_get_object_a(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let object_handle = required_argument(frame, 0, "object")?;
+    let requested_byte_length = required_argument(frame, 1, "output byte length")?;
+    let output = GuestAddress(required_argument(frame, 2, "object output")?);
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime()
+        .get_gdi_object_bytes(object_handle, requested_byte_length)
+    {
+        Ok(bytes) => Ok(ApiImmediate::new(ApiReturnValue::U32(
+            u32::try_from(bytes.len()).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "gdi32-object",
+                    "get-object-a-byte-length-unrepresentable",
+                    "GetObjectA output length does not fit x86 accounting",
+                )
+            })?,
+        ))
+        .with_guest_write(output, bytes)
+        .with_last_error(preserved_last_error)),
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(preserved_last_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_select_object(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let device_context = required_argument(frame, 0, "device context")?;
+    let object_handle = required_argument(frame, 1, "object")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .select_gdi_object(device_context, object_handle)
+    {
+        Ok(result) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+            value: result.previous_handle,
+        })
+        .with_last_error(preserved_last_error)),
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            })
+            .with_last_error(preserved_last_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_delete_object(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let object_handle = required_argument(frame, 0, "object")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.delete_gdi_object(object_handle) {
+        Ok(_) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
         {
             Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
                 .with_last_error(preserved_last_error))
@@ -502,6 +830,10 @@ pub fn gdi32_contract_for_endpoint(
         "EnumFontFamiliesExA" => Ok(Some(enum_font_families_ex_a_contract(endpoint)?)),
         "CreateFontA" => Ok(Some(create_font_a_contract(endpoint)?)),
         "CreateCompatibleDC" => Ok(Some(create_compatible_dc_contract(endpoint)?)),
+        "CreateDIBSection" => Ok(Some(create_dib_section_contract(endpoint)?)),
+        "GetObjectA" => Ok(Some(get_object_a_contract(endpoint)?)),
+        "SelectObject" => Ok(Some(select_object_contract(endpoint)?)),
+        "DeleteObject" => Ok(Some(delete_object_contract(endpoint)?)),
         "DeleteDC" => Ok(Some(delete_dc_contract(endpoint)?)),
         _ => Ok(None),
     }
@@ -551,6 +883,116 @@ pub fn delete_dc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: DELETE_DC_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn create_dib_section_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_handle_argument(
+                    "deviceContext",
+                    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                    false,
+                ),
+                required_in_struct(
+                    "bitmapInfo",
+                    "BITMAPINFOHEADER",
+                    X86_BITMAPINFOHEADER_BYTE_LENGTH,
+                ),
+                u32_argument("usage"),
+                required_out_struct("bits", "PVOID", 4),
+                u32_argument("sectionHandle"),
+                u32_argument("offset"),
+            ],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: CREATE_DIB_SECTION_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_object_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_handle_argument("object", LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, true),
+                u32_argument("byteLength"),
+                dynamic_out_bytes(
+                    "objectBytes",
+                    false,
+                    4,
+                    1,
+                    RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32,
+                ),
+            ],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_OBJECT_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn select_object_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_handle_argument(
+                    "deviceContext",
+                    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                    false,
+                ),
+                logical_handle_argument("object", LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, false),
+            ],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SELECT_OBJECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn delete_object_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_handle_argument(
+                "object",
+                LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
+                true,
+            )],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: DELETE_OBJECT_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -690,6 +1132,42 @@ fn controlled_compatible_dc_policy() -> Gdi32CompatibleDcPolicy {
     }
 }
 
+fn controlled_dib_section_policy() -> Gdi32DibSectionPolicy {
+    Gdi32DibSectionPolicy {
+        profile_id: "primary-128x-96-8bpp-reverse-grayscale-v1".to_owned(),
+        bitmap_info_header_size: X86_BITMAPINFOHEADER_BYTE_LENGTH,
+        size_image: 0,
+        x_pixels_per_meter: 0,
+        y_pixels_per_meter: 0,
+        colors_used: X86_DIB_RGBQUAD_COUNT as u32,
+        colors_important: 0,
+        usage: RUNTIME_GDI_DIB_RGB_COLORS,
+        section_handle: 0,
+        offset: 0,
+        descriptor: RuntimeGdiDibSectionDescriptor {
+            width: 128,
+            height: -96,
+            planes: 1,
+            bits_per_pixel: 8,
+            compression: RUNTIME_GDI_DIB_BI_RGB,
+            stride_bytes: 128,
+            pixel_byte_length: 12_288,
+            palette: (0..X86_DIB_RGBQUAD_COUNT)
+                .map(|index| {
+                    let intensity = u8::try_from(255 - index)
+                        .expect("the controlled DIB palette contains exactly 256 entries");
+                    RuntimeGdiRgbQuad {
+                        blue: intensity,
+                        green: intensity,
+                        red: intensity,
+                        reserved: 0,
+                    }
+                })
+                .collect(),
+        },
+    }
+}
+
 fn controlled_enum_log_font_ex_a() -> Vec<u8> {
     let mut bytes = vec![0; X86_ENUMLOGFONTEXA_BYTE_LENGTH];
     write_i32(&mut bytes, 0, 32);
@@ -737,6 +1215,30 @@ fn controlled_new_text_metric_ex_a() -> Vec<u8> {
 
 fn write_i32(bytes: &mut [u8], offset: usize, value: i32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u16(bytes: &[u8], offset: usize) -> u16 {
+    u16::from_le_bytes(
+        bytes[offset..offset + 2]
+            .try_into()
+            .expect("validated GDI structure contains a u16 field"),
+    )
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("validated GDI structure contains a u32 field"),
+    )
+}
+
+fn read_i32(bytes: &[u8], offset: usize) -> i32 {
+    i32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("validated GDI structure contains an i32 field"),
+    )
 }
 
 fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
@@ -845,6 +1347,47 @@ fn required_in_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumen
     }
 }
 
+fn required_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::Out,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 4,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Required,
+            },
+        },
+    }
+}
+
+fn dynamic_out_bytes(
+    name: &str,
+    nullable: bool,
+    alignment: u32,
+    minimum_byte_length: u32,
+    maximum_byte_length: u32,
+) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::Out,
+        value: ApiValueSchema::DynamicPointer {
+            constraint: ApiDynamicPointerConstraint {
+                nullable,
+                alignment,
+                minimum_byte_length,
+                maximum_byte_length,
+                pointee: ApiPointeeSchema::Bytes,
+                write_requirement: ApiWriteRequirement::Optional,
+            },
+        },
+    }
+}
+
 fn valid_policy_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -859,7 +1402,7 @@ mod tests {
 
     #[test]
     fn controlled_gdi32_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let policy = Gdi32CompatibilityPolicy::controlled_v4();
         policy.validate().unwrap();
         let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
@@ -909,11 +1452,38 @@ mod tests {
         assert_eq!(compatible_dc.source_device_context, 0);
         assert_eq!(compatible_dc.initial_font_stock_index, 13);
         assert_eq!(compatible_dc.initial_bitmap_stock_index, 21);
+        let dib_section = policy.create_dib_section.as_ref().unwrap();
+        assert_eq!(dib_section.bitmap_info_header_size, 40);
+        assert_eq!(dib_section.colors_used, 256);
+        assert_eq!(dib_section.descriptor.width, 128);
+        assert_eq!(dib_section.descriptor.height, -96);
+        assert_eq!(dib_section.descriptor.bits_per_pixel, 8);
+        assert_eq!(dib_section.descriptor.stride_bytes, 128);
+        assert_eq!(dib_section.descriptor.pixel_byte_length, 12_288);
+        assert_eq!(dib_section.descriptor.palette.len(), 256);
+        assert_eq!(
+            dib_section.descriptor.palette[0],
+            RuntimeGdiRgbQuad {
+                blue: 255,
+                green: 255,
+                red: 255,
+                reserved: 0,
+            }
+        );
+        assert_eq!(
+            dib_section.descriptor.palette[255],
+            RuntimeGdiRgbQuad {
+                blue: 0,
+                green: 0,
+                red: 0,
+                reserved: 0,
+            }
+        );
     }
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v4();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -923,12 +1493,12 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v4();
         policy.create_font_a.as_mut().unwrap().log_font.quality = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v4();
         policy
             .create_compatible_dc
             .as_mut()
@@ -936,5 +1506,16 @@ mod tests {
             .initial_bitmap_stock_index = 20;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-compatible-dc-profile-invalid");
+
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v4();
+        policy
+            .create_dib_section
+            .as_mut()
+            .unwrap()
+            .descriptor
+            .palette[0]
+            .red = 254;
+        let fault = policy.validate().unwrap_err();
+        assert_eq!(fault.code, "gdi32-dib-section-profile-invalid");
     }
 }

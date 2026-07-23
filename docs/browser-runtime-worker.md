@@ -93,7 +93,7 @@ delta and resume the existing structured-stop path.
 
 ## Execution engine contract
 
-Protocol version 7 binds the production loop to `ExecutionEngine`, not to v86
+Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86
 exports or numeric stop reasons. The interface owns budgeted execution,
 structured stops, versioned opaque CPU-context creation／save／restore, guest mapping
 operations, owner-tagged changed-page batches, CPU resume／callback entry, and
@@ -150,7 +150,7 @@ without changing the mirror.
 
 ## Execution state contract
 
-Protocol version 7 represents execution through an explicit state machine:
+Protocol version 9 represents execution through an explicit state machine:
 `ready`, `running`, `budget-yield`, `memory-fault`, `api-trap`, `thread-switch`,
 `thread-exit`, `waiting-host`, `host-completion`, `guest-callback`,
 `callback-return`, `stopping`, and `stopped`. Prepared Rust metadata supplies
@@ -219,7 +219,7 @@ retired before the initial host completion restores the first context.
 
 Host operations never expose a Promise to the guest stack. `RuntimeState`
 enters `WaitingHost`, records a request ID and resume state, and returns to the
-Worker. Protocol version 7 transports the lossless decimal request ID, owning
+Worker. Protocol version 9 transports the lossless decimal request ID, owning
 thread ID, bounded copied scalar payload, and matching Rust `waiting-host`
 authorization. TypeScript retains a bounded delivery record, not guest stack
 state. A typed

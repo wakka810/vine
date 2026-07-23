@@ -1098,6 +1098,23 @@ assert.ok(
   ),
 );
 
+const partialDibPublication = structuredClone(manifest);
+partialDibPublication.activeRuntimeCheckpoint.latestEvidence.dibFailureAtomicity = false;
+assert.ok(
+  validateCurrentCheckpoint(partialDibPublication).some((error) =>
+    error.includes("latest bounded DIB-section lifecycle evidence"),
+  ),
+);
+
+const browserOwnedDibBytes = structuredClone(manifest);
+browserOwnedDibBytes.browserCheckpoint.bgiRuntimeEvidence.dibByteAuthority =
+  "browser-array-buffer";
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDibBytes).some((error) =>
+    error.includes("browser BGI DIB-section lifecycle evidence"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

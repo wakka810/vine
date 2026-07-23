@@ -19,7 +19,8 @@ export type MemoryRegionKind =
   | "runtime"
   | "surface"
   | "graphics-resource"
-  | "audio-resource";
+  | "audio-resource"
+  | "gdi-resource";
 
 export interface MemoryRange {
   base: number;
@@ -149,6 +150,7 @@ function regionKind(code: number): MemoryRegionKind {
     "surface",
     "graphics-resource",
     "audio-resource",
+    "gdi-resource",
   ];
   const kind = kinds[code - 1];
   invariant(kind !== undefined, `unknown memory region kind ${code}`);

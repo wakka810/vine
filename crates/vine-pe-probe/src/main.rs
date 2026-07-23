@@ -215,6 +215,7 @@ enum GenericRuntimeCapability {
     FontEnumeration,
     FontCreation,
     CompatibleDc,
+    DibLifecycle,
 }
 
 struct GenericRuntimeProcess {
@@ -508,6 +509,32 @@ enum GenericRuntimeGdiCompletion {
         initial_font: vine_core::RuntimeGdiObject,
         initial_bitmap: vine_core::RuntimeGdiObject,
         live_device_contexts: usize,
+        live_objects: usize,
+    },
+    DibSectionCreated {
+        object: vine_core::RuntimeGdiObject,
+        address_allocation: ProcessAddressAllocationRecord,
+        live_objects: usize,
+    },
+    DibSectionCreateRejected {
+        live_objects: usize,
+    },
+    ObjectBytesRead {
+        handle: u32,
+        byte_length: u32,
+        object: Option<vine_core::RuntimeGdiObject>,
+        live_objects: usize,
+    },
+    ObjectSelected {
+        device_context: vine_core::RuntimeDeviceContext,
+        selected_object: Option<vine_core::RuntimeGdiObject>,
+        previous_object: Option<vine_core::RuntimeGdiObject>,
+        succeeded: bool,
+        live_objects: usize,
+    },
+    ObjectDeleted {
+        handle: u32,
+        deleted: bool,
         live_objects: usize,
     },
     CompatibleDeviceContextDeleted {
@@ -2425,6 +2452,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::FontEnumeration
                     | GenericRuntimeCapability::FontCreation
                     | GenericRuntimeCapability::CompatibleDc
+                    | GenericRuntimeCapability::DibLifecycle
             )
         ) {
             let loader = kernel32_policy
@@ -3088,6 +3116,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3104,6 +3133,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let dsound_root_enabled = matches!(
@@ -3119,6 +3149,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3133,6 +3164,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3146,6 +3178,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let requested_capability = match enabled_capability {
@@ -3161,7 +3194,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::ScreenDc
             | GenericRuntimeCapability::FontEnumeration
             | GenericRuntimeCapability::FontCreation
-            | GenericRuntimeCapability::CompatibleDc,
+            | GenericRuntimeCapability::CompatibleDc
+            | GenericRuntimeCapability::DibLifecycle,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3247,15 +3281,24 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     );
     let font_creation_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FontCreation | GenericRuntimeCapability::CompatibleDc)
+        Some(
+            GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
+        )
     );
     let compatible_dc_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::CompatibleDc)
+        Some(GenericRuntimeCapability::CompatibleDc | GenericRuntimeCapability::DibLifecycle)
+    );
+    let dib_lifecycle_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::DibLifecycle)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3374,6 +3417,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     ) {
         user32_policy.set_timer = None;
@@ -3385,12 +3429,13 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
         )
     ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
@@ -3399,6 +3444,9 @@ fn run_v86_generic_runtime_session(
     }
     if !compatible_dc_enabled {
         gdi32_policy.create_compatible_dc = None;
+    }
+    if !dib_lifecycle_enabled {
+        gdi32_policy.create_dib_section = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -11059,6 +11107,135 @@ fn generic_runtime_gdi_completion(
                 },
             ))
         }
+        vine_core::CREATE_DIB_SECTION_IMPLEMENTATION => {
+            let handle = set_eax_result(
+                completion,
+                "create-dib-section-return-register-invalid",
+                "CreateDIBSection dispatcher did not set EAX",
+            )?;
+            if handle == 0 {
+                return Ok(Some(
+                    GenericRuntimeGdiCompletion::DibSectionCreateRejected {
+                        live_objects: runtime.gdi_objects().len(),
+                    },
+                ));
+            }
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "dib-section-object-missing-after-dispatch",
+                        "completed CreateDIBSection has no matching logical bitmap object",
+                    )
+                })?;
+            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } = &object.object else {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "dib-section-object-kind-invalid-after-dispatch",
+                    "completed CreateDIBSection resolved to a non-DIB logical object",
+                ));
+            };
+            let address_allocation = runtime
+                .process_address_space_allocator()
+                .allocation(backing.address_allocation_id)
+                .map_err(runtime_state_error)?
+                .clone();
+            Ok(Some(GenericRuntimeGdiCompletion::DibSectionCreated {
+                object,
+                address_allocation,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
+        vine_core::GET_OBJECT_A_IMPLEMENTATION => {
+            let byte_length = set_eax_result(
+                completion,
+                "get-object-a-return-register-invalid",
+                "GetObjectA dispatcher did not set EAX",
+            )?;
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "get-object-a-handle-missing-after-dispatch",
+                    "completed GetObjectA frame has no logical object",
+                )
+            })?;
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .cloned();
+            Ok(Some(GenericRuntimeGdiCompletion::ObjectBytesRead {
+                handle,
+                byte_length,
+                object,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
+        vine_core::SELECT_OBJECT_IMPLEMENTATION => {
+            let previous_handle = set_eax_result(
+                completion,
+                "select-object-return-register-invalid",
+                "SelectObject dispatcher did not set EAX",
+            )?;
+            let device_context_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "select-object-hdc-missing-after-dispatch",
+                    "completed SelectObject frame has no logical HDC",
+                )
+            })?;
+            let selected_handle = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "select-object-handle-missing-after-dispatch",
+                    "completed SelectObject frame has no logical object",
+                )
+            })?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let selected_object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == selected_handle)
+                .cloned();
+            let previous_object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == previous_handle)
+                .cloned();
+            Ok(Some(GenericRuntimeGdiCompletion::ObjectSelected {
+                device_context,
+                selected_object,
+                previous_object,
+                succeeded: previous_handle != 0,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
+        vine_core::DELETE_OBJECT_IMPLEMENTATION => {
+            let deleted = set_eax_result(
+                completion,
+                "delete-object-return-register-invalid",
+                "DeleteObject dispatcher did not set EAX",
+            )? != 0;
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "delete-object-handle-missing-after-dispatch",
+                    "completed DeleteObject frame has no logical object",
+                )
+            })?;
+            Ok(Some(GenericRuntimeGdiCompletion::ObjectDeleted {
+                handle,
+                deleted,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
         vine_core::DELETE_DC_IMPLEMENTATION => {
             let deleted = set_eax_result(
                 completion,
@@ -12162,6 +12339,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-font-enumeration" => GenericRuntimeCapability::FontEnumeration,
                 "gdi-font-creation" => GenericRuntimeCapability::FontCreation,
                 "gdi-compatible-dc" => GenericRuntimeCapability::CompatibleDc,
+                "gdi-dib-lifecycle" => GenericRuntimeCapability::DibLifecycle,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

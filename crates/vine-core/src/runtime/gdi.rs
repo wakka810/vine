@@ -2,6 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 
+use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
+
+use super::address_space::ProcessAddressAllocationId;
 use super::com::RuntimeComObjectId;
 use super::graphics::{RuntimeGraphicsColorFormat, RuntimeGraphicsSurfaceId};
 use super::{RuntimeRect, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
@@ -19,6 +22,10 @@ pub const RUNTIME_GDI_SURFACE_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_SURFACE_FILL_LIMIT: usize = 16_384;
 pub const RUNTIME_LOG_FONT_A_BYTE_LENGTH: usize = 60;
 pub const RUNTIME_LOG_FONT_A_FACE_CAPACITY: usize = 32;
+pub const RUNTIME_GDI_BITMAP_BYTE_LENGTH: usize = 24;
+pub const RUNTIME_GDI_DIB_RGB_COLORS: u32 = 0;
+pub const RUNTIME_GDI_DIB_BI_RGB: u32 = 0;
+pub const RUNTIME_GDI_RESOURCE_ADDRESS_OWNER: &str = "runtime-gdi-resource";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -210,6 +217,64 @@ pub enum RuntimeGdiObjectKind {
     FontA {
         log_font: RuntimeLogFontA,
     },
+    DibSection {
+        descriptor: RuntimeGdiDibSectionDescriptor,
+        backing: RuntimeGdiDibSectionBacking,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGdiRgbQuad {
+    pub blue: u8,
+    pub green: u8,
+    pub red: u8,
+    pub reserved: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGdiDibSectionDescriptor {
+    pub width: i32,
+    pub height: i32,
+    pub planes: u16,
+    pub bits_per_pixel: u16,
+    pub compression: u32,
+    pub stride_bytes: u32,
+    pub pixel_byte_length: u32,
+    pub palette: Vec<RuntimeGdiRgbQuad>,
+}
+
+impl RuntimeGdiDibSectionDescriptor {
+    pub fn bitmap_bytes(
+        &self,
+        bits_address: GuestAddress,
+    ) -> Result<[u8; RUNTIME_GDI_BITMAP_BYTE_LENGTH], RuntimeStateError> {
+        validate_dib_section_descriptor(self)?;
+        let height = self.height.checked_abs().ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "dib-section-height-invalid",
+                "logical DIB section height cannot be i32::MIN",
+            )
+        })?;
+        let mut bytes = [0_u8; RUNTIME_GDI_BITMAP_BYTE_LENGTH];
+        bytes[4..8].copy_from_slice(&self.width.to_le_bytes());
+        bytes[8..12].copy_from_slice(&height.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.stride_bytes.to_le_bytes());
+        bytes[16..18].copy_from_slice(&self.planes.to_le_bytes());
+        bytes[18..20].copy_from_slice(&self.bits_per_pixel.to_le_bytes());
+        bytes[20..24].copy_from_slice(&bits_address.0.to_le_bytes());
+        Ok(bytes)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGdiDibSectionBacking {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: GuestRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -332,6 +397,27 @@ pub struct RuntimeCreateCompatibleDcResult {
     pub selected_font_id: RuntimeGdiObjectId,
     pub selected_bitmap_id: RuntimeGdiObjectId,
     pub default_objects_created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateDibSectionResult {
+    pub object_id: RuntimeGdiObjectId,
+    pub handle: u32,
+    pub bits_address: GuestAddress,
+    pub backing: RuntimeGdiDibSectionBacking,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSelectGdiObjectResult {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub selected_object_id: RuntimeGdiObjectId,
+    pub selected_handle: u32,
+    pub previous_object_id: RuntimeGdiObjectId,
+    pub previous_handle: u32,
+    pub selection_generation: u64,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -498,6 +584,74 @@ pub(super) struct RuntimeCreateFontAPlan {
     object: RuntimeGdiObject,
     next_object_id: u64,
     next_object_handle: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeCreateDibSectionPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    source_device_context: RuntimeDeviceContext,
+    object_id: RuntimeGdiObjectId,
+    handle: u32,
+    descriptor: RuntimeGdiDibSectionDescriptor,
+    address_allocation_id: ProcessAddressAllocationId,
+    backing_range: GuestRange,
+    next_object_id: u64,
+    next_object_handle: u32,
+}
+
+impl RuntimeCreateDibSectionPlan {
+    pub(super) fn descriptor(&self) -> &RuntimeGdiDibSectionDescriptor {
+        &self.descriptor
+    }
+
+    pub(super) fn address_allocation_id(&self) -> ProcessAddressAllocationId {
+        self.address_allocation_id
+    }
+
+    pub(super) fn backing_range(&self) -> GuestRange {
+        self.backing_range
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeGdiSelectionSlot {
+    Font,
+    Bitmap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSelectGdiObjectPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_context: RuntimeDeviceContext,
+    selected_object: RuntimeGdiObject,
+    previous_object: RuntimeGdiObject,
+    slot: RuntimeGdiSelectionSlot,
+    next_selection_generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeDeleteGdiObjectPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    object: RuntimeGdiObject,
+}
+
+impl RuntimeDeleteGdiObjectPlan {
+    pub(super) fn object(&self) -> &RuntimeGdiObject {
+        &self.object
+    }
+
+    pub(super) fn backing(&self) -> Option<RuntimeGdiDibSectionBacking> {
+        match &self.object.object {
+            RuntimeGdiObjectKind::DibSection { backing, .. } => Some(*backing),
+            RuntimeGdiObjectKind::StockBrush { .. }
+            | RuntimeGdiObjectKind::StockFont { .. }
+            | RuntimeGdiObjectKind::StockBitmap { .. }
+            | RuntimeGdiObjectKind::FontA { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1163,6 +1317,362 @@ impl RuntimeGdi {
         Ok(result)
     }
 
+    pub(super) fn plan_create_dib_section(
+        &self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+        descriptor: RuntimeGdiDibSectionDescriptor,
+        address_allocation_id: ProcessAddressAllocationId,
+        backing_range: GuestRange,
+    ) -> Result<RuntimeCreateDibSectionPlan, RuntimeStateError> {
+        validate_dib_section_descriptor(&descriptor)?;
+        validate_dib_section_backing_shape(&descriptor, address_allocation_id, backing_range)?;
+        let source_device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if !matches!(
+            source_device_context.target,
+            RuntimeDeviceContextTarget::Memory { .. }
+        ) || source_device_context.owner_thread_id != thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "dib-section-device-context-relation-mismatch",
+                "CreateDIBSection requires a live compatible memory DC owned by the current guest thread",
+            ));
+        }
+        self.validate_memory_dc_selections(&source_device_context)?;
+        if self.objects.values().any(|object| {
+            matches!(
+                &object.object,
+                RuntimeGdiObjectKind::DibSection { backing, .. }
+                    if backing.address_allocation_id == address_allocation_id
+                        || backing.range == backing_range
+            )
+        }) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "dib-section-backing-collision",
+                "logical DIB section allocator selected live guest backing",
+            ));
+        }
+        let allocation = self.plan_object_allocation()?;
+        Ok(RuntimeCreateDibSectionPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            source_device_context,
+            object_id: allocation.id,
+            handle: allocation.handle,
+            descriptor,
+            address_allocation_id,
+            backing_range,
+            next_object_id: allocation.next_id,
+            next_object_handle: allocation.next_handle,
+        })
+    }
+
+    pub(super) fn preflight_create_dib_section(
+        &self,
+        plan: &RuntimeCreateDibSectionPlan,
+        memory_owner: MemoryOwnerId,
+    ) -> Result<(), RuntimeStateError> {
+        if memory_owner.0 == 0
+            || self.generation != plan.expected_generation
+            || self.next_object_id != plan.object_id.0
+            || self.next_object_handle != plan.handle
+            || self.objects.contains_key(&plan.object_id)
+            || self.object_handle_index.contains_key(&plan.handle)
+            || self.device_contexts.get(&plan.source_device_context.id)
+                != Some(&plan.source_device_context)
+            || self
+                .device_context_handle_index
+                .get(&plan.source_device_context.handle)
+                != Some(&plan.source_device_context.id)
+            || self.objects.values().any(|object| {
+                matches!(
+                    &object.object,
+                    RuntimeGdiObjectKind::DibSection { backing, .. }
+                        if backing.address_allocation_id == plan.address_allocation_id
+                            || backing.range == plan.backing_range
+                )
+            })
+        {
+            return Err(stale_plan("create-dib-section-plan-stale"));
+        }
+        validate_dib_section_descriptor(&plan.descriptor)?;
+        validate_dib_section_backing_shape(
+            &plan.descriptor,
+            plan.address_allocation_id,
+            plan.backing_range,
+        )?;
+        self.validate_memory_dc_selections(&plan.source_device_context)
+    }
+
+    pub(super) fn commit_create_dib_section(
+        &mut self,
+        plan: RuntimeCreateDibSectionPlan,
+        memory_owner: MemoryOwnerId,
+    ) -> Result<RuntimeCreateDibSectionResult, RuntimeStateError> {
+        self.preflight_create_dib_section(&plan, memory_owner)?;
+        let backing = RuntimeGdiDibSectionBacking {
+            address_allocation_id: plan.address_allocation_id,
+            memory_owner,
+            range: plan.backing_range,
+        };
+        let result = RuntimeCreateDibSectionResult {
+            object_id: plan.object_id,
+            handle: plan.handle,
+            bits_address: plan.backing_range.start(),
+            backing,
+        };
+        let object = RuntimeGdiObject {
+            id: plan.object_id,
+            handle: plan.handle,
+            namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+            shared: false,
+            object: RuntimeGdiObjectKind::DibSection {
+                descriptor: plan.descriptor,
+                backing,
+            },
+        };
+        self.object_handle_index.insert(object.handle, object.id);
+        self.objects.insert(object.id, object);
+        self.next_object_id = plan.next_object_id;
+        self.next_object_handle = plan.next_object_handle;
+        self.generation = plan.next_generation;
+        Ok(result)
+    }
+
+    pub(super) fn plan_select_object(
+        &self,
+        device_context_handle: u32,
+        object_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeSelectGdiObjectPlan, RuntimeStateError> {
+        let device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if !matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::Memory { .. }
+        ) || device_context.owner_thread_id != thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "select-object-device-context-relation-mismatch",
+                "SelectObject requires a compatible memory DC owned by the current guest thread",
+            ));
+        }
+        self.validate_memory_dc_selections(&device_context)?;
+        let selected_object = self.object_by_handle(object_handle)?.clone();
+        let (slot, previous_id) = match &selected_object.object {
+            RuntimeGdiObjectKind::StockFont { .. } | RuntimeGdiObjectKind::FontA { .. } => (
+                RuntimeGdiSelectionSlot::Font,
+                device_context
+                    .selected_font_id
+                    .expect("validated memory DC has a selected font"),
+            ),
+            RuntimeGdiObjectKind::StockBitmap { .. } | RuntimeGdiObjectKind::DibSection { .. } => (
+                RuntimeGdiSelectionSlot::Bitmap,
+                device_context
+                    .selected_bitmap_id
+                    .expect("validated memory DC has a selected bitmap"),
+            ),
+            RuntimeGdiObjectKind::StockBrush { .. } => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-gdi",
+                    "select-object-kind-unsupported",
+                    "SelectObject currently supports logical font and bitmap objects",
+                ));
+            }
+        };
+        let previous_object = self.objects.get(&previous_id).cloned().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "selected-object-identity-dangling",
+                "logical memory DC selection does not resolve to a live object",
+            )
+        })?;
+        let changed = previous_object.id != selected_object.id;
+        Ok(RuntimeSelectGdiObjectPlan {
+            expected_generation: self.generation,
+            next_generation: if changed {
+                checked_next_generation(self.generation)?
+            } else {
+                self.generation
+            },
+            next_selection_generation: if changed {
+                device_context
+                    .selection_generation
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-gdi",
+                            "selection-generation-exhausted",
+                            "logical memory DC selection generation is exhausted",
+                        )
+                    })?
+            } else {
+                device_context.selection_generation
+            },
+            device_context,
+            selected_object,
+            previous_object,
+            slot,
+        })
+    }
+
+    pub(super) fn commit_select_object(
+        &mut self,
+        plan: RuntimeSelectGdiObjectPlan,
+    ) -> Result<RuntimeSelectGdiObjectResult, RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
+            || self
+                .device_context_handle_index
+                .get(&plan.device_context.handle)
+                != Some(&plan.device_context.id)
+            || self.objects.get(&plan.selected_object.id) != Some(&plan.selected_object)
+            || self.objects.get(&plan.previous_object.id) != Some(&plan.previous_object)
+        {
+            return Err(stale_plan("select-object-plan-stale"));
+        }
+        let previous_id = match plan.slot {
+            RuntimeGdiSelectionSlot::Font => plan.device_context.selected_font_id,
+            RuntimeGdiSelectionSlot::Bitmap => plan.device_context.selected_bitmap_id,
+        };
+        if previous_id != Some(plan.previous_object.id) {
+            return Err(stale_plan("select-object-plan-stale"));
+        }
+        let changed = plan.previous_object.id != plan.selected_object.id;
+        if changed {
+            let device_context = self
+                .device_contexts
+                .get_mut(&plan.device_context.id)
+                .expect("preflighted memory DC disappeared");
+            match plan.slot {
+                RuntimeGdiSelectionSlot::Font => {
+                    device_context.selected_font_id = Some(plan.selected_object.id);
+                }
+                RuntimeGdiSelectionSlot::Bitmap => {
+                    device_context.selected_bitmap_id = Some(plan.selected_object.id);
+                }
+            }
+            device_context.selection_generation = plan.next_selection_generation;
+            self.generation = plan.next_generation;
+        }
+        Ok(RuntimeSelectGdiObjectResult {
+            device_context_id: plan.device_context.id,
+            selected_object_id: plan.selected_object.id,
+            selected_handle: plan.selected_object.handle,
+            previous_object_id: plan.previous_object.id,
+            previous_handle: plan.previous_object.handle,
+            selection_generation: plan.next_selection_generation,
+            changed,
+        })
+    }
+
+    pub(super) fn plan_delete_object(
+        &self,
+        object_handle: u32,
+    ) -> Result<RuntimeDeleteGdiObjectPlan, RuntimeStateError> {
+        let object = self.object_by_handle(object_handle)?.clone();
+        if object.shared {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "delete-object-shared",
+                "shared logical GDI objects cannot be deleted",
+            ));
+        }
+        if self.device_contexts.values().any(|device_context| {
+            device_context.selected_font_id == Some(object.id)
+                || device_context.selected_bitmap_id == Some(object.id)
+        }) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "delete-object-selected",
+                "logical GDI object must be restored out of every DC before deletion",
+            ));
+        }
+        if !matches!(
+            &object.object,
+            RuntimeGdiObjectKind::FontA { .. } | RuntimeGdiObjectKind::DibSection { .. }
+        ) {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "delete-object-kind-unsupported",
+                "DeleteObject currently supports logical FontA and DIB section objects",
+            ));
+        }
+        Ok(RuntimeDeleteGdiObjectPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            object,
+        })
+    }
+
+    pub(super) fn preflight_delete_object(
+        &self,
+        plan: &RuntimeDeleteGdiObjectPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.objects.get(&plan.object.id) != Some(&plan.object)
+            || self.object_handle_index.get(&plan.object.handle) != Some(&plan.object.id)
+            || plan.object.shared
+            || self.device_contexts.values().any(|device_context| {
+                device_context.selected_font_id == Some(plan.object.id)
+                    || device_context.selected_bitmap_id == Some(plan.object.id)
+            })
+        {
+            return Err(stale_plan("delete-object-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_delete_object(
+        &mut self,
+        plan: RuntimeDeleteGdiObjectPlan,
+    ) -> Result<RuntimeGdiObject, RuntimeStateError> {
+        self.preflight_delete_object(&plan)?;
+        self.object_handle_index.remove(&plan.object.handle);
+        let object = self
+            .objects
+            .remove(&plan.object.id)
+            .expect("preflighted logical GDI object disappeared");
+        self.generation = plan.next_generation;
+        Ok(object)
+    }
+
+    pub(super) fn object_bytes(
+        &self,
+        object_handle: u32,
+        requested_byte_length: u32,
+    ) -> Result<Vec<u8>, RuntimeStateError> {
+        let object = self.object_by_handle(object_handle)?;
+        match &object.object {
+            RuntimeGdiObjectKind::FontA { log_font }
+                if requested_byte_length == RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32 =>
+            {
+                Ok(log_font.to_bytes()?.to_vec())
+            }
+            RuntimeGdiObjectKind::DibSection {
+                descriptor,
+                backing,
+            } if requested_byte_length == RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32 => {
+                Ok(descriptor.bitmap_bytes(backing.range.start())?.to_vec())
+            }
+            RuntimeGdiObjectKind::StockBrush { .. }
+            | RuntimeGdiObjectKind::StockFont { .. }
+            | RuntimeGdiObjectKind::StockBitmap { .. }
+            | RuntimeGdiObjectKind::FontA { .. }
+            | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "get-object-a-variant-unsupported",
+                "GetObjectA request does not match the reached FontA or DIB BITMAP shape",
+            )),
+        }
+    }
+
     pub(super) fn plan_release_dc(
         &self,
         window_handle: u32,
@@ -1572,6 +2082,27 @@ impl RuntimeGdi {
         })
     }
 
+    pub fn object_by_handle(&self, handle: u32) -> Result<&RuntimeGdiObject, RuntimeStateError> {
+        let id = self
+            .object_handle_index
+            .get(&handle)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-gdi",
+                    "gdi-object-handle-unknown",
+                    format!("logical GDI object {handle:#010x} is not live"),
+                )
+            })?;
+        self.objects.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "gdi-object-handle-index-dangling",
+                "logical GDI object handle index does not resolve to a live object",
+            )
+        })
+    }
+
     pub fn device_contexts(&self) -> &BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext> {
         &self.device_contexts
     }
@@ -1733,7 +2264,7 @@ impl RuntimeGdi {
                 "logical memory DC selected font does not resolve to a live object",
             )
         })?;
-        validate_default_font_object(font)?;
+        validate_selectable_font_object(font)?;
         let bitmap = self.objects.get(&bitmap_id).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-gdi",
@@ -1741,7 +2272,7 @@ impl RuntimeGdi {
                 "logical memory DC selected bitmap does not resolve to a live object",
             )
         })?;
-        validate_default_bitmap_object(bitmap)
+        validate_selectable_bitmap_object(bitmap)
     }
 
     fn plan_object_allocation(&self) -> Result<RuntimeGdiObjectAllocation, RuntimeStateError> {
@@ -1865,7 +2396,8 @@ fn default_object_index(object: &RuntimeGdiObject) -> Option<i32> {
         RuntimeGdiObjectKind::StockBrush { .. }
         | RuntimeGdiObjectKind::StockFont { .. }
         | RuntimeGdiObjectKind::StockBitmap { .. }
-        | RuntimeGdiObjectKind::FontA { .. } => None,
+        | RuntimeGdiObjectKind::FontA { .. }
+        | RuntimeGdiObjectKind::DibSection { .. } => None,
     }
 }
 
@@ -1905,6 +2437,143 @@ fn validate_default_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Runti
             "runtime-gdi",
             "memory-dc-default-bitmap-invalid",
             "logical memory DC default bitmap identity is not the shared 1x1 monochrome bitmap",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_selectable_font_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
+    match &object.object {
+        RuntimeGdiObjectKind::StockFont { .. } => validate_default_font_object(object),
+        RuntimeGdiObjectKind::FontA { log_font } if !object.shared => validate_log_font_a(log_font),
+        RuntimeGdiObjectKind::StockBrush { .. }
+        | RuntimeGdiObjectKind::StockBitmap { .. }
+        | RuntimeGdiObjectKind::DibSection { .. }
+        | RuntimeGdiObjectKind::FontA { .. } => Err(RuntimeStateError::runtime_defect(
+            "runtime-gdi",
+            "memory-dc-font-selection-invalid",
+            "logical memory DC selected font identity is not a supported font object",
+        )),
+    }
+}
+
+fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
+    match &object.object {
+        RuntimeGdiObjectKind::StockBitmap { .. } => validate_default_bitmap_object(object),
+        RuntimeGdiObjectKind::DibSection {
+            descriptor,
+            backing,
+        } if !object.shared => {
+            validate_dib_section_descriptor(descriptor)?;
+            validate_dib_section_backing_shape(
+                descriptor,
+                backing.address_allocation_id,
+                backing.range,
+            )?;
+            if backing.memory_owner.0 == 0 {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-gdi",
+                    "dib-section-memory-owner-invalid",
+                    "logical DIB section backing has no guest-memory owner",
+                ));
+            }
+            Ok(())
+        }
+        RuntimeGdiObjectKind::StockBrush { .. }
+        | RuntimeGdiObjectKind::StockFont { .. }
+        | RuntimeGdiObjectKind::FontA { .. }
+        | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::runtime_defect(
+            "runtime-gdi",
+            "memory-dc-bitmap-selection-invalid",
+            "logical memory DC selected bitmap identity is not a supported bitmap object",
+        )),
+    }
+}
+
+fn validate_dib_section_descriptor(
+    descriptor: &RuntimeGdiDibSectionDescriptor,
+) -> Result<(), RuntimeStateError> {
+    if descriptor.width <= 0
+        || descriptor.height == 0
+        || descriptor.height == i32::MIN
+        || descriptor.planes != 1
+        || descriptor.bits_per_pixel != 8
+        || descriptor.compression != RUNTIME_GDI_DIB_BI_RGB
+        || descriptor.palette.len() != 256
+        || descriptor.palette.iter().any(|color| color.reserved != 0)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "dib-section-descriptor-invalid",
+            "logical DIB section requires a nonempty 8bpp BI_RGB shape and 256 RGBQUAD colors",
+        ));
+    }
+    let width = u32::try_from(descriptor.width).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "dib-section-width-invalid",
+            "logical DIB section width must be a positive x86 integer",
+        )
+    })?;
+    let height = u32::try_from(descriptor.height.abs()).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "dib-section-height-invalid",
+            "logical DIB section height must fit unsigned x86 pixel accounting",
+        )
+    })?;
+    let stride_bytes = width
+        .checked_mul(u32::from(descriptor.bits_per_pixel))
+        .and_then(|bits| bits.checked_add(31))
+        .map(|bits| bits / 32)
+        .and_then(|words| words.checked_mul(4))
+        .ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "dib-section-stride-overflow",
+                "logical DIB section stride overflowed x86 accounting",
+            )
+        })?;
+    let pixel_byte_length = stride_bytes.checked_mul(height).ok_or_else(|| {
+        RuntimeStateError::resource_limit(
+            "runtime-gdi",
+            "dib-section-pixel-length-overflow",
+            "logical DIB section pixel byte length overflowed x86 accounting",
+        )
+    })?;
+    if descriptor.stride_bytes != stride_bytes
+        || descriptor.pixel_byte_length != pixel_byte_length
+        || pixel_byte_length == 0
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "dib-section-derived-layout-invalid",
+            "logical DIB section stride or pixel byte length does not match its descriptor",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_dib_section_backing_shape(
+    descriptor: &RuntimeGdiDibSectionDescriptor,
+    address_allocation_id: ProcessAddressAllocationId,
+    backing_range: GuestRange,
+) -> Result<(), RuntimeStateError> {
+    if address_allocation_id.0 == 0
+        || backing_range.start().0 == 0
+        || !backing_range
+            .start()
+            .0
+            .is_multiple_of(crate::memory::GUEST_PAGE_SIZE as u32)
+        || !backing_range
+            .byte_length()
+            .is_multiple_of(crate::memory::GUEST_PAGE_SIZE)
+        || backing_range.byte_length() < u64::from(descriptor.pixel_byte_length)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "dib-section-backing-invalid",
+            "logical DIB section backing must be allocation-owned, page-aligned, and large enough",
         ));
     }
     Ok(())

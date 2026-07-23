@@ -5,14 +5,16 @@ use vine_core::{
     GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestMemory, GuestRange,
     ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, LastErrorPolicy,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDeviceContextTarget, RuntimeGdiObjectKind,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    User32CompatibilityPolicy, X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH,
-    X86_NEWTEXTMETRICEXA_BYTE_LENGTH, create_compatible_dc_contract, create_font_a_contract,
-    delete_dc_contract, dispatch_gdi32_api_with_policy, dispatch_user32_api_with_policy,
-    enum_font_families_ex_a_contract, gdi32_contract_for_endpoint, get_dc_contract,
-    release_dc_contract,
+    ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
+    RuntimeDeviceContextTarget, RuntimeGdiObjectKind, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, User32CompatibilityPolicy,
+    X86_BITMAP_BYTE_LENGTH, X86_BITMAPINFOHEADER_BYTE_LENGTH, X86_DIB_BITMAPINFO_BYTE_LENGTH,
+    X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH, X86_NEWTEXTMETRICEXA_BYTE_LENGTH,
+    create_compatible_dc_contract, create_dib_section_contract, create_font_a_contract,
+    delete_dc_contract, delete_object_contract, dispatch_gdi32_api_with_policy,
+    dispatch_user32_api_with_policy, enum_font_families_ex_a_contract, gdi32_contract_for_endpoint,
+    get_dc_contract, get_object_a_contract, release_dc_contract, select_object_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -22,6 +24,10 @@ const ENUM_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1080);
 const CREATE_FONT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x10c0);
 const CREATE_COMPATIBLE_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1100);
 const DELETE_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1120);
+const CREATE_DIB_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1140);
+const GET_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1180);
+const SELECT_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11a0);
+const DELETE_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11c0);
 const LOW_ENUM_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 8);
 const GET_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2000);
 const RELEASE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2004);
@@ -29,22 +35,37 @@ const ENUM_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2008);
 const CREATE_FONT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x200c);
 const CREATE_COMPATIBLE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2010);
 const DELETE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2014);
+const CREATE_DIB_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2018);
+const GET_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x201c);
+const SELECT_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2020);
+const DELETE_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2024);
 const CALLBACK_TARGET: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2100);
 const CALLBACK_SENTINEL: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2110);
 const LOG_FONT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2200);
 const FACE_NAME_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2300);
+const BITMAP_INFO_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2400);
+const BITS_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2900);
+const OBJECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2920);
 const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
 const RELEASE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ef0);
 const ENUM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0fc0);
 const CREATE_FONT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ff0);
 const CREATE_COMPATIBLE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0fb0);
 const DELETE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1000);
+const CREATE_DIB_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1010);
+const GET_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1020);
+const SELECT_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1030);
+const DELETE_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1040);
 const GET_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c149);
 const RELEASE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
 const ENUM_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
 const CREATE_FONT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c838);
 const CREATE_COMPATIBLE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c8ad);
 const DELETE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c472);
+const CREATE_DIB_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c8f0);
+const GET_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c910);
+const SELECT_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c930);
+const DELETE_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c950);
 const CALLBACK_PARAMETER: u32 = 0x100d_ce7c;
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
@@ -63,6 +84,10 @@ struct FontFixture {
     create_font_endpoint: ApiEndpointIdentity,
     create_compatible_dc_endpoint: ApiEndpointIdentity,
     delete_dc_endpoint: ApiEndpointIdentity,
+    create_dib_endpoint: ApiEndpointIdentity,
+    get_object_endpoint: ApiEndpointIdentity,
+    select_object_endpoint: ApiEndpointIdentity,
+    delete_object_endpoint: ApiEndpointIdentity,
     user32_policy: User32CompatibilityPolicy,
     gdi32_policy: Gdi32CompatibilityPolicy,
     callback_sentinel: GuestAddress,
@@ -124,6 +149,38 @@ impl FontFixture {
             "GDI32.dll",
             "DeleteDC",
         );
+        let create_dib_endpoint = endpoint(
+            owner,
+            258,
+            CREATE_DIB_ENDPOINT_ADDRESS,
+            CREATE_DIB_IAT_ADDRESS,
+            "GDI32.dll",
+            "CreateDIBSection",
+        );
+        let get_object_endpoint = endpoint(
+            owner,
+            259,
+            GET_OBJECT_ENDPOINT_ADDRESS,
+            GET_OBJECT_IAT_ADDRESS,
+            "GDI32.dll",
+            "GetObjectA",
+        );
+        let select_object_endpoint = endpoint(
+            owner,
+            260,
+            SELECT_OBJECT_ENDPOINT_ADDRESS,
+            SELECT_OBJECT_IAT_ADDRESS,
+            "GDI32.dll",
+            "SelectObject",
+        );
+        let delete_object_endpoint = endpoint(
+            owner,
+            261,
+            DELETE_OBJECT_ENDPOINT_ADDRESS,
+            DELETE_OBJECT_IAT_ADDRESS,
+            "GDI32.dll",
+            "DeleteObject",
+        );
         for (iat, target) in [
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (RELEASE_DC_IAT_ADDRESS, RELEASE_DC_ENDPOINT_ADDRESS),
@@ -134,6 +191,10 @@ impl FontFixture {
                 CREATE_COMPATIBLE_DC_ENDPOINT_ADDRESS,
             ),
             (DELETE_DC_IAT_ADDRESS, DELETE_DC_ENDPOINT_ADDRESS),
+            (CREATE_DIB_IAT_ADDRESS, CREATE_DIB_ENDPOINT_ADDRESS),
+            (GET_OBJECT_IAT_ADDRESS, GET_OBJECT_ENDPOINT_ADDRESS),
+            (SELECT_OBJECT_IAT_ADDRESS, SELECT_OBJECT_ENDPOINT_ADDRESS),
+            (DELETE_OBJECT_IAT_ADDRESS, DELETE_OBJECT_ENDPOINT_ADDRESS),
         ] {
             memory
                 .write_initialization(owner, iat, &target.0.to_le_bytes())
@@ -165,6 +226,10 @@ impl FontFixture {
                 create_font_endpoint.clone(),
                 create_compatible_dc_endpoint.clone(),
                 delete_dc_endpoint.clone(),
+                create_dib_endpoint.clone(),
+                get_object_endpoint.clone(),
+                select_object_endpoint.clone(),
+                delete_object_endpoint.clone(),
             ],
             [
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -175,11 +240,18 @@ impl FontFixture {
                 create_compatible_dc_contract(create_compatible_dc_endpoint.clone())
                     .expect("CreateCompatibleDC contract"),
                 delete_dc_contract(delete_dc_endpoint.clone()).expect("DeleteDC contract"),
+                create_dib_section_contract(create_dib_endpoint.clone())
+                    .expect("CreateDIBSection contract"),
+                get_object_a_contract(get_object_endpoint.clone()).expect("GetObjectA contract"),
+                select_object_contract(select_object_endpoint.clone())
+                    .expect("SelectObject contract"),
+                delete_object_contract(delete_object_endpoint.clone())
+                    .expect("DeleteObject contract"),
             ],
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -197,6 +269,10 @@ impl FontFixture {
             create_font_endpoint,
             create_compatible_dc_endpoint,
             delete_dc_endpoint,
+            create_dib_endpoint,
+            get_object_endpoint,
+            select_object_endpoint,
+            delete_object_endpoint,
             user32_policy,
             gdi32_policy,
             callback_sentinel: CALLBACK_SENTINEL,
@@ -309,6 +385,84 @@ impl FontFixture {
         );
         let endpoint = self.delete_dc_endpoint.clone();
         self.dispatch_endpoint(endpoint, DELETE_DC_STACK_POINTER, DELETE_DC_RETURN_ADDRESS)
+    }
+
+    fn install_bitmap_info(&mut self, bytes: &[u8]) {
+        assert_eq!(bytes.len(), X86_DIB_BITMAPINFO_BYTE_LENGTH);
+        self.memory
+            .write(BITMAP_INFO_ADDRESS, bytes)
+            .expect("write BITMAPINFO");
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_create_dib_section(
+        &mut self,
+        device_context: u32,
+        bitmap_info: GuestAddress,
+        bits_output: GuestAddress,
+    ) -> DispatchOutcome {
+        self.write_words(
+            CREATE_DIB_STACK_POINTER,
+            &[
+                CREATE_DIB_RETURN_ADDRESS.0,
+                device_context,
+                bitmap_info.0,
+                0,
+                bits_output.0,
+                0,
+                0,
+            ],
+        );
+        let endpoint = self.create_dib_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            CREATE_DIB_STACK_POINTER,
+            CREATE_DIB_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_get_object(
+        &mut self,
+        object: u32,
+        byte_length: u32,
+        output: GuestAddress,
+    ) -> DispatchOutcome {
+        self.write_words(
+            GET_OBJECT_STACK_POINTER,
+            &[GET_OBJECT_RETURN_ADDRESS.0, object, byte_length, output.0],
+        );
+        let endpoint = self.get_object_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            GET_OBJECT_STACK_POINTER,
+            GET_OBJECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_select_object(&mut self, device_context: u32, object: u32) -> DispatchOutcome {
+        self.write_words(
+            SELECT_OBJECT_STACK_POINTER,
+            &[SELECT_OBJECT_RETURN_ADDRESS.0, device_context, object],
+        );
+        let endpoint = self.select_object_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            SELECT_OBJECT_STACK_POINTER,
+            SELECT_OBJECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_delete_object(&mut self, object: u32) -> DispatchOutcome {
+        self.write_words(
+            DELETE_OBJECT_STACK_POINTER,
+            &[DELETE_OBJECT_RETURN_ADDRESS.0, object],
+        );
+        let endpoint = self.delete_object_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            DELETE_OBJECT_STACK_POINTER,
+            DELETE_OBJECT_RETURN_ADDRESS,
+        )
     }
 
     fn write_words(&mut self, address: GuestAddress, words: &[u32]) {
@@ -543,6 +697,486 @@ fn compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomi
     assert_eq!(completion.eax, RegisterUpdate::Set(0));
     assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
     assert_eq!(wrong_target.runtime, runtime_before_null);
+}
+
+#[test]
+fn dib_object_catalog_exposes_bounded_x86_lifecycle_contracts() {
+    let fixture = FontFixture::new();
+    let create = gdi32_contract_for_endpoint(fixture.create_dib_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("CreateDIBSection contract");
+    assert_eq!(create.abi.arguments.len(), 6);
+    assert!(matches!(
+        &create.abi.arguments[1].value,
+        ApiValueSchema::Pointer { constraint }
+            if !constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == X86_BITMAPINFOHEADER_BYTE_LENGTH
+    ));
+    assert!(matches!(
+        &create.abi.arguments[3].value,
+        ApiValueSchema::Pointer { constraint }
+            if !constraint.nullable && constraint.byte_length == 4
+    ));
+    assert!(matches!(
+        &create.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-object.v1" && *nullable
+    ));
+
+    let get_object = gdi32_contract_for_endpoint(fixture.get_object_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("GetObjectA contract");
+    assert_eq!(get_object.abi.arguments.len(), 3);
+    assert!(matches!(
+        &get_object.abi.arguments[2].value,
+        ApiValueSchema::DynamicPointer { constraint }
+            if !constraint.nullable
+                && constraint.minimum_byte_length == 1
+                && constraint.maximum_byte_length == X86_LOGFONTA_BYTE_LENGTH
+    ));
+    assert_eq!(get_object.abi.return_value, ApiReturnSchema::U32);
+
+    let select = gdi32_contract_for_endpoint(fixture.select_object_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("SelectObject contract");
+    assert_eq!(select.abi.arguments.len(), 2);
+    assert!(matches!(
+        &select.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-object.v1" && *nullable
+    ));
+
+    let delete = gdi32_contract_for_endpoint(fixture.delete_object_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("DeleteObject contract");
+    assert_eq!(delete.abi.arguments.len(), 1);
+    assert_eq!(delete.abi.return_value, ApiReturnSchema::Bool32);
+    for contract in [&create, &get_object, &select, &delete] {
+        assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+        assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+    }
+}
+
+#[test]
+fn dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle() {
+    let mut fixture = FontFixture::new();
+    fixture.install_face_name(&primary_face_name());
+    fixture.configure_create_font(primary_create_font_arguments(), FACE_NAME_ADDRESS);
+    let font_handle = match fixture.dispatch_create_font() {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateFontA did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateFontA completion, got {other:?}"),
+    };
+    let memory_dc = match fixture.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let (default_font_handle, default_bitmap_handle) = {
+        let dc = fixture
+            .runtime
+            .gdi_device_context(memory_dc)
+            .expect("compatible memory DC");
+        let objects = fixture.runtime.gdi_objects();
+        (
+            objects
+                .get(&dc.selected_font_id.expect("default font identity"))
+                .expect("default font object")
+                .handle,
+            objects
+                .get(&dc.selected_bitmap_id.expect("default bitmap identity"))
+                .expect("default bitmap object")
+                .handle,
+        )
+    };
+
+    fixture.install_bitmap_info(&primary_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize bits output");
+    fixture.acknowledge_pending_delta();
+    let memory_before_create = fixture.memory.stats();
+    let address_records_before_create = fixture.runtime.process_address_space_allocator().records();
+    let creation = match fixture.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected CreateDIBSection completion, got {other:?}"),
+    };
+    let RegisterUpdate::Set(dib_handle) = creation.eax else {
+        panic!("CreateDIBSection did not set EAX")
+    };
+    assert_ne!(dib_handle, 0);
+    assert_eq!(creation.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(creation.guest_writes.len(), 1);
+    assert_eq!(
+        creation.stack_pointer,
+        GuestAddress(CREATE_DIB_STACK_POINTER.0 + 28)
+    );
+    fixture.acknowledge_pending_delta();
+    let bits_address = GuestAddress(read_u32(
+        &fixture
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("DIB bits output"),
+        0,
+    ));
+    assert_ne!(bits_address, GuestAddress(0));
+
+    let (descriptor, backing) = {
+        let object = fixture
+            .runtime
+            .gdi_objects()
+            .values()
+            .find(|object| object.handle == dib_handle)
+            .expect("logical DIB object");
+        assert!(!object.shared);
+        let RuntimeGdiObjectKind::DibSection {
+            descriptor,
+            backing,
+        } = &object.object
+        else {
+            panic!("created object is not a DIB section")
+        };
+        (descriptor.clone(), *backing)
+    };
+    assert_eq!(descriptor.width, 128);
+    assert_eq!(descriptor.height, -96);
+    assert_eq!(descriptor.stride_bytes, 128);
+    assert_eq!(descriptor.pixel_byte_length, 12_288);
+    assert_eq!(descriptor.palette.len(), 256);
+    assert_eq!(backing.range.start(), bits_address);
+    assert_eq!(backing.range.byte_length(), 12_288);
+    assert_eq!(
+        fixture
+            .runtime
+            .process_address_space_allocator()
+            .allocation(backing.address_allocation_id)
+            .expect("DIB address allocation")
+            .purpose,
+        ProcessAddressAllocationPurpose::GdiResource
+    );
+    assert!(fixture.memory.region_snapshots().iter().any(|region| {
+        region.address_allocation_id == Some(backing.address_allocation_id.0)
+            && region.owner == backing.memory_owner
+            && region.kind == MemoryRegionKind::GdiResource
+            && region.range == backing.range
+    }));
+    assert_eq!(
+        fixture.memory.stats().owners,
+        memory_before_create.owners + 1
+    );
+    assert_eq!(
+        fixture.memory.stats().regions,
+        memory_before_create.regions + 1
+    );
+    assert_eq!(
+        fixture
+            .memory
+            .read(bits_address, 12_288)
+            .expect("DIB pixels"),
+        vec![0; 12_288]
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .process_address_space_allocator()
+            .records()
+            .len(),
+        address_records_before_create.len() + 1
+    );
+
+    fixture
+        .memory
+        .write(OBJECT_OUTPUT_ADDRESS, &[0x5a; 32])
+        .expect("initialize BITMAP output guards");
+    fixture.acknowledge_pending_delta();
+    let get_object = match fixture.dispatch_get_object(
+        dib_handle,
+        X86_BITMAP_BYTE_LENGTH,
+        OBJECT_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected GetObjectA completion, got {other:?}"),
+    };
+    assert_eq!(get_object.eax, RegisterUpdate::Set(X86_BITMAP_BYTE_LENGTH));
+    assert_eq!(get_object.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+    let bitmap = fixture
+        .memory
+        .read(OBJECT_OUTPUT_ADDRESS, 32)
+        .expect("x86 BITMAP and guards");
+    assert_eq!(read_u32(&bitmap, 0), 0);
+    assert_eq!(read_i32(&bitmap, 4), 128);
+    assert_eq!(read_i32(&bitmap, 8), 96);
+    assert_eq!(read_u32(&bitmap, 12), 128);
+    assert_eq!(u16::from_le_bytes(bitmap[16..18].try_into().unwrap()), 1);
+    assert_eq!(u16::from_le_bytes(bitmap[18..20].try_into().unwrap()), 8);
+    assert_eq!(read_u32(&bitmap, 20), bits_address.0);
+    assert_eq!(&bitmap[24..], &[0x5a; 8]);
+
+    let select_bitmap = match fixture.dispatch_select_object(memory_dc, dib_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected bitmap SelectObject completion, got {other:?}"),
+    };
+    assert_eq!(
+        select_bitmap.eax,
+        RegisterUpdate::Set(default_bitmap_handle)
+    );
+    assert_eq!(select_bitmap.last_error, INITIAL_LAST_ERROR);
+    let select_font = match fixture.dispatch_select_object(memory_dc, font_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected font SelectObject completion, got {other:?}"),
+    };
+    assert_eq!(select_font.eax, RegisterUpdate::Set(default_font_handle));
+    assert_eq!(select_font.last_error, INITIAL_LAST_ERROR);
+
+    let runtime_before_selected_delete = fixture.runtime.clone();
+    let address_records_before_selected_delete =
+        fixture.runtime.process_address_space_allocator().records();
+    let pixels_before_selected_delete = fixture
+        .memory
+        .read(bits_address, 12_288)
+        .expect("selected DIB pixels");
+    let selected_delete = match fixture.dispatch_delete_object(dib_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected selected DeleteObject completion, got {other:?}"),
+    };
+    assert_eq!(selected_delete.eax, RegisterUpdate::Set(0));
+    assert_eq!(selected_delete.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(fixture.runtime, runtime_before_selected_delete);
+    assert_eq!(
+        fixture.runtime.process_address_space_allocator().records(),
+        address_records_before_selected_delete
+    );
+    assert_eq!(
+        fixture
+            .memory
+            .read(bits_address, 12_288)
+            .expect("preserved selected DIB pixels"),
+        pixels_before_selected_delete
+    );
+
+    let restore_bitmap = match fixture.dispatch_select_object(memory_dc, default_bitmap_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected bitmap restore completion, got {other:?}"),
+    };
+    assert_eq!(restore_bitmap.eax, RegisterUpdate::Set(dib_handle));
+    let restore_font = match fixture.dispatch_select_object(memory_dc, default_font_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected font restore completion, got {other:?}"),
+    };
+    assert_eq!(restore_font.eax, RegisterUpdate::Set(font_handle));
+
+    let delete_dib = match fixture.dispatch_delete_object(dib_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected DIB DeleteObject completion, got {other:?}"),
+    };
+    assert_eq!(delete_dib.eax, RegisterUpdate::Set(1));
+    assert_eq!(delete_dib.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+    assert!(
+        fixture
+            .runtime
+            .gdi_objects()
+            .values()
+            .all(|object| object.handle != dib_handle)
+    );
+    assert!(fixture.memory.read(bits_address, 1).is_err());
+    assert!(
+        fixture
+            .runtime
+            .process_address_space_allocator()
+            .allocation(backing.address_allocation_id)
+            .is_err()
+    );
+    assert!(
+        fixture
+            .memory
+            .region_snapshots()
+            .iter()
+            .all(|region| region.kind != MemoryRegionKind::GdiResource)
+    );
+    assert_eq!(fixture.memory.stats().owners, memory_before_create.owners);
+    assert_eq!(fixture.memory.stats().regions, memory_before_create.regions);
+
+    fixture
+        .memory
+        .write(OBJECT_OUTPUT_ADDRESS, &[0x6b; 32])
+        .expect("initialize stale GetObjectA guard");
+    fixture.acknowledge_pending_delta();
+    let runtime_before_stale_get = fixture.runtime.clone();
+    let stale_get = match fixture.dispatch_get_object(
+        dib_handle,
+        X86_BITMAP_BYTE_LENGTH,
+        OBJECT_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected stale GetObjectA completion, got {other:?}"),
+    };
+    assert_eq!(stale_get.eax, RegisterUpdate::Set(0));
+    assert_eq!(stale_get.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(fixture.runtime, runtime_before_stale_get);
+    assert_eq!(
+        fixture
+            .memory
+            .read(OBJECT_OUTPUT_ADDRESS, 32)
+            .expect("preserved stale GetObjectA guard"),
+        vec![0x6b; 32]
+    );
+
+    let delete_font = match fixture.dispatch_delete_object(font_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected font DeleteObject completion, got {other:?}"),
+    };
+    assert_eq!(delete_font.eax, RegisterUpdate::Set(1));
+    let delete_dc = match fixture.dispatch_delete_dc(memory_dc) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected memory DeleteDC completion, got {other:?}"),
+    };
+    assert_eq!(delete_dc.eax, RegisterUpdate::Set(1));
+}
+
+#[test]
+fn create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically() {
+    let mut malformed = FontFixture::new();
+    let memory_dc = match malformed.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let mut malformed_info = primary_bitmap_info();
+    malformed_info[0..4].copy_from_slice(&0_u32.to_le_bytes());
+    malformed.install_bitmap_info(&malformed_info);
+    malformed
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize malformed bits output");
+    malformed.acknowledge_pending_delta();
+    let runtime_before_malformed = malformed.runtime.clone();
+    let records_before_malformed = malformed
+        .runtime
+        .process_address_space_allocator()
+        .records();
+    let memory_before_malformed = malformed.memory.stats();
+    let completion = match malformed.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected malformed CreateDIBSection completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    malformed.acknowledge_pending_delta();
+    assert_eq!(
+        malformed
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("cleared malformed bits output"),
+        0_u32.to_le_bytes()
+    );
+    assert_eq!(malformed.runtime, runtime_before_malformed);
+    assert_eq!(
+        malformed
+            .runtime
+            .process_address_space_allocator()
+            .records(),
+        records_before_malformed
+    );
+    assert_eq!(
+        malformed.memory.stats().owners,
+        memory_before_malformed.owners
+    );
+    assert_eq!(
+        malformed.memory.stats().regions,
+        memory_before_malformed.regions
+    );
+
+    let mut wrong_palette = FontFixture::new();
+    let memory_dc = match wrong_palette.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let mut bitmap_info = primary_bitmap_info();
+    bitmap_info[X86_BITMAPINFOHEADER_BYTE_LENGTH as usize] ^= 1;
+    wrong_palette.install_bitmap_info(&bitmap_info);
+    wrong_palette
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xfeed_beef_u32.to_le_bytes())
+        .expect("initialize wrong-palette bits output");
+    wrong_palette.acknowledge_pending_delta();
+    let runtime_before_palette = wrong_palette.runtime.clone();
+    let records_before_palette = wrong_palette
+        .runtime
+        .process_address_space_allocator()
+        .records();
+    let fault = match wrong_palette.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected wrong-palette CreateDIBSection fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "create-dib-section-variant-unsupported");
+    assert_eq!(wrong_palette.runtime, runtime_before_palette);
+    assert_eq!(
+        wrong_palette
+            .runtime
+            .process_address_space_allocator()
+            .records(),
+        records_before_palette
+    );
+    assert_eq!(
+        wrong_palette
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("preserved wrong-palette bits output"),
+        0xfeed_beef_u32.to_le_bytes()
+    );
+
+    let mut stale_dc = FontFixture::new();
+    stale_dc.install_bitmap_info(&primary_bitmap_info());
+    stale_dc
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xcafe_babe_u32.to_le_bytes())
+        .expect("initialize stale-DC bits output");
+    stale_dc.acknowledge_pending_delta();
+    let runtime_before_stale = stale_dc.runtime.clone();
+    let fault = match stale_dc.dispatch_create_dib_section(
+        0x4701_ffff,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected stale-DC CreateDIBSection fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "device-context-handle-unknown");
+    assert_eq!(stale_dc.runtime, runtime_before_stale);
+    assert_eq!(
+        stale_dc
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("preserved stale-DC bits output"),
+        0xcafe_babe_u32.to_le_bytes()
+    );
 }
 
 #[test]
@@ -1050,6 +1684,26 @@ fn assert_create_font_fault_atomic(
     );
 }
 
+fn primary_bitmap_info() -> Vec<u8> {
+    let mut bytes = vec![0; X86_DIB_BITMAPINFO_BYTE_LENGTH];
+    bytes[0..4].copy_from_slice(&X86_BITMAPINFOHEADER_BYTE_LENGTH.to_le_bytes());
+    bytes[4..8].copy_from_slice(&128_i32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&(-96_i32).to_le_bytes());
+    bytes[12..14].copy_from_slice(&1_u16.to_le_bytes());
+    bytes[14..16].copy_from_slice(&8_u16.to_le_bytes());
+    bytes[32..36].copy_from_slice(&256_u32.to_le_bytes());
+    for (index, color) in bytes[X86_BITMAPINFOHEADER_BYTE_LENGTH as usize..]
+        .chunks_exact_mut(4)
+        .enumerate()
+    {
+        let intensity = u8::try_from(255 - index).expect("256-entry DIB palette");
+        color[0] = intensity;
+        color[1] = intensity;
+        color[2] = intensity;
+    }
+    bytes
+}
+
 fn primary_create_font_arguments() -> [u32; 13] {
     [64, 32, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
 }
@@ -1155,9 +1809,9 @@ fn endpoint(
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {
     let mut memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 4,
-        max_regions: 2,
-        max_owners: 2,
+        max_physical_pages: 8,
+        max_regions: 3,
+        max_owners: 3,
         max_access_bytes: 0x4000,
     })
     .expect("memory");

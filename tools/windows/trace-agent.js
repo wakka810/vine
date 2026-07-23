@@ -9824,7 +9824,7 @@ function maybeCompleteFontObjectObservation(generation) {
   }
   fontObjectCompletionRecorded = true;
   emit("font-object-complete", {
-    profile: "x86-bgi-gdi-font-object-lifecycle-v2",
+    profile: "x86-bgi-gdi-font-object-lifecycle-v3",
     mainModuleCalls: fontObjectMainModuleCalls,
     oracle: fontObjectOracleEvidence,
   });
@@ -10262,6 +10262,7 @@ function scheduleFontObjectOracle(module) {
       const selectObjectAddress = findExport(module, "SelectObject");
       const deleteObjectAddress = findExport(module, "DeleteObject");
       const createCompatibleDcAddress = findExport(module, "CreateCompatibleDC");
+      const createDibSectionAddress = findExport(module, "CreateDIBSection");
       const deleteDcAddress = findExport(module, "DeleteDC");
       const getCurrentObjectAddress = findExport(module, "GetCurrentObject");
       const getObjectTypeAddress = findExport(module, "GetObjectType");
@@ -10274,6 +10275,7 @@ function scheduleFontObjectOracle(module) {
         selectObjectAddress === null ||
         deleteObjectAddress === null ||
         createCompatibleDcAddress === null ||
+        createDibSectionAddress === null ||
         deleteDcAddress === null ||
         getCurrentObjectAddress === null ||
         getObjectTypeAddress === null ||
@@ -10327,6 +10329,12 @@ function scheduleFontObjectOracle(module) {
         ["pointer"],
         "stdcall",
       );
+      const createDibSection = new SystemFunction(
+        createDibSectionAddress,
+        "pointer",
+        ["pointer", "pointer", "uint32", "pointer", "pointer", "uint32"],
+        "stdcall",
+      );
       const deleteDc = new SystemFunction(
         deleteDcAddress,
         "int32",
@@ -10364,6 +10372,7 @@ function scheduleFontObjectOracle(module) {
           const systemResult =
             api === "CreateFontA" ||
             api === "CreateCompatibleDC" ||
+            api === "CreateDIBSection" ||
             api === "SelectObject"
               ? outcome.value.toString()
               : Number(outcome.value);
@@ -10538,8 +10547,237 @@ function scheduleFontObjectOracle(module) {
         deleteObjectVariant,
       ];
 
+      const dibMemoryDcCreated = invoke(
+        "dib-create-compatible-dc",
+        "CreateCompatibleDC",
+        0xf0f1f2f3,
+        () => createCompatibleDc(ptr(0)),
+      );
+      if (dibMemoryDcCreated.systemResult === "0x0") {
+        throw new Error("DIB section oracle CreateCompatibleDC returned NULL");
+      }
+      const dibMemoryDc = ptr(dibMemoryDcCreated.systemResult);
+      const dibInfoBytes = 40 + 256 * 4;
+      const dibInfo = Memory.alloc(dibInfoBytes);
+      dibInfo.writeU32(40);
+      dibInfo.add(4).writeS32(128);
+      dibInfo.add(8).writeS32(-96);
+      dibInfo.add(12).writeU16(1);
+      dibInfo.add(14).writeU16(8);
+      dibInfo.add(16).writeU32(0);
+      dibInfo.add(20).writeU32(0);
+      dibInfo.add(24).writeS32(0);
+      dibInfo.add(28).writeS32(0);
+      dibInfo.add(32).writeU32(256);
+      dibInfo.add(36).writeU32(0);
+      const paletteBytes = [];
+      for (let index = 0; index < 256; index += 1) {
+        const gray = 255 - index;
+        paletteBytes.push(gray, gray, gray, 0);
+      }
+      dibInfo.add(40).writeByteArray(paletteBytes);
+
+      const snapshotAddressRange = (address, byteLength) => {
+        const range = Process.findRangeByAddress(address);
+        if (range === null) {
+          return {
+            address: address.toString(),
+            mapped: false,
+          };
+        }
+        return {
+          address: address.toString(),
+          mapped: true,
+          rangeBase: range.base.toString(),
+          rangeSize: range.size,
+          protection: range.protection,
+          bytes: snapshotBoundedRawBytes(
+            address,
+            Math.min(byteLength, 64),
+            64,
+          ),
+        };
+      };
+      const dibBitsOutput = Memory.alloc(Process.pointerSize);
+      const dibBitsSentinel = ptr("0x13572468");
+      dibBitsOutput.writePointer(dibBitsSentinel);
+      const dibCreated = invoke(
+        "dib-create",
+        "CreateDIBSection",
+        0x10111213,
+        () =>
+          createDibSection(
+            dibMemoryDc,
+            dibInfo,
+            0,
+            dibBitsOutput,
+            ptr(0),
+            0,
+          ),
+      );
+      const dibBitsAfterCreate = dibBitsOutput.readPointer();
+      if (dibCreated.systemResult === "0x0" || dibBitsAfterCreate.isNull()) {
+        throw new Error("DIB section oracle CreateDIBSection returned NULL");
+      }
+      const dib = ptr(dibCreated.systemResult);
+      const dibSnapshot = {
+        handle: dib,
+        bits: dibBitsAfterCreate,
+        bitmapInfo: snapshotDibBitmapInfo(dibInfo),
+      };
+      const dibPixelPlaneAfterCreate = snapshotDibPixelPlane(dibSnapshot).evidence;
+      const dibBackingAfterCreate = snapshotAddressRange(dibBitsAfterCreate, 64);
+
+      const dibObjectStorage = Memory.alloc(32);
+      dibObjectStorage.writeByteArray(Array(32).fill(0xa5));
+      const dibObject = dibObjectStorage.add(4);
+      const dibGetObject = invoke(
+        "dib-get-object",
+        "GetObjectA",
+        0x20212223,
+        () => getObjectA(dib, 24, dibObject),
+      );
+      const dibObjectStorageAfter = snapshotBoundedRawBytes(
+        dibObjectStorage,
+        32,
+        32,
+      );
+      const dibSelected = invoke(
+        "dib-select",
+        "SelectObject",
+        0x30313233,
+        () => selectObject(dibMemoryDc, dib),
+      );
+      if (
+        dibSelected.systemResult === "0x0" ||
+        dibSelected.systemResult === "0xffffffff"
+      ) {
+        throw new Error("DIB section oracle SelectObject did not return a prior object");
+      }
+      const dibDeleteWhileSelected = invoke(
+        "dib-delete-selected",
+        "DeleteObject",
+        0x40414243,
+        () => deleteObject(dib),
+      );
+      const dibTypeAfterSelectedDelete = Number(getObjectType(dib).value);
+      const dibBackingAfterSelectedDelete = snapshotAddressRange(
+        dibBitsAfterCreate,
+        64,
+      );
+      const dibRestored = invoke(
+        "dib-restore",
+        "SelectObject",
+        0x50515253,
+        () => selectObject(dibMemoryDc, ptr(dibSelected.systemResult)),
+      );
+      const dibTypeAfterRestore = Number(getObjectType(dib).value);
+      const dibBackingAfterRestore = snapshotAddressRange(dibBitsAfterCreate, 64);
+      const dibDeletedAfterRestore = invoke(
+        "dib-delete-restored",
+        "DeleteObject",
+        0x60616263,
+        () => deleteObject(dib),
+      );
+      const dibRepeatedDelete = invoke(
+        "dib-delete-repeat",
+        "DeleteObject",
+        0x70717273,
+        () => deleteObject(dib),
+      );
+      const dibTypeAfterDelete = Number(getObjectType(dib).value);
+      const dibBackingAfterDelete = snapshotAddressRange(dibBitsAfterCreate, 64);
+      dibObjectStorage.writeByteArray(Array(32).fill(0xa5));
+      const dibStaleGetObject = invoke(
+        "dib-get-object-stale",
+        "GetObjectA",
+        0x80818283,
+        () => getObjectA(dib, 24, dibObject),
+      );
+      const dibStaleObjectStorageAfter = snapshotBoundedRawBytes(
+        dibObjectStorage,
+        32,
+        32,
+      );
+
+      const invalidHdcBitsOutput = Memory.alloc(Process.pointerSize);
+      const invalidHdcBitsSentinel = ptr("0x24681357");
+      invalidHdcBitsOutput.writePointer(invalidHdcBitsSentinel);
+      const dibInvalidHdc = invoke(
+        "dib-create-deleted-hdc",
+        "CreateDIBSection",
+        0x90919293,
+        () =>
+          createDibSection(
+            firstMemoryDc,
+            dibInfo,
+            0,
+            invalidHdcBitsOutput,
+            ptr(0),
+            0,
+          ),
+      );
+      const invalidHdcBitsAfter = invalidHdcBitsOutput.readPointer();
+      let invalidHdcCleanup = null;
+      if (dibInvalidHdc.systemResult !== "0x0") {
+        const cleanup = deleteObject(ptr(dibInvalidHdc.systemResult));
+        invalidHdcCleanup = {
+          result: Number(cleanup.value),
+          lastError: Number(cleanup.lastError) >>> 0,
+        };
+      }
+
+      const malformedDibInfo = Memory.alloc(40);
+      malformedDibInfo.writeByteArray(Array(40).fill(0));
+      const malformedBitsOutput = Memory.alloc(Process.pointerSize);
+      const malformedBitsSentinel = ptr("0x369c258b");
+      malformedBitsOutput.writePointer(malformedBitsSentinel);
+      const dibMalformedHeader = invoke(
+        "dib-create-malformed-header",
+        "CreateDIBSection",
+        0xa0a1a2a3,
+        () =>
+          createDibSection(
+            dibMemoryDc,
+            malformedDibInfo,
+            0,
+            malformedBitsOutput,
+            ptr(0),
+            0,
+          ),
+      );
+      const malformedBitsAfter = malformedBitsOutput.readPointer();
+      let malformedCleanup = null;
+      if (dibMalformedHeader.systemResult !== "0x0") {
+        const cleanup = deleteObject(ptr(dibMalformedHeader.systemResult));
+        malformedCleanup = {
+          result: Number(cleanup.value),
+          lastError: Number(cleanup.lastError) >>> 0,
+        };
+      }
+      const dibMemoryDcDeleted = invoke(
+        "dib-delete-compatible-dc",
+        "DeleteDC",
+        0xb0b1b2b3,
+        () => deleteDc(dibMemoryDc),
+      );
+      const dibCalls = [
+        dibMemoryDcCreated,
+        dibCreated,
+        dibGetObject,
+        dibSelected,
+        dibDeleteWhileSelected,
+        dibRestored,
+        dibDeletedAfterRestore,
+        dibRepeatedDelete,
+        dibStaleGetObject,
+        dibInvalidHdc,
+        dibMalformedHeader,
+        dibMemoryDcDeleted,
+      ];
+
       fontObjectOracleEvidence = {
-        profile: "x86-create-font-a-object-lifecycle-v2",
+        profile: "x86-create-font-a-object-lifecycle-v3",
         arguments: {
           height: 64,
           width: 32,
@@ -10611,6 +10849,38 @@ function scheduleFontObjectOracle(module) {
             (call) => call.hookResultMatches,
           ),
           allHookAndSystemLastErrorsMatch: compatibleDcCalls.every(
+            (call) => call.hookAndSystemLastErrorMatch,
+          ),
+        },
+        dibSection: {
+          profile: "x86-create-dib-section-8bpp-lifecycle-v1",
+          bitmapInfo: snapshotDibBitmapInfo(dibInfo),
+          calls: dibCalls,
+          bitsOutputSentinel: dibBitsSentinel.toString(),
+          bitsOutputAfterCreate: dibBitsAfterCreate.toString(),
+          pixelPlaneAfterCreate: dibPixelPlaneAfterCreate,
+          backingAfterCreate: dibBackingAfterCreate,
+          objectStorageAfter: dibObjectStorageAfter,
+          selectedPreviousObject: dibSelected.systemResult,
+          deleteWhileSelectedResult: dibDeleteWhileSelected.systemResult,
+          typeAfterSelectedDelete: dibTypeAfterSelectedDelete,
+          backingAfterSelectedDelete: dibBackingAfterSelectedDelete,
+          restoredDibObject: dibRestored.systemResult,
+          typeAfterRestore: dibTypeAfterRestore,
+          backingAfterRestore: dibBackingAfterRestore,
+          deleteAfterRestoreResult: dibDeletedAfterRestore.systemResult,
+          repeatedDeleteResult: dibRepeatedDelete.systemResult,
+          typeAfterDelete: dibTypeAfterDelete,
+          backingAfterDelete: dibBackingAfterDelete,
+          staleObjectStorageAfter: dibStaleObjectStorageAfter,
+          invalidHdcBitsOutputSentinel: invalidHdcBitsSentinel.toString(),
+          invalidHdcBitsOutputAfter: invalidHdcBitsAfter.toString(),
+          invalidHdcCleanup,
+          malformedBitsOutputSentinel: malformedBitsSentinel.toString(),
+          malformedBitsOutputAfter: malformedBitsAfter.toString(),
+          malformedCleanup,
+          allHookResultsMatch: dibCalls.every((call) => call.hookResultMatches),
+          allHookAndSystemLastErrorsMatch: dibCalls.every(
             (call) => call.hookAndSystemLastErrorMatch,
           ),
         },

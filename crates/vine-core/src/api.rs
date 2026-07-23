@@ -23,14 +23,14 @@ use crate::runtime::{
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeAudioDevice,
     RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
-    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeDynamicEndpoint,
-    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution,
-    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowId,
+    RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
+    RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject, RuntimeGuestImport,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHeapAllocation,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -1048,6 +1048,27 @@ impl<'a> ExecutionSession<'a> {
         request: RuntimeCreateThreadRequest,
     ) -> Result<RuntimeCreateThreadResult, RuntimeStateError> {
         self.runtime.create_guest_thread(self.memory, request)
+    }
+
+    pub fn create_gdi_dib_section(
+        &mut self,
+        device_context_handle: u32,
+        descriptor: RuntimeGdiDibSectionDescriptor,
+        bits_output: GuestAddress,
+    ) -> Result<(RuntimeCreateDibSectionResult, GuestWriteResult), RuntimeStateError> {
+        self.runtime.create_gdi_dib_section(
+            self.memory,
+            device_context_handle,
+            descriptor,
+            bits_output,
+        )
+    }
+
+    pub fn delete_gdi_object(
+        &mut self,
+        object_handle: u32,
+    ) -> Result<RuntimeGdiObject, RuntimeStateError> {
+        self.runtime.delete_gdi_object(self.memory, object_handle)
     }
 
     pub fn begin_guest_callback(

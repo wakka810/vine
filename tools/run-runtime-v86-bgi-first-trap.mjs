@@ -168,6 +168,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-font-enumeration",
         "gdi-font-creation",
         "gdi-compatible-dc",
+        "gdi-dib-lifecycle",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -255,6 +256,7 @@ assert(
       "gdi-font-enumeration",
       "gdi-font-creation",
       "gdi-compatible-dc",
+      "gdi-dib-lifecycle",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -306,6 +308,7 @@ if (
     "gdi-font-enumeration",
     "gdi-font-creation",
     "gdi-compatible-dc",
+    "gdi-dib-lifecycle",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -326,6 +329,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "gdi-font-enumeration",
       "gdi-font-creation",
       "gdi-compatible-dc",
+      "gdi-dib-lifecycle",
     ].includes(genericRuntimeCapability)
       ? "kernel32-set-thread-priority-v1.json"
       : genericRuntimeCapability === "kernel32-create-thread"
@@ -489,7 +493,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const compatibleDcEnabled = genericRuntimeCapability === "gdi-compatible-dc";
+const dibLifecycleEnabled = genericRuntimeCapability === "gdi-dib-lifecycle";
+const compatibleDcEnabled =
+  dibLifecycleEnabled || genericRuntimeCapability === "gdi-compatible-dc";
 const fontCreationEnabled =
   compatibleDcEnabled || genericRuntimeCapability === "gdi-font-creation";
 const fontEnumerationEnabled =
@@ -757,7 +763,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? compatibleDcEnabled
+      ? dibLifecycleEnabled
+      ? "v86-bgi-dib-lifecycle"
+      : compatibleDcEnabled
       ? "v86-bgi-compatible-dc"
       : fontCreationEnabled
       ? "v86-bgi-font-creation"
@@ -4759,6 +4767,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (dibLifecycleEnabled) {
+        validateDibLifecycleResult(genericResult);
       } else if (compatibleDcEnabled) {
         validateCompatibleDcResult(genericResult);
       } else if (fontCreationEnabled) {
@@ -4966,6 +4976,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dibLifecycleEnabled
+          ? "bgi DIB section and GDI object lifecycle"
           : compatibleDcEnabled
           ? "bgi NULL-screen compatible memory DC creation"
           : fontCreationEnabled
@@ -6233,6 +6245,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : dibLifecycleEnabled
+          ? 88
         : compatibleDcEnabled
           ? 84
         : fontCreationEnabled
@@ -6419,7 +6433,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-memory-dc-v3",
+      "gdi32-primary-cp932-dib-lifecycle-v4",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -6766,6 +6780,7 @@ function applyRuntimeHostDelta(context, delta) {
       operation.regionKind === 9 && !callbackScratchOperation;
     const graphicsResourceOperation = operation.regionKind === 11;
     const audioResourceOperation = operation.regionKind === 12;
+    const gdiResourceOperation = operation.regionKind === 13;
     const guestThreadStackOperation = operation.regionKind === 2;
     const guestThreadEnvironmentOperation = operation.regionKind === 3;
     if (guestThreadStackOperation || guestThreadEnvironmentOperation) {
@@ -6822,6 +6837,16 @@ function applyRuntimeHostDelta(context, delta) {
       assert(0x4500_0000 <= operation.address && end <= 0x4600_0000);
       assert.equal(operation.byteLength, 22 * page.size);
     }
+    if (gdiResourceOperation) {
+      assert(
+        dibLifecycleEnabled,
+        "gdi-resource mapping requires the DIB lifecycle capability",
+      );
+      assert.equal(operation.address % page.size, 0);
+      assert.equal(operation.byteLength % page.size, 0);
+      assert(0x4400_0000 <= operation.address && end <= 0x4500_0000);
+      assert.equal(operation.byteLength, 3 * page.size);
+    }
     if (operation.operation === 1) {
       const callbackScratchReserve =
         operation.regionKind === 9 &&
@@ -6834,6 +6859,7 @@ function applyRuntimeHostDelta(context, delta) {
             comBackingOperation) ||
           graphicsResourceOperation ||
           audioResourceOperation ||
+          gdiResourceOperation ||
           guestThreadStackOperation ||
           guestThreadEnvironmentOperation,
         "runtime host reserve has no enabled subsystem owner",
@@ -14940,6 +14966,316 @@ function validateSetThreadPriorityResult(result) {
   ]);
 }
 
+function validateDibLifecycleResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_618);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.writebacks.length, 18_674);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_589,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_948_065,
+  );
+  assert.equal(result.hostDeltas.length, 17_300);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_547);
+
+  const createCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "CreateDIBSection" && call.returnAddress === 0x1002_c8c5,
+  );
+  assert.equal(createCalls.length, 1, "unexpected primary DIB creation completion count");
+  const create = createCalls[0];
+  assert.equal(create.sequence, 18_614);
+  assert.equal(create.occurrence, 1);
+  assert.equal(create.trapInstructionCount, 11_960_150);
+  assert.deepEqual(create.arguments, [
+    0x4701_0004,
+    0x2013_a250,
+    0,
+    0x006f_fef4,
+    0,
+    0,
+  ]);
+  assert.equal(
+    create.implementationId,
+    "gdi32.create-dib-section.primary-8bpp.v1",
+  );
+  assert.deepEqual(create.result, { action: "set", value: 0x4702_0005 });
+  assert.equal(create.returnAddress, 0x1002_c8c5);
+  assert.equal(create.stackPointerAfter - create.stackPointerBefore, 28);
+  assert.equal(create.lastError, 0);
+  assert.deepEqual(create.guestWrites, [
+    {
+      address: 0x006f_fef4,
+      bytes: [0x00, 0x10, 0x00, 0x44],
+      result: {
+        bytesWritten: 4,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 36_540,
+          dataTlb: true,
+          instructionFetch: true,
+          generatedCode: true,
+        },
+      },
+    },
+  ]);
+  assert.equal(create.gdi.action, "dib-section-created");
+  assert.equal(create.gdi.object.id, 5);
+  assert.equal(create.gdi.object.handle, 0x4702_0005);
+  assert.equal(create.gdi.object.namespace, "vine.logical-gdi-object.v1");
+  assert.equal(create.gdi.object.shared, false);
+  assert.equal(create.gdi.object.object.kind, "dib-section");
+  const descriptor = create.gdi.object.object.descriptor;
+  assert.deepEqual(
+    {
+      width: descriptor.width,
+      height: descriptor.height,
+      planes: descriptor.planes,
+      bitsPerPixel: descriptor.bitsPerPixel,
+      compression: descriptor.compression,
+      strideBytes: descriptor.strideBytes,
+      pixelByteLength: descriptor.pixelByteLength,
+    },
+    {
+      width: 128,
+      height: -96,
+      planes: 1,
+      bitsPerPixel: 8,
+      compression: 0,
+      strideBytes: 128,
+      pixelByteLength: 12_288,
+    },
+  );
+  assert.equal(descriptor.palette.length, 256);
+  descriptor.palette.forEach((entry, index) => {
+    assert.deepEqual(entry, {
+      blue: 255 - index,
+      green: 255 - index,
+      red: 255 - index,
+      reserved: 0,
+    });
+  });
+  assert.deepEqual(create.gdi.object.object.backing, {
+    addressAllocationId: 59,
+    memoryOwner: 29,
+    range: { start: 0x4400_1000, byteLength: 12_288 },
+  });
+  assert.equal(create.gdi.addressAllocation.id, 59);
+  assert.equal(create.gdi.addressAllocation.parentId, 39);
+  assert.deepEqual(create.gdi.addressAllocation.purpose, { kind: "gdi-resource" });
+  assert.equal(create.gdi.addressAllocation.owner, "runtime-gdi-resource");
+  assert.deepEqual(create.gdi.addressAllocation.range, {
+    base: 0x4400_1000,
+    byteLength: 12_288,
+  });
+  assert.equal(create.gdi.addressAllocation.usableByteLength, 12_288);
+  assert.equal(create.gdi.addressAllocation.alignment, 4_096);
+  assert.equal(create.gdi.addressAllocation.guardPages, 0);
+  assert.equal(create.gdi.addressAllocation.classification, "graphics");
+  assert.equal(create.gdi.addressAllocation.lifetime, "object");
+  assert.equal(create.gdi.addressAllocation.releasePolicy, "explicit");
+  assert.equal(create.gdi.addressAllocation.executable, false);
+  assert.equal(create.gdi.liveObjects, 5);
+  assert.deepEqual(
+    result.hostDeltas.find(({ sequence }) => sequence === create.sequence),
+    {
+      sequence: 18_614,
+      fromGeneration: 36_537,
+      generation: 36_540,
+      mappingOperations: 2,
+      dirtyPages: [
+        { address: 0x006f_f000, owner: 4 },
+        { address: 0x4400_1000, owner: 29 },
+        { address: 0x4400_2000, owner: 29 },
+        { address: 0x4400_3000, owner: 29 },
+      ],
+      controlBytes: 200,
+      payloadBytes: 16_384,
+      payloadSha256:
+        "fcd36d346f9edd7098ec07a2d73a83319e75c08e9ac1c9ded494bf2470dcabe2",
+      cacheEffects: {
+        flushTlb: true,
+        invalidateInstructionFetch: true,
+        invalidateGeneratedCode: true,
+      },
+    },
+  );
+
+  const getObjectCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "GetObjectA",
+  );
+  assert.equal(getObjectCalls.length, 1, "unexpected primary GetObjectA completion count");
+  const getObject = getObjectCalls[0];
+  assert.equal(getObject.sequence, 18_616);
+  assert.equal(getObject.occurrence, 1);
+  assert.equal(getObject.trapInstructionCount, 11_960_180);
+  assert.deepEqual(getObject.arguments, [0x4702_0005, 24, 0x006f_fd78]);
+  assert.equal(getObject.implementationId, "gdi32.get-object-a.font-or-dib.v1");
+  assert.deepEqual(getObject.result, { action: "set", value: 24 });
+  assert.equal(getObject.returnAddress, 0x1002_c8e7);
+  assert.equal(getObject.stackPointerAfter - getObject.stackPointerBefore, 16);
+  assert.equal(getObject.lastError, 0);
+  assert.deepEqual(getObject.guestWrites, [
+    {
+      address: 0x006f_fd78,
+      bytes: [
+        0, 0, 0, 0,
+        128, 0, 0, 0,
+        96, 0, 0, 0,
+        128, 0, 0, 0,
+        1, 0, 8, 0,
+        0, 0x10, 0, 0x44,
+      ],
+      result: {
+        bytesWritten: 24,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 36_544,
+          dataTlb: false,
+          instructionFetch: false,
+          generatedCode: false,
+        },
+      },
+    },
+  ]);
+  assert.equal(getObject.gdi.action, "object-bytes-read");
+  assert.equal(getObject.gdi.handle, 0x4702_0005);
+  assert.equal(getObject.gdi.byteLength, 24);
+  assert.equal(getObject.gdi.object.handle, 0x4702_0005);
+  assert.equal(getObject.gdi.liveObjects, 5);
+
+  const selections = result.supportedCalls.filter(
+    (call) => call.symbol === "SelectObject",
+  );
+  assert.equal(selections.length, 2, "unexpected primary SelectObject completion count");
+  assert.deepEqual(
+    selections.map((call) => ({
+      sequence: call.sequence,
+      occurrence: call.occurrence,
+      implementationId: call.implementationId,
+      result: call.result,
+      trapInstructionCount: call.trapInstructionCount,
+      arguments: call.arguments,
+      returnAddress: call.returnAddress,
+      stackGrowth: call.stackPointerAfter - call.stackPointerBefore,
+      lastError: call.lastError,
+      guestWrites: call.guestWrites,
+      action: call.gdi.action,
+      selectedHandle: call.gdi.selectedObject.handle,
+      previousHandle: call.gdi.previousObject.handle,
+      selectedFontId: call.gdi.deviceContext.selectedFontId,
+      selectedBitmapId: call.gdi.deviceContext.selectedBitmapId,
+      selectionGeneration: call.gdi.deviceContext.selectionGeneration,
+      liveObjects: call.gdi.liveObjects,
+    })),
+    [
+      {
+        sequence: 18_617,
+        occurrence: 1,
+        implementationId: "gdi32.select-object.memory-font-bitmap.v1",
+        result: { action: "set", value: 0x4702_0004 },
+        trapInstructionCount: 11_960_192,
+        arguments: [0x4701_0004, 0x4702_0005],
+        returnAddress: 0x1002_c90c,
+        stackGrowth: 12,
+        lastError: 0,
+        guestWrites: [],
+        action: "object-selected",
+        selectedHandle: 0x4702_0005,
+        previousHandle: 0x4702_0004,
+        selectedFontId: 3,
+        selectedBitmapId: 5,
+        selectionGeneration: 1,
+        liveObjects: 5,
+      },
+      {
+        sequence: 18_618,
+        occurrence: 2,
+        implementationId: "gdi32.select-object.memory-font-bitmap.v1",
+        result: { action: "set", value: 0x4702_0003 },
+        trapInstructionCount: 11_960_199,
+        arguments: [0x4701_0004, 0x4702_0002],
+        returnAddress: 0x1002_c922,
+        stackGrowth: 12,
+        lastError: 0,
+        guestWrites: [],
+        action: "object-selected",
+        selectedHandle: 0x4702_0002,
+        previousHandle: 0x4702_0003,
+        selectedFontId: 2,
+        selectedBitmapId: 5,
+        selectionGeneration: 2,
+        liveObjects: 5,
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.supportedCalls.slice(-6).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_613, symbol: "CreateCompatibleDC", occurrence: 1 },
+      { sequence: 18_614, symbol: "CreateDIBSection", occurrence: 1 },
+      { sequence: 18_615, symbol: "HeapFree", occurrence: 10 },
+      { sequence: 18_616, symbol: "GetObjectA", occurrence: 1 },
+      { sequence: 18_617, symbol: "SelectObject", occurrence: 1 },
+      { sequence: 18_618, symbol: "SelectObject", occurrence: 2 },
+    ],
+  );
+
+  assert.equal(result.fault.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 259);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_1020);
+  assert.equal(result.fault.endpoint.endpoint.module, "gdi32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetOutlineTextMetricsA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1098);
+  assert.equal(result.fault.memory.physicalPages, 1_021);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b90c095742be75c1d751865978199540e5f2bfbe4ff25844a03d4fa5f4fb5d50",
+  );
+  assert.equal(result.terminal.instructionCount, 11_960_243);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 259);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_1020);
+  assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "GetOutlineTextMetricsA");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c51f);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1002_c51f,
+    0x4701_0004,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+  ]);
+}
+
 function validateCompatibleDcResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -18280,10 +18616,34 @@ function buildGenericRuntimeReentryReport({
   if (compatibleDcEnabled) {
     assert(compatibleDcCall, "compatible DC report summary has no primary call");
   }
+  const dibCreateCall = dibLifecycleEnabled
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "CreateDIBSection" && call.returnAddress === 0x1002_c8c5,
+      )
+    : null;
+  const dibGetObjectCall = dibLifecycleEnabled
+    ? genericResult.supportedCalls.find((call) => call.symbol === "GetObjectA")
+    : null;
+  const dibCreateDelta = dibLifecycleEnabled
+    ? genericResult.hostDeltas.find(
+        (delta) => delta.sequence === dibCreateCall?.sequence,
+      )
+    : null;
+  const dibSelectionCalls = dibLifecycleEnabled
+    ? genericResult.supportedCalls.filter((call) => call.symbol === "SelectObject")
+    : [];
+  if (dibLifecycleEnabled) {
+    assert(dibCreateCall, "DIB lifecycle report summary has no creation call");
+    assert(dibGetObjectCall, "DIB lifecycle report summary has no GetObjectA call");
+    assert(dibCreateDelta, "DIB lifecycle report summary has no creation delta");
+    assert.equal(dibSelectionCalls.length, 2, "DIB lifecycle summary requires two selections");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dibLifecycleEnabled
+        ? "vine.v86-bgi-gdi-dib-lifecycle"
         : compatibleDcEnabled
         ? "vine.v86-bgi-gdi-compatible-dc"
         : fontCreationEnabled
@@ -18602,6 +18962,20 @@ function buildGenericRuntimeReentryReport({
             call: compatibleDcCall,
             stateAuthority: "runtime-gdi-logical-memory-dc",
             browserDeviceContextCreated: false,
+          },
+        }
+      : {}),
+    ...(dibLifecycleEnabled
+      ? {
+          dibLifecycle: {
+            create: dibCreateCall,
+            creationDelta: dibCreateDelta,
+            getObject: dibGetObjectCall,
+            selections: dibSelectionCalls,
+            objectAuthority: "runtime-gdi-logical-object",
+            byteAuthority: "rust-guest-memory",
+            addressAuthority: "runtime-process-address-space",
+            browserBitmapResourceCreated: false,
           },
         }
       : {}),

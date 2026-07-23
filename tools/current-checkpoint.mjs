@@ -314,8 +314,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v8") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v8");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v9") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v9");
   }
   if (
     browser.executionEngineProfile !==
@@ -899,6 +899,31 @@ export function validateCurrentCheckpoint(manifest) {
     "compatibleDcLiveObjects",
     "compatibleDcNodeCompletions",
     "compatibleDcChromeCompletions",
+    "dibCreateCompletions",
+    "dibCreateSequence",
+    "dibCreateInstructionCount",
+    "dibCreateLastError",
+    "dibCreateGuestWriteBytes",
+    "dibObjectId",
+    "dibPaletteEntries",
+    "dibBackingBytes",
+    "dibBackingAddressAllocationId",
+    "dibBackingMemoryOwner",
+    "dibCreateDeltaFromGeneration",
+    "dibCreateDeltaGeneration",
+    "dibCreateDeltaMappingOperations",
+    "dibCreateDeltaDirtyPages",
+    "dibCreateDeltaPayloadBytes",
+    "dibGetObjectCompletions",
+    "dibGetObjectSequence",
+    "dibGetObjectInstructionCount",
+    "dibGetObjectResult",
+    "dibGetObjectLastError",
+    "dibGetObjectGuestWriteBytes",
+    "dibSelectCompletions",
+    "dibSelectGuestWriteBytes",
+    "dibNodeCompletions",
+    "dibChromeCompletions",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -936,6 +961,7 @@ export function validateCurrentCheckpoint(manifest) {
     "d3d9GetDeviceCapsOutputSha256",
     "d3d9CreateVertexBufferInitialContentSha256",
     "d3d9VertexBufferUnlockContentSha256",
+    "dibCreateDeltaPayloadSha256",
   ]) {
     requireSha256(
       bgiBrowserEvidence[field],
@@ -960,17 +986,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 19 ||
-    bgiMappingOperations.commit !== 70 ||
+    bgiMappingOperations.reserve !== 20 ||
+    bgiMappingOperations.commit !== 71 ||
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_297 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_813 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_300 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_819 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_072 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_087 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -1821,7 +1847,7 @@ export function validateCurrentCheckpoint(manifest) {
       11_957_981 ||
     bgiBrowserEvidence.fontEnumerationCallbackScratchBytes !== 284 ||
     bgiBrowserEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     bgiBrowserEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     bgiBrowserEvidence.fontEnumerationCharacterSet !== 128 ||
@@ -1861,7 +1887,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.fontCreationImplementationId !==
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     bgiBrowserEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     bgiBrowserEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     bgiBrowserEvidence.fontCreationObjectId !== 2 ||
@@ -1897,7 +1923,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.compatibleDcImplementationId !==
       "gdi32.create-compatible-dc.null-screen-memory.v1" ||
     bgiBrowserEvidence.compatibleDcPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     bgiBrowserEvidence.compatibleDcProfileId !==
       "primary-null-screen-memory-dc-v1" ||
     bgiBrowserEvidence.compatibleDcDeviceContextId !== 4 ||
@@ -1939,6 +1965,91 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.deleteDcReachedBeforeNextStop !== false
   ) {
     errors.push("browser BGI compatible memory-DC evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.dibCreateCompletions !== 1 ||
+    bgiBrowserEvidence.dibCreateSequence !== 18_614 ||
+    bgiBrowserEvidence.dibCreateInstructionCount !== 11_960_150 ||
+    bgiBrowserEvidence.dibCreateArguments?.join(",") !==
+      "0x47010004,0x2013a250,0x00000000,0x006ffef4,0x00000000,0x00000000" ||
+    bgiBrowserEvidence.dibCreateResult !== "0x47020005" ||
+    bgiBrowserEvidence.dibCreateReturnAddress !== "0x1002c8c5" ||
+    bgiBrowserEvidence.dibCreateLastError !== 0 ||
+    bgiBrowserEvidence.dibCreateGuestWriteBytes !== 4 ||
+    bgiBrowserEvidence.dibCreateOutputAddress !== "0x006ffef4" ||
+    bgiBrowserEvidence.dibCreateOutputHex !== "00100044" ||
+    bgiBrowserEvidence.dibCreateImplementationId !==
+      "gdi32.create-dib-section.primary-8bpp.v1" ||
+    bgiBrowserEvidence.dibCreatePolicyId !==
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
+    bgiBrowserEvidence.dibCreateProfileId !==
+      "primary-128x-96-8bpp-reverse-grayscale-v1" ||
+    bgiBrowserEvidence.dibObjectId !== 5 ||
+    bgiBrowserEvidence.dibHandleNamespace !== "vine.logical-gdi-object.v1" ||
+    bgiBrowserEvidence.dibShared !== false ||
+    bgiBrowserEvidence.dibDescriptor?.join(",") !==
+      "128,-96,1,8,0,128,12288" ||
+    bgiBrowserEvidence.dibPaletteEntries !== 256 ||
+    bgiBrowserEvidence.dibPaletteOrder !== "reverse-grayscale-rgbquad" ||
+    bgiBrowserEvidence.dibBackingAddress !== "0x44001000" ||
+    bgiBrowserEvidence.dibBackingBytes !== 12_288 ||
+    bgiBrowserEvidence.dibBackingAddressAllocationId !== 59 ||
+    bgiBrowserEvidence.dibBackingMemoryOwner !== 29 ||
+    bgiBrowserEvidence.dibBackingMemoryRegionKind !== "gdi-resource" ||
+    bgiBrowserEvidence.dibBackingAddressClassification !== "graphics" ||
+    bgiBrowserEvidence.dibBackingAddressLifetime !== "object-explicit-release" ||
+    bgiBrowserEvidence.dibCreateDeltaFromGeneration !== 36_537 ||
+    bgiBrowserEvidence.dibCreateDeltaGeneration !== 36_540 ||
+    bgiBrowserEvidence.dibCreateDeltaMappingOperations !== 2 ||
+    bgiBrowserEvidence.dibCreateDeltaDirtyPages !== 4 ||
+    bgiBrowserEvidence.dibCreateDeltaPayloadBytes !== 16_384 ||
+    bgiBrowserEvidence.dibCreateDeltaPayloadSha256 !==
+      "fcd36d346f9edd7098ec07a2d73a83319e75c08e9ac1c9ded494bf2470dcabe2" ||
+    bgiBrowserEvidence.dibGetObjectCompletions !== 1 ||
+    bgiBrowserEvidence.dibGetObjectSequence !== 18_616 ||
+    bgiBrowserEvidence.dibGetObjectInstructionCount !== 11_960_180 ||
+    bgiBrowserEvidence.dibGetObjectArguments?.join(",") !==
+      "0x47020005,0x00000018,0x006ffd78" ||
+    bgiBrowserEvidence.dibGetObjectResult !== 24 ||
+    bgiBrowserEvidence.dibGetObjectReturnAddress !== "0x1002c8e7" ||
+    bgiBrowserEvidence.dibGetObjectLastError !== 0 ||
+    bgiBrowserEvidence.dibGetObjectGuestWriteBytes !== 24 ||
+    bgiBrowserEvidence.dibGetObjectOutputHex !==
+      "000000008000000060000000800000000100080000100044" ||
+    bgiBrowserEvidence.dibGetObjectImplementationId !==
+      "gdi32.get-object-a.font-or-dib.v1" ||
+    bgiBrowserEvidence.dibSelectCompletions !== 2 ||
+    bgiBrowserEvidence.dibSelectSequences?.join(",") !== "18617,18618" ||
+    bgiBrowserEvidence.dibSelectInstructionCounts?.join(",") !==
+      "11960192,11960199" ||
+    bgiBrowserEvidence.dibSelectHandles?.join(",") !==
+      "0x47020005,0x47020002" ||
+    bgiBrowserEvidence.dibSelectPreviousHandles?.join(",") !==
+      "0x47020004,0x47020003" ||
+    bgiBrowserEvidence.dibSelectReturnAddresses?.join(",") !==
+      "0x1002c90c,0x1002c922" ||
+    bgiBrowserEvidence.dibSelectLastErrors?.join(",") !== "0,0" ||
+    bgiBrowserEvidence.dibSelectGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.dibSelectImplementationId !==
+      "gdi32.select-object.memory-font-bitmap.v1" ||
+    bgiBrowserEvidence.dibSelectionGenerations?.join(",") !== "1,2" ||
+    bgiBrowserEvidence.dibDeleteObjectContractImplemented !== true ||
+    bgiBrowserEvidence.dibDeleteObjectImplementationId !==
+      "gdi32.delete-object.font-or-dib.v1" ||
+    bgiBrowserEvidence.dibDeleteObjectReachedBeforeNextStop !== false ||
+    bgiBrowserEvidence.dibObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    bgiBrowserEvidence.dibByteAuthority !== "rust-guest-memory" ||
+    bgiBrowserEvidence.dibAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    bgiBrowserEvidence.dibMutation !==
+      "address-gdi-memory-preflight-targeted-commit" ||
+    bgiBrowserEvidence.dibFailureAtomicity !== true ||
+    bgiBrowserEvidence.dibBrowserBitmapResourceCreated !== false ||
+    bgiBrowserEvidence.dibNodeCompletions !== 4 ||
+    bgiBrowserEvidence.dibChromeCompletions !== 4 ||
+    bgiBrowserEvidence.dibNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("browser BGI DIB-section lifecycle evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -2611,7 +2722,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeAtomicTests
       .filter((test) => test.startsWith("gdi32_dispatcher::"))
       .join(",") !==
-      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically" ||
+      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically,gdi32_dispatcher::dib_object_catalog_exposes_bounded_x86_lifecycle_contracts,gdi32_dispatcher::dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle,gdi32_dispatcher::create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -4968,9 +5079,9 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    gdi.schema !== "vine.runtime-gdi-frontend.v5" ||
+    gdi.schema !== "vine.runtime-gdi-frontend.v6" ||
     gdi.status !==
-      "window-screen-memory-font-enumeration-font-object-and-graphics-surface-dc-slices-implemented-and-verified" ||
+      "window-screen-memory-font-enumeration-font-object-dib-lifecycle-and-graphics-surface-dc-slices-implemented-and-verified" ||
     gdi.stateOwner !== "runtime/gdi.rs::RuntimeGdi" ||
     gdi.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
     gdi.mutableCollectionVisibility !== "private" ||
@@ -5007,9 +5118,9 @@ export function validateCurrentCheckpoint(manifest) {
     gdi.browserFontDiscoveryImported !== false ||
     gdi.fontCreationProfileId !== "primary-cp932-ms-gothic-64x32-thin-v1" ||
     gdi.fontObjectCreationImplemented !== true ||
-    gdi.fontObjectSelectionImplemented !== false ||
-    gdi.fontObjectIntrospectionImplemented !== false ||
-    gdi.fontObjectDeletionImplemented !== false ||
+    gdi.fontObjectSelectionImplemented !== true ||
+    gdi.fontObjectIntrospectionImplemented !== true ||
+    gdi.fontObjectDeletionImplemented !== true ||
     gdi.fontObjectIdentity !== "distinct-monotonic-nonshared-per-create" ||
     gdi.fontObjectState !== "exact-60-byte-logfonta-semantic-fields" ||
     gdi.fontObjectBrowserResourceCreated !== false ||
@@ -5026,9 +5137,29 @@ export function validateCurrentCheckpoint(manifest) {
     gdi.compatibleMemoryDcOwnerRelation !== "creating-thread-exact-delete" ||
     gdi.compatibleMemoryDcSelectionState !==
       "selected-font-id-selected-bitmap-id-generation" ||
-    gdi.compatibleMemoryDcPixelStorageCreated !== false ||
+    gdi.compatibleMemoryDcPixelStorageCreated !== true ||
+    gdi.compatibleMemoryDcPixelStorageOwnership !==
+      "selected-dib-object-guest-memory-backing" ||
     gdi.compatibleMemoryDcBrowserResourceCreated !== false ||
     gdi.compatibleMemoryDcReleaseDcImplemented !== false ||
+    gdi.dibSectionProfileId !==
+      "primary-128x-96-8bpp-reverse-grayscale-v1" ||
+    gdi.dibSectionCreationImplemented !== true ||
+    gdi.dibSectionIntrospectionImplemented !== true ||
+    gdi.dibSectionSelectionImplemented !== true ||
+    gdi.dibSectionDeletionImplemented !== true ||
+    gdi.dibSectionDescriptor?.join(",") !== "128,-96,1,8,0,128,12288" ||
+    gdi.dibSectionPalette !== "256-entry-reverse-grayscale-rgbquad" ||
+    gdi.dibSectionObjectLifetime !== "nonshared-explicit-delete" ||
+    gdi.dibSectionBackingAuthority !== "rust-guest-memory" ||
+    gdi.dibSectionAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    gdi.dibSectionAddressClassification !==
+      "graphics-object-explicit-release" ||
+    gdi.dibSectionMemoryRegionKind !== "gdi-resource" ||
+    gdi.dibSectionSelectedDeletePolicy !==
+      "reject-mutation-free-until-restored" ||
+    gdi.dibSectionBrowserResourceCreated !== false ||
     gdi.graphicsSurfaceOutstandingDeviceContexts !==
       "at-most-one-per-surface" ||
     gdi.graphicsSurfaceDeviceContextRetainsComReference !== false ||
@@ -5061,7 +5192,7 @@ export function validateCurrentCheckpoint(manifest) {
       "RuntimeGraphics-logical-surface-fill-command-history" ||
     gdi.gdiAndDirect3dFrontendsRemainSeparate !== true ||
     gdiImplementedApis.join(",") !==
-      "GetDC,GetStockObject,EnumFontFamiliesExA,CreateFontA,CreateCompatibleDC,DeleteDC,FillRect,ReleaseDC" ||
+      "GetDC,GetStockObject,EnumFontFamiliesExA,CreateFontA,CreateCompatibleDC,CreateDIBSection,GetObjectA,SelectObject,DeleteObject,DeleteDC,FillRect,ReleaseDC" ||
     gdi.generalGdiRenderingClaimed !== false
   ) {
     errors.push("active GDI frontend boundary is invalid");
@@ -5374,7 +5505,7 @@ export function validateCurrentCheckpoint(manifest) {
         addressSpace.heapSlotAllocationCount +
         addressSpace.largeHeapSlotAllocationCount ||
     addressPurposes.join(",") !==
-      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,thread-environment,com-endpoint,graphics-resource-arena,graphics-resource,audio-resource-arena,audio-resource" ||
+      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,thread-environment,com-endpoint,graphics-resource-arena,graphics-resource,gdi-resource,audio-resource-arena,audio-resource" ||
     addressSpace.heapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapAddressAllocationPermanent !== true ||
@@ -5386,6 +5517,9 @@ export function validateCurrentCheckpoint(manifest) {
     addressSpace.graphicsResourceBackingUsesAllocationId !== true ||
     addressSpace.graphicsResourceBatchReservationWithComBacking !== true ||
     addressSpace.graphicsResourceFinalReleaseRetiresAllocation !== true ||
+    addressSpace.gdiResourceBackingUsesAllocationId !== true ||
+    addressSpace.gdiResourceCreationWithGuestOutputAtomic !== true ||
+    addressSpace.gdiResourceDeleteRetiresAllocation !== true ||
     addressSpace.audioResourceArenaBase !== "0x45000000" ||
     addressSpace.audioResourceArenaBytes !== 16 * 1024 * 1024 ||
     addressSpace.audioResourceArenaPermanent !== true ||
@@ -5605,10 +5739,10 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     gdi32Policy.schema !== "vine.gdi32-compatibility-policy" ||
-    gdi32Policy.schemaVersion !== 3 ||
-    gdi32Policy.id !== "gdi32-primary-cp932-memory-dc-v3" ||
+    gdi32Policy.schemaVersion !== 4 ||
+    gdi32Policy.id !== "gdi32-primary-cp932-dib-lifecycle-v4" ||
     gdi32Policy.source !==
-      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v3" ||
+      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v4" ||
     gdi32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     gdi32Policy.enumerationProfileId !==
@@ -5656,6 +5790,26 @@ export function validateCurrentCheckpoint(manifest) {
       "preserve-success-and-failure" ||
     gdi32Policy.compatibleDcHostDeviceContextImported !== false ||
     gdi32Policy.compatibleDcBrowserResourceImported !== false ||
+    gdi32Policy.dibSectionProfileId !==
+      "primary-128x-96-8bpp-reverse-grayscale-v1" ||
+    gdi32Policy.dibSectionHeaderBytes !== 40 ||
+    gdi32Policy.dibSectionWidth !== 128 ||
+    gdi32Policy.dibSectionHeight !== -96 ||
+    gdi32Policy.dibSectionPlanes !== 1 ||
+    gdi32Policy.dibSectionBitsPerPixel !== 8 ||
+    gdi32Policy.dibSectionCompression !== 0 ||
+    gdi32Policy.dibSectionColorsUsed !== 256 ||
+    gdi32Policy.dibSectionPalette !== "reverse-grayscale-rgbquad" ||
+    gdi32Policy.dibSectionStrideBytes !== 128 ||
+    gdi32Policy.dibSectionPixelBytes !== 12_288 ||
+    gdi32Policy.dibSectionUsage !== 0 ||
+    gdi32Policy.dibSectionSectionHandle !== "0x00000000" ||
+    gdi32Policy.dibSectionOffset !== 0 ||
+    gdi32Policy.dibSectionObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    gdi32Policy.dibSectionByteAuthority !== "rust-guest-memory" ||
+    gdi32Policy.dibSectionAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    gdi32Policy.dibSectionBrowserResourceImported !== false ||
     gdi32Policy.failureAtomicity !== true
   ) {
     errors.push("active GDI32 compatibility policy boundary is invalid");
@@ -6452,7 +6606,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdi-compatible-dc.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-gdi-dib-lifecycle.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6914,11 +7068,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_669 ||
-    latestEvidence.writebackDirtyPages !== 37_584 ||
-    latestEvidence.writebackChangedBytes !== 2_947_967 ||
-    latestEvidence.hostDeltaBatches !== 17_297 ||
-    latestEvidence.finalMemoryGeneration !== 36_537
+    latestEvidence.writebackBatches !== 18_674 ||
+    latestEvidence.writebackDirtyPages !== 37_589 ||
+    latestEvidence.writebackChangedBytes !== 2_948_065 ||
+    latestEvidence.hostDeltaBatches !== 17_300 ||
+    latestEvidence.finalMemoryGeneration !== 36_547
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8841,10 +8995,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "7a5429d465517e76d66ba8982448f640b48e654d711ba9d1e35975a7cc78fec6" ||
+      "0ec3628c95c953e17c795d0dfa27cfca876aef037c882e442402cd9bd96c410f" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "2bcba5822cd7c9ec36e4a37a70865bc18411eeae5d3ce88e9fa2f38ce2f79e76" ||
+      "b90c095742be75c1d751865978199540e5f2bfbe4ff25844a03d4fa5f4fb5d50" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -9604,9 +9758,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.enum-font-families-ex-a.cp932-screen.v1" ||
     latestEvidence.fontEnumerationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontEnumerationPolicySchemaVersion !== 3 ||
+    latestEvidence.fontEnumerationPolicySchemaVersion !== 4 ||
     latestEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     latestEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     latestEvidence.fontEnumerationSequence !== 18_609 ||
@@ -9711,9 +9865,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     latestEvidence.fontCreationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontCreationPolicySchemaVersion !== 3 ||
+    latestEvidence.fontCreationPolicySchemaVersion !== 4 ||
     latestEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     latestEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     latestEvidence.fontCreationSequence !== 18_611 ||
@@ -9807,9 +9961,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.deleteDcReachedBeforeNextStop !== false ||
     latestEvidence.compatibleDcPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.compatibleDcPolicySchemaVersion !== 3 ||
+    latestEvidence.compatibleDcPolicySchemaVersion !== 4 ||
     latestEvidence.compatibleDcPolicyId !==
-      "gdi32-primary-cp932-memory-dc-v3" ||
+      "gdi32-primary-cp932-dib-lifecycle-v4" ||
     latestEvidence.compatibleDcProfileId !==
       "primary-null-screen-memory-dc-v1" ||
     latestEvidence.compatibleDcSequence !== 18_613 ||
@@ -9856,6 +10010,157 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.compatibleDcNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest compatible memory-DC evidence is invalid");
+  }
+  for (const field of [
+    "nativeDibLifecyclePrimaryTraceSha256",
+    "nativeDibLifecycleConfirmationTraceSha256",
+    "dibCreateDeltaPayloadSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeDibLifecyclePrimaryTraceBytes !== 624_813 ||
+    latestEvidence.nativeDibLifecyclePrimaryTraceLines !== 155 ||
+    latestEvidence.nativeDibLifecyclePrimaryTraceSha256 !==
+      "7088a2950ad7337d2e08e33134ec3aebda929912e5517a6956cd00ab24709abc" ||
+    latestEvidence.nativeDibLifecycleConfirmationTraceBytes !== 624_940 ||
+    latestEvidence.nativeDibLifecycleConfirmationTraceLines !== 156 ||
+    latestEvidence.nativeDibLifecycleConfirmationTraceSha256 !==
+      "e8ff31fe0e6fdfb6c2115e41ccd0462cac149d6f01c44750b8aff3677787d7a3" ||
+    latestEvidence.nativeDibLifecycleTraceDiagnostics !== 0 ||
+    latestEvidence.nativeDibLifecycleHookErrors !== 0 ||
+    latestEvidence.nativeDibLifecycleProfile !==
+      "x86-bgi-gdi-font-object-lifecycle-v3" ||
+    latestEvidence.nativeDibLifecycleOuterOracleProfile !==
+      "x86-create-font-a-object-lifecycle-v3" ||
+    latestEvidence.nativeDibLifecycleOracleProfile !==
+      "x86-create-dib-section-8bpp-lifecycle-v1" ||
+    latestEvidence.nativeDibLifecycleOrderedApis?.join(",") !==
+      "CreateFontA,CreateCompatibleDC,CreateDIBSection,GetObjectA,SelectObject,SelectObject,GetOutlineTextMetricsA,GetOutlineTextMetricsA,TextOutA,SelectObject,SelectObject,DeleteObject,DeleteObject,DeleteDC" ||
+    latestEvidence.nativeDibCreateCallerReturnRva !== "0x0002c8c5" ||
+    latestEvidence.nativeDibCreateHeaderBytes !== 40 ||
+    latestEvidence.nativeDibCreateDescriptor?.join(",") !==
+      "128,-96,1,8,0,0,0,0,256,0" ||
+    latestEvidence.nativeDibCreateUsage !== 0 ||
+    latestEvidence.nativeDibCreateSectionHandleNull !== true ||
+    latestEvidence.nativeDibCreateOffset !== 0 ||
+    latestEvidence.nativeDibCreateResultNonNull !== true ||
+    latestEvidence.nativeDibCreateBitsNonNull !== true ||
+    latestEvidence.nativeDibCreateLastError !== 0 ||
+    latestEvidence.nativeDibPaletteEntries !== 256 ||
+    latestEvidence.nativeDibPalette !== "reverse-grayscale-rgbquad" ||
+    latestEvidence.nativeDibStrideBytes !== 128 ||
+    latestEvidence.nativeDibPixelBytes !== 12_288 ||
+    latestEvidence.nativeDibInitialPixelsZero !== true ||
+    latestEvidence.nativeDibInitialPixelsFnv1a32 !== "0x52965dc5" ||
+    latestEvidence.nativeDibGetObjectCallerReturnRva !== "0x0002c8e7" ||
+    latestEvidence.nativeDibGetObjectResultBytes !== 24 ||
+    latestEvidence.nativeDibGetObjectBitmapFields?.join(",") !==
+      "0,128,96,128,1,8" ||
+    latestEvidence.nativeDibGetObjectBitsMatchCreateOutput !== true ||
+    latestEvidence.nativeDibGetObjectOutputGuardsUnchanged !== true ||
+    latestEvidence.nativeDibSelectRestoreIdentity !== true ||
+    latestEvidence.nativeDibDeleteAfterRestoreResults?.join(",") !== "1,1" ||
+    latestEvidence.nativeDibStaleGetObjectResult !== 0 ||
+    latestEvidence.nativeDibStaleGetObjectPreservesOutput !== true ||
+    latestEvidence.nativeDibSuccessAndFailurePreserveLastError !== true ||
+    latestEvidence.nativeDibMalformedHeaderResultNull !== true ||
+    latestEvidence.nativeDibMalformedHeaderClearsBitsOutput !== true ||
+    latestEvidence.nativeDibDeletedHdcCreateSucceeded !== true ||
+    latestEvidence.nativeDibDeletedHdcVariantClaimed !== false ||
+    latestEvidence.nativeDibSelectedDeleteResult !== 1 ||
+    latestEvidence.nativeDibSelectedDeleteDeferredLifetimeImported !== false ||
+    latestEvidence.nativeDibExecutableHashUnchanged !== true ||
+    latestEvidence.dibCreateImplemented !== true ||
+    latestEvidence.dibCreateImplementationId !==
+      "gdi32.create-dib-section.primary-8bpp.v1" ||
+    latestEvidence.dibGetObjectImplemented !== true ||
+    latestEvidence.dibGetObjectImplementationId !==
+      "gdi32.get-object-a.font-or-dib.v1" ||
+    latestEvidence.dibSelectImplemented !== true ||
+    latestEvidence.dibSelectImplementationId !==
+      "gdi32.select-object.memory-font-bitmap.v1" ||
+    latestEvidence.dibDeleteObjectImplemented !== true ||
+    latestEvidence.dibDeleteObjectImplementationId !==
+      "gdi32.delete-object.font-or-dib.v1" ||
+    latestEvidence.dibDeleteObjectReachedBeforeNextStop !== false ||
+    latestEvidence.dibPolicySchema !== "vine.gdi32-compatibility-policy" ||
+    latestEvidence.dibPolicySchemaVersion !== 4 ||
+    latestEvidence.dibPolicyId !== "gdi32-primary-cp932-dib-lifecycle-v4" ||
+    latestEvidence.dibProfileId !==
+      "primary-128x-96-8bpp-reverse-grayscale-v1" ||
+    latestEvidence.dibCreateSequence !== 18_614 ||
+    latestEvidence.dibCreateInstructionCount !== 11_960_150 ||
+    latestEvidence.dibCreateArguments?.join(",") !==
+      "0x47010004,0x2013a250,0x00000000,0x006ffef4,0x00000000,0x00000000" ||
+    latestEvidence.dibCreateReturnAddress !== "0x1002c8c5" ||
+    latestEvidence.dibCreateResult !== "0x47020005" ||
+    latestEvidence.dibCreateLastError !== 0 ||
+    latestEvidence.dibCreateGuestWriteBytes !== 4 ||
+    latestEvidence.dibCreateOutputAddress !== "0x006ffef4" ||
+    latestEvidence.dibCreateOutputHex !== "00100044" ||
+    latestEvidence.dibObjectId !== 5 ||
+    latestEvidence.dibHandleNamespace !== "vine.logical-gdi-object.v1" ||
+    latestEvidence.dibShared !== false ||
+    latestEvidence.dibDescriptor?.join(",") !== "128,-96,1,8,0,128,12288" ||
+    latestEvidence.dibPaletteEntries !== 256 ||
+    latestEvidence.dibPalette !== "reverse-grayscale-rgbquad" ||
+    latestEvidence.dibBackingAddress !== "0x44001000" ||
+    latestEvidence.dibBackingBytes !== 12_288 ||
+    latestEvidence.dibBackingAddressAllocationId !== 59 ||
+    latestEvidence.dibBackingMemoryOwner !== 29 ||
+    latestEvidence.dibBackingMemoryRegionKind !== "gdi-resource" ||
+    latestEvidence.dibBackingAddressClassification !== "graphics" ||
+    latestEvidence.dibBackingAddressLifetime !== "object-explicit-release" ||
+    latestEvidence.dibCreateDeltaFromGeneration !== 36_537 ||
+    latestEvidence.dibCreateDeltaGeneration !== 36_540 ||
+    latestEvidence.dibCreateDeltaMappingOperations !== 2 ||
+    latestEvidence.dibCreateDeltaDirtyPages?.join(",") !==
+      "0x006ff000:4,0x44001000:29,0x44002000:29,0x44003000:29" ||
+    latestEvidence.dibCreateDeltaControlBytes !== 200 ||
+    latestEvidence.dibCreateDeltaPayloadBytes !== 16_384 ||
+    latestEvidence.dibCreateDeltaPayloadSha256 !==
+      "fcd36d346f9edd7098ec07a2d73a83319e75c08e9ac1c9ded494bf2470dcabe2" ||
+    latestEvidence.dibGetObjectSequence !== 18_616 ||
+    latestEvidence.dibGetObjectInstructionCount !== 11_960_180 ||
+    latestEvidence.dibGetObjectArguments?.join(",") !==
+      "0x47020005,0x00000018,0x006ffd78" ||
+    latestEvidence.dibGetObjectReturnAddress !== "0x1002c8e7" ||
+    latestEvidence.dibGetObjectResult !== 24 ||
+    latestEvidence.dibGetObjectLastError !== 0 ||
+    latestEvidence.dibGetObjectGuestWriteBytes !== 24 ||
+    latestEvidence.dibGetObjectOutputHex !==
+      "000000008000000060000000800000000100080000100044" ||
+    latestEvidence.dibSelectSequences?.join(",") !== "18617,18618" ||
+    latestEvidence.dibSelectInstructionCounts?.join(",") !==
+      "11960192,11960199" ||
+    latestEvidence.dibSelectHandles?.join(",") !==
+      "0x47020005,0x47020002" ||
+    latestEvidence.dibSelectPreviousHandles?.join(",") !==
+      "0x47020004,0x47020003" ||
+    latestEvidence.dibSelectReturnAddresses?.join(",") !==
+      "0x1002c90c,0x1002c922" ||
+    latestEvidence.dibSelectLastErrors?.join(",") !== "0,0" ||
+    latestEvidence.dibSelectionGenerations?.join(",") !== "1,2" ||
+    latestEvidence.dibObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    latestEvidence.dibByteAuthority !== "rust-guest-memory" ||
+    latestEvidence.dibAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    latestEvidence.dibMutation !==
+      "address-gdi-memory-preflight-targeted-commit" ||
+    latestEvidence.dibFailureAtomicity !== true ||
+    latestEvidence.dibSelectedDeleteRejectedMutationFree !== true ||
+    latestEvidence.dibStaleGetObjectPreservesOutput !== true ||
+    latestEvidence.dibBrowserBitmapResourceCreated !== false ||
+    latestEvidence.dibNodeCompletions !== 4 ||
+    latestEvidence.dibChromeCompletions !== 4 ||
+    latestEvidence.dibNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest bounded DIB-section lifecycle evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",

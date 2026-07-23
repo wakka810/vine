@@ -122,6 +122,7 @@ pub enum ProcessAddressAllocationPurpose {
     ComEndpoint,
     GraphicsResourceArena,
     GraphicsResource,
+    GdiResource,
     AudioResourceArena,
     AudioResource,
     MappedFile,

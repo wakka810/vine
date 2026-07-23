@@ -123,6 +123,7 @@ pub enum MemoryRegionKind {
     Surface,
     GraphicsResource,
     AudioResource,
+    GdiResource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -3572,6 +3573,7 @@ fn memory_region_kind_code(kind: MemoryRegionKind) -> u32 {
         MemoryRegionKind::Surface => 10,
         MemoryRegionKind::GraphicsResource => 11,
         MemoryRegionKind::AudioResource => 12,
+        MemoryRegionKind::GdiResource => 13,
     }
 }
 
