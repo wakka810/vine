@@ -216,6 +216,7 @@ enum GenericRuntimeCapability {
     FontCreation,
     CompatibleDc,
     DibLifecycle,
+    OutlineTextMetrics,
 }
 
 struct GenericRuntimeProcess {
@@ -524,6 +525,15 @@ enum GenericRuntimeGdiCompletion {
         byte_length: u32,
         object: Option<vine_core::RuntimeGdiObject>,
         live_objects: usize,
+    },
+    OutlineTextMetricsRead {
+        device_context: vine_core::RuntimeDeviceContext,
+        selected_font: vine_core::RuntimeGdiObject,
+        profile_id: String,
+        requested_byte_length: u32,
+        returned_byte_length: u32,
+        output_address: u32,
+        written_byte_length: usize,
     },
     ObjectSelected {
         device_context: vine_core::RuntimeDeviceContext,
@@ -2453,6 +2463,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::FontCreation
                     | GenericRuntimeCapability::CompatibleDc
                     | GenericRuntimeCapability::DibLifecycle
+                    | GenericRuntimeCapability::OutlineTextMetrics
             )
         ) {
             let loader = kernel32_policy
@@ -3117,6 +3128,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3134,6 +3146,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let dsound_root_enabled = matches!(
@@ -3150,6 +3163,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3165,6 +3179,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3179,6 +3194,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let requested_capability = match enabled_capability {
@@ -3195,7 +3211,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::FontEnumeration
             | GenericRuntimeCapability::FontCreation
             | GenericRuntimeCapability::CompatibleDc
-            | GenericRuntimeCapability::DibLifecycle,
+            | GenericRuntimeCapability::DibLifecycle
+            | GenericRuntimeCapability::OutlineTextMetrics,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3282,6 +3299,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let font_creation_enabled = matches!(
@@ -3290,15 +3308,24 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     );
     let compatible_dc_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::CompatibleDc | GenericRuntimeCapability::DibLifecycle)
+        Some(
+            GenericRuntimeCapability::CompatibleDc
+                | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
+        )
     );
     let dib_lifecycle_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DibLifecycle)
+        Some(GenericRuntimeCapability::DibLifecycle | GenericRuntimeCapability::OutlineTextMetrics)
+    );
+    let outline_text_metrics_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::OutlineTextMetrics)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3418,6 +3445,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     ) {
         user32_policy.set_timer = None;
@@ -3430,12 +3458,13 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::FontCreation
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
         )
     ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v5();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
@@ -3447,6 +3476,9 @@ fn run_v86_generic_runtime_session(
     }
     if !dib_lifecycle_enabled {
         gdi32_policy.create_dib_section = None;
+    }
+    if !outline_text_metrics_enabled {
+        gdi32_policy.get_outline_text_metrics_a = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -11175,6 +11207,92 @@ fn generic_runtime_gdi_completion(
                 live_objects: runtime.gdi_objects().len(),
             }))
         }
+        vine_core::GET_OUTLINE_TEXT_METRICS_A_IMPLEMENTATION => {
+            let returned_byte_length = set_eax_result(
+                completion,
+                "get-outline-text-metrics-a-return-register-invalid",
+                "GetOutlineTextMetricsA dispatcher did not set EAX",
+            )?;
+            let device_context_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "outline-text-metrics-hdc-missing-after-dispatch",
+                    "completed GetOutlineTextMetricsA frame has no logical HDC",
+                )
+            })?;
+            let requested_byte_length = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "outline-text-metrics-size-missing-after-dispatch",
+                    "completed GetOutlineTextMetricsA frame has no byte length",
+                )
+            })?;
+            let output_address = completion.frame.argument_u32(2).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "outline-text-metrics-output-missing-after-dispatch",
+                    "completed GetOutlineTextMetricsA frame has no output address",
+                )
+            })?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let font_id = device_context.selected_font_id.ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "outline-text-metrics-font-missing-after-dispatch",
+                    "completed GetOutlineTextMetricsA has no selected logical font",
+                )
+            })?;
+            let selected_font = runtime
+                .gdi_objects()
+                .get(&font_id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "outline-text-metrics-font-dangling-after-dispatch",
+                        "completed GetOutlineTextMetricsA selected font is not live",
+                    )
+                })?;
+            if !matches!(
+                &selected_font.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "outline-text-metrics-font-kind-invalid-after-dispatch",
+                    "completed GetOutlineTextMetricsA selected object is not a FontA",
+                ));
+            }
+            let profile_id = policy
+                .get_outline_text_metrics_a
+                .as_ref()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "outline-text-metrics-policy-missing-after-dispatch",
+                        "completed GetOutlineTextMetricsA has no active compatibility policy",
+                    )
+                })?
+                .profile_id
+                .clone();
+            let written_byte_length = completion
+                .guest_writes
+                .first()
+                .map(|receipt| receipt.write.bytes.len())
+                .unwrap_or(0);
+            Ok(Some(GenericRuntimeGdiCompletion::OutlineTextMetricsRead {
+                device_context,
+                selected_font,
+                profile_id,
+                requested_byte_length,
+                returned_byte_length,
+                output_address,
+                written_byte_length,
+            }))
+        }
         vine_core::SELECT_OBJECT_IMPLEMENTATION => {
             let previous_handle = set_eax_result(
                 completion,
@@ -12340,6 +12458,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-font-creation" => GenericRuntimeCapability::FontCreation,
                 "gdi-compatible-dc" => GenericRuntimeCapability::CompatibleDc,
                 "gdi-dib-lifecycle" => GenericRuntimeCapability::DibLifecycle,
+                "gdi-outline-text-metrics" => GenericRuntimeCapability::OutlineTextMetrics,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

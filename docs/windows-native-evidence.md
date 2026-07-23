@@ -4714,3 +4714,47 @@ crossings、58,087 success transitions、clean cancel／watchdogを通した。C
 `0x100D1098`／return `0x1002C51F`の`endpoint-contract-missing`である。Argumentsはmemory HDC
 `0x47010004`、size 0、output NULLである。Outline metric size query、nonzero output、text rasterization、host／browser
 font resolutionはこのcheckpointでclaimしない。
+
+## 140. BGI selected-font outline metrics output
+
+Outline-metrics oracleを含むfont-object profileを独立に2回取得した。Primary raw traceは673,869 bytes／180
+records／SHA-256 `0b46e3c68be56b8948bd9a748350f85d68ddbf8751e3362d146686a3639eac6e`、confirmationは
+674,077 bytes／180 records／SHA-256 `e7f57e51fab0399c2a53197ab30a187451eeee28388217e5b6a507df473fe002`で、
+diagnostics／hook errorsは0である。Main profileは`x86-bgi-gdi-font-object-lifecycle-v4`、outer oracleは
+`x86-create-font-a-object-lifecycle-v4`、focused oracleは`x86-get-outline-text-metrics-a-cp932-v1`である。Raw
+traceは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGIはselected 64 x 32、weight 100、charset 128の`ＭＳ ゴシック`に対して、RVA `0x0002C51F`でsize 0／output
+NULLを渡して269を得た後、RVA `0x0002C539`で269-byte bufferを渡して269を得る。Second outputのfixed
+212-byte prefixはsize／text height／ascent／descent 269／64／55／9、family／face／style／full-name relative
+offsetは212／226／240／245である。FamilyとfaceはWindows-932 `ＭＳ ゴシック`、styleは`標準`、full nameは
+`Microsoft:ＭＳ ゴシック`で、callerはfamily pointerを解決してrequested faceと比較する。
+
+Controlled boundary callsは`cbData` 1／2／3で`0x122`のlow 1／2／3 bytesを書き、requested sizeを返す。
+4..212では`otmSize`をrequested sizeにしてそのbytesを返す。213..268ではfixed 212 bytesだけを書き、0／
+LastError 1003を返す。269以上では269 bytesだけを書いて269を返し、size query、partial success、full／oversized
+successはLastError sentinelを保存する。Deleted HDCは0／LastError 6で、全buffer guardは不変である。Two runの
+raw outputはnative padding offsets 57..59／71だけが異なるため、この4 bytesをzeroにしたcanonical outputの
+SHA-256 `d1ac50ba2ccbb40beb818d7ec02d980906bdfd341ffc66c8abf577e8c1ff2c5d`をsemantic policy valueとした。
+
+Vineは`RuntimeGdi`がlive same-thread memory HDCとselected nonshared FontAを検証し、versioned GDI32 policyが
+269-byte CP932 recordを構築する。Host／browser font measurement、native HDC、native paddingはimportしない。
+Sequence 18,619はsize queryで269／guest write 0、sequence 18,621はaddress `0x2013A250`へ269 bytesを書いて269を
+返し、HDC `0x47010004`、font `0x47020002`、selection generation 2を維持した。
+
+Nodeは18,622 supported calls、18,678 writebacks／37,597 dirty pages／2,948,267 changed bytes、17,303 host
+deltas、generation 36,554、semantic SHA-256
+`cd1c460bbb9cf5f147f03632bf437f4135ade530629692caaf78fe374313347a`、terminal memory SHA-256
+`539b45ea0e9361c435c20ee8c84633a553d9fb475cf97e061b7e0dad640647d6`を通した。Node reportは215,886
+bytes／SHA-256 `85ff27e79157531267abbe8b25cf578072688cae25378e4a2edc5e819539223e`である。
+
+Chrome Runtime Worker protocol v10もsame ordered semantics／terminal memoryを再現し、19,378 slices、19,376
+writebacks／39,215 pages、17,303 mapping deltas／18,822 dirty pages、generation 27→37,254、55,675 Wasm
+crossings、58,099 success transitions、clean cancel／watchdogを通した。Chromeは150.0.7871.130、browser reportは
+44,078 bytes／SHA-256 `c6c725be6be03b7bdbc019612d0c914004b9353efdd7a8c1fbd692f13d6b76df`である。
+
+次stopはinstruction 11,961,619、`GDI32.dll!TextOutA` endpoint ID 248／address `0x7F000F70`／IAT
+`0x100D106C`／return `0x1002CAB1`の`endpoint-contract-missing`である。Argumentsはmemory HDC
+`0x47010004`、x／y 0／0、Windows-932 text pointer `0x006FFD6C`、count 1で、byteはASCII `a`である。Text
+output、DIB pixel mutation、glyph rasterization／substitution、host／browser font measurementはこのcheckpointでclaimしない。

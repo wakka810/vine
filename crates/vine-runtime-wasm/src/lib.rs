@@ -524,7 +524,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v5();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2922,6 +2922,55 @@ fn bgi_gdi_completion_metadata(
                 "byteLength": byte_length,
                 "object": object,
                 "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::GET_OUTLINE_TEXT_METRICS_A_IMPLEMENTATION => {
+            let RegisterUpdate::Set(returned_byte_length) = completion.eax else {
+                return Err("GetOutlineTextMetricsA completion did not set EAX".to_owned());
+            };
+            let device_context_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                "GetOutlineTextMetricsA completion has no logical HDC argument".to_owned()
+            })?;
+            let requested_byte_length = completion.frame.argument_u32(1).ok_or_else(|| {
+                "GetOutlineTextMetricsA completion has no byte length argument".to_owned()
+            })?;
+            let output_address = completion.frame.argument_u32(2).ok_or_else(|| {
+                "GetOutlineTextMetricsA completion has no output argument".to_owned()
+            })?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(error_string)?;
+            let font_id = device_context.selected_font_id.ok_or_else(|| {
+                "GetOutlineTextMetricsA completion has no selected font".to_owned()
+            })?;
+            let selected_font = runtime.gdi_objects().get(&font_id).ok_or_else(|| {
+                "GetOutlineTextMetricsA completion selected font is not live".to_owned()
+            })?;
+            if !matches!(
+                &selected_font.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err(
+                    "GetOutlineTextMetricsA completion selected object is not a FontA".to_owned(),
+                );
+            }
+            let outline_policy = policy.get_outline_text_metrics_a.as_ref().ok_or_else(|| {
+                "GetOutlineTextMetricsA completed with its GDI32 policy disabled".to_owned()
+            })?;
+            let written_byte_length = completion
+                .guest_writes
+                .first()
+                .map(|receipt| receipt.write.bytes.len())
+                .unwrap_or(0);
+            Ok(Some(json!({
+                "action": "outline-text-metrics-read",
+                "deviceContext": device_context,
+                "selectedFont": selected_font,
+                "profileId": outline_policy.profile_id,
+                "requestedByteLength": requested_byte_length,
+                "returnedByteLength": returned_byte_length,
+                "outputAddress": output_address,
+                "writtenByteLength": written_byte_length,
             })))
         }
         vine_core::SELECT_OBJECT_IMPLEMENTATION => {

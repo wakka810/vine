@@ -51,7 +51,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v9";
+const runtimeProtocol = "vine.browser-runtime-worker.v10";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -552,6 +552,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "gdi-font-creation",
         "gdi-compatible-dc",
         "gdi-dib-lifecycle",
+        "gdi-outline-text-metrics",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]

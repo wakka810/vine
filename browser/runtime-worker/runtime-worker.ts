@@ -1347,6 +1347,7 @@ class BrowserRuntimeSession {
       "gdi32.create-compatible-dc.null-screen-memory.v1",
       "gdi32.create-dib-section.primary-8bpp.v1",
       "gdi32.get-object-a.font-or-dib.v1",
+      "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
       "gdi32.select-object.memory-font-bitmap.v1",
       "gdi32.delete-object.font-or-dib.v1",
       "gdi32.delete-dc.logical-memory.v1",

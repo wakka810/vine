@@ -169,6 +169,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-font-creation",
         "gdi-compatible-dc",
         "gdi-dib-lifecycle",
+        "gdi-outline-text-metrics",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -257,6 +258,7 @@ assert(
       "gdi-font-creation",
       "gdi-compatible-dc",
       "gdi-dib-lifecycle",
+      "gdi-outline-text-metrics",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -309,6 +311,7 @@ if (
     "gdi-font-creation",
     "gdi-compatible-dc",
     "gdi-dib-lifecycle",
+    "gdi-outline-text-metrics",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -330,6 +333,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "gdi-font-creation",
       "gdi-compatible-dc",
       "gdi-dib-lifecycle",
+      "gdi-outline-text-metrics",
     ].includes(genericRuntimeCapability)
       ? "kernel32-set-thread-priority-v1.json"
       : genericRuntimeCapability === "kernel32-create-thread"
@@ -493,7 +497,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const dibLifecycleEnabled = genericRuntimeCapability === "gdi-dib-lifecycle";
+const outlineTextMetricsEnabled =
+  genericRuntimeCapability === "gdi-outline-text-metrics";
+const dibLifecycleEnabled =
+  outlineTextMetricsEnabled || genericRuntimeCapability === "gdi-dib-lifecycle";
 const compatibleDcEnabled =
   dibLifecycleEnabled || genericRuntimeCapability === "gdi-compatible-dc";
 const fontCreationEnabled =
@@ -763,7 +770,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? dibLifecycleEnabled
+      ? outlineTextMetricsEnabled
+      ? "v86-bgi-outline-text-metrics"
+      : dibLifecycleEnabled
       ? "v86-bgi-dib-lifecycle"
       : compatibleDcEnabled
       ? "v86-bgi-compatible-dc"
@@ -4767,6 +4776,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (outlineTextMetricsEnabled) {
+        validateOutlineTextMetricsResult(genericResult);
       } else if (dibLifecycleEnabled) {
         validateDibLifecycleResult(genericResult);
       } else if (compatibleDcEnabled) {
@@ -4976,6 +4987,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : outlineTextMetricsEnabled
+          ? "bgi CP932 outline text metrics query and output"
           : dibLifecycleEnabled
           ? "bgi DIB section and GDI object lifecycle"
           : compatibleDcEnabled
@@ -6245,6 +6258,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : outlineTextMetricsEnabled
+          ? 89
         : dibLifecycleEnabled
           ? 88
         : compatibleDcEnabled
@@ -6433,7 +6448,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-dib-lifecycle-v4",
+      "gdi32-primary-cp932-outline-text-v5",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -14966,6 +14981,79 @@ function validateSetThreadPriorityResult(result) {
   ]);
 }
 
+function validateOutlineTextMetricsResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "GetOutlineTextMetricsA",
+  );
+  assert.equal(calls.length, 2, "expected size and output outline metrics calls");
+  const [size, output] = calls;
+  assert.deepEqual(size.arguments, [0x4701_0004, 0, 0]);
+  assert.equal(
+    size.implementationId,
+    "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+  );
+  assert.deepEqual(size.result, { action: "set", value: 269 });
+  assert.equal(size.returnAddress, 0x1002_c51f);
+  assert.equal(size.stackPointerAfter - size.stackPointerBefore, 16);
+  assert.equal(size.lastError, 0);
+  assert.deepEqual(size.guestWrites, []);
+  assert.equal(size.gdi.action, "outline-text-metrics-read");
+  assert.equal(size.gdi.profileId, "primary-cp932-ms-gothic-outline-metrics-v1");
+  assert.equal(size.gdi.requestedByteLength, 0);
+  assert.equal(size.gdi.returnedByteLength, 269);
+  assert.equal(size.gdi.outputAddress, 0);
+  assert.equal(size.gdi.writtenByteLength, 0);
+  assert.equal(size.gdi.deviceContext.handle, 0x4701_0004);
+  assert.equal(size.gdi.selectedFont.handle, 0x4702_0002);
+
+  assert.equal(output.arguments[0], 0x4701_0004);
+  assert.equal(output.arguments[1], 269);
+  assert.notEqual(output.arguments[2], 0);
+  assert.equal(
+    output.implementationId,
+    "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+  );
+  assert.deepEqual(output.result, { action: "set", value: 269 });
+  assert.equal(output.returnAddress, 0x1002_c539);
+  assert.equal(output.stackPointerAfter - output.stackPointerBefore, 16);
+  assert.equal(output.lastError, 0);
+  assert.equal(output.guestWrites.length, 1);
+  assert.equal(output.guestWrites[0].address, output.arguments[2]);
+  const bytes = Buffer.from(output.guestWrites[0].bytes);
+  assert.equal(bytes.length, 269);
+  assert.equal(bytes.readUInt32LE(0), 269);
+  assert.equal(bytes.readInt32LE(4), 64);
+  assert.equal(bytes.readInt32LE(8), 55);
+  assert.equal(bytes.readInt32LE(12), 9);
+  assert.deepEqual([...bytes.subarray(57, 60)], [0, 0, 0]);
+  assert.equal(bytes[71], 0);
+  assert.deepEqual(
+    [196, 200, 204, 208].map((offset) => bytes.readUInt32LE(offset)),
+    [212, 226, 240, 245],
+  );
+  const msGothic = [
+    0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+    0x83, 0x4e,
+  ];
+  assert.deepEqual([...bytes.subarray(212, 225)], msGothic);
+  assert.equal(bytes[225], 0);
+  assert.deepEqual([...bytes.subarray(226, 239)], msGothic);
+  assert.equal(bytes[239], 0);
+  assert.deepEqual([...bytes.subarray(240, 245)], [0x95, 0x57, 0x8f, 0x80, 0]);
+  assert.equal(bytes.subarray(245, 255).toString("ascii"), "Microsoft:");
+  assert.deepEqual([...bytes.subarray(255, 268)], msGothic);
+  assert.equal(bytes[268], 0);
+  assert.equal(output.gdi.action, "outline-text-metrics-read");
+  assert.equal(output.gdi.requestedByteLength, 269);
+  assert.equal(output.gdi.returnedByteLength, 269);
+  assert.equal(output.gdi.outputAddress, output.arguments[2]);
+  assert.equal(output.gdi.writtenByteLength, 269);
+  assert.equal(output.gdi.deviceContext.handle, 0x4701_0004);
+  assert.equal(output.gdi.selectedFont.handle, 0x4702_0002);
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -18638,10 +18726,24 @@ function buildGenericRuntimeReentryReport({
     assert(dibCreateDelta, "DIB lifecycle report summary has no creation delta");
     assert.equal(dibSelectionCalls.length, 2, "DIB lifecycle summary requires two selections");
   }
+  const outlineTextMetricsCalls = outlineTextMetricsEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) => call.symbol === "GetOutlineTextMetricsA",
+      )
+    : [];
+  if (outlineTextMetricsEnabled) {
+    assert.equal(
+      outlineTextMetricsCalls.length,
+      2,
+      "outline text metrics summary requires size and output calls",
+    );
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : outlineTextMetricsEnabled
+        ? "vine.v86-bgi-gdi-outline-text-metrics"
         : dibLifecycleEnabled
         ? "vine.v86-bgi-gdi-dib-lifecycle"
         : compatibleDcEnabled
@@ -18976,6 +19078,17 @@ function buildGenericRuntimeReentryReport({
             byteAuthority: "rust-guest-memory",
             addressAuthority: "runtime-process-address-space",
             browserBitmapResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(outlineTextMetricsEnabled
+      ? {
+          outlineTextMetrics: {
+            calls: outlineTextMetricsCalls,
+            metricsAuthority: "gdi32-compatibility-policy",
+            selectedFontAuthority: "runtime-gdi-logical-object",
+            byteAuthority: "rust-guest-memory",
+            browserFontMeasurementUsed: false,
           },
         }
       : {}),

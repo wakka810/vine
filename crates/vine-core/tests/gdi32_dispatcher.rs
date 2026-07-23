@@ -11,10 +11,12 @@ use vine_core::{
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, User32CompatibilityPolicy,
     X86_BITMAP_BYTE_LENGTH, X86_BITMAPINFOHEADER_BYTE_LENGTH, X86_DIB_BITMAPINFO_BYTE_LENGTH,
     X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH, X86_NEWTEXTMETRICEXA_BYTE_LENGTH,
+    X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH, X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH,
     create_compatible_dc_contract, create_dib_section_contract, create_font_a_contract,
     delete_dc_contract, delete_object_contract, dispatch_gdi32_api_with_policy,
     dispatch_user32_api_with_policy, enum_font_families_ex_a_contract, gdi32_contract_for_endpoint,
-    get_dc_contract, get_object_a_contract, release_dc_contract, select_object_contract,
+    get_dc_contract, get_object_a_contract, get_outline_text_metrics_a_contract,
+    release_dc_contract, select_object_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -28,6 +30,7 @@ const CREATE_DIB_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11
 const GET_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1180);
 const SELECT_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11a0);
 const DELETE_OBJECT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11c0);
+const OUTLINE_TEXT_METRICS_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x11e0);
 const LOW_ENUM_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 8);
 const GET_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2000);
 const RELEASE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2004);
@@ -39,6 +42,7 @@ const CREATE_DIB_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2018
 const GET_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x201c);
 const SELECT_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2020);
 const DELETE_OBJECT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2024);
+const OUTLINE_TEXT_METRICS_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2028);
 const CALLBACK_TARGET: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2100);
 const CALLBACK_SENTINEL: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2110);
 const LOG_FONT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2200);
@@ -46,6 +50,7 @@ const FACE_NAME_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2300);
 const BITMAP_INFO_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2400);
 const BITS_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2900);
 const OBJECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2920);
+const OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2a00);
 const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
 const RELEASE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ef0);
 const ENUM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0fc0);
@@ -56,6 +61,7 @@ const CREATE_DIB_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1010);
 const GET_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1020);
 const SELECT_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1030);
 const DELETE_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1040);
+const OUTLINE_TEXT_METRICS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1050);
 const GET_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c149);
 const RELEASE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
 const ENUM_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
@@ -66,6 +72,7 @@ const CREATE_DIB_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c8f0);
 const GET_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c910);
 const SELECT_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c930);
 const DELETE_OBJECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c950);
+const OUTLINE_TEXT_METRICS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c51f);
 const CALLBACK_PARAMETER: u32 = 0x100d_ce7c;
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
@@ -88,6 +95,7 @@ struct FontFixture {
     get_object_endpoint: ApiEndpointIdentity,
     select_object_endpoint: ApiEndpointIdentity,
     delete_object_endpoint: ApiEndpointIdentity,
+    outline_text_metrics_endpoint: ApiEndpointIdentity,
     user32_policy: User32CompatibilityPolicy,
     gdi32_policy: Gdi32CompatibilityPolicy,
     callback_sentinel: GuestAddress,
@@ -181,6 +189,14 @@ impl FontFixture {
             "GDI32.dll",
             "DeleteObject",
         );
+        let outline_text_metrics_endpoint = endpoint(
+            owner,
+            262,
+            OUTLINE_TEXT_METRICS_ENDPOINT_ADDRESS,
+            OUTLINE_TEXT_METRICS_IAT_ADDRESS,
+            "GDI32.dll",
+            "GetOutlineTextMetricsA",
+        );
         for (iat, target) in [
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (RELEASE_DC_IAT_ADDRESS, RELEASE_DC_ENDPOINT_ADDRESS),
@@ -195,6 +211,10 @@ impl FontFixture {
             (GET_OBJECT_IAT_ADDRESS, GET_OBJECT_ENDPOINT_ADDRESS),
             (SELECT_OBJECT_IAT_ADDRESS, SELECT_OBJECT_ENDPOINT_ADDRESS),
             (DELETE_OBJECT_IAT_ADDRESS, DELETE_OBJECT_ENDPOINT_ADDRESS),
+            (
+                OUTLINE_TEXT_METRICS_IAT_ADDRESS,
+                OUTLINE_TEXT_METRICS_ENDPOINT_ADDRESS,
+            ),
         ] {
             memory
                 .write_initialization(owner, iat, &target.0.to_le_bytes())
@@ -230,6 +250,7 @@ impl FontFixture {
                 get_object_endpoint.clone(),
                 select_object_endpoint.clone(),
                 delete_object_endpoint.clone(),
+                outline_text_metrics_endpoint.clone(),
             ],
             [
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -247,11 +268,13 @@ impl FontFixture {
                     .expect("SelectObject contract"),
                 delete_object_contract(delete_object_endpoint.clone())
                     .expect("DeleteObject contract"),
+                get_outline_text_metrics_a_contract(outline_text_metrics_endpoint.clone())
+                    .expect("GetOutlineTextMetricsA contract"),
             ],
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v4();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v5();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -273,6 +296,7 @@ impl FontFixture {
             get_object_endpoint,
             select_object_endpoint,
             delete_object_endpoint,
+            outline_text_metrics_endpoint,
             user32_policy,
             gdi32_policy,
             callback_sentinel: CALLBACK_SENTINEL,
@@ -452,6 +476,33 @@ impl FontFixture {
         )
     }
 
+    fn create_primary_font_memory_dc(&mut self) -> (u32, u32, u32) {
+        self.install_face_name(&primary_face_name());
+        self.configure_create_font(primary_create_font_arguments(), FACE_NAME_ADDRESS);
+        let font = match self.dispatch_create_font() {
+            DispatchOutcome::Immediate(completion) => match completion.eax {
+                RegisterUpdate::Set(handle) => handle,
+                other => panic!("CreateFontA did not set EAX: {other:?}"),
+            },
+            other => panic!("expected CreateFontA completion, got {other:?}"),
+        };
+        let device_context = match self.dispatch_create_compatible_dc(0) {
+            DispatchOutcome::Immediate(completion) => match completion.eax {
+                RegisterUpdate::Set(handle) => handle,
+                other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+            },
+            other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+        };
+        let previous_font = match self.dispatch_select_object(device_context, font) {
+            DispatchOutcome::Immediate(completion) => match completion.eax {
+                RegisterUpdate::Set(handle) => handle,
+                other => panic!("SelectObject did not set EAX: {other:?}"),
+            },
+            other => panic!("expected SelectObject completion, got {other:?}"),
+        };
+        (font, device_context, previous_font)
+    }
+
     fn dispatch_delete_object(&mut self, object: u32) -> DispatchOutcome {
         self.write_words(
             DELETE_OBJECT_STACK_POINTER,
@@ -462,6 +513,29 @@ impl FontFixture {
             endpoint,
             DELETE_OBJECT_STACK_POINTER,
             DELETE_OBJECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_outline_text_metrics(
+        &mut self,
+        device_context: u32,
+        byte_length: u32,
+        output: GuestAddress,
+    ) -> DispatchOutcome {
+        self.write_words(
+            OUTLINE_TEXT_METRICS_STACK_POINTER,
+            &[
+                OUTLINE_TEXT_METRICS_RETURN_ADDRESS.0,
+                device_context,
+                byte_length,
+                output.0,
+            ],
+        );
+        let endpoint = self.outline_text_metrics_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            OUTLINE_TEXT_METRICS_STACK_POINTER,
+            OUTLINE_TEXT_METRICS_RETURN_ADDRESS,
         )
     }
 
@@ -756,6 +830,305 @@ fn dib_object_catalog_exposes_bounded_x86_lifecycle_contracts() {
         assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
         assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
     }
+}
+
+#[test]
+fn outline_text_metrics_catalog_exposes_nullable_size_query_and_bounded_output() {
+    let fixture = FontFixture::new();
+    let contract = gdi32_contract_for_endpoint(fixture.outline_text_metrics_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("GetOutlineTextMetricsA contract");
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && *nullable
+    ));
+    assert!(matches!(
+        &contract.abi.arguments[2].value,
+        ApiValueSchema::DynamicPointer { constraint }
+            if constraint.nullable
+                && constraint.alignment == 4
+                && constraint.minimum_byte_length == 1
+                && constraint.maximum_byte_length
+                    == X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn outline_text_metrics_matches_native_size_partial_failure_and_full_buffer_contracts() {
+    let mut fixture = FontFixture::new();
+    let (font, device_context, _default_font) = fixture.create_primary_font_memory_dc();
+    let runtime_before_queries = fixture.runtime.clone();
+
+    let size = match fixture.dispatch_outline_text_metrics(device_context, 0, GuestAddress(0)) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected outline size completion, got {other:?}"),
+    };
+    assert_eq!(
+        size.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    assert_eq!(size.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(
+        size.stack_pointer,
+        GuestAddress(OUTLINE_TEXT_METRICS_STACK_POINTER.0 + 16)
+    );
+    assert!(size.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before_queries);
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize exact outline output");
+    fixture.acknowledge_pending_delta();
+    let exact = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected exact outline completion, got {other:?}"),
+    };
+    assert_eq!(
+        exact.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    assert_eq!(exact.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(exact.guest_writes.len(), 1);
+    assert_eq!(fixture.runtime, runtime_before_queries);
+    fixture.acknowledge_pending_delta();
+    let exact_bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 320)
+        .expect("exact outline output and guard");
+    assert_eq!(read_u32(&exact_bytes, 0), 269);
+    assert_eq!(read_i32(&exact_bytes, 4), 64);
+    assert_eq!(read_i32(&exact_bytes, 8), 55);
+    assert_eq!(read_i32(&exact_bytes, 12), 9);
+    assert_eq!(&exact_bytes[57..60], &[0, 0, 0]);
+    assert_eq!(exact_bytes[71], 0);
+    assert_eq!(read_u32(&exact_bytes, 196), 212);
+    assert_eq!(read_u32(&exact_bytes, 200), 226);
+    assert_eq!(read_u32(&exact_bytes, 204), 240);
+    assert_eq!(read_u32(&exact_bytes, 208), 245);
+    assert_eq!(&exact_bytes[212..225], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(exact_bytes[225], 0);
+    assert_eq!(&exact_bytes[226..239], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(exact_bytes[239], 0);
+    assert_eq!(&exact_bytes[240..245], &[0x95, 0x57, 0x8f, 0x80, 0]);
+    assert_eq!(&exact_bytes[245..255], b"Microsoft:");
+    assert_eq!(&exact_bytes[255..268], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(exact_bytes[268], 0);
+    assert_eq!(&exact_bytes[269..], &[0xa5; 51]);
+    fixture.acknowledge_pending_delta();
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize three-byte outline output");
+    fixture.acknowledge_pending_delta();
+    let three = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        3,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected three-byte outline completion, got {other:?}"),
+    };
+    assert_eq!(three.eax, RegisterUpdate::Set(3));
+    assert_eq!(three.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+    let three_bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 8)
+        .expect("three-byte outline output and guard");
+    assert_eq!(&three_bytes[..3], &[0x22, 0x01, 0x00]);
+    assert_eq!(&three_bytes[3..], &[0xa5; 5]);
+    fixture.acknowledge_pending_delta();
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize fixed outline output");
+    fixture.acknowledge_pending_delta();
+    let fixed = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected fixed outline completion, got {other:?}"),
+    };
+    assert_eq!(fixed.eax, RegisterUpdate::Set(212));
+    assert_eq!(fixed.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+    let fixed_bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 216)
+        .expect("fixed outline output and guard");
+    assert_eq!(read_u32(&fixed_bytes, 0), 212);
+    for offset in [196, 200, 204, 208] {
+        assert_eq!(read_u32(&fixed_bytes, offset), 0);
+    }
+    assert_eq!(&fixed_bytes[212..], &[0xa5; 4]);
+    fixture.acknowledge_pending_delta();
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize insufficient outline output");
+    fixture.acknowledge_pending_delta();
+    let insufficient = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        268,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected insufficient outline completion, got {other:?}"),
+    };
+    assert_eq!(insufficient.eax, RegisterUpdate::Set(0));
+    assert_eq!(insufficient.last_error, 1003);
+    fixture.acknowledge_pending_delta();
+    let insufficient_bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 272)
+        .expect("insufficient outline output and guard");
+    assert_eq!(read_u32(&insufficient_bytes, 0), 0);
+    for offset in [196, 200, 204, 208] {
+        assert_eq!(read_u32(&insufficient_bytes, offset), 0);
+    }
+    assert_eq!(&insufficient_bytes[212..], &[0xa5; 60]);
+    fixture.acknowledge_pending_delta();
+    fixture
+        .runtime
+        .set_current_last_error(INITIAL_LAST_ERROR)
+        .expect("restore outline LastError sentinel");
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize oversized outline output");
+    fixture.acknowledge_pending_delta();
+    let oversized = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        285,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected oversized outline completion, got {other:?}"),
+    };
+    assert_eq!(oversized.eax, RegisterUpdate::Set(269));
+    assert_eq!(oversized.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+    let oversized_bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 285)
+        .expect("oversized outline output and tail");
+    assert_eq!(read_u32(&oversized_bytes, 0), 269);
+    assert_eq!(&oversized_bytes[269..], &[0xa5; 16]);
+    assert_eq!(fixture.runtime, runtime_before_queries);
+    fixture.acknowledge_pending_delta();
+
+    let runtime_before_null = fixture.runtime.clone();
+    let fault = match fixture.dispatch_outline_text_metrics(device_context, 269, GuestAddress(0)) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected NULL outline output fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "outline-text-metrics-output-null");
+    assert_eq!(fixture.runtime, runtime_before_null);
+
+    let deleted = match fixture.dispatch_delete_dc(device_context) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected memory DC deletion, got {other:?}"),
+    };
+    assert_eq!(deleted.eax, RegisterUpdate::Set(1));
+    let runtime_after_delete = fixture.runtime.clone();
+    let stale = match fixture.dispatch_outline_text_metrics(device_context, 0, GuestAddress(0)) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected stale outline completion, got {other:?}"),
+    };
+    assert_eq!(stale.eax, RegisterUpdate::Set(0));
+    assert_eq!(stale.last_error, 6);
+    assert!(stale.guest_writes.is_empty());
+    fixture
+        .runtime
+        .set_current_last_error(INITIAL_LAST_ERROR)
+        .expect("restore stale-HDC LastError sentinel");
+    assert_eq!(fixture.runtime, runtime_after_delete);
+    let delete_font = match fixture.dispatch_delete_object(font) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected font deletion, got {other:?}"),
+    };
+    assert_eq!(delete_font.eax, RegisterUpdate::Set(1));
+}
+
+#[test]
+fn outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) = fixture.create_primary_font_memory_dc();
+    let boundary_output = GuestAddress(MEMORY_BASE.0 + 0x2ffc);
+    fixture
+        .memory
+        .write(boundary_output, &[0xa5; 4])
+        .expect("initialize outline boundary guard");
+    fixture.acknowledge_pending_delta();
+    let runtime_before = fixture.runtime.clone();
+
+    let fault = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        boundary_output,
+    ) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected outline boundary write fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(
+        fixture
+            .memory
+            .read(boundary_output, 4)
+            .expect("read outline boundary guard"),
+        [0xa5; 4]
+    );
+}
+
+#[test]
+fn outline_text_metrics_rejects_unprofiled_selection_or_disabled_policy_atomically() {
+    let mut stock = FontFixture::new();
+    let stock_dc = match stock.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let runtime_before_stock = stock.runtime.clone();
+    let fault = match stock.dispatch_outline_text_metrics(stock_dc, 0, GuestAddress(0)) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected stock-font outline fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "outline-text-metrics-selected-font-unsupported");
+    assert_eq!(stock.runtime, runtime_before_stock);
+
+    let mut disabled = FontFixture::new();
+    let (_font, device_context, _default_font) = disabled.create_primary_font_memory_dc();
+    disabled.gdi32_policy.get_outline_text_metrics_a = None;
+    let runtime_before_disabled = disabled.runtime.clone();
+    let fault = match disabled.dispatch_outline_text_metrics(device_context, 0, GuestAddress(0)) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled outline fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "outline-text-metrics-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before_disabled);
 }
 
 #[test]

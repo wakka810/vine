@@ -9824,7 +9824,7 @@ function maybeCompleteFontObjectObservation(generation) {
   }
   fontObjectCompletionRecorded = true;
   emit("font-object-complete", {
-    profile: "x86-bgi-gdi-font-object-lifecycle-v3",
+    profile: "x86-bgi-gdi-font-object-lifecycle-v4",
     mainModuleCalls: fontObjectMainModuleCalls,
     oracle: fontObjectOracleEvidence,
   });
@@ -10259,6 +10259,10 @@ function scheduleFontObjectOracle(module) {
     try {
       const createFontAAddress = findExport(module, "CreateFontA");
       const getObjectAAddress = findExport(module, "GetObjectA");
+      const getOutlineTextMetricsAAddress = findExport(
+        module,
+        "GetOutlineTextMetricsA",
+      );
       const selectObjectAddress = findExport(module, "SelectObject");
       const deleteObjectAddress = findExport(module, "DeleteObject");
       const createCompatibleDcAddress = findExport(module, "CreateCompatibleDC");
@@ -10272,6 +10276,7 @@ function scheduleFontObjectOracle(module) {
       if (
         createFontAAddress === null ||
         getObjectAAddress === null ||
+        getOutlineTextMetricsAAddress === null ||
         selectObjectAddress === null ||
         deleteObjectAddress === null ||
         createCompatibleDcAddress === null ||
@@ -10309,6 +10314,12 @@ function scheduleFontObjectOracle(module) {
         getObjectAAddress,
         "int32",
         ["pointer", "int32", "pointer"],
+        "stdcall",
+      );
+      const getOutlineTextMetricsA = new SystemFunction(
+        getOutlineTextMetricsAAddress,
+        "uint32",
+        ["pointer", "uint32", "pointer"],
         "stdcall",
       );
       const selectObject = new SystemFunction(
@@ -10429,6 +10440,7 @@ function scheduleFontObjectOracle(module) {
       let selected;
       let restored;
       let release;
+      let outlineTextMetricsEvidence;
       try {
         selected = invoke("select", "SelectObject", 0x33334444, () =>
           selectObject(dc, font),
@@ -10436,6 +10448,66 @@ function scheduleFontObjectOracle(module) {
         if (selected.systemResult === "0x0" || selected.systemResult === "0xffffffff") {
           throw new Error("font object oracle SelectObject did not return a prior object");
         }
+        const outlineSize = invoke(
+          "outline-size",
+          "GetOutlineTextMetricsA",
+          0x34343434,
+          () => getOutlineTextMetricsA(dc, 0, ptr(0)),
+        );
+        if (outlineSize.systemResult <= 0 || outlineSize.systemResult > 4096) {
+          throw new Error("outline text metrics oracle returned an invalid byte length");
+        }
+        const outlineByteLength = outlineSize.systemResult;
+        const invokeOutlineBufferCase = (id, sentinel, requestedBytes) => {
+          const storage = Memory.alloc(outlineByteLength + 24);
+          storage.writeByteArray(Array(outlineByteLength + 24).fill(0xa5));
+          return {
+            call: invoke(id, "GetOutlineTextMetricsA", sentinel, () =>
+              getOutlineTextMetricsA(dc, requestedBytes, storage.add(4)),
+            ),
+            requestedBytes,
+            storage: snapshotBoundedRawBytes(
+              storage,
+              outlineByteLength + 24,
+              outlineByteLength + 24,
+            ),
+          };
+        };
+        const exact = invokeOutlineBufferCase(
+          "outline-exact",
+          0x35353535,
+          outlineByteLength,
+        );
+        const insufficient = [
+          ["outline-one-byte", 0x36363636, 1],
+          ["outline-two-bytes", 0x36464646, 2],
+          ["outline-three-bytes", 0x36565656, 3],
+          ["outline-four-bytes", 0x36666666, 4],
+          ["outline-fixed-minus-one", 0x37373737, 211],
+          ["outline-fixed", 0x38383838, 212],
+          ["outline-fixed-plus-one", 0x39393939, 213],
+          ["outline-short", 0x3a3a3a3a, outlineByteLength - 1],
+        ].map(([id, sentinel, requestedBytes]) =>
+          invokeOutlineBufferCase(id, sentinel, requestedBytes),
+        );
+        const oversized = invokeOutlineBufferCase(
+          "outline-oversized",
+          0x3b3b3b3b,
+          outlineByteLength + 16,
+        );
+        outlineTextMetricsEvidence = {
+          profile: "x86-get-outline-text-metrics-a-cp932-v1",
+          requiredBytes: outlineByteLength,
+          calls: [
+            outlineSize,
+            exact.call,
+            ...insufficient.map((entry) => entry.call),
+            oversized.call,
+          ],
+          exact,
+          insufficient,
+          oversized,
+        };
         restored = invoke("restore", "SelectObject", 0x44445555, () =>
           selectObject(dc, ptr(selected.systemResult)),
         );
@@ -10514,6 +10586,12 @@ function scheduleFontObjectOracle(module) {
         "DeleteDC",
         0xbbbccccc,
         () => deleteDc(firstMemoryDc),
+      );
+      const outlineDeletedDc = invoke(
+        "outline-deleted-dc",
+        "GetOutlineTextMetricsA",
+        0xbcbcbcbc,
+        () => getOutlineTextMetricsA(firstMemoryDc, 0, ptr(0)),
       );
       const repeatedDeleteDc = invoke(
         "delete-dc-repeat",
@@ -10777,7 +10855,7 @@ function scheduleFontObjectOracle(module) {
       ];
 
       fontObjectOracleEvidence = {
-        profile: "x86-create-font-a-object-lifecycle-v3",
+        profile: "x86-create-font-a-object-lifecycle-v4",
         arguments: {
           height: 64,
           width: 32,
@@ -10810,6 +10888,18 @@ function scheduleFontObjectOracle(module) {
         createdHandle: created.systemResult,
         selectedPreviousObject: selected.systemResult,
         restoredFontObject: restored.systemResult,
+        outlineTextMetrics: {
+          ...outlineTextMetricsEvidence,
+          deletedDcCall: outlineDeletedDc,
+          allHookResultsMatch: [
+            ...outlineTextMetricsEvidence.calls,
+            outlineDeletedDc,
+          ].every((call) => call.hookResultMatches),
+          allHookAndSystemLastErrorsMatch: [
+            ...outlineTextMetricsEvidence.calls,
+            outlineDeletedDc,
+          ].every((call) => call.hookAndSystemLastErrorMatch),
+        },
         allHookResultsMatch: [
           created,
           getObject,

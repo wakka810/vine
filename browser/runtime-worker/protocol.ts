@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 9 as const;
+export const protocolVersion = 10 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -577,6 +577,16 @@ export type RuntimeGdiSnapshot =
       byteLength: number;
       object: RuntimeGdiSelectableObjectSnapshot | null;
       liveObjects: number;
+    }
+  | {
+      action: "outline-text-metrics-read";
+      deviceContext: RuntimeGdiMemoryDeviceContextSnapshot;
+      selectedFont: RuntimeGdiFontSnapshot;
+      profileId: string;
+      requestedByteLength: number;
+      returnedByteLength: number;
+      outputAddress: number;
+      writtenByteLength: number;
     }
   | {
       action: "object-selected";

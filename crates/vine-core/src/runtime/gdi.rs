@@ -1673,6 +1673,51 @@ impl RuntimeGdi {
         }
     }
 
+    pub(super) fn selected_font_a(
+        &self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeLogFontA, RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
+        if !matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::Memory { .. }
+        ) || device_context.owner_thread_id != thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "outline-text-metrics-device-context-relation-mismatch",
+                "GetOutlineTextMetricsA requires a compatible memory DC owned by the current guest thread",
+            ));
+        }
+        self.validate_memory_dc_selections(device_context)?;
+        let font_id = device_context
+            .selected_font_id
+            .expect("validated memory DC has a selected font");
+        let font = self.objects.get(&font_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "outline-text-metrics-selected-font-dangling",
+                "logical memory DC selected font does not resolve to a live object",
+            )
+        })?;
+        match &font.object {
+            RuntimeGdiObjectKind::FontA { log_font } => Ok(log_font.clone()),
+            RuntimeGdiObjectKind::StockFont { .. } => Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "outline-text-metrics-selected-font-unsupported",
+                "GetOutlineTextMetricsA currently supports the evidenced created FontA selection",
+            )),
+            RuntimeGdiObjectKind::StockBrush { .. }
+            | RuntimeGdiObjectKind::StockBitmap { .. }
+            | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "outline-text-metrics-selected-object-kind-invalid",
+                "logical memory DC font selection resolved to a non-font object",
+            )),
+        }
+    }
+
     pub(super) fn plan_release_dc(
         &self,
         window_handle: u32,
@@ -3018,6 +3063,48 @@ mod tests {
             "gdi-object-handle-exhausted"
         );
         assert_eq!(gdi, before);
+    }
+
+    #[test]
+    fn selected_font_query_requires_same_thread_memory_dc_and_created_font() {
+        let mut gdi = RuntimeGdi::default();
+        let device_context = gdi
+            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
+            .unwrap();
+        let before_stock = gdi.clone();
+        assert_eq!(
+            gdi.selected_font_a(device_context.handle, screen_target().owner_thread_id)
+                .unwrap_err()
+                .code,
+            "outline-text-metrics-selected-font-unsupported"
+        );
+        assert_eq!(gdi, before_stock);
+        assert_eq!(
+            gdi.selected_font_a(device_context.handle, RuntimeThreadId(8193))
+                .unwrap_err()
+                .code,
+            "outline-text-metrics-device-context-relation-mismatch"
+        );
+        assert_eq!(gdi, before_stock);
+
+        let created = gdi
+            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
+            .unwrap();
+        let selected = gdi
+            .plan_select_object(
+                device_context.handle,
+                created.handle,
+                screen_target().owner_thread_id,
+            )
+            .unwrap();
+        gdi.commit_select_object(selected).unwrap();
+        let before_query = gdi.clone();
+        assert_eq!(
+            gdi.selected_font_a(device_context.handle, screen_target().owner_thread_id)
+                .unwrap(),
+            font()
+        );
+        assert_eq!(gdi, before_query);
     }
 
     #[test]

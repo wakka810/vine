@@ -4292,6 +4292,15 @@ impl RuntimeKernel {
         self.gdi.object_bytes(object_handle, requested_byte_length)
     }
 
+    pub(crate) fn get_gdi_selected_font_a(
+        &self,
+        device_context_handle: u32,
+    ) -> Result<RuntimeLogFontA, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .selected_font_a(device_context_handle, self.current_thread_id())
+    }
+
     pub(crate) fn select_gdi_object(
         &mut self,
         device_context_handle: u32,

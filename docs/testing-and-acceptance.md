@@ -577,9 +577,24 @@ zero backing、guest outputの全preflight後publicationを検査する。Malfor
 capacity／mapping failure、selected delete、stale `GetObjectA`がobject collection、allocator、guest bytes、outputを部分更新
 しないことを要求する。Node／Chrome gateはcreate sequence 18,614、DIB handle `0x47020005`、bits `0x44001000`、
 allocation ID 59／memory owner 29、4 dirty pages、`GetObjectA` sequence 18,616、select sequence 18,617／18,618、
-同じsemantic digest／terminal memoryを要求する。次stopはinstruction 11,960,243の
-`GDI32.dll!GetOutlineTextMetricsA(hdc, 0, NULL)`である。Outline metrics、text output、glyph rasterization、host／browser
-font resolution、一般DIB formatはまだclaimしない。
+同じsemantic digest／terminal memoryを要求する。このDIB checkpoint単独ではoutline metrics、text output、glyph
+rasterization、host／browser font resolution、一般DIB formatをclaimしない。
+
+Reached outline-text-metrics gateはthree-word x86 stdcall `GetOutlineTextMetricsA`のnullable size queryとbounded
+ANSI outputを固定する。Native two-run evidenceはselected 64 x 32 CP932 `ＭＳ ゴシック`でrequired 269 bytes、fixed
+212 bytes、family／face／style／full-name offsets 212／226／240／245を要求する。`cbData` 1..212はrequested bytesを
+返してpartial outputの`otmSize`をrequested sizeへ合わせ、213..268はfixed 212 bytesだけを書いて0／LastError 1003、
+269以上は269 bytesを書いて269を返す。SuccessはLastErrorを保存し、deleted HDCは0／LastError 6、前後guardは不変とする。
+Native run間で異なるpadding offsets 57..59／71はsemantic valueとしてimportせず、zero-normalized 269-byte output
+SHA-256 `d1ac50ba2ccbb40beb818d7ec02d980906bdfd341ffc66c8abf577e8c1ff2c5d`をpolicy valueとする。
+
+Rust dispatcher testsはlive same-thread memory HDC、selected nonshared FontA identity、exact profile、nullable output、
+partial／incomplete／oversized buffer、cross-page output、stale HDC／stock font／disabled policyを検査し、failure時に
+guest bytes、LastError以外のGDI state、allocatorを部分更新しないことを要求する。Node／Chrome gateはsequence
+18,619／18,621、size queryと269-byte write、HDC `0x47010004`、font `0x47020002`、selection generation 2、same
+semantic digest／terminal memoryを要求する。次stopはinstruction 11,961,619の
+`GDI32.dll!TextOutA(0x47010004, 0, 0, 0x006ffd6c, 1)`である。Text output、DIB raster mutation、glyph
+rasterization／substitution、host／browser font measurementはまだclaimしない。
 
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
