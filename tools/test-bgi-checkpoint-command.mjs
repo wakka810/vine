@@ -196,6 +196,10 @@ assert.equal(
   "v86-bgi-set-thread-priority",
 );
 assert.equal(bgiProfileOutputDirectory("gdi-screen-dc"), "v86-bgi-screen-dc");
+assert.equal(
+  bgiProfileOutputDirectory("gdi-font-enumeration"),
+  "v86-bgi-font-enumeration",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

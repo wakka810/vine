@@ -770,7 +770,11 @@ lock staging、upload、browser renderer resourceの代用ではない。
 `RuntimeUser32`、screen targetは`RuntimeDisplays`、graphics-surface targetは`RuntimeGraphics`へのnon-owning
 relationとしてkernelが毎回再検証し、frontend間でsurface／display authorityを複製しない。NULL-window
 screen acquisitionはtyped HDCだけを作り、window surface、pixel storage、browser renderer resourceを作らない。
-DC state、selected object、mapping、clip、ROP、font metricは必要な到達caseごとにruntime modelへ追加する。
+到達した`EnumFontFamiliesExA`はRustのversioned GDI32 policyがWindows-932 filterとcanonical catalog／metric
+recordを所有し、`RuntimeGdi`はlive same-thread screen HDC relationだけを検証する。Callback scratchとframe lifetimeは
+共通execution boundaryを使い、host／browser font discoveryを同期APIの第二のauthorityにしない。Native固定長ANSI
+fieldのNUL以降に残る未初期化byteはimportせず、semantic valueだけをcanonical zero-filled recordへ固定する。
+DC state、selected object、mapping、clip、ROP、font creation／rasterizationは必要な到達caseごとにruntime modelへ追加する。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend

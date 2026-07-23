@@ -4036,6 +4036,27 @@ impl RuntimeKernel {
         self.gdi.commit_get_screen_dc(plan)
     }
 
+    pub(crate) fn validate_screen_dc_operation(
+        &self,
+        device_context_handle: u32,
+    ) -> Result<RuntimeDeviceContext, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_screen_target()?;
+        let device_context = self.gdi.validate_screen_dc_access(
+            target,
+            device_context_handle,
+            self.current_thread_id(),
+        )?;
+        if self.resolve_gdi_screen_target()? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "screen-dc-operation-target-stale",
+                "logical display changed while screen GDI access was being validated",
+            ));
+        }
+        Ok(device_context)
+    }
+
     pub(crate) fn plan_graphics_surface_dc_acquisition(
         &self,
         surface_com_object_id: RuntimeComObjectId,

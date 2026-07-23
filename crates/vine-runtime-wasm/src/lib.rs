@@ -10,23 +10,23 @@ use vine_core::{
     ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
     CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
-    DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE, GuestAddress,
-    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory,
-    GuestRange, HostCompletion, HostRequest, ImportBinding, ImportTarget, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
-    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
-    RuntimeThreadId, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
-    WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
+    Gdi32CompatibilityPolicy, GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy,
+    GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion, HostRequest, ImportBinding,
+    ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
+    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
     complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
     dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
-    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api,
+    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
     install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
@@ -297,6 +297,7 @@ enum BrowserRuntimeTarget {
     Bgi {
         kernel32_policy: Box<Kernel32CompatibilityPolicy>,
         user32_policy: Box<User32CompatibilityPolicy>,
+        gdi32_policy: Box<Gdi32CompatibilityPolicy>,
         winmm_policy: Box<WinmmCompatibilityPolicy>,
     },
 }
@@ -523,6 +524,8 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v1();
+        gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
         let d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
@@ -653,6 +656,7 @@ impl BrowserRuntime {
                 "attachOrder": process.attach_order,
                 "kernel32Policy": kernel32_policy.id,
                 "user32Policy": user32_policy.id,
+                "gdi32Policy": gdi32_policy.id,
                 "winmmPolicy": winmm_policy.id,
             },
         });
@@ -675,6 +679,7 @@ impl BrowserRuntime {
                 target: BrowserRuntimeTarget::Bgi {
                     kernel32_policy: Box::new(kernel32_policy),
                     user32_policy: Box::new(user32_policy),
+                    gdi32_policy: Box::new(gdi32_policy),
                     winmm_policy: Box::new(winmm_policy),
                 },
             },
@@ -1140,6 +1145,7 @@ impl BrowserRuntime {
                     BrowserRuntimeTarget::Bgi {
                         kernel32_policy,
                         user32_policy,
+                        gdi32_policy,
                         winmm_policy,
                         ..
                     } => {
@@ -1152,7 +1158,13 @@ impl BrowserRuntime {
                                 session,
                             )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
-                            dispatch_gdi32_api(contract, frame, session)
+                            dispatch_gdi32_api_with_policy(
+                                gdi32_policy,
+                                callback_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -1290,7 +1302,7 @@ impl BrowserRuntime {
                     | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
                         completion_metadata("api-complete", &completion)
                     }
-                    BrowserRuntimeTarget::Bgi { .. } => {
+                    BrowserRuntimeTarget::Bgi { gdi32_policy, .. } => {
                         let mut metadata = json!({
                             "kind": "api-complete",
                             "endpoint": endpoint,
@@ -1425,7 +1437,8 @@ impl BrowserRuntime {
                                     .copied()
                             );
                         }
-                        if let Some(gdi) = bgi_gdi_completion_metadata(&completion, &self.runtime)?
+                        if let Some(gdi) =
+                            bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
                         {
                             metadata["gdi"] = gdi;
                         }
@@ -1848,6 +1861,12 @@ impl BrowserRuntime {
                         vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
                     )) => metadata["window"] = json!(window),
                     _ => {}
+                }
+                if let BrowserRuntimeTarget::Bgi { gdi32_policy, .. } = &self.target
+                    && let Some(gdi) =
+                        bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
+                {
+                    metadata["gdi"] = gdi;
                 }
                 Ok((metadata, delta))
             }
@@ -2689,6 +2708,7 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
 fn bgi_gdi_completion_metadata(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
+    policy: &Gdi32CompatibilityPolicy,
 ) -> Result<Option<Value>, String> {
     match completion.implementation_id.as_str() {
         vine_core::GET_DC_IMPLEMENTATION => {
@@ -2771,6 +2791,25 @@ fn bgi_gdi_completion_metadata(
                     Err("screen FillRect completed outside the reached GDI support band".to_owned())
                 }
             }
+        }
+        vine_core::ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => {
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                "EnumFontFamiliesExA completion has no logical HDC argument".to_owned()
+            })?;
+            let RegisterUpdate::Set(callback_result) = completion.eax else {
+                return Err("EnumFontFamiliesExA completion did not set EAX".to_owned());
+            };
+            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
+            let enumeration = policy.enum_font_families_ex_a.as_ref().ok_or_else(|| {
+                "EnumFontFamiliesExA completed with its GDI32 policy disabled".to_owned()
+            })?;
+            Ok(Some(json!({
+                "action": "font-enumeration-completed",
+                "deviceContext": device_context,
+                "enumeration": enumeration,
+                "callbackResult": callback_result,
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+            })))
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion

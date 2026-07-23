@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `gdi-screen-dc`: 18608 calls across 93 API contracts, memory generation 36528 |
+| Runtime diagnostics | `gdi-font-enumeration`: 18610 calls across 94 API contracts, memory generation 36533 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `GDI32.dll!EnumFontFamiliesExA(0x47010003, 0x006ffd00, 0x1002d2e0, 0x100dce7c, 0x00000000)` at instruction 11957745: `endpoint-contract-missing` |
+| Next structured stop | `GDI32.dll!CreateFontA(0x00000040, 0x00000020, 0x00000000, 0x00000000, 0x00000064, 0x00000000, 0x00000000)` at instruction 11958023: `endpoint-contract-missing` |
 
-The active semantic report is 57,126 bytes with SHA-256
-`ae916c7d12a432eb9291afa079c9bfff4d32f2643664833b5b41a10fa2fbe86d`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 64,609 bytes with SHA-256
+`aa92175a31125d34770434b01c654a662ef40166bdd533b9d39d41fea4d48228`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -120,6 +120,7 @@ The active semantic report is 57,126 bytes with SHA-256
 - `USER32.dll!GetClientRect`
 - `USER32.dll!GetDC`
 - `GDI32.dll!GetStockObject`
+- `GDI32.dll!EnumFontFamiliesExA`
 - `USER32.dll!FillRect`
 - `USER32.dll!ReleaseDC`
 - `USER32.dll!SetWindowLongA`

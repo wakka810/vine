@@ -525,6 +525,19 @@ collection、guest memoryを部分更新しないことを検査する。Node／
 続く`GDI32.dll!EnumFontFamiliesExA` stopを要求する。Screen drawing、font callback／catalog／metrics、host HDC、
 DOM screen topology、cross-thread releaseはclaimしない。
 
+Reached `EnumFontFamiliesExA` gateはlive same-thread screen HDC、flags 0、`SHIFTJIS_CHARSET`、Windows-932
+`ＭＳ ゴシック` filterをexact profileとして固定する。Native two-run evidenceはprimaryで一callback／outer result 0、
+controlled stop／continue oracleで各一callbackとouter result 0／1、LPARAM round-trip、LastError preserve、input／guard
+unchangedを要求する。Fixed ANSI fieldは最初のNULまでのsemantic bytesだけを比較し、native未初期化tailのraw equalityを
+要求しない。
+
+Rust dispatcher testsは188-byte `ENUMLOGFONTEXA`、96-byte `NEWTEXTMETRICEXA`、font type 4のcanonical payload、
+callback result propagation、wrong charset／face／flags、invalid callback、stale／cross-thread HDC、callback scratch failureが
+memory、frame allocator、HDC authorityを部分更新しないことを検査する。Node／Chrome gateはsequence 18,609の一callback、
+callback result 0、続くsequence 18,610の`ReleaseDC(NULL, hdc)` TRUE、live DC 0、同じsemantic digest／terminal memoryと、
+instruction 11,958,023の`GDI32.dll!CreateFontA` stopを要求する。Host／browser font discovery、font object creation、
+selection、text measurement、glyph rasterizationはclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

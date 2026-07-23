@@ -74,10 +74,11 @@ block時のselection、priorityが実際のfairnessへ影響する必要性、DL
 Synchronous resumeはnative caller orderingを保つため即時preemptせず、現checkpointのpriorityはhost／browser
 schedulerへimportしない。
 
-Primary `GetDC(NULL)`のlogical primary-monitor relation、distinct HDC identity、same-thread release、failure atomicityは
-Rust authorityを保って成立した。次のgraphics riskはscreen acquisitionではなく、到達した
-`EnumFontFamiliesExA` callbackでWindows-932 face request、font catalog／metrics、callback lifetimeをbrowser font
-availabilityから分離し、可読性要件へ接続できるかである。Host HDCやDOM `Screen`を第二のauthorityにしない。
+Primary `GetDC(NULL)`のlogical primary-monitor relationに加え、到達した`EnumFontFamiliesExA`のWindows-932
+filter、single-record catalog／metrics、callback lifetime／result propagationはRust authorityを保って成立した。
+Native未初期化tailもsemantic stringと分離でき、host／browser font discoveryを同期APIへ取り込んでいない。次の
+graphics riskは`CreateFontA`以降のfont object／selection／metric consumerと、実際のglyph rasterization／substitutionを
+可読性要件へ接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を第二のauthorityにしない。
 
 ## 5. Scope reduction／no-go trigger
 

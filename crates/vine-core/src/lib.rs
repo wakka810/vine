@@ -132,7 +132,11 @@ pub use environment::{
     install_controlled_process_environment_with_parameters,
 };
 pub use gdi32::{
-    GET_STOCK_OBJECT_IMPLEMENTATION, dispatch_gdi32_api, gdi32_contract_for_endpoint,
+    ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION, GDI32_COMPATIBILITY_POLICY_SCHEMA,
+    GDI32_COMPATIBILITY_POLICY_VERSION, GET_STOCK_OBJECT_IMPLEMENTATION, Gdi32CompatibilityPolicy,
+    Gdi32FontEnumerationPolicy, Gdi32FontRecordPolicy, X86_ENUMLOGFONTEXA_BYTE_LENGTH,
+    X86_LOGFONTA_BYTE_LENGTH, X86_NEWTEXTMETRICEXA_BYTE_LENGTH, dispatch_gdi32_api,
+    dispatch_gdi32_api_with_policy, enum_font_families_ex_a_contract, gdi32_contract_for_endpoint,
     get_stock_object_contract,
 };
 pub use imports::{

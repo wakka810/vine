@@ -4526,3 +4526,47 @@ transitions、clean cancel／watchdogを通した。Browser reportは43,932 byte
 `0x006FFD00`、callback `0x1002D2E0`、LPARAM `0x100DCE7C`、flags 0で、faultは
 `gdi32-api-contract／endpoint-contract-missing`である。Font catalog、callback delivery、metrics、text rasterization、
 screen drawing、host font／HDC／DOM topologyはこのcheckpointでclaimしない。
+
+## 136. BGI CP932 font enumeration callback
+
+Callback-aware `screen-dc` profileを独立に2回取得した。Primary raw traceは98,030 bytes／95 records／SHA-256
+`eb09cfc2a18967f74e6054beb57b92688e08c2d01556841cea94fa59e30d3027`、confirmationは97,732 bytes／95
+records／SHA-256 `9a337ac82e09ec7c6c6c9a3e9ac9def7042e7af03be6e05c286ab81b9f0fbb33`で、diagnostics／hook
+errorsは0である。Profileは`x86-bgi-screen-dc-font-enumeration-callback-v2`、oracleは
+`x86-screen-dc-and-font-enumeration-v2`／`x86-cp932-ms-gothic-callback-enumeration-v1`である。Raw traceは
+`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Primary callはcharset 128、Windows-932 face bytes
+`82 6c 82 72 20 83 53 83 56 83 62 83 4e`、flags 0を渡す。Callback RVA `0x0002D2E0`は一度だけ呼ばれ、
+LPARAM RVA `0x000DCE7C`をそのまま受け、0を返す。Outer resultも0、LastErrorは0のままで、その後callerは結果を
+BOOL TRUEへ正規化する。Callbackは`ENUMLOGFONTEXA + 0x1C`のfaceとLPARAMをconsumerへ渡し、stdcall
+`ret 0x10`で戻る。
+
+Stable record semanticsはheight 32、width 16、weight 400、charset 128、out／clip precision 3／2、quality 1、
+pitch-family 49、face／full name `ＭＳ ゴシック`、style `標準`、script `日本語`、font type 4である。
+`NEWTEXTMETRICEXA`はheight／ascent／descent 32／28／4、average／maximum width 16／63、weight 400、
+aspect 96x96、first／last／default／break 0／255／165／2、pitch-family 54、charset 128、flags 2,359,360、
+size-em／cell-height／average-width 256／256／128を返す。24-byte font signatureは
+`ff 02 00 e0 fb fd c7 6a 12 00 00 08 00 00 00 00 9f 00 02 40 00 00 d7 df`である。
+
+Controlled oracleはcallback 0のstop caseとcallback 1のcontinue caseを各一度実行し、outer result 0／1、callback
+data round-trip、inputと前後guard不変、全success LastError sentinel保存を確認した。Fixed ANSI fieldのNUL以降は
+Windowsが初期化せずraw bytesがcall間で異なる一方、NULまでのface／full name／style／scriptと全metric fieldsは
+一致する。Vineはこのsemantic部分だけをimportし、canonical recordのtailをzero-fillする。
+
+Nodeは18,610 supported calls、18,666 writebacks／37,580 dirty pages／2,946,837 changed bytes、17,296 host
+deltas、generation 36,533、semantic SHA-256
+`0ca0ec8d32618282a2c7113b21974a76d89c8a964c9176f7764456ba7c6e35e6`、terminal memory SHA-256
+`aa3b09f8c749eb54213ce2a7be2545f3479700cd1ffebe9e9f3d9ca253ee1a6e`を通した。Node reportは64,609
+bytes／SHA-256 `aa92175a31125d34770434b01c654a662ef40166bdd533b9d39d41fea4d48228`である。Chrome Runtime
+Workerもsame ordered semantics／terminal memoryを再現し、19,366 slices、19,364 writebacks／39,198 pages、
+17,296 mapping deltas／18,812 dirty pages、generation 27→37,233、55,644 Wasm crossings、58,063 success
+transitions、clean cancel／watchdogを通した。Browser reportは44,083 bytes／SHA-256
+`dc14a7759c0d805b57a45a1eacdff217776c7157974d145155818d28cdb09bde`である。
+
+Enumerationの後に`ReleaseDC(NULL, 0x47010003)`が1を返してlive HDCを0にし、次stopはinstruction
+11,958,023、`GDI32.dll!CreateFontA` endpoint ID 256／address `0x7F000FF0`／IAT `0x100D108C`／return
+`0x1002C838`である。Captured argument prefixはheight 64、width 32、escapement／orientation 0／0、weight 100、
+italic／underline 0／0で、faultは`gdi32-api-contract／endpoint-contract-missing`である。Font object identity、
+selection、host／browser font resolution、text metrics consumer、glyph rasterizationはこのcheckpointでclaimしない。

@@ -5,7 +5,8 @@
 The GDI frontend owns guest-visible GDI identity, lifetime, and logical drawing
 state in Rust. The current bounded slice implements `USER32!GetDC` and
 `USER32!ReleaseDC` for a logical window, the NULL-window primary screen
-acquisition, and the reached D3D9 system-memory surface. `GDI32!GetStockObject`
+acquisition, one policy-owned `GDI32!EnumFontFamiliesExA` callback record, and
+the reached D3D9 system-memory surface. `GDI32!GetStockObject`
 for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
 graphics-surface paths. This establishes the responsibility boundary needed for
 later GDI work without claiming a pixel renderer, screen drawing, general DC
@@ -96,9 +97,32 @@ memory.
 
 A screen HDC has no drawing surface in this checkpoint. Passing it to the
 current `FillRect` path produces the typed `screen-dc-drawing-unsupported`
-failure before mutation. Font enumeration, DC selection state, text metrics,
-and rasterization remain separate reached gateways rather than being inferred
-from successful screen acquisition.
+failure before mutation.
+
+## Bounded font enumeration
+
+`Gdi32CompatibilityPolicy` owns the reached catalog, not `RuntimeGdi`, the
+browser, or a host font query. Version 1 accepts only flags zero and the exact
+Windows-932 `MS Gothic` face with `SHIFTJIS_CHARSET` on a live same-thread
+screen HDC. Other `LOGFONTA` fields are deliberately ignored because the native
+caller leaves them as unstable stack bytes. Unsupported face or charset,
+nonzero flags, a stale or wrong-thread HDC, and a non-executable callback fail
+before callback-frame or guest-memory mutation.
+
+The policy materializes one zero-filled canonical 188-byte `ENUMLOGFONTEXA`
+and 96-byte `NEWTEXTMETRICEXA` record in runtime callback scratch. The x86
+stdcall callback receives those two pointers, `TRUETYPE_FONTTYPE`, and the
+caller's unchanged LPARAM. Its 32-bit result becomes the outer enumeration
+result; the reached callback returns zero, so enumeration stops after the first
+record and preserves LastError. Native bytes after the first NUL in fixed ANSI
+fields are uninitialized and are not imported. Only the NUL-bounded face, full
+name, style, script, numeric LOGFONT fields, text metrics, and font signature
+are compatibility evidence.
+
+The record is logical catalog and metric data only. It creates no selected font
+object, glyph outline, raster surface, browser `FontFace`, Canvas text state, or
+renderer resource. `CreateFontA`, object selection, text measurement, glyph
+rasterization, and font substitution remain subsequent reached gateways.
 
 ## Direct3D and renderer separation
 
@@ -133,7 +157,10 @@ stock object lifetime, stale commit, capacity and generation failure, empty and
 invalid rectangles, graphics-surface HDC uniqueness, COM-retirement guarding,
 cross-owner fill preflight, and process teardown. The dispatcher integration
 tests cover nullable HWND ABI, LastError, guest pointer preflight, repeated
-screen release, policy/display authority, and failure atomicity.
+screen release, policy/display authority, and failure atomicity. GDI32
+dispatcher tests additionally cover the exact 284-byte callback payload,
+callback-result propagation, stale／cross-thread HDCs, unsupported filters and
+flags, callback preparation failure, and allocator／memory preservation.
 The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
@@ -145,6 +172,7 @@ cargo test -p vine-core --lib runtime::gdi::tests --locked
 cargo test -p vine-core --lib runtime::graphics::tests --locked
 cargo test -p vine-core --test user32_dispatcher window_dc --locked
 cargo test -p vine-core --test user32_dispatcher screen_dc --locked
+cargo test -p vine-core --test gdi32_dispatcher --locked
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:runtime:bgi-browser
 ```
@@ -154,7 +182,9 @@ npm run check:runtime:bgi-browser
 - Drawing through the primary screen HDC, non-primary or multiple monitors,
   child or multiple windows, cross-thread DC use, class/private/cached DC
   policy, SaveDC/RestoreDC, selection, clipping, mapping modes, DIBs, palettes,
-  text, BitBlt, StretchBlt, and general GDI objects are not implemented.
+  text rendering, BitBlt, StretchBlt, and general GDI objects are not implemented.
+- The single enumerated record is not general system-font discovery and does
+  not claim that a browser or host has the corresponding font installed.
 - Neither logical fill history is a raster buffer; the reached D3D9 fill does
   not allocate pixel storage or produce a browser-visible frame.
 - Native numeric HDC values and their reuse are artifact identity, not a Vine

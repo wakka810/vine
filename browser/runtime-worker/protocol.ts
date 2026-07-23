@@ -399,11 +399,43 @@ export interface RuntimeGdiSurfaceSnapshot {
   generation: number;
 }
 
+export interface RuntimeGdiScreenDeviceContextSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  ownerThreadId: number;
+  targetKind: "screen";
+  monitorHandle: number;
+  rect: { left: number; top: number; right: number; bottom: number };
+}
+
 export type RuntimeGdiSnapshot =
   | {
       action: "device-context-acquired";
       deviceContext: RuntimeGdiDeviceContextSnapshot;
       surface: RuntimeGdiSurfaceSnapshot;
+      liveDeviceContexts: number;
+    }
+  | {
+      action: "screen-device-context-acquired";
+      deviceContext: RuntimeGdiScreenDeviceContextSnapshot;
+      liveDeviceContexts: number;
+    }
+  | {
+      action: "font-enumeration-completed";
+      deviceContext: RuntimeGdiScreenDeviceContextSnapshot;
+      enumeration: {
+        profileId: string;
+        inputCharacterSet: number;
+        inputFaceNameWindows932: number[];
+        flags: number;
+        record: {
+          fontType: number;
+          enumLogFontExA: number[];
+          newTextMetricExA: number[];
+        };
+      };
+      callbackResult: number;
       liveDeviceContexts: number;
     }
   | {

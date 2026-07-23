@@ -870,6 +870,21 @@ impl RuntimeGdi {
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
     ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
+        let device_context =
+            self.validate_screen_dc_access(target, device_context_handle, thread_id)?;
+        Ok(RuntimeReleaseDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context,
+        })
+    }
+
+    pub(super) fn validate_screen_dc_access(
+        &self,
+        target: RuntimeGdiScreenTarget,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeDeviceContext, RuntimeStateError> {
         validate_screen_target(target)?;
         let device_context = self
             .device_context_by_handle(device_context_handle)?
@@ -885,14 +900,10 @@ impl RuntimeGdi {
             return Err(RuntimeStateError::conflict(
                 "runtime-gdi",
                 "screen-device-context-relation-mismatch",
-                "ReleaseDC requires the exact screen HDC and acquiring guest thread relation",
+                "screen GDI access requires the exact HDC, primary monitor, and acquiring guest thread relation",
             ));
         }
-        Ok(RuntimeReleaseDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context,
-        })
+        Ok(device_context)
     }
 
     pub(super) fn commit_release_dc(

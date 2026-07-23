@@ -344,6 +344,9 @@ let screenDcOracleEvidence = null;
 let screenDcCompletionRecorded = false;
 let screenDcTargetHandle = null;
 const screenDcMainModuleCalls = [];
+const activeScreenDcFontEnumerationsByThread = new Map();
+const attachedScreenDcFontCallbacks = new Set();
+const screenDcFontOracleCallbacks = [];
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
 let setWindowLongAOracleComplete = false;
@@ -8905,6 +8908,139 @@ function maybeCompleteWindowDcObservation() {
   }
 }
 
+function snapshotEnumLogFontExA(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 188, 188);
+  if (raw.error !== undefined) {
+    return { profile: "x86-enumlogfontexa-v1", raw };
+  }
+  const bytes = raw.bytes;
+  const fixedAnsiField = (offset, capacity) => {
+    const storage = bytes.slice(offset, offset + capacity);
+    const terminator = storage.indexOf(0);
+    return {
+      bytes: terminator === -1 ? storage : storage.slice(0, terminator),
+      terminated: terminator !== -1,
+    };
+  };
+  const numericFields = {
+    height: pointer.readS32(),
+    width: pointer.add(4).readS32(),
+    escapement: pointer.add(8).readS32(),
+    orientation: pointer.add(12).readS32(),
+    weight: pointer.add(16).readS32(),
+    italic: pointer.add(20).readU8(),
+    underline: pointer.add(21).readU8(),
+    strikeOut: pointer.add(22).readU8(),
+    charSet: pointer.add(23).readU8(),
+    outPrecision: pointer.add(24).readU8(),
+    clipPrecision: pointer.add(25).readU8(),
+    quality: pointer.add(26).readU8(),
+    pitchAndFamily: pointer.add(27).readU8(),
+  };
+  return {
+    profile: "x86-enumlogfontexa-v1",
+    raw,
+    fields: {
+      ...numericFields,
+      faceNameBytes: bytes.slice(28, 60),
+      fullNameBytes: bytes.slice(60, 124),
+      styleBytes: bytes.slice(124, 156),
+      scriptBytes: bytes.slice(156, 188),
+    },
+    semantic: {
+      ...numericFields,
+      faceName: fixedAnsiField(28, 32),
+      fullName: fixedAnsiField(60, 64),
+      style: fixedAnsiField(124, 32),
+      script: fixedAnsiField(156, 32),
+    },
+  };
+}
+
+function snapshotNewTextMetricExA(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 96, 96);
+  if (raw.error !== undefined) {
+    return { profile: "x86-newtextmetricexa-v1", raw };
+  }
+  return {
+    profile: "x86-newtextmetricexa-v1",
+    raw,
+    fields: {
+      height: pointer.readS32(),
+      ascent: pointer.add(4).readS32(),
+      descent: pointer.add(8).readS32(),
+      internalLeading: pointer.add(12).readS32(),
+      externalLeading: pointer.add(16).readS32(),
+      averageCharacterWidth: pointer.add(20).readS32(),
+      maximumCharacterWidth: pointer.add(24).readS32(),
+      weight: pointer.add(28).readS32(),
+      overhang: pointer.add(32).readS32(),
+      digitizedAspectX: pointer.add(36).readS32(),
+      digitizedAspectY: pointer.add(40).readS32(),
+      firstCharacter: pointer.add(44).readU8(),
+      lastCharacter: pointer.add(45).readU8(),
+      defaultCharacter: pointer.add(46).readU8(),
+      breakCharacter: pointer.add(47).readU8(),
+      italic: pointer.add(48).readU8(),
+      underlined: pointer.add(49).readU8(),
+      struckOut: pointer.add(50).readU8(),
+      pitchAndFamily: pointer.add(51).readU8(),
+      charSet: pointer.add(52).readU8(),
+      flags: pointer.add(56).readU32(),
+      sizeEm: pointer.add(60).readU32(),
+      cellHeight: pointer.add(64).readU32(),
+      averageWidth: pointer.add(68).readU32(),
+      fontSignatureBytes: raw.bytes.slice(72, 96),
+    },
+  };
+}
+
+function attachScreenDcFontCallback(callback) {
+  if (callback.isNull()) {
+    return;
+  }
+  const key = callback.toString().toLowerCase();
+  if (attachedScreenDcFontCallbacks.has(key)) {
+    return;
+  }
+  attachedScreenDcFontCallbacks.add(key);
+  Interceptor.attach(callback, {
+    onEnter(args) {
+      const threadId = Process.getCurrentThreadId();
+      const active = activeScreenDcFontEnumerationsByThread.get(threadId) ?? null;
+      this.screenDcFontCallback = null;
+      if (active === null) {
+        return;
+      }
+      const record = {
+        callback: callback.toString(),
+        caller: describeCaller(this.returnAddress),
+        enumLogFontPointer: args[0].toString(),
+        textMetricPointer: args[1].toString(),
+        fontType: args[2].toUInt32(),
+        callbackParameter: args[3].toString(),
+        enumLogFontBefore: snapshotEnumLogFontExA(args[0]),
+        textMetricBefore: snapshotNewTextMetricExA(args[1]),
+        lastErrorBefore: Number(this.lastError) >>> 0,
+      };
+      this.screenDcFontCallback = record;
+      this.enumLogFontPointer = args[0];
+      this.textMetricPointer = args[1];
+      active.callbacks.push(record);
+    },
+    onLeave(result) {
+      const record = this.screenDcFontCallback;
+      if (record === null) {
+        return;
+      }
+      record.result = signed32(result);
+      record.enumLogFontAfter = snapshotEnumLogFontExA(this.enumLogFontPointer);
+      record.textMetricAfter = snapshotNewTextMetricExA(this.textMetricPointer);
+      record.lastErrorAfter = Number(this.lastError) >>> 0;
+    },
+  });
+}
+
 function attachScreenDcHook(module, name) {
   const address = findExport(module, name);
   if (address === null) {
@@ -8937,6 +9073,14 @@ function attachScreenDcHook(module, name) {
         name === "EnumFontFamiliesExA"
           ? snapshotBoundedRawBytes(this.logFontPointer, 60, 60)
           : null;
+      this.fontCallbacks = [];
+      this.fontCallbackInstructions =
+        name === "EnumFontFamiliesExA" && isMainModuleCaller
+          ? snapshotInstructions(this.fontCallback, 96)
+          : null;
+      this.fontEnumerationThreadId = null;
+      this.previousFontEnumeration = null;
+      this.fontEnumeration = null;
       const relevantMainCall =
         isMainModuleCaller &&
         !screenDcCompletionRecorded &&
@@ -8977,6 +9121,21 @@ function attachScreenDcHook(module, name) {
       this.immediateConsumer = relevantMainCall
         ? snapshotInstructions(this.returnAddress, 48)
         : null;
+      if (name === "EnumFontFamiliesExA") {
+        attachScreenDcFontCallback(this.fontCallback);
+        this.fontEnumerationThreadId = Process.getCurrentThreadId();
+        this.previousFontEnumeration =
+          activeScreenDcFontEnumerationsByThread.get(this.fontEnumerationThreadId) ?? null;
+        this.fontEnumeration = {
+          callback: this.fontCallback.toString(),
+          callbackParameter: this.callbackParameter.toString(),
+          callbacks: this.fontCallbacks,
+        };
+        activeScreenDcFontEnumerationsByThread.set(
+          this.fontEnumerationThreadId,
+          this.fontEnumeration,
+        );
+      }
       this.traceFrame = beginCall(
         {
           module: module.name,
@@ -8986,12 +9145,30 @@ function attachScreenDcHook(module, name) {
           screenDc: {
             immediateConsumer: this.immediateConsumer,
             logFont: this.logFont,
+            fontCallbackInstructions: this.fontCallbackInstructions,
           },
         },
         this.returnAddress,
       );
     },
     onLeave(result) {
+      if (this.fontEnumerationThreadId !== null) {
+        const active = activeScreenDcFontEnumerationsByThread.get(
+          this.fontEnumerationThreadId,
+        );
+        if (active === this.fontEnumeration) {
+          if (this.previousFontEnumeration === null) {
+            activeScreenDcFontEnumerationsByThread.delete(
+              this.fontEnumerationThreadId,
+            );
+          } else {
+            activeScreenDcFontEnumerationsByThread.set(
+              this.fontEnumerationThreadId,
+              this.previousFontEnumeration,
+            );
+          }
+        }
+      }
       if (this.traceFrame === null) {
         return;
       }
@@ -9010,6 +9187,7 @@ function attachScreenDcHook(module, name) {
           screenDc: {
             result: resultValue,
             logFont: this.logFont,
+            fontCallbacks: this.fontCallbacks,
           },
         },
         this.lastError,
@@ -9030,6 +9208,8 @@ function attachScreenDcHook(module, name) {
         lastErrorBefore: this.lastErrorBefore,
         lastError,
         logFont: this.logFont,
+        fontCallbackInstructions: this.fontCallbackInstructions,
+        fontCallbacks: this.fontCallbacks,
         immediateConsumer: this.immediateConsumer,
       });
       if (this.api === "ReleaseDC" && resultValue === 1) {
@@ -9058,6 +9238,20 @@ function scheduleScreenDcOracle() {
         releaseDcAddress,
         "int32",
         ["pointer", "pointer"],
+        "stdcall",
+      );
+      const gdi32 = Process.getModuleByName("gdi32.dll");
+      const enumFontFamiliesExAAddress = findExport(
+        gdi32,
+        "EnumFontFamiliesExA",
+      );
+      if (enumFontFamiliesExAAddress === null) {
+        throw new Error("EnumFontFamiliesExA oracle export is unavailable");
+      }
+      const enumFontFamiliesExA = new SystemFunction(
+        enumFontFamiliesExAAddress,
+        "int32",
+        ["pointer", "pointer", "pointer", "pointer", "uint32"],
         "stdcall",
       );
       const invoke = (id, api, sentinel, callback) => {
@@ -9123,8 +9317,123 @@ function scheduleScreenDcOracle() {
         ),
       );
 
+      const fontInputStorage = Memory.alloc(68);
+      fontInputStorage.writeByteArray(Array(68).fill(0xa5));
+      const fontInput = fontInputStorage.add(4);
+      fontInput.writeByteArray(Array(60).fill(0));
+      fontInput.add(23).writeU8(128);
+      fontInput.add(28).writeByteArray([
+        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+        0x83, 0x4e, 0,
+      ]);
+      const fontDcOutcome = getDc(ptr(0));
+      const fontDc = fontDcOutcome.value;
+      if (fontDc.isNull()) {
+        throw new Error("font enumeration screen GetDC oracle returned NULL");
+      }
+      const invokeFont = (id, callbackResult, sentinel, callbackData) => {
+        const callbacks = [];
+        const callback = new NativeCallback(
+          (enumLogFont, textMetric, fontType, data) => {
+            callbacks.push({
+              threadId: Process.getCurrentThreadId(),
+              enumLogFont: snapshotEnumLogFontExA(enumLogFont),
+              textMetric: snapshotNewTextMetricExA(textMetric),
+              fontType: Number(fontType) >>> 0,
+              callbackData: data.toString(),
+              result: callbackResult,
+            });
+            return callbackResult;
+          },
+          "int32",
+          ["pointer", "pointer", "uint32", "pointer"],
+          "stdcall",
+        );
+        screenDcFontOracleCallbacks.push(callback);
+        const inputStorageBefore = snapshotBoundedRawBytes(
+          fontInputStorage,
+          68,
+          68,
+        );
+        screenDcOracleCall = {
+          api: "EnumFontFamiliesExA",
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = enumFontFamiliesExA(
+            fontDc,
+            fontInput,
+            callback,
+            callbackData,
+            0,
+          );
+          const systemResult = Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            screenDcOracleCall.hookResult === null ||
+            screenDcOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              `EnumFontFamiliesExA ${id} oracle did not pass through the hook`,
+            );
+          }
+          const inputStorageAfter = snapshotBoundedRawBytes(
+            fontInputStorage,
+            68,
+            68,
+          );
+          const afterBytes = inputStorageAfter.bytes ?? [];
+          return {
+            id,
+            callbackResult,
+            sentinel,
+            hdc: fontDc.toString(),
+            input: snapshotBoundedRawBytes(fontInput, 60, 60),
+            callbackData: callbackData.toString(),
+            flags: 0,
+            hookResult: screenDcOracleCall.hookResult,
+            hookLastErrorAfter: screenDcOracleCall.hookLastErrorAfter,
+            systemResult,
+            systemLastError,
+            callbacks,
+            inputStorageBefore,
+            inputStorageAfter,
+            hookResultMatches: screenDcOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              screenDcOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+            inputUnchanged:
+              JSON.stringify(inputStorageBefore.bytes) ===
+              JSON.stringify(inputStorageAfter.bytes),
+            prefixGuardUnchanged:
+              afterBytes.length === 68 &&
+              afterBytes.slice(0, 4).every((value) => value === 0xa5),
+            suffixGuardUnchanged:
+              afterBytes.length === 68 &&
+              afterBytes.slice(64).every((value) => value === 0xa5),
+            allCallbackDataRoundTrips: callbacks.every(
+              (invocation) =>
+                invocation.callbackData === callbackData.toString(),
+            ),
+          };
+        } finally {
+          screenDcOracleCall = null;
+        }
+      };
+      let fontEnumerationCalls;
+      try {
+        fontEnumerationCalls = [
+          invokeFont("stop", 0, 0x66667777, ptr("0x12345678")),
+          invokeFont("continue", 1, 0x77778888, ptr("0x87654321")),
+        ];
+      } finally {
+        releaseDc(ptr(0), fontDc);
+      }
+
       screenDcOracleEvidence = {
-        profile: "x86-screen-dc-lifetime-v1",
+        profile: "x86-screen-dc-and-font-enumeration-v2",
         calls,
         relations: {
           concurrentGetDcSameIdentity: first.systemResult === second.systemResult,
@@ -9133,6 +9442,55 @@ function scheduleScreenDcOracle() {
         allLastErrorsMatchHooks: calls.every(
           (call) => call.hookAndSystemLastErrorMatch,
         ),
+        fontEnumeration: {
+          profile: "x86-cp932-ms-gothic-callback-enumeration-v1",
+          calls: fontEnumerationCalls,
+          stopCallbackCount: fontEnumerationCalls[0].callbacks.length,
+          continueCallbackCount: fontEnumerationCalls[1].callbacks.length,
+          stopHaltsAfterFirstCallback:
+            fontEnumerationCalls[0].callbacks.length === 1,
+          expectedResultsObserved:
+            fontEnumerationCalls[0].systemResult === 0 &&
+            fontEnumerationCalls[1].systemResult === 1 &&
+            fontEnumerationCalls.every((call) => call.hookResultMatches),
+          allInputsAndGuardsUnchanged: fontEnumerationCalls.every(
+            (call) =>
+              call.inputUnchanged &&
+              call.prefixGuardUnchanged &&
+              call.suffixGuardUnchanged,
+          ),
+          allCallbackDataRoundTrips: fontEnumerationCalls.every(
+            (call) => call.allCallbackDataRoundTrips,
+          ),
+          allPreserveLastError: fontEnumerationCalls.every(
+            (call) =>
+              call.hookPreservesLastError && call.systemPreservesLastError,
+          ),
+          firstEnumLogFontRawStable:
+            fontEnumerationCalls.every((call) => call.callbacks.length > 0) &&
+            JSON.stringify(
+              fontEnumerationCalls[0].callbacks[0].enumLogFont.raw.bytes,
+            ) ===
+              JSON.stringify(
+                fontEnumerationCalls[1].callbacks[0].enumLogFont.raw.bytes,
+              ),
+          firstEnumLogFontSemanticsStable:
+            fontEnumerationCalls.every((call) => call.callbacks.length > 0) &&
+            JSON.stringify(
+              fontEnumerationCalls[0].callbacks[0].enumLogFont.semantic,
+            ) ===
+              JSON.stringify(
+                fontEnumerationCalls[1].callbacks[0].enumLogFont.semantic,
+              ),
+          firstTextMetricSemanticsStable:
+            fontEnumerationCalls.every((call) => call.callbacks.length > 0) &&
+            JSON.stringify(
+              fontEnumerationCalls[0].callbacks[0].textMetric.fields,
+            ) ===
+              JSON.stringify(
+                fontEnumerationCalls[1].callbacks[0].textMetric.fields,
+              ),
+        },
       };
       screenDcOracleComplete = true;
       emit("screen-dc-oracle", screenDcOracleEvidence);
@@ -9159,7 +9517,7 @@ function maybeCompleteScreenDcObservation() {
   }
   screenDcCompletionRecorded = true;
   emit("screen-dc-complete", {
-    profile: "x86-bgi-screen-dc-font-enumeration-lifetime-v1",
+    profile: "x86-bgi-screen-dc-font-enumeration-callback-v2",
     mainModuleCalls: screenDcMainModuleCalls,
     oracle: screenDcOracleEvidence,
   });

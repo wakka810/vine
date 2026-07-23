@@ -16,16 +16,16 @@ use vine_core::{
     CREATE_THREAD_IMPLEMENTATION, CallbackReturnSentinel, ComCallCompletion, ComCallTrap,
     ComDispatchOutcome, ComFault, CpuWritebackReceipt, D3d9CompatibilityPolicy,
     Dinput8CompatibilityPolicy, DispatchOutcome, DsoundCompatibilityPolicy, DynamicExportThunk,
-    ExecutionSession, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestPageReconciliation, GuestWriteResult, ImageMaterialization, ImageMemoryLayout,
-    ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition, InitialProcessEnvironment,
-    InitialThreadStack, Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError,
-    LoaderErrorClass, LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits,
-    MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
-    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RESUME_THREAD_IMPLEMENTATION,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
+    ExecutionSession, Gdi32CompatibilityPolicy, GuestAddress, GuestMemory, GuestMemoryError,
+    GuestMemoryErrorClass, GuestPageReconciliation, GuestWriteResult, ImageMaterialization,
+    ImageMemoryLayout, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
+    InitialProcessEnvironment, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryStats, ModuleIdentity,
+    ModuleSnapshot, Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
+    RESUME_THREAD_IMPLEMENTATION, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
+    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
     RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
@@ -43,7 +43,7 @@ use vine_core::{
     bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api, dispatch_kernel32_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
     gdi32_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
@@ -212,6 +212,7 @@ enum GenericRuntimeCapability {
     CreateThread,
     SetThreadPriority,
     ScreenDc,
+    FontEnumeration,
 }
 
 struct GenericRuntimeProcess {
@@ -382,6 +383,8 @@ struct GenericRuntimeSessionReady {
     #[serde(skip_serializing_if = "Option::is_none")]
     user32_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    gdi32_compatibility_policy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     winmm_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_profile_id: Option<String>,
@@ -486,6 +489,12 @@ enum GenericRuntimeGdiCompletion {
     },
     ScreenDeviceContextAcquired {
         device_context: vine_core::RuntimeDeviceContext,
+        live_device_contexts: usize,
+    },
+    FontEnumerationCompleted {
+        device_context: vine_core::RuntimeDeviceContext,
+        enumeration: vine_core::Gdi32FontEnumerationPolicy,
+        callback_result: u32,
         live_device_contexts: usize,
     },
     StockObjectResolved {
@@ -2394,6 +2403,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::CreateThread
                     | GenericRuntimeCapability::SetThreadPriority
                     | GenericRuntimeCapability::ScreenDc
+                    | GenericRuntimeCapability::FontEnumeration
             )
         ) {
             let loader = kernel32_policy
@@ -3054,6 +3064,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3067,6 +3078,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     );
     let dsound_root_enabled = matches!(
@@ -3079,6 +3091,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3090,6 +3103,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3100,6 +3114,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     );
     let requested_capability = match enabled_capability {
@@ -3112,7 +3127,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetTimer
             | GenericRuntimeCapability::CreateThread
             | GenericRuntimeCapability::SetThreadPriority
-            | GenericRuntimeCapability::ScreenDc,
+            | GenericRuntimeCapability::ScreenDc
+            | GenericRuntimeCapability::FontEnumeration,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3192,6 +3208,10 @@ fn run_v86_generic_runtime_session(
         ) => Some(GenericRuntimeCapability::CreateWaitableTimerA),
         capability => capability,
     };
+    let font_enumeration_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::FontEnumeration)
+    );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
         user32_capability,
@@ -3306,14 +3326,23 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CreateThread
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
         )
     ) {
         user32_policy.set_timer = None;
     }
-    if !matches!(enabled_capability, Some(GenericRuntimeCapability::ScreenDc)) {
+    if !matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::ScreenDc | GenericRuntimeCapability::FontEnumeration)
+    ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v1();
+    if !font_enumeration_enabled {
+        gdi32_policy.enum_font_families_ex_a = None;
+    }
+    gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
     let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
@@ -3654,6 +3683,13 @@ fn run_v86_generic_runtime_session(
             dinput8_factory_enabled
         } else if endpoint.module.eq_ignore_ascii_case("dsound.dll") {
             dsound_root_enabled
+        } else if endpoint.matches(
+            "gdi32.dll",
+            &ApiSymbol::Name {
+                name: "EnumFontFamiliesExA".to_owned(),
+            },
+        ) {
+            font_enumeration_enabled
         } else {
             runtime_capability_enables_endpoint(requested_capability, endpoint)
         };
@@ -3841,6 +3877,8 @@ fn run_v86_generic_runtime_session(
                 )
             )
             .then(|| user32_policy.id.clone()),
+            gdi32_compatibility_policy_id: font_enumeration_enabled
+                .then(|| gdi32_policy.id.clone()),
             winmm_compatibility_policy_id: matches!(
                 endpoint_capability,
                 Some(
@@ -3984,6 +4022,11 @@ fn run_v86_generic_runtime_session(
                         .pop()
                         .expect("validated active callback disappeared before commit");
                     debug_assert_eq!(retired.frame_id, frame_id);
+                    let gdi = generic_runtime_gdi_completion(
+                        &completion,
+                        session.runtime(),
+                        &gdi32_policy,
+                    )?;
                     send_pending_runtime_delta(input, memory)?;
                     write_runtime_json_frame(
                         RUNTIME_FRAME_API_COMPLETION,
@@ -4015,7 +4058,7 @@ fn run_v86_generic_runtime_session(
                             timer_resolution: None,
                             source_read: None,
                             runtime_module: None,
-                            gdi: None,
+                            gdi,
                             memory: memory.stats(),
                         },
                     )?;
@@ -4287,7 +4330,13 @@ fn run_v86_generic_runtime_session(
                                 session,
                             )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
-                            dispatch_gdi32_api(contract, frame, session)
+                            dispatch_gdi32_api_with_policy(
+                                &gdi32_policy,
+                                callback_return_sentinel,
+                                contract,
+                                frame,
+                                session,
+                            )
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -4813,7 +4862,11 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let gdi = generic_runtime_gdi_completion(&completion, session.runtime())?;
+                        let gdi = generic_runtime_gdi_completion(
+                            &completion,
+                            session.runtime(),
+                            &gdi32_policy,
+                        )?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -10664,6 +10717,7 @@ fn set_eax_result(
 fn generic_runtime_gdi_completion(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
+    policy: &Gdi32CompatibilityPolicy,
 ) -> Result<Option<GenericRuntimeGdiCompletion>, LoaderError> {
     match completion.implementation_id.as_str() {
         vine_core::GET_DC_IMPLEMENTATION => {
@@ -10788,6 +10842,43 @@ fn generic_runtime_gdi_completion(
                     ))
                 }
             }
+        }
+        vine_core::ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => {
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "enum-font-families-ex-a-hdc-missing-after-dispatch",
+                    "completed EnumFontFamiliesExA frame has no logical HDC",
+                )
+            })?;
+            let callback_result = set_eax_result(
+                completion,
+                "enum-font-families-ex-a-return-register-invalid",
+                "EnumFontFamiliesExA dispatcher did not set EAX",
+            )?;
+            let device_context = runtime
+                .gdi_device_context(handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let enumeration = policy
+                .enum_font_families_ex_a
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "font-enumeration-policy-missing-after-dispatch",
+                        "completed EnumFontFamiliesExA has no active GDI32 compatibility policy",
+                    )
+                })?;
+            Ok(Some(
+                GenericRuntimeGdiCompletion::FontEnumerationCompleted {
+                    device_context,
+                    enumeration,
+                    callback_result,
+                    live_device_contexts: runtime.gdi_device_contexts().len(),
+                },
+            ))
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion.frame.argument_u32(1).ok_or_else(|| {
@@ -11867,6 +11958,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-create-thread" => GenericRuntimeCapability::CreateThread,
                 "kernel32-set-thread-priority" => GenericRuntimeCapability::SetThreadPriority,
                 "gdi-screen-dc" => GenericRuntimeCapability::ScreenDc,
+                "gdi-font-enumeration" => GenericRuntimeCapability::FontEnumeration,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

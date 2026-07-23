@@ -853,6 +853,26 @@ export function validateCurrentCheckpoint(manifest) {
     "screenDcLiveDeviceContexts",
     "screenDcNodeCompletions",
     "screenDcChromeCompletions",
+    "fontEnumerationCompletions",
+    "fontEnumerationSequence",
+    "fontEnumerationInstructionCount",
+    "fontEnumerationLastError",
+    "fontEnumerationGuestWriteBytes",
+    "fontEnumerationCallbackFrameId",
+    "fontEnumerationCallbackResult",
+    "fontEnumerationCallbackReturnInstructionCount",
+    "fontEnumerationCallbackScratchBytes",
+    "fontEnumerationCharacterSet",
+    "fontEnumerationFontType",
+    "fontEnumerationEnumLogFontExABytes",
+    "fontEnumerationNewTextMetricExABytes",
+    "fontEnumerationNodeCompletions",
+    "fontEnumerationChromeCompletions",
+    "screenReleaseDcSequence",
+    "screenReleaseDcInstructionCount",
+    "screenReleaseDcResult",
+    "screenReleaseDcLastError",
+    "screenReleaseDcLiveDeviceContexts",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -919,12 +939,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_295 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_810 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_296 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_812 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_055 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_063 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -949,7 +969,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !== 2 ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 19 ||
+    bgiBrowserEvidence.callbackEntries !== 20 ||
     bgiBrowserEvidence.callbackReplacements !== 10 ||
     bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
     bgiBrowserEvidence.logicalWindowCompletions !== 5 ||
@@ -1559,7 +1579,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.fillRectFillRect?.join(",") !== "0,0,800,600" ||
     bgiBrowserEvidence.fillRectColorRef !== 0 ||
     bgiBrowserEvidence.fillRectOrderedSemanticsMatched !== true ||
-    bgiBrowserEvidence.releaseDcCompletions !== 1 ||
+    bgiBrowserEvidence.releaseDcCompletions !== 2 ||
     bgiBrowserEvidence.releaseDcSequence !== 17_829 ||
     bgiBrowserEvidence.releaseDcArguments?.join(",") !==
       "0x48010001,0x47010001" ||
@@ -1755,6 +1775,52 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.screenDcNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI primary-screen device-context evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.fontEnumerationCompletions !== 1 ||
+    bgiBrowserEvidence.fontEnumerationSequence !== 18_609 ||
+    bgiBrowserEvidence.fontEnumerationInstructionCount !== 11_957_745 ||
+    bgiBrowserEvidence.fontEnumerationArguments?.join(",") !==
+      "0x47010003,0x006ffd00,0x1002d2e0,0x100dce7c,0x00000000" ||
+    bgiBrowserEvidence.fontEnumerationResult !== 0 ||
+    bgiBrowserEvidence.fontEnumerationReturnAddress !== "0x1002c16a" ||
+    bgiBrowserEvidence.fontEnumerationLastError !== 0 ||
+    bgiBrowserEvidence.fontEnumerationGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.fontEnumerationImplementationId !==
+      "gdi32.enum-font-families-ex-a.cp932-screen.v1" ||
+    bgiBrowserEvidence.fontEnumerationCallbackFrameId !== 20 ||
+    bgiBrowserEvidence.fontEnumerationCallbackTarget !== "0x1002d2e0" ||
+    bgiBrowserEvidence.fontEnumerationCallbackResult !== 0 ||
+    bgiBrowserEvidence.fontEnumerationCallbackReturnInstructionCount !==
+      11_957_981 ||
+    bgiBrowserEvidence.fontEnumerationCallbackScratchBytes !== 284 ||
+    bgiBrowserEvidence.fontEnumerationPolicyId !==
+      "gdi32-primary-cp932-font-catalog-v1" ||
+    bgiBrowserEvidence.fontEnumerationProfileId !==
+      "primary-cp932-ms-gothic-regular-v1" ||
+    bgiBrowserEvidence.fontEnumerationCharacterSet !== 128 ||
+    bgiBrowserEvidence.fontEnumerationFaceWindows932Hex !==
+      "826c827220835383568362834e" ||
+    bgiBrowserEvidence.fontEnumerationFontType !== 4 ||
+    bgiBrowserEvidence.fontEnumerationEnumLogFontExABytes !== 188 ||
+    bgiBrowserEvidence.fontEnumerationNewTextMetricExABytes !== 96 ||
+    bgiBrowserEvidence.fontEnumerationCatalogAuthority !==
+      "rust-gdi32-compatibility-policy" ||
+    bgiBrowserEvidence.fontEnumerationBrowserFontDiscoveryUsed !== false ||
+    bgiBrowserEvidence.fontEnumerationBrowserFontResourceCreated !== false ||
+    bgiBrowserEvidence.fontEnumerationNodeCompletions !== 1 ||
+    bgiBrowserEvidence.fontEnumerationChromeCompletions !== 1 ||
+    bgiBrowserEvidence.fontEnumerationNodeChromeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.screenReleaseDcSequence !== 18_610 ||
+    bgiBrowserEvidence.screenReleaseDcInstructionCount !== 11_957_987 ||
+    bgiBrowserEvidence.screenReleaseDcArguments?.join(",") !==
+      "0x00000000,0x47010003" ||
+    bgiBrowserEvidence.screenReleaseDcResult !== 1 ||
+    bgiBrowserEvidence.screenReleaseDcReturnAddress !== "0x1002c177" ||
+    bgiBrowserEvidence.screenReleaseDcLastError !== 0 ||
+    bgiBrowserEvidence.screenReleaseDcLiveDeviceContexts !== 0
+  ) {
+    errors.push("browser BGI bounded font-enumeration evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -2371,7 +2437,8 @@ export function validateCurrentCheckpoint(manifest) {
           test !==
             "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically" &&
           !test.startsWith("dinput8_dispatcher::") &&
-          !test.startsWith("dsound_dispatcher::"),
+          !test.startsWith("dsound_dispatcher::") &&
+          !test.startsWith("gdi32_dispatcher::"),
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
@@ -2423,6 +2490,10 @@ export function validateCurrentCheckpoint(manifest) {
         test ===
           "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically",
     ).length !== 1 ||
+    representativeAtomicTests
+      .filter((test) => test.startsWith("gdi32_dispatcher::"))
+      .join(",") !==
+      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -4779,9 +4850,9 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    gdi.schema !== "vine.runtime-gdi-frontend.v2" ||
+    gdi.schema !== "vine.runtime-gdi-frontend.v3" ||
     gdi.status !==
-      "window-screen-and-graphics-surface-dc-slices-implemented-and-verified" ||
+      "window-screen-font-enumeration-and-graphics-surface-dc-slices-implemented-and-verified" ||
     gdi.stateOwner !== "runtime/gdi.rs::RuntimeGdi" ||
     gdi.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
     gdi.mutableCollectionVisibility !== "private" ||
@@ -4804,6 +4875,20 @@ export function validateCurrentCheckpoint(manifest) {
     gdi.screenSurfaceCreated !== false ||
     gdi.screenRendererResourceCreated !== false ||
     gdi.screenDrawingImplemented !== false ||
+    gdi.screenOperationValidation !==
+      "live-same-thread-primary-monitor-relation" ||
+    gdi.fontCatalogAuthority !== "gdi32-compatibility-policy" ||
+    gdi.fontEnumerationProfileId !==
+      "primary-cp932-ms-gothic-regular-v1" ||
+    gdi.fontEnumerationRecordCount !== 1 ||
+    gdi.fontEnumerationCallbackScratchBytes !== 284 ||
+    gdi.fontEnumerationCallbackResultPropagation !== "outer-eax" ||
+    gdi.fontEnumerationCanonicalTailInitialization !== "zero" ||
+    gdi.nativeFontRecordTailImported !== false ||
+    gdi.hostFontDiscoveryImported !== false ||
+    gdi.browserFontDiscoveryImported !== false ||
+    gdi.fontObjectCreationImplemented !== false ||
+    gdi.glyphRasterizationImplemented !== false ||
     gdi.graphicsSurfaceOutstandingDeviceContexts !==
       "at-most-one-per-surface" ||
     gdi.graphicsSurfaceDeviceContextRetainsComReference !== false ||
@@ -4836,7 +4921,7 @@ export function validateCurrentCheckpoint(manifest) {
       "RuntimeGraphics-logical-surface-fill-command-history" ||
     gdi.gdiAndDirect3dFrontendsRemainSeparate !== true ||
     gdiImplementedApis.join(",") !==
-      "GetDC,GetStockObject,FillRect,ReleaseDC" ||
+      "GetDC,GetStockObject,EnumFontFamiliesExA,FillRect,ReleaseDC" ||
     gdi.generalGdiRenderingClaimed !== false
   ) {
     errors.push("active GDI frontend boundary is invalid");
@@ -5362,6 +5447,49 @@ export function validateCurrentCheckpoint(manifest) {
     sourceSnapshot.privateSourcePathCommitted !== false
   ) {
     errors.push("active immutable source snapshot boundary is invalid");
+  }
+  const gdi32Policy = requireRecord(
+    active.gdi32CompatibilityPolicy,
+    "activeRuntimeCheckpoint.gdi32CompatibilityPolicy",
+    errors,
+  );
+  const gdi32CallbackArguments = requireStringArray(
+    gdi32Policy.callbackArgumentOrder,
+    "activeRuntimeCheckpoint.gdi32CompatibilityPolicy.callbackArgumentOrder",
+    errors,
+  );
+  if (
+    gdi32Policy.schema !== "vine.gdi32-compatibility-policy" ||
+    gdi32Policy.schemaVersion !== 1 ||
+    gdi32Policy.id !== "gdi32-primary-cp932-font-catalog-v1" ||
+    gdi32Policy.source !==
+      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v1" ||
+    gdi32Policy.handlerDispatch !==
+      "single-semantic-implementation-id-with-policy" ||
+    gdi32Policy.enumerationProfileId !==
+      "primary-cp932-ms-gothic-regular-v1" ||
+    gdi32Policy.inputCharacterSet !== 128 ||
+    gdi32Policy.inputFaceNameWindows932Hex !==
+      "826c827220835383568362834e" ||
+    gdi32Policy.flags !== 0 ||
+    gdi32Policy.recordCount !== 1 ||
+    gdi32Policy.fontType !== 4 ||
+    gdi32Policy.enumLogFontExABytes !== 188 ||
+    gdi32Policy.newTextMetricExABytes !== 96 ||
+    gdi32Policy.callbackCallingConvention !== "x86-stdcall" ||
+    gdi32CallbackArguments.join(",") !==
+      "enum-log-font,text-metric,font-type,lparam" ||
+    gdi32Policy.callbackResultPropagation !== "outer-result" ||
+    gdi32Policy.lastErrorPolicy !== "preserve" ||
+    gdi32Policy.screenHdcValidation !==
+      "live-same-thread-primary-monitor-relation" ||
+    gdi32Policy.canonicalTailInitialization !== "zero" ||
+    gdi32Policy.nativeUninitializedTailImported !== false ||
+    gdi32Policy.hostFontDiscoveryImported !== false ||
+    gdi32Policy.browserFontDiscoveryImported !== false ||
+    gdi32Policy.failureAtomicity !== true
+  ) {
+    errors.push("active GDI32 compatibility policy boundary is invalid");
   }
   const user32Policy = requireRecord(
     active.user32CompatibilityPolicy,
@@ -6155,7 +6283,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdi-screen-dc.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-gdi-font-enumeration.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6617,11 +6745,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_663 ||
-    latestEvidence.writebackDirtyPages !== 37_577 ||
-    latestEvidence.writebackChangedBytes !== 2_946_766 ||
-    latestEvidence.hostDeltaBatches !== 17_295 ||
-    latestEvidence.finalMemoryGeneration !== 36_528
+    latestEvidence.writebackBatches !== 18_666 ||
+    latestEvidence.writebackDirtyPages !== 37_580 ||
+    latestEvidence.writebackChangedBytes !== 2_946_837 ||
+    latestEvidence.hostDeltaBatches !== 17_296 ||
+    latestEvidence.finalMemoryGeneration !== 36_533
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8544,10 +8672,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "f7594f50a471b084263cdd5156fe7754b27c204fc9ac6d6b4258c199679ff712" ||
+      "0ca0ec8d32618282a2c7113b21974a76d89c8a964c9176f7764456ba7c6e35e6" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "9a0fd6e08b3ac1e3c2a8cdc8343b32528ca672c01d341aa2a0df96be5020b632" ||
+      "aa3b09f8c749eb54213ce2a7be2545f3479700cd1ffebe9e9f3d9ca253ee1a6e" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -9241,6 +9369,114 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest primary-screen device-context evidence is invalid");
   }
   for (const field of [
+    "nativeFontEnumerationPrimaryTraceSha256",
+    "nativeFontEnumerationConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeFontEnumerationPrimaryTraceBytes !== 98_030 ||
+    latestEvidence.nativeFontEnumerationPrimaryTraceLines !== 95 ||
+    latestEvidence.nativeFontEnumerationPrimaryTraceSha256 !==
+      "eb09cfc2a18967f74e6054beb57b92688e08c2d01556841cea94fa59e30d3027" ||
+    latestEvidence.nativeFontEnumerationConfirmationTraceBytes !== 97_732 ||
+    latestEvidence.nativeFontEnumerationConfirmationTraceLines !== 95 ||
+    latestEvidence.nativeFontEnumerationConfirmationTraceSha256 !==
+      "9a337ac82e09ec7c6c6c9a3e9ac9def7042e7af03be6e05c286ab81b9f0fbb33" ||
+    latestEvidence.nativeFontEnumerationTraceDiagnostics !== 0 ||
+    latestEvidence.nativeFontEnumerationHookErrors !== 0 ||
+    latestEvidence.nativeFontEnumerationProfile !==
+      "x86-bgi-screen-dc-font-enumeration-callback-v2" ||
+    latestEvidence.nativeFontEnumerationOracleProfile !==
+      "x86-screen-dc-and-font-enumeration-v2" ||
+    latestEvidence.nativeFontEnumerationCallbackOracleProfile !==
+      "x86-cp932-ms-gothic-callback-enumeration-v1" ||
+    latestEvidence.nativeFontEnumerationCallerReturnRva !== "0x0002c16a" ||
+    latestEvidence.nativeFontEnumerationInputCharacterSet !== 128 ||
+    latestEvidence.nativeFontEnumerationInputFaceWindows932Hex !==
+      "826c827220835383568362834e" ||
+    latestEvidence.nativeFontEnumerationFlags !== 0 ||
+    latestEvidence.nativeFontEnumerationCallbackRva !== "0x0002d2e0" ||
+    latestEvidence.nativeFontEnumerationLparamRva !== "0x000dce7c" ||
+    latestEvidence.nativeFontEnumerationCallbackCount !== 1 ||
+    latestEvidence.nativeFontEnumerationCallbackResult !== 0 ||
+    latestEvidence.nativeFontEnumerationResult !== 0 ||
+    latestEvidence.nativeFontEnumerationLastError !== 0 ||
+    latestEvidence.nativeFontEnumerationFontType !== 4 ||
+    latestEvidence.nativeFontEnumerationEnumLogFontExABytes !== 188 ||
+    latestEvidence.nativeFontEnumerationNewTextMetricExABytes !== 96 ||
+    latestEvidence.nativeFontEnumerationFaceAndFullNameWindows932Hex !==
+      "826c827220835383568362834e" ||
+    latestEvidence.nativeFontEnumerationStyleWindows932Hex !== "95578f80" ||
+    latestEvidence.nativeFontEnumerationScriptWindows932Hex !== "93fa967b8cea" ||
+    latestEvidence.nativeFontEnumerationLogFontFields?.join(",") !==
+      "32,16,400,128,3,2,1,49" ||
+    latestEvidence.nativeFontEnumerationTextMetricFields?.join(",") !==
+      "32,28,4,16,63,400,96,96,0,255,165,2,54,128,2359360,256,256,128" ||
+    latestEvidence.nativeFontEnumerationFontSignatureHex !==
+      "ff0200e0fbfdc76a12000008000000009f0002400000d7df" ||
+    latestEvidence.nativeFontEnumerationConsumer !==
+      "face-plus-lparam-then-zero-normalized-to-bool-true" ||
+    latestEvidence.nativeFontEnumerationRawFixedFieldTailsStable !== false ||
+    latestEvidence.nativeFontEnumerationSemanticFieldsStable !== true ||
+    latestEvidence.nativeFontEnumerationExecutableHashUnchanged !== true ||
+    latestEvidence.fontEnumerationOracleStopResult !== 0 ||
+    latestEvidence.fontEnumerationOracleContinueResult !== 1 ||
+    latestEvidence.fontEnumerationOracleCallbackCounts?.join(",") !== "1,1" ||
+    latestEvidence.fontEnumerationOracleCallbackDataRoundTrips !== true ||
+    latestEvidence.fontEnumerationOracleInputAndGuardsUnchanged !== true ||
+    latestEvidence.fontEnumerationOracleLastErrorPreserved !== true ||
+    latestEvidence.fontEnumerationImplemented !== true ||
+    latestEvidence.fontEnumerationImplementationId !==
+      "gdi32.enum-font-families-ex-a.cp932-screen.v1" ||
+    latestEvidence.fontEnumerationPolicySchema !==
+      "vine.gdi32-compatibility-policy" ||
+    latestEvidence.fontEnumerationPolicySchemaVersion !== 1 ||
+    latestEvidence.fontEnumerationPolicyId !==
+      "gdi32-primary-cp932-font-catalog-v1" ||
+    latestEvidence.fontEnumerationProfileId !==
+      "primary-cp932-ms-gothic-regular-v1" ||
+    latestEvidence.fontEnumerationSequence !== 18_609 ||
+    latestEvidence.fontEnumerationInstructionCount !== 11_957_745 ||
+    latestEvidence.fontEnumerationArguments?.join(",") !==
+      "0x47010003,0x006ffd00,0x1002d2e0,0x100dce7c,0x00000000" ||
+    latestEvidence.fontEnumerationReturnAddress !== "0x1002c16a" ||
+    latestEvidence.fontEnumerationResult !== 0 ||
+    latestEvidence.fontEnumerationLastError !== 0 ||
+    latestEvidence.fontEnumerationGuestWriteBytes !== 0 ||
+    latestEvidence.fontEnumerationCallbackFrameId !== 20 ||
+    latestEvidence.fontEnumerationCallbackTarget !== "0x1002d2e0" ||
+    latestEvidence.fontEnumerationCallbackResult !== 0 ||
+    latestEvidence.fontEnumerationCallbackReturnInstructionCount !== 11_957_981 ||
+    latestEvidence.fontEnumerationCallbackScratchBytes !== 284 ||
+    latestEvidence.fontEnumerationCanonicalTailInitialization !== "zero" ||
+    latestEvidence.fontEnumerationCatalogAuthority !==
+      "gdi32-compatibility-policy" ||
+    latestEvidence.fontEnumerationScreenHdcValidation !==
+      "live-same-thread-primary-monitor-relation" ||
+    latestEvidence.fontEnumerationFailureAtomicity !== true ||
+    latestEvidence.fontEnumerationHostFontDiscoveryImported !== false ||
+    latestEvidence.fontEnumerationBrowserFontDiscoveryImported !== false ||
+    latestEvidence.fontEnumerationBrowserFontResourceCreated !== false ||
+    latestEvidence.fontEnumerationNodeCompletions !== 1 ||
+    latestEvidence.fontEnumerationChromeCompletions !== 1 ||
+    latestEvidence.fontEnumerationNodeChromeOrderedSemanticsMatched !== true ||
+    latestEvidence.screenReleaseDcSequence !== 18_610 ||
+    latestEvidence.screenReleaseDcInstructionCount !== 11_957_987 ||
+    latestEvidence.screenReleaseDcArguments?.join(",") !==
+      "0x00000000,0x47010003" ||
+    latestEvidence.screenReleaseDcReturnAddress !== "0x1002c177" ||
+    latestEvidence.screenReleaseDcResult !== 1 ||
+    latestEvidence.screenReleaseDcLastError !== 0 ||
+    latestEvidence.screenReleaseDcLiveDeviceContexts !== 0
+  ) {
+    errors.push("latest bounded font-enumeration evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -9853,7 +10089,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned primary-screen device-context identity and lifetime with display-authority relation validation" ||
+      "Rust-owned bounded CP932 font catalog and callback delivery over a validated primary-screen device context" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

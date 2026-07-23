@@ -171,8 +171,26 @@ relation and no logical surface. `ReleaseDC(NULL, hdc)` retires only the exact
 live acquisition from the acquiring guest thread. Success and failed unknown／
 repeated releases preserve LastError. Disabling the policy or mismatching the
 display authority stops before identity allocation or mutation. The policy
-does not authorize screen drawing, font enumeration, host HDCs, DOM screen
-geometry, or browser renderer resources.
+does not authorize screen drawing or font records, and it imports no host HDC,
+DOM screen geometry, or browser renderer resource.
+
+## GDI32 font catalog policy
+
+`Gdi32CompatibilityPolicy` version 1 is a separate Rust-owned policy because a
+guest-visible Windows font catalog and its metrics are neither display topology
+nor browser resource state. Profile `primary-cp932-ms-gothic-regular-v1`
+accepts only the reached flags-zero `SHIFTJIS_CHARSET`／Windows-932 `MS Gothic`
+filter and supplies one canonical `ENUMLOGFONTEXA`／`NEWTEXTMETRICEXA` record.
+The handler validates the live screen HDC through `RuntimeGdi`, but the catalog
+does not become mutable DC state.
+
+The callback receives policy bytes through common Rust callback scratch and its
+result controls the outer enumeration result. NUL-bounded native strings and
+numeric fields are imported; unstable native tail bytes are canonicalized to
+zero. Disabling or mismatching the policy, unsupported filters or flags,
+invalid callback execution, and stale／wrong-thread HDCs stop before memory or
+callback-frame mutation. This policy neither discovers host fonts nor creates a
+browser font, GDI font object, selected object, or glyph rasterizer.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only
