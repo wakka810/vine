@@ -1348,6 +1348,7 @@ class BrowserRuntimeSession {
       "gdi32.create-dib-section.primary-8bpp.v1",
       "gdi32.get-object-a.font-or-dib.v1",
       "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+      "gdi32.text-out-a.cp932-8bpp-raster.v1",
       "gdi32.select-object.memory-font-bitmap.v1",
       "gdi32.delete-object.font-or-dib.v1",
       "gdi32.delete-dc.logical-memory.v1",

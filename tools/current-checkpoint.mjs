@@ -314,8 +314,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v10") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v10");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v11") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v11");
   }
   if (
     browser.executionEngineProfile !==

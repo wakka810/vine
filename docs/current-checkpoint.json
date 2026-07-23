@@ -185,7 +185,7 @@
   "workload": "private-bgi-generic-session",
   "bgiSession": "semantic-equivalence-passed",
   "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v10",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v11",
   "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {

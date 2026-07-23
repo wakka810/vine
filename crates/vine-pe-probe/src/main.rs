@@ -217,6 +217,7 @@ enum GenericRuntimeCapability {
     CompatibleDc,
     DibLifecycle,
     OutlineTextMetrics,
+    TextRaster,
 }
 
 struct GenericRuntimeProcess {
@@ -534,6 +535,21 @@ enum GenericRuntimeGdiCompletion {
         returned_byte_length: u32,
         output_address: u32,
         written_byte_length: usize,
+    },
+    TextRasterWritten {
+        device_context: vine_core::RuntimeDeviceContext,
+        selected_font: vine_core::RuntimeGdiObject,
+        selected_dib_section: vine_core::RuntimeGdiObject,
+        profile_id: String,
+        x: i32,
+        y: i32,
+        text_address: u32,
+        character_count: u32,
+        write_address: Option<u32>,
+        written_byte_length: usize,
+        changed_byte_count: usize,
+        content_generation: u64,
+        expected_output_fnv1a32: u32,
     },
     ObjectSelected {
         device_context: vine_core::RuntimeDeviceContext,
@@ -2464,6 +2480,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::CompatibleDc
                     | GenericRuntimeCapability::DibLifecycle
                     | GenericRuntimeCapability::OutlineTextMetrics
+                    | GenericRuntimeCapability::TextRaster
             )
         ) {
             let loader = kernel32_policy
@@ -3129,6 +3146,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3147,6 +3165,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let dsound_root_enabled = matches!(
@@ -3164,6 +3183,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3180,6 +3200,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3195,6 +3216,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let requested_capability = match enabled_capability {
@@ -3212,7 +3234,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::FontCreation
             | GenericRuntimeCapability::CompatibleDc
             | GenericRuntimeCapability::DibLifecycle
-            | GenericRuntimeCapability::OutlineTextMetrics,
+            | GenericRuntimeCapability::OutlineTextMetrics
+            | GenericRuntimeCapability::TextRaster,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3300,6 +3323,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let font_creation_enabled = matches!(
@@ -3309,6 +3333,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let compatible_dc_enabled = matches!(
@@ -3317,15 +3342,24 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     );
     let dib_lifecycle_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DibLifecycle | GenericRuntimeCapability::OutlineTextMetrics)
+        Some(
+            GenericRuntimeCapability::DibLifecycle
+                | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
+        )
     );
     let outline_text_metrics_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::OutlineTextMetrics)
+        Some(GenericRuntimeCapability::OutlineTextMetrics | GenericRuntimeCapability::TextRaster)
+    );
+    let text_raster_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::TextRaster)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3446,6 +3480,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     ) {
         user32_policy.set_timer = None;
@@ -3459,12 +3494,13 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::CompatibleDc
                 | GenericRuntimeCapability::DibLifecycle
                 | GenericRuntimeCapability::OutlineTextMetrics
+                | GenericRuntimeCapability::TextRaster
         )
     ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v5();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
@@ -3479,6 +3515,9 @@ fn run_v86_generic_runtime_session(
     }
     if !outline_text_metrics_enabled {
         gdi32_policy.get_outline_text_metrics_a = None;
+    }
+    if !text_raster_enabled {
+        gdi32_policy.text_out_a = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -11293,6 +11332,158 @@ fn generic_runtime_gdi_completion(
                 written_byte_length,
             }))
         }
+        vine_core::TEXT_OUT_A_IMPLEMENTATION => {
+            let result = set_eax_result(
+                completion,
+                "text-out-a-return-register-invalid",
+                "TextOutA dispatcher did not set EAX",
+            )?;
+            if result != 1 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-primary-result-invalid",
+                    "completed primary TextOutA raster call did not succeed",
+                ));
+            }
+            let device_context_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-hdc-missing-after-dispatch",
+                    "completed TextOutA frame has no logical HDC",
+                )
+            })?;
+            let x = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-x-missing-after-dispatch",
+                    "completed TextOutA frame has no x coordinate",
+                )
+            })? as i32;
+            let y = completion.frame.argument_u32(2).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-y-missing-after-dispatch",
+                    "completed TextOutA frame has no y coordinate",
+                )
+            })? as i32;
+            let text_address = completion.frame.argument_u32(3).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-text-missing-after-dispatch",
+                    "completed TextOutA frame has no text address",
+                )
+            })?;
+            let character_count = completion.frame.argument_u32(4).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-count-missing-after-dispatch",
+                    "completed TextOutA frame has no character count",
+                )
+            })?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let font_id = device_context.selected_font_id.ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-font-missing-after-dispatch",
+                    "completed TextOutA has no selected logical font",
+                )
+            })?;
+            let bitmap_id = device_context.selected_bitmap_id.ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-bitmap-missing-after-dispatch",
+                    "completed TextOutA has no selected logical bitmap",
+                )
+            })?;
+            let selected_font = runtime
+                .gdi_objects()
+                .get(&font_id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "text-out-a-font-dangling-after-dispatch",
+                        "completed TextOutA selected font is not live",
+                    )
+                })?;
+            if !matches!(
+                &selected_font.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-font-kind-invalid-after-dispatch",
+                    "completed TextOutA selected object is not a FontA",
+                ));
+            }
+            let selected_dib_section =
+                runtime
+                    .gdi_objects()
+                    .get(&bitmap_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        LoaderError::runtime_defect(
+                            "runtime-gdi",
+                            "text-out-a-bitmap-dangling-after-dispatch",
+                            "completed TextOutA selected bitmap is not live",
+                        )
+                    })?;
+            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } =
+                &selected_dib_section.object
+            else {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-bitmap-kind-invalid-after-dispatch",
+                    "completed TextOutA selected object is not a DIB section",
+                ));
+            };
+            let content_generation = backing.content_generation;
+            let text_policy = policy.text_out_a.as_ref().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-policy-missing-after-dispatch",
+                    "completed TextOutA has no active compatibility policy",
+                )
+            })?;
+            if completion.guest_writes.len() > 1 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "text-out-a-write-count-invalid-after-dispatch",
+                    "completed TextOutA emitted more than one raster write",
+                ));
+            }
+            let write = completion
+                .guest_writes
+                .first()
+                .map(|receipt| &receipt.write);
+            let changed_byte_count = write
+                .map(|write| {
+                    write
+                        .bytes
+                        .iter()
+                        .filter(|&&byte| byte != text_policy.initial_pixel)
+                        .count()
+                })
+                .unwrap_or(0);
+            Ok(Some(GenericRuntimeGdiCompletion::TextRasterWritten {
+                device_context,
+                selected_font,
+                selected_dib_section,
+                profile_id: text_policy.profile_id.clone(),
+                x,
+                y,
+                text_address,
+                character_count,
+                write_address: write.map(|write| write.address.0),
+                written_byte_length: write.map(|write| write.bytes.len()).unwrap_or(0),
+                changed_byte_count,
+                content_generation,
+                expected_output_fnv1a32: text_policy.output_pixel_plane_fnv1a32,
+            }))
+        }
         vine_core::SELECT_OBJECT_IMPLEMENTATION => {
             let previous_handle = set_eax_result(
                 completion,
@@ -12459,6 +12650,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-compatible-dc" => GenericRuntimeCapability::CompatibleDc,
                 "gdi-dib-lifecycle" => GenericRuntimeCapability::DibLifecycle,
                 "gdi-outline-text-metrics" => GenericRuntimeCapability::OutlineTextMetrics,
+                "gdi-text-raster" => GenericRuntimeCapability::TextRaster,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

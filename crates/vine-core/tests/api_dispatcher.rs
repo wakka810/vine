@@ -2,10 +2,10 @@ use std::cell::Cell;
 
 use vine_core::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDirection, ApiDispatcher,
-    ApiEndpointIdentity, ApiFaultClass, ApiHandlerResult, ApiImmediate, ApiOwnedTrap,
-    ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema, CREATE_MUTEX_A_IMPLEMENTATION,
-    CREATE_WAITABLE_TIMER_A_IMPLEMENTATION, CallbackPolicy, CallingConvention,
-    DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
+    ApiEndpointIdentity, ApiFaultClass, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult,
+    ApiImmediate, ApiOwnedTrap, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
+    CREATE_MUTEX_A_IMPLEMENTATION, CREATE_WAITABLE_TIMER_A_IMPLEMENTATION, CallbackPolicy,
+    CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
     FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
     GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
@@ -352,6 +352,92 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
             .expect_err("cancelled host request is retired")
             .code,
         "host-request-id-unknown"
+    );
+}
+
+#[test]
+fn committed_indirect_guest_writes_require_an_explicit_immediate_contract() {
+    const INDIRECT_ADDRESS: GuestAddress = GuestAddress(OUTPUT_BASE + 0x200);
+    const INDIRECT_BYTES: &[u8] = &[0x31, 0x41, 0x59, 0x26];
+
+    let (mut memory, owner) = initialized_memory();
+    let (_fixture_dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
+    let endpoint = endpoints[1].clone();
+    let mut contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented performance-counter endpoint");
+    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
+    contract.implementation_id = "test-committed-indirect-write-v1".to_owned();
+
+    let mut callback_contract = contract.clone();
+    callback_contract.callback_policy = CallbackPolicy::Optional;
+    let callback_fault = ApiDispatcher::new([endpoint.clone()], [callback_contract])
+        .expect_err("indirect writes cannot race guest callbacks");
+    assert_eq!(
+        callback_fault.code,
+        "indirect-guest-write-callback-policy-invalid"
+    );
+
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let pending = dispatch_with_handler(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        4,
+        ApiImmediate::new(ApiReturnValue::Bool32(true))
+            .with_guest_write(
+                GuestAddress(OUTPUT_BASE),
+                PERFORMANCE_COUNTER.to_le_bytes().to_vec(),
+            )
+            .with_guest_write(INDIRECT_ADDRESS, INDIRECT_BYTES.to_vec()),
+    );
+    assert!(matches!(
+        pending,
+        DispatchOutcome::Fault(ref fault)
+            if fault.code == "handler-guest-write-outside-contract"
+    ));
+    assert_eq!(
+        memory.read(INDIRECT_ADDRESS, INDIRECT_BYTES.len()).unwrap(),
+        vec![0; INDIRECT_BYTES.len()]
+    );
+
+    let write_result = memory
+        .write(INDIRECT_ADDRESS, INDIRECT_BYTES)
+        .expect("subsystem-owned indirect write");
+    acknowledge_pending_delta(&mut memory);
+    let committed = dispatch_with_handler(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[1].0,
+        frames[1].1[0],
+        4,
+        ApiImmediate::new(ApiReturnValue::Bool32(true))
+            .with_guest_write(
+                GuestAddress(OUTPUT_BASE),
+                PERFORMANCE_COUNTER.to_le_bytes().to_vec(),
+            )
+            .with_committed_guest_write(ApiGuestWriteReceipt {
+                write: ApiGuestWrite {
+                    address: INDIRECT_ADDRESS,
+                    bytes: INDIRECT_BYTES.to_vec(),
+                },
+                result: write_result,
+            }),
+    );
+    let DispatchOutcome::Immediate(completion) = committed else {
+        panic!("expected committed indirect write completion, got {committed:?}");
+    };
+    assert_eq!(completion.guest_writes.len(), 2);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory.read(INDIRECT_ADDRESS, INDIRECT_BYTES.len()).unwrap(),
+        INDIRECT_BYTES
     );
 }
 

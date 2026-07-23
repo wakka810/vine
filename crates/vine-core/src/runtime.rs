@@ -82,9 +82,9 @@ pub use gdi::{
     RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget,
     RuntimeFillRectResult, RuntimeGdiDibSectionBacking, RuntimeGdiDibSectionDescriptor,
     RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiObjectKind, RuntimeGdiRgbQuad,
-    RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId, RuntimeGetDcResult,
-    RuntimeGetGraphicsSurfaceDcResult, RuntimeGetStockObjectResult, RuntimeLogFontA,
-    RuntimeSelectGdiObjectResult,
+    RuntimeGdiSurface, RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId, RuntimeGdiTextRasterResult,
+    RuntimeGdiTextRasterTarget, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcResult,
+    RuntimeGetStockObjectResult, RuntimeLogFontA, RuntimeSelectGdiObjectResult,
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,

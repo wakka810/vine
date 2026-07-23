@@ -24,7 +24,8 @@ use crate::runtime::{
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeAudioDevice,
     RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
     RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
-    RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject, RuntimeGuestImport,
+    RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
+    RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGuestImport,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHeapAllocation,
     RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
@@ -310,8 +311,23 @@ pub enum ReentrancyPolicy {
 #[serde(rename_all = "kebab-case")]
 pub enum ApiBehavior {
     Immediate,
+    ImmediateWithCommittedIndirectGuestWrites,
     Deferred,
     ImmediateOrDeferred,
+}
+
+impl ApiBehavior {
+    fn permits_immediate(self) -> bool {
+        !matches!(self, Self::Deferred)
+    }
+
+    fn permits_deferred(self) -> bool {
+        matches!(self, Self::Deferred | Self::ImmediateOrDeferred)
+    }
+
+    fn permits_committed_indirect_guest_writes(self) -> bool {
+        matches!(self, Self::ImmediateWithCommittedIndirectGuestWrites)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1071,6 +1087,30 @@ impl<'a> ExecutionSession<'a> {
         self.runtime.delete_gdi_object(self.memory, object_handle)
     }
 
+    pub fn get_gdi_text_raster_target(
+        &self,
+        device_context_handle: u32,
+    ) -> Result<RuntimeGdiTextRasterTarget, RuntimeStateError> {
+        self.runtime
+            .get_gdi_text_raster_target(device_context_handle)
+    }
+
+    pub fn commit_gdi_text_raster(
+        &mut self,
+        target: RuntimeGdiTextRasterTarget,
+        byte_offset: u32,
+        expected_bytes: &[u8],
+        replacement_bytes: &[u8],
+    ) -> Result<(RuntimeGdiTextRasterResult, GuestWriteResult), RuntimeStateError> {
+        self.runtime.commit_gdi_text_raster(
+            self.memory,
+            target,
+            byte_offset,
+            expected_bytes,
+            replacement_bytes,
+        )
+    }
+
     pub fn begin_guest_callback(
         &mut self,
         call: &ApiGuestCallbackCall,
@@ -1804,7 +1844,7 @@ impl ApiDispatcher {
 
         match handler(contract, &frame, session) {
             ApiHandlerResult::Immediate(immediate) => {
-                if contract.behavior == ApiBehavior::Deferred {
+                if !contract.behavior.permits_immediate() {
                     return DispatchOutcome::Fault(
                         ApiFault::runtime_defect(
                             "api-dispatch",
@@ -1830,7 +1870,7 @@ impl ApiDispatcher {
                 }
             }
             ApiHandlerResult::Deferred(request) => {
-                if contract.behavior == ApiBehavior::Immediate {
+                if !contract.behavior.permits_deferred() {
                     DispatchOutcome::Fault(
                         ApiFault::runtime_defect(
                             "api-dispatch",
@@ -1948,7 +1988,7 @@ impl ApiDispatcher {
                 .with_endpoint(&call.frame.endpoint),
             );
         }
-        if call.contract.behavior == ApiBehavior::Immediate {
+        if !call.contract.behavior.permits_deferred() {
             return DispatchOutcome::Fault(
                 ApiFault::runtime_defect(
                     "api-dispatch",
@@ -2129,6 +2169,16 @@ fn validate_contract(contract: &ApiContract) -> Result<(), ApiFault> {
         }
     }
     contract.abi.argument_bytes()?;
+    if contract.behavior.permits_committed_indirect_guest_writes()
+        && contract.callback_policy != CallbackPolicy::Forbidden
+    {
+        return Err(ApiFault::invalid_call(
+            "api-contract",
+            "indirect-guest-write-callback-policy-invalid",
+            "committed indirect guest writes require a callback-free immediate contract",
+        )
+        .with_endpoint(&contract.endpoint));
+    }
     for argument in &contract.abi.arguments {
         if argument.name.is_empty() {
             return Err(ApiFault::invalid_call(
@@ -2557,14 +2607,12 @@ fn complete_immediate_in_memory(
             .with_endpoint(&contract.endpoint)
         })?,
     };
-    let mut declared_guest_writes = immediate.guest_writes.clone();
-    declared_guest_writes.extend(
-        immediate
-            .committed_guest_writes
-            .iter()
-            .map(|receipt| receipt.write.clone()),
-    );
-    validate_guest_writes(contract, &frame, &declared_guest_writes)?;
+    validate_guest_writes(
+        contract,
+        &frame,
+        &immediate.guest_writes,
+        &immediate.committed_guest_writes,
+    )?;
 
     let mut guest_writes = immediate.committed_guest_writes;
     guest_writes.reserve(immediate.guest_writes.len());
@@ -2676,10 +2724,15 @@ fn validate_return_value(
 fn validate_guest_writes(
     contract: &ApiContract,
     frame: &ApiCallFrame,
-    writes: &[ApiGuestWrite],
+    pending_writes: &[ApiGuestWrite],
+    committed_writes: &[ApiGuestWriteReceipt],
 ) -> Result<(), ApiFault> {
     let mut written_arguments = BTreeSet::new();
-    for write in writes {
+    for (write, committed) in pending_writes.iter().map(|write| (write, false)).chain(
+        committed_writes
+            .iter()
+            .map(|receipt| (&receipt.write, true)),
+    ) {
         let matching =
             frame
                 .arguments
@@ -2719,10 +2772,17 @@ fn validate_guest_writes(
                     _ => false,
                 });
         let Some((argument_index, _)) = matching else {
+            if committed && contract.behavior.permits_committed_indirect_guest_writes() {
+                continue;
+            }
             return Err(ApiFault::runtime_defect(
                 "api-dispatch",
                 "handler-guest-write-outside-contract",
-                "handler guest write does not exactly match an out/inout pointer contract",
+                if committed {
+                    "handler committed an indirect guest write without an explicit API behavior contract"
+                } else {
+                    "handler guest write does not exactly match an out/inout pointer contract"
+                },
             )
             .with_endpoint(&contract.endpoint));
         };

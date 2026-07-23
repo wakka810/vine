@@ -275,6 +275,7 @@ pub struct RuntimeGdiDibSectionBacking {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub memory_owner: MemoryOwnerId,
     pub range: GuestRange,
+    pub content_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -406,6 +407,32 @@ pub struct RuntimeCreateDibSectionResult {
     pub handle: u32,
     pub bits_address: GuestAddress,
     pub backing: RuntimeGdiDibSectionBacking,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGdiTextRasterTarget {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub device_context_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub selection_generation: u64,
+    pub font_id: RuntimeGdiObjectId,
+    pub font_handle: u32,
+    pub log_font: RuntimeLogFontA,
+    pub dib_section_id: RuntimeGdiObjectId,
+    pub dib_section_handle: u32,
+    pub descriptor: RuntimeGdiDibSectionDescriptor,
+    pub backing: RuntimeGdiDibSectionBacking,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGdiTextRasterResult {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub font_id: RuntimeGdiObjectId,
+    pub dib_section_id: RuntimeGdiObjectId,
+    pub selection_generation: u64,
+    pub content_generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -598,6 +625,14 @@ pub(super) struct RuntimeCreateDibSectionPlan {
     backing_range: GuestRange,
     next_object_id: u64,
     next_object_handle: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeGdiTextRasterPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    target: RuntimeGdiTextRasterTarget,
+    next_content_generation: u64,
 }
 
 impl RuntimeCreateDibSectionPlan {
@@ -1418,6 +1453,7 @@ impl RuntimeGdi {
             address_allocation_id: plan.address_allocation_id,
             memory_owner,
             range: plan.backing_range,
+            content_generation: 0,
         };
         let result = RuntimeCreateDibSectionResult {
             object_id: plan.object_id,
@@ -1716,6 +1752,145 @@ impl RuntimeGdi {
                 "logical memory DC font selection resolved to a non-font object",
             )),
         }
+    }
+
+    pub(super) fn text_raster_target(
+        &self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeGdiTextRasterTarget, RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
+        if !matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::Memory { .. }
+        ) || device_context.owner_thread_id != thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "text-raster-device-context-relation-mismatch",
+                "text rasterization requires a compatible memory DC owned by the current guest thread",
+            ));
+        }
+        self.validate_memory_dc_selections(device_context)?;
+        let font_id = device_context
+            .selected_font_id
+            .expect("validated memory DC has a selected font");
+        let bitmap_id = device_context
+            .selected_bitmap_id
+            .expect("validated memory DC has a selected bitmap");
+        let font = self.objects.get(&font_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "text-raster-selected-font-dangling",
+                "logical memory DC selected font does not resolve to a live object",
+            )
+        })?;
+        let bitmap = self.objects.get(&bitmap_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "text-raster-selected-bitmap-dangling",
+                "logical memory DC selected bitmap does not resolve to a live object",
+            )
+        })?;
+        let RuntimeGdiObjectKind::FontA { log_font } = &font.object else {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "text-raster-selected-font-unsupported",
+                "text rasterization requires an explicitly created FontA object",
+            ));
+        };
+        let RuntimeGdiObjectKind::DibSection {
+            descriptor,
+            backing,
+        } = &bitmap.object
+        else {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "text-raster-selected-bitmap-unsupported",
+                "text rasterization requires a selected DIB section",
+            ));
+        };
+        Ok(RuntimeGdiTextRasterTarget {
+            device_context_id: device_context.id,
+            device_context_handle: device_context.handle,
+            owner_thread_id: device_context.owner_thread_id,
+            selection_generation: device_context.selection_generation,
+            font_id: font.id,
+            font_handle: font.handle,
+            log_font: log_font.clone(),
+            dib_section_id: bitmap.id,
+            dib_section_handle: bitmap.handle,
+            descriptor: descriptor.clone(),
+            backing: *backing,
+        })
+    }
+
+    pub(super) fn plan_text_raster_commit(
+        &self,
+        expected_target: RuntimeGdiTextRasterTarget,
+    ) -> Result<RuntimeGdiTextRasterPlan, RuntimeStateError> {
+        let current = self.text_raster_target(
+            expected_target.device_context_handle,
+            expected_target.owner_thread_id,
+        )?;
+        if current != expected_target {
+            return Err(stale_plan("text-raster-plan-stale"));
+        }
+        let next_content_generation = expected_target
+            .backing
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-gdi",
+                    "text-raster-content-generation-exhausted",
+                    "logical DIB text content generation is exhausted",
+                )
+            })?;
+        Ok(RuntimeGdiTextRasterPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            target: expected_target,
+            next_content_generation,
+        })
+    }
+
+    pub(super) fn preflight_text_raster_commit(
+        &self,
+        plan: &RuntimeGdiTextRasterPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.text_raster_target(
+                plan.target.device_context_handle,
+                plan.target.owner_thread_id,
+            )? != plan.target
+        {
+            return Err(stale_plan("text-raster-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_text_raster(
+        &mut self,
+        plan: RuntimeGdiTextRasterPlan,
+    ) -> Result<RuntimeGdiTextRasterResult, RuntimeStateError> {
+        self.preflight_text_raster_commit(&plan)?;
+        let bitmap = self
+            .objects
+            .get_mut(&plan.target.dib_section_id)
+            .expect("preflighted DIB section disappeared");
+        let RuntimeGdiObjectKind::DibSection { backing, .. } = &mut bitmap.object else {
+            unreachable!("preflighted text raster bitmap changed kind")
+        };
+        backing.content_generation = plan.next_content_generation;
+        self.generation = plan.next_generation;
+        Ok(RuntimeGdiTextRasterResult {
+            device_context_id: plan.target.device_context_id,
+            font_id: plan.target.font_id,
+            dib_section_id: plan.target.dib_section_id,
+            selection_generation: plan.target.selection_generation,
+            content_generation: plan.next_content_generation,
+        })
     }
 
     pub(super) fn plan_release_dc(
@@ -2824,6 +2999,29 @@ mod tests {
         }
     }
 
+    fn dib_descriptor() -> RuntimeGdiDibSectionDescriptor {
+        RuntimeGdiDibSectionDescriptor {
+            width: 128,
+            height: -96,
+            planes: 1,
+            bits_per_pixel: 8,
+            compression: RUNTIME_GDI_DIB_BI_RGB,
+            stride_bytes: 128,
+            pixel_byte_length: 12_288,
+            palette: (0..256)
+                .map(|index| {
+                    let intensity = u8::try_from(255 - index).unwrap();
+                    RuntimeGdiRgbQuad {
+                        blue: intensity,
+                        green: intensity,
+                        red: intensity,
+                        reserved: 0,
+                    }
+                })
+                .collect(),
+        }
+    }
+
     #[test]
     fn device_context_serialization_preserves_window_shape_and_types_graphics_targets() {
         let mut gdi = RuntimeGdi::default();
@@ -3105,6 +3303,93 @@ mod tests {
             font()
         );
         assert_eq!(gdi, before_query);
+    }
+
+    #[test]
+    fn text_raster_plan_requires_exact_font_dib_selection_and_advances_content_once() {
+        let mut gdi = RuntimeGdi::default();
+        let device_context = gdi
+            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
+            .unwrap();
+        let created_font = gdi
+            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
+            .unwrap();
+        let dib_plan = gdi
+            .plan_create_dib_section(
+                device_context.handle,
+                screen_target().owner_thread_id,
+                dib_descriptor(),
+                ProcessAddressAllocationId(1),
+                GuestRange::new(GuestAddress(0x7200_0000), 0x3000).unwrap(),
+            )
+            .unwrap();
+        let created_dib = gdi
+            .commit_create_dib_section(dib_plan, MemoryOwnerId(1))
+            .unwrap();
+
+        let before_stock_font = gdi.clone();
+        assert_eq!(
+            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
+                .unwrap_err()
+                .code,
+            "text-raster-selected-font-unsupported"
+        );
+        assert_eq!(gdi, before_stock_font);
+        gdi.commit_select_object(
+            gdi.plan_select_object(
+                device_context.handle,
+                created_font.handle,
+                screen_target().owner_thread_id,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let before_stock_bitmap = gdi.clone();
+        assert_eq!(
+            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
+                .unwrap_err()
+                .code,
+            "text-raster-selected-bitmap-unsupported"
+        );
+        assert_eq!(gdi, before_stock_bitmap);
+        gdi.commit_select_object(
+            gdi.plan_select_object(
+                device_context.handle,
+                created_dib.handle,
+                screen_target().owner_thread_id,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let target = gdi
+            .text_raster_target(device_context.handle, screen_target().owner_thread_id)
+            .unwrap();
+        assert_eq!(target.log_font, font());
+        assert_eq!(target.descriptor, dib_descriptor());
+        assert_eq!(target.backing.content_generation, 0);
+        let plan = gdi.plan_text_raster_commit(target.clone()).unwrap();
+        let stale = plan.clone();
+        let result = gdi.commit_text_raster(plan).unwrap();
+        assert_eq!(result.content_generation, 1);
+        assert_eq!(result.selection_generation, 2);
+        assert_eq!(
+            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
+                .unwrap()
+                .backing
+                .content_generation,
+            1
+        );
+        assert_eq!(
+            gdi.commit_text_raster(stale).unwrap_err().code,
+            "text-raster-plan-stale"
+        );
+        assert_eq!(
+            gdi.text_raster_target(device_context.handle, RuntimeThreadId(8193))
+                .unwrap_err()
+                .code,
+            "text-raster-device-context-relation-mismatch"
+        );
     }
 
     #[test]

@@ -9824,7 +9824,7 @@ function maybeCompleteFontObjectObservation(generation) {
   }
   fontObjectCompletionRecorded = true;
   emit("font-object-complete", {
-    profile: "x86-bgi-gdi-font-object-lifecycle-v4",
+    profile: "x86-bgi-gdi-font-object-lifecycle-v5",
     mainModuleCalls: fontObjectMainModuleCalls,
     oracle: fontObjectOracleEvidence,
   });
@@ -10263,6 +10263,7 @@ function scheduleFontObjectOracle(module) {
         module,
         "GetOutlineTextMetricsA",
       );
+      const textOutAAddress = findExport(module, "TextOutA");
       const selectObjectAddress = findExport(module, "SelectObject");
       const deleteObjectAddress = findExport(module, "DeleteObject");
       const createCompatibleDcAddress = findExport(module, "CreateCompatibleDC");
@@ -10277,6 +10278,7 @@ function scheduleFontObjectOracle(module) {
         createFontAAddress === null ||
         getObjectAAddress === null ||
         getOutlineTextMetricsAAddress === null ||
+        textOutAAddress === null ||
         selectObjectAddress === null ||
         deleteObjectAddress === null ||
         createCompatibleDcAddress === null ||
@@ -10320,6 +10322,12 @@ function scheduleFontObjectOracle(module) {
         getOutlineTextMetricsAAddress,
         "uint32",
         ["pointer", "uint32", "pointer"],
+        "stdcall",
+      );
+      const textOutA = new SystemFunction(
+        textOutAAddress,
+        "int32",
+        ["pointer", "int32", "int32", "pointer", "int32"],
         "stdcall",
       );
       const selectObject = new SystemFunction(
@@ -10706,6 +10714,29 @@ function scheduleFontObjectOracle(module) {
       const dibPixelPlaneAfterCreate = snapshotDibPixelPlane(dibSnapshot).evidence;
       const dibBackingAfterCreate = snapshotAddressRange(dibBitsAfterCreate, 64);
 
+      const textFontCreated = invoke(
+        "text-create-font",
+        "CreateFontA",
+        0x14151617,
+        () => createFontA(64, 32, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0, face),
+      );
+      if (textFontCreated.systemResult === "0x0") {
+        throw new Error("text raster oracle CreateFontA returned NULL");
+      }
+      const textFont = ptr(textFontCreated.systemResult);
+      const textFontSelected = invoke(
+        "text-select-font",
+        "SelectObject",
+        0x18191a1b,
+        () => selectObject(dibMemoryDc, textFont),
+      );
+      if (
+        textFontSelected.systemResult === "0x0" ||
+        textFontSelected.systemResult === "0xffffffff"
+      ) {
+        throw new Error("text raster oracle SelectObject did not return a prior font");
+      }
+
       const dibObjectStorage = Memory.alloc(32);
       dibObjectStorage.writeByteArray(Array(32).fill(0xa5));
       const dibObject = dibObjectStorage.add(4);
@@ -10732,6 +10763,42 @@ function scheduleFontObjectOracle(module) {
       ) {
         throw new Error("DIB section oracle SelectObject did not return a prior object");
       }
+      const textBytes = Memory.alloc(1);
+      textBytes.writeU8(0x61);
+      const textPlaneBefore = snapshotDibPixelPlane(dibSnapshot);
+      const textFirst = invoke("text-out-first", "TextOutA", 0x34353637, () =>
+        textOutA(dibMemoryDc, 0, 0, textBytes, 1),
+      );
+      const textPlaneAfterFirst = snapshotDibPixelPlane(dibSnapshot);
+      const textFirstDiff = diffDibPixelPlanes(
+        dibSnapshot,
+        textPlaneBefore.bytes,
+        textPlaneAfterFirst.bytes,
+      );
+      const textRepeat = invoke(
+        "text-out-repeat",
+        "TextOutA",
+        0x38393a3b,
+        () => textOutA(dibMemoryDc, 0, 0, textBytes, 1),
+      );
+      const textPlaneAfterRepeat = snapshotDibPixelPlane(dibSnapshot);
+      const textRepeatDiff = diffDibPixelPlanes(
+        dibSnapshot,
+        textPlaneAfterFirst.bytes,
+        textPlaneAfterRepeat.bytes,
+      );
+      const textZeroLength = invoke(
+        "text-out-zero-length",
+        "TextOutA",
+        0x3c3d3e3f,
+        () => textOutA(dibMemoryDc, 0, 0, ptr(0), 0),
+      );
+      const textPlaneAfterZeroLength = snapshotDibPixelPlane(dibSnapshot);
+      const textZeroLengthDiff = diffDibPixelPlanes(
+        dibSnapshot,
+        textPlaneAfterRepeat.bytes,
+        textPlaneAfterZeroLength.bytes,
+      );
       const dibDeleteWhileSelected = invoke(
         "dib-delete-selected",
         "DeleteObject",
@@ -10751,6 +10818,18 @@ function scheduleFontObjectOracle(module) {
       );
       const dibTypeAfterRestore = Number(getObjectType(dib).value);
       const dibBackingAfterRestore = snapshotAddressRange(dibBitsAfterCreate, 64);
+      const textFontRestored = invoke(
+        "text-restore-font",
+        "SelectObject",
+        0x54555657,
+        () => selectObject(dibMemoryDc, ptr(textFontSelected.systemResult)),
+      );
+      const textFontDeleted = invoke(
+        "text-delete-font",
+        "DeleteObject",
+        0x58595a5b,
+        () => deleteObject(textFont),
+      );
       const dibDeletedAfterRestore = invoke(
         "dib-delete-restored",
         "DeleteObject",
@@ -10839,23 +10918,37 @@ function scheduleFontObjectOracle(module) {
         0xb0b1b2b3,
         () => deleteDc(dibMemoryDc),
       );
+      const textDeletedDc = invoke(
+        "text-out-deleted-dc",
+        "TextOutA",
+        0xb4b5b6b7,
+        () => textOutA(dibMemoryDc, 0, 0, textBytes, 1),
+      );
       const dibCalls = [
         dibMemoryDcCreated,
         dibCreated,
+        textFontCreated,
+        textFontSelected,
         dibGetObject,
         dibSelected,
+        textFirst,
+        textRepeat,
+        textZeroLength,
         dibDeleteWhileSelected,
         dibRestored,
+        textFontRestored,
+        textFontDeleted,
         dibDeletedAfterRestore,
         dibRepeatedDelete,
         dibStaleGetObject,
         dibInvalidHdc,
         dibMalformedHeader,
         dibMemoryDcDeleted,
+        textDeletedDc,
       ];
 
       fontObjectOracleEvidence = {
-        profile: "x86-create-font-a-object-lifecycle-v4",
+        profile: "x86-create-font-a-object-lifecycle-v5",
         arguments: {
           height: 64,
           width: 32,
@@ -10943,7 +11036,7 @@ function scheduleFontObjectOracle(module) {
           ),
         },
         dibSection: {
-          profile: "x86-create-dib-section-8bpp-lifecycle-v1",
+          profile: "x86-create-dib-section-8bpp-lifecycle-v2",
           bitmapInfo: snapshotDibBitmapInfo(dibInfo),
           calls: dibCalls,
           bitsOutputSentinel: dibBitsSentinel.toString(),
@@ -10969,6 +11062,35 @@ function scheduleFontObjectOracle(module) {
           malformedBitsOutputSentinel: malformedBitsSentinel.toString(),
           malformedBitsOutputAfter: malformedBitsAfter.toString(),
           malformedCleanup,
+          textOutA: {
+            profile: "x86-text-out-a-8bpp-raster-v1",
+            textBytes: [0x61],
+            origin: { x: 0, y: 0 },
+            calls: [textFirst, textRepeat, textZeroLength, textDeletedDc],
+            selectedFont: textFont.toString(),
+            selectedDib: dib.toString(),
+            planeBefore: textPlaneBefore.evidence,
+            planeAfterFirst: textPlaneAfterFirst.evidence,
+            firstDiff: textFirstDiff,
+            planeAfterRepeat: textPlaneAfterRepeat.evidence,
+            repeatDiff: textRepeatDiff,
+            planeAfterZeroLength: textPlaneAfterZeroLength.evidence,
+            zeroLengthDiff: textZeroLengthDiff,
+            restoredFont: textFontRestored.systemResult,
+            deletedFontResult: textFontDeleted.systemResult,
+            allHookResultsMatch: [
+              textFirst,
+              textRepeat,
+              textZeroLength,
+              textDeletedDc,
+            ].every((call) => call.hookResultMatches),
+            allHookAndSystemLastErrorsMatch: [
+              textFirst,
+              textRepeat,
+              textZeroLength,
+              textDeletedDc,
+            ].every((call) => call.hookAndSystemLastErrorMatch),
+          },
           allHookResultsMatch: dibCalls.every((call) => call.hookResultMatches),
           allHookAndSystemLastErrorsMatch: dibCalls.every(
             (call) => call.hookAndSystemLastErrorMatch,

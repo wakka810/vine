@@ -524,7 +524,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v5();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2971,6 +2971,100 @@ fn bgi_gdi_completion_metadata(
                 "returnedByteLength": returned_byte_length,
                 "outputAddress": output_address,
                 "writtenByteLength": written_byte_length,
+            })))
+        }
+        vine_core::TEXT_OUT_A_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("TextOutA completion did not set EAX".to_owned());
+            };
+            if result != 1 {
+                return Err("TextOutA primary raster completion did not succeed".to_owned());
+            }
+            let device_context_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "TextOutA completion has no logical HDC argument".to_owned())?;
+            let x = completion
+                .frame
+                .argument_u32(1)
+                .ok_or_else(|| "TextOutA completion has no x argument".to_owned())?
+                as i32;
+            let y = completion
+                .frame
+                .argument_u32(2)
+                .ok_or_else(|| "TextOutA completion has no y argument".to_owned())?
+                as i32;
+            let text_address = completion
+                .frame
+                .argument_u32(3)
+                .ok_or_else(|| "TextOutA completion has no text address argument".to_owned())?;
+            let character_count = completion
+                .frame
+                .argument_u32(4)
+                .ok_or_else(|| "TextOutA completion has no character count argument".to_owned())?;
+            let device_context = runtime
+                .gdi_device_context(device_context_handle)
+                .map_err(error_string)?;
+            let font_id = device_context
+                .selected_font_id
+                .ok_or_else(|| "TextOutA completion has no selected font".to_owned())?;
+            let bitmap_id = device_context
+                .selected_bitmap_id
+                .ok_or_else(|| "TextOutA completion has no selected bitmap".to_owned())?;
+            let selected_font = runtime
+                .gdi_objects()
+                .get(&font_id)
+                .ok_or_else(|| "TextOutA completion selected font is not live".to_owned())?;
+            if !matches!(
+                &selected_font.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err("TextOutA completion selected object is not a FontA".to_owned());
+            }
+            let selected_dib_section = runtime
+                .gdi_objects()
+                .get(&bitmap_id)
+                .ok_or_else(|| "TextOutA completion selected bitmap is not live".to_owned())?;
+            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } =
+                &selected_dib_section.object
+            else {
+                return Err("TextOutA completion selected object is not a DIB section".to_owned());
+            };
+            let text_policy = policy
+                .text_out_a
+                .as_ref()
+                .ok_or_else(|| "TextOutA completed with its GDI32 policy disabled".to_owned())?;
+            if completion.guest_writes.len() > 1 {
+                return Err("TextOutA completion emitted more than one raster write".to_owned());
+            }
+            let write = completion
+                .guest_writes
+                .first()
+                .map(|receipt| &receipt.write);
+            let changed_byte_count = write
+                .map(|write| {
+                    write
+                        .bytes
+                        .iter()
+                        .filter(|&&byte| byte != text_policy.initial_pixel)
+                        .count()
+                })
+                .unwrap_or(0);
+            Ok(Some(json!({
+                "action": "text-raster-written",
+                "deviceContext": device_context,
+                "selectedFont": selected_font,
+                "selectedDibSection": selected_dib_section,
+                "profileId": text_policy.profile_id,
+                "x": x,
+                "y": y,
+                "textAddress": text_address,
+                "characterCount": character_count,
+                "writeAddress": write.map(|write| write.address.0),
+                "writtenByteLength": write.map(|write| write.bytes.len()).unwrap_or(0),
+                "changedByteCount": changed_byte_count,
+                "contentGeneration": backing.content_generation,
+                "expectedOutputFnv1a32": text_policy.output_pixel_plane_fnv1a32,
             })))
         }
         vine_core::SELECT_OBJECT_IMPLEMENTATION => {

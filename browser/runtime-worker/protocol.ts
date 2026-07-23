@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 10 as const;
+export const protocolVersion = 11 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -496,6 +496,7 @@ export interface RuntimeGdiDibSectionSnapshot {
       addressAllocationId: number;
       memoryOwner: number;
       range: { start: number; byteLength: number };
+      contentGeneration: number;
     };
   };
 }
@@ -587,6 +588,22 @@ export type RuntimeGdiSnapshot =
       returnedByteLength: number;
       outputAddress: number;
       writtenByteLength: number;
+    }
+  | {
+      action: "text-raster-written";
+      deviceContext: RuntimeGdiMemoryDeviceContextSnapshot;
+      selectedFont: RuntimeGdiFontSnapshot;
+      selectedDibSection: RuntimeGdiDibSectionSnapshot;
+      profileId: string;
+      x: number;
+      y: number;
+      textAddress: number;
+      characterCount: number;
+      writeAddress: number | null;
+      writtenByteLength: number;
+      changedByteCount: number;
+      contentGeneration: number;
+      expectedOutputFnv1a32: number;
     }
   | {
       action: "object-selected";

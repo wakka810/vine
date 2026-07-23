@@ -63,9 +63,10 @@ use super::gdi::{
     RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi,
     RuntimeGdiComRetirementGuard, RuntimeGdiDibSectionDescriptor, RuntimeGdiGraphicsSurfaceTarget,
     RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiScreenTarget, RuntimeGdiSurface,
-    RuntimeGdiSurfaceId, RuntimeGdiWindowTarget, RuntimeGetDcResult,
-    RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult,
-    RuntimeGetStockObjectResult, RuntimeLogFontA, RuntimeSelectGdiObjectResult,
+    RuntimeGdiSurfaceId, RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget,
+    RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcPlan,
+    RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult, RuntimeGetStockObjectResult,
+    RuntimeLogFontA, RuntimeSelectGdiObjectResult,
 };
 use super::graphics::{
     RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
@@ -4299,6 +4300,96 @@ impl RuntimeKernel {
         self.require_gdi_operation_state()?;
         self.gdi
             .selected_font_a(device_context_handle, self.current_thread_id())
+    }
+
+    pub(crate) fn get_gdi_text_raster_target(
+        &self,
+        device_context_handle: u32,
+    ) -> Result<RuntimeGdiTextRasterTarget, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .text_raster_target(device_context_handle, self.current_thread_id())
+    }
+
+    pub(crate) fn commit_gdi_text_raster(
+        &mut self,
+        memory: &mut GuestMemory,
+        target: RuntimeGdiTextRasterTarget,
+        byte_offset: u32,
+        expected_bytes: &[u8],
+        replacement_bytes: &[u8],
+    ) -> Result<(RuntimeGdiTextRasterResult, GuestWriteResult), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        if expected_bytes.is_empty() || expected_bytes.len() != replacement_bytes.len() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "text-raster-byte-plan-invalid",
+                "text rasterization requires equally sized nonempty before and after bytes",
+            ));
+        }
+        let byte_length = u64::try_from(expected_bytes.len()).map_err(|_| {
+            RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "text-raster-byte-length-unrepresentable",
+                "text raster byte length does not fit guest range accounting",
+            )
+        })?;
+        let pixel_end = u64::from(byte_offset)
+            .checked_add(byte_length)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-gdi",
+                    "text-raster-byte-range-overflow",
+                    "text raster byte range overflowed x86 accounting",
+                )
+            })?;
+        if pixel_end > u64::from(target.descriptor.pixel_byte_length) {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "text-raster-byte-range-outside-dib",
+                "text raster byte range extends beyond the selected DIB pixel plane",
+            ));
+        }
+        let address = target
+            .backing
+            .range
+            .start()
+            .0
+            .checked_add(byte_offset)
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-gdi",
+                    "text-raster-address-overflow",
+                    "text raster guest address overflowed x86 accounting",
+                )
+            })?;
+        memory
+            .validate_access(address, expected_bytes.len(), MemoryAccess::Read)
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .validate_access(address, replacement_bytes.len(), MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        if memory
+            .read(address, expected_bytes.len())
+            .map_err(RuntimeStateError::from_memory)?
+            != expected_bytes
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "text-raster-backing-stale",
+                "selected DIB bytes changed after text rasterization was planned",
+            ));
+        }
+        let gdi = self.gdi.plan_text_raster_commit(target)?;
+        let mut transaction = memory.begin_transaction();
+        let write_result = transaction
+            .write(address, replacement_bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.gdi.preflight_text_raster_commit(&gdi)?;
+        let result = self.gdi.commit_text_raster(gdi)?;
+        transaction.commit_transaction();
+        Ok((result, write_result))
     }
 
     pub(crate) fn select_gdi_object(

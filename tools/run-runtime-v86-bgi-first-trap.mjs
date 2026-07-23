@@ -170,6 +170,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-compatible-dc",
         "gdi-dib-lifecycle",
         "gdi-outline-text-metrics",
+        "gdi-text-raster",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -259,6 +260,7 @@ assert(
       "gdi-compatible-dc",
       "gdi-dib-lifecycle",
       "gdi-outline-text-metrics",
+      "gdi-text-raster",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -312,6 +314,7 @@ if (
     "gdi-compatible-dc",
     "gdi-dib-lifecycle",
     "gdi-outline-text-metrics",
+    "gdi-text-raster",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -334,6 +337,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "gdi-compatible-dc",
       "gdi-dib-lifecycle",
       "gdi-outline-text-metrics",
+      "gdi-text-raster",
     ].includes(genericRuntimeCapability)
       ? "kernel32-set-thread-priority-v1.json"
       : genericRuntimeCapability === "kernel32-create-thread"
@@ -497,8 +501,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const textRasterEnabled = genericRuntimeCapability === "gdi-text-raster";
 const outlineTextMetricsEnabled =
-  genericRuntimeCapability === "gdi-outline-text-metrics";
+  textRasterEnabled || genericRuntimeCapability === "gdi-outline-text-metrics";
 const dibLifecycleEnabled =
   outlineTextMetricsEnabled || genericRuntimeCapability === "gdi-dib-lifecycle";
 const compatibleDcEnabled =
@@ -770,7 +775,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? outlineTextMetricsEnabled
+      ? textRasterEnabled
+      ? "v86-bgi-text-raster"
+      : outlineTextMetricsEnabled
       ? "v86-bgi-outline-text-metrics"
       : dibLifecycleEnabled
       ? "v86-bgi-dib-lifecycle"
@@ -4776,6 +4783,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (textRasterEnabled) {
+        validateTextRasterResult(genericResult);
       } else if (outlineTextMetricsEnabled) {
         validateOutlineTextMetricsResult(genericResult);
       } else if (dibLifecycleEnabled) {
@@ -4987,6 +4996,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : textRasterEnabled
+          ? "bgi CP932 text raster write into selected 8bpp DIB"
           : outlineTextMetricsEnabled
           ? "bgi CP932 outline text metrics query and output"
           : dibLifecycleEnabled
@@ -6258,6 +6269,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : textRasterEnabled
+          ? 90
         : outlineTextMetricsEnabled
           ? 89
         : dibLifecycleEnabled
@@ -6448,7 +6461,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-outline-text-v5",
+      "gdi32-primary-cp932-text-raster-v6",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -15054,6 +15067,134 @@ function validateOutlineTextMetricsResult(result) {
   assert.equal(output.gdi.selectedFont.handle, 0x4702_0002);
 }
 
+function validateTextRasterResult(result) {
+  validateOutlineTextMetricsResult(result);
+  assert.equal(result.supportedCalls.length, 18_637);
+  const calls = result.supportedCalls.filter((call) => call.symbol === "TextOutA");
+  assert.equal(calls.length, 1, "expected one primary TextOutA raster call");
+  const [call] = calls;
+  assert.equal(call.sequence, 18_623);
+  assert.deepEqual(call.arguments, [
+    0x4701_0004,
+    0,
+    0,
+    0x006f_fd6c,
+    1,
+  ]);
+  assert.equal(
+    call.implementationId,
+    "gdi32.text-out-a.cp932-8bpp-raster.v1",
+  );
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.returnAddress, 0x1002_cab1);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 24);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+
+  const [write] = call.guestWrites;
+  const writtenBytes = Buffer.from(write.bytes);
+  assert.equal(writtenBytes.length, 4_384);
+  assert.equal(call.gdi.action, "text-raster-written");
+  assert.equal(
+    call.gdi.profileId,
+    "primary-cp932-ms-gothic-a-8bpp-raster-v1",
+  );
+  assert.equal(call.gdi.x, 0);
+  assert.equal(call.gdi.y, 0);
+  assert.equal(call.gdi.textAddress, call.arguments[3]);
+  assert.equal(call.gdi.characterCount, 1);
+  assert.equal(call.gdi.writeAddress, write.address);
+  assert.equal(call.gdi.writtenByteLength, writtenBytes.length);
+  assert.equal(call.gdi.changedByteCount, 476);
+  assert.equal(call.gdi.contentGeneration, 1);
+  assert.equal(call.gdi.expectedOutputFnv1a32, 0xe6fc_8461);
+  assert.equal(call.gdi.deviceContext.handle, 0x4701_0004);
+  assert.equal(call.gdi.selectedFont.handle, 0x4702_0002);
+  assert.equal(call.gdi.selectedDibSection.object.kind, "dib-section");
+  assert.equal(
+    call.gdi.selectedDibSection.object.backing.contentGeneration,
+    1,
+  );
+
+  const descriptor = call.gdi.selectedDibSection.object.descriptor;
+  const backing = call.gdi.selectedDibSection.object.backing;
+  assert.equal(descriptor.width, 128);
+  assert.equal(descriptor.height, -96);
+  assert.equal(descriptor.bitsPerPixel, 8);
+  assert.equal(descriptor.strideBytes, 128);
+  assert.equal(descriptor.pixelByteLength, 12_288);
+  assert.equal(write.address - backing.range.start, 20 * 128);
+  assert.equal(
+    writtenBytes.filter((byte) => byte !== 0).length,
+    476,
+  );
+  assert(
+    writtenBytes.every((byte) => byte === 0 || byte === 255),
+    "TextOutA raster contains an unexpected palette index",
+  );
+  const plane = Buffer.alloc(descriptor.pixelByteLength);
+  writtenBytes.copy(plane, write.address - backing.range.start);
+  let fnv1a32 = 0x811c_9dc5;
+  for (const byte of plane) {
+    fnv1a32 = Math.imul(fnv1a32 ^ byte, 0x0100_0193) >>> 0;
+  }
+  assert.equal(fnv1a32, call.gdi.expectedOutputFnv1a32);
+
+  assert.deepEqual(
+    result.supportedCalls.slice(-14).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_624, symbol: "SelectObject", occurrence: 3 },
+      { sequence: 18_625, symbol: "SelectObject", occurrence: 4 },
+      { sequence: 18_626, symbol: "DeleteObject", occurrence: 1 },
+      { sequence: 18_627, symbol: "DeleteObject", occurrence: 2 },
+      { sequence: 18_628, symbol: "DeleteDC", occurrence: 1 },
+      { sequence: 18_629, symbol: "HeapFree", occurrence: 12 },
+      { sequence: 18_630, symbol: "HeapFree", occurrence: 13 },
+      { sequence: 18_631, symbol: "GetSystemDefaultLangID", occurrence: 3 },
+      { sequence: 18_632, symbol: "HeapAlloc", occurrence: 160 },
+      { sequence: 18_633, symbol: "HeapAlloc", occurrence: 161 },
+      { sequence: 18_634, symbol: "GetSystemDefaultLangID", occurrence: 4 },
+      { sequence: 18_635, symbol: "HeapAlloc", occurrence: 162 },
+      { sequence: 18_636, symbol: "HeapAlloc", occurrence: 163 },
+      {
+        sequence: 18_637,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_396,
+      },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "gdiplus-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 324);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_1430);
+  assert.equal(result.fault.endpoint.endpoint.module, "gdiplus.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GdiplusStartup",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1524);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, 36_578);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "4cf34f8569192fb4195be85e0e8e32784079d49d1023cfd049b90f4a21d164c5",
+  );
+  assert.equal(result.terminal.instructionCount, 12_073_229);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 324);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_1430);
+  assert.equal(result.terminal.terminal.thunk.module, "gdiplus.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "GdiplusStartup");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_52c8);
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -18724,7 +18865,11 @@ function buildGenericRuntimeReentryReport({
     assert(dibCreateCall, "DIB lifecycle report summary has no creation call");
     assert(dibGetObjectCall, "DIB lifecycle report summary has no GetObjectA call");
     assert(dibCreateDelta, "DIB lifecycle report summary has no creation delta");
-    assert.equal(dibSelectionCalls.length, 2, "DIB lifecycle summary requires two selections");
+    assert.equal(
+      dibSelectionCalls.length,
+      outlineTextMetricsEnabled ? 4 : 2,
+      "DIB lifecycle summary has an unexpected selection count",
+    );
   }
   const outlineTextMetricsCalls = outlineTextMetricsEnabled
     ? genericResult.supportedCalls.filter(
@@ -18738,10 +18883,18 @@ function buildGenericRuntimeReentryReport({
       "outline text metrics summary requires size and output calls",
     );
   }
+  const textRasterCalls = textRasterEnabled
+    ? genericResult.supportedCalls.filter((call) => call.symbol === "TextOutA")
+    : [];
+  if (textRasterEnabled) {
+    assert.equal(textRasterCalls.length, 1, "text raster summary requires one call");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : textRasterEnabled
+        ? "vine.v86-bgi-gdi-text-raster"
         : outlineTextMetricsEnabled
         ? "vine.v86-bgi-gdi-outline-text-metrics"
         : dibLifecycleEnabled
@@ -19089,6 +19242,18 @@ function buildGenericRuntimeReentryReport({
             selectedFontAuthority: "runtime-gdi-logical-object",
             byteAuthority: "rust-guest-memory",
             browserFontMeasurementUsed: false,
+          },
+        }
+      : {}),
+    ...(textRasterEnabled
+      ? {
+          textRaster: {
+            calls: textRasterCalls,
+            objectAuthority: "runtime-gdi-logical-object",
+            byteAuthority: "rust-guest-memory",
+            mutation: "owner-plan-stale-check-transactional-commit",
+            browserFontRasterizationUsed: false,
+            browserBitmapResourceCreated: false,
           },
         }
       : {}),
