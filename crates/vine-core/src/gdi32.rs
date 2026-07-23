@@ -11,15 +11,19 @@ use crate::api::{
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
+    RUNTIME_GDI_DEFAULT_BITMAP_INDEX, RUNTIME_GDI_SYSTEM_FONT_INDEX,
     RUNTIME_LOG_FONT_A_BYTE_LENGTH, RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeLogFontA,
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 2;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 3;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
 pub const CREATE_FONT_A_IMPLEMENTATION: &str = "gdi32.create-font-a.cp932-logical-object.v1";
+pub const CREATE_COMPATIBLE_DC_IMPLEMENTATION: &str =
+    "gdi32.create-compatible-dc.null-screen-memory.v1";
+pub const DELETE_DC_IMPLEMENTATION: &str = "gdi32.delete-dc.logical-memory.v1";
 pub const X86_LOGFONTA_BYTE_LENGTH: u32 = RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32;
 pub const X86_ENUMLOGFONTEXA_BYTE_LENGTH: usize = 188;
 pub const X86_NEWTEXTMETRICEXA_BYTE_LENGTH: usize = 96;
@@ -63,22 +67,33 @@ pub struct Gdi32FontCreationPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Gdi32CompatibleDcPolicy {
+    pub profile_id: String,
+    pub source_device_context: u32,
+    pub initial_font_stock_index: i32,
+    pub initial_bitmap_stock_index: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Gdi32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub enum_font_families_ex_a: Option<Gdi32FontEnumerationPolicy>,
     pub create_font_a: Option<Gdi32FontCreationPolicy>,
+    pub create_compatible_dc: Option<Gdi32CompatibleDcPolicy>,
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v2() -> Self {
+    pub fn controlled_v3() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-font-object-v2".to_owned(),
+            id: "gdi32-primary-cp932-memory-dc-v3".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
             create_font_a: Some(controlled_font_creation_policy()),
+            create_compatible_dc: Some(controlled_compatible_dc_policy()),
         }
     }
 
@@ -111,6 +126,15 @@ impl Gdi32CompatibilityPolicy {
                 "GDI32 font creation policy must match the evidenced CP932 MS Gothic request",
             ));
         }
+        if let Some(compatible_dc) = self.create_compatible_dc.as_ref()
+            && compatible_dc != &controlled_compatible_dc_policy()
+        {
+            return Err(ApiFault::runtime_defect(
+                "gdi32-compatibility-policy",
+                "gdi32-compatible-dc-profile-invalid",
+                "GDI32 compatible DC policy must match the evidenced NULL-screen memory DC request",
+            ));
+        }
         Ok(())
     }
 }
@@ -127,6 +151,10 @@ pub fn dispatch_gdi32_api(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        DELETE_DC_IMPLEMENTATION => match handle_delete_dc(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         _ => ApiHandlerResult::Fault(ApiFault::unsupported(
             "gdi32-api-dispatch",
             "implementation-missing",
@@ -146,6 +174,12 @@ pub fn dispatch_gdi32_api_with_policy(
     session: &mut ExecutionSession<'_>,
 ) -> ApiHandlerResult {
     match contract.implementation_id.as_str() {
+        CREATE_COMPATIBLE_DC_IMPLEMENTATION => {
+            match handle_create_compatible_dc(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         CREATE_FONT_A_IMPLEMENTATION => {
             match handle_create_font_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -160,6 +194,72 @@ pub fn dispatch_gdi32_api_with_policy(
             session,
         ),
         _ => dispatch_gdi32_api(contract, frame, session),
+    }
+}
+
+fn handle_create_compatible_dc(
+    policy: &Gdi32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let compatible_dc = policy.create_compatible_dc.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "gdi32-compatible-dc",
+            "create-compatible-dc-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical memory DC creation",
+                policy.id
+            ),
+        )
+    })?;
+    let source_device_context = required_argument(frame, 0, "source device context")?;
+    if source_device_context != compatible_dc.source_device_context {
+        return Err(ApiFault::unsupported(
+            "gdi32-compatible-dc",
+            "create-compatible-dc-source-unsupported",
+            "CreateCompatibleDC currently supports only the evidenced NULL screen source",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let result = session
+        .runtime_mut()
+        .create_compatible_memory_dc()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+        value: result.handle,
+    })
+    .with_last_error(preserved_last_error))
+}
+
+fn handle_delete_dc(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let device_context = required_argument(frame, 0, "device context")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .delete_compatible_memory_dc(device_context)
+    {
+        Ok(()) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error)
+            if error.code == "device-context-handle-unknown"
+                || error.code == "delete-dc-relation-mismatch" =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
     }
 }
 
@@ -401,8 +501,57 @@ pub fn gdi32_contract_for_endpoint(
         "GetStockObject" => Ok(Some(get_stock_object_contract(endpoint)?)),
         "EnumFontFamiliesExA" => Ok(Some(enum_font_families_ex_a_contract(endpoint)?)),
         "CreateFontA" => Ok(Some(create_font_a_contract(endpoint)?)),
+        "CreateCompatibleDC" => Ok(Some(create_compatible_dc_contract(endpoint)?)),
+        "DeleteDC" => Ok(Some(delete_dc_contract(endpoint)?)),
         _ => Ok(None),
     }
+}
+
+pub fn create_compatible_dc_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_handle_argument(
+                "sourceDeviceContext",
+                LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                true,
+            )],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: CREATE_COMPATIBLE_DC_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn delete_dc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_handle_argument(
+                "deviceContext",
+                LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+                true,
+            )],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: DELETE_DC_IMPLEMENTATION.to_owned(),
+    })
 }
 
 pub fn get_stock_object_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
@@ -529,6 +678,15 @@ fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
             pitch_and_family: 0,
             face_name_windows_932: MS_GOTHIC_WINDOWS_932.to_vec(),
         },
+    }
+}
+
+fn controlled_compatible_dc_policy() -> Gdi32CompatibleDcPolicy {
+    Gdi32CompatibleDcPolicy {
+        profile_id: "primary-null-screen-memory-dc-v1".to_owned(),
+        source_device_context: 0,
+        initial_font_stock_index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+        initial_bitmap_stock_index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
     }
 }
 
@@ -700,8 +858,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn controlled_font_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v2();
+    fn controlled_gdi32_policy_is_canonical_and_bounded() {
+        let policy = Gdi32CompatibilityPolicy::controlled_v3();
         policy.validate().unwrap();
         let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
@@ -747,11 +905,15 @@ mod tests {
                 2, 0, 130, 108, 130, 114, 32, 131, 83, 131, 86, 131, 98, 131, 78, 0, 0, 0, 0, 0,
             ]
         );
+        let compatible_dc = policy.create_compatible_dc.as_ref().unwrap();
+        assert_eq!(compatible_dc.source_device_context, 0);
+        assert_eq!(compatible_dc.initial_font_stock_index, 13);
+        assert_eq!(compatible_dc.initial_bitmap_stock_index, 21);
     }
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v2();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -761,9 +923,18 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v2();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
         policy.create_font_a.as_mut().unwrap().log_font.quality = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
+
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v3();
+        policy
+            .create_compatible_dc
+            .as_mut()
+            .unwrap()
+            .initial_bitmap_stock_index = 20;
+        let fault = policy.validate().unwrap_err();
+        assert_eq!(fault.code, "gdi32-compatible-dc-profile-invalid");
     }
 }

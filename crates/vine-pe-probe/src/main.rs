@@ -214,6 +214,7 @@ enum GenericRuntimeCapability {
     ScreenDc,
     FontEnumeration,
     FontCreation,
+    CompatibleDc,
 }
 
 struct GenericRuntimeProcess {
@@ -500,6 +501,19 @@ enum GenericRuntimeGdiCompletion {
     },
     FontCreated {
         object: vine_core::RuntimeGdiObject,
+        live_objects: usize,
+    },
+    CompatibleDeviceContextCreated {
+        device_context: vine_core::RuntimeDeviceContext,
+        initial_font: vine_core::RuntimeGdiObject,
+        initial_bitmap: vine_core::RuntimeGdiObject,
+        live_device_contexts: usize,
+        live_objects: usize,
+    },
+    CompatibleDeviceContextDeleted {
+        handle: u32,
+        deleted: bool,
+        live_device_contexts: usize,
         live_objects: usize,
     },
     StockObjectResolved {
@@ -2410,6 +2424,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::ScreenDc
                     | GenericRuntimeCapability::FontEnumeration
                     | GenericRuntimeCapability::FontCreation
+                    | GenericRuntimeCapability::CompatibleDc
             )
         ) {
             let loader = kernel32_policy
@@ -3072,6 +3087,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3087,6 +3103,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     );
     let dsound_root_enabled = matches!(
@@ -3101,6 +3118,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3114,6 +3132,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3126,6 +3145,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     );
     let requested_capability = match enabled_capability {
@@ -3140,7 +3160,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::SetThreadPriority
             | GenericRuntimeCapability::ScreenDc
             | GenericRuntimeCapability::FontEnumeration
-            | GenericRuntimeCapability::FontCreation,
+            | GenericRuntimeCapability::FontCreation
+            | GenericRuntimeCapability::CompatibleDc,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3222,11 +3243,19 @@ fn run_v86_generic_runtime_session(
     };
     let font_enumeration_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FontEnumeration | GenericRuntimeCapability::FontCreation)
+        Some(
+            GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
+        )
     );
     let font_creation_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FontCreation)
+        Some(GenericRuntimeCapability::FontCreation | GenericRuntimeCapability::CompatibleDc)
+    );
+    let compatible_dc_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::CompatibleDc)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3344,6 +3373,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     ) {
         user32_policy.set_timer = None;
@@ -3354,17 +3384,21 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
                 | GenericRuntimeCapability::FontCreation
+                | GenericRuntimeCapability::CompatibleDc
         )
     ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v2();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
     if !font_creation_enabled {
         gdi32_policy.create_font_a = None;
+    }
+    if !compatible_dc_enabled {
+        gdi32_policy.create_compatible_dc = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -10786,6 +10820,13 @@ fn generic_runtime_gdi_completion(
                         live_device_contexts: runtime.gdi_device_contexts().len(),
                     },
                 )),
+                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
+                    Err(LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "get-dc-memory-target-invalid-after-dispatch",
+                        "USER32 GetDC resolved to a memory logical HDC",
+                    ))
+                }
                 vine_core::RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
                     Err(LoaderError::runtime_defect(
                         "runtime-gdi",
@@ -10872,6 +10913,13 @@ fn generic_runtime_gdi_completion(
                         "screen FillRect completed outside the reached GDI support band",
                     ))
                 }
+                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
+                    Err(LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "fill-rect-memory-target-unexpected",
+                        "memory FillRect completed before a logical DIB was selected",
+                    ))
+                }
             }
         }
         vine_core::ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => {
@@ -10943,6 +10991,95 @@ fn generic_runtime_gdi_completion(
                 object,
                 live_objects: runtime.gdi_objects().len(),
             }))
+        }
+        vine_core::CREATE_COMPATIBLE_DC_IMPLEMENTATION => {
+            let handle = set_eax_result(
+                completion,
+                "create-compatible-dc-return-register-invalid",
+                "CreateCompatibleDC dispatcher did not set EAX",
+            )?;
+            let device_context = runtime
+                .gdi_device_context(handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            if !matches!(
+                device_context.target,
+                vine_core::RuntimeDeviceContextTarget::Memory { .. }
+            ) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "compatible-dc-target-invalid-after-dispatch",
+                    "completed CreateCompatibleDC resolved to a non-memory logical HDC",
+                ));
+            }
+            let font_id = device_context.selected_font_id.ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "compatible-dc-default-font-missing-after-dispatch",
+                    "completed CreateCompatibleDC has no selected default font",
+                )
+            })?;
+            let bitmap_id = device_context.selected_bitmap_id.ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "compatible-dc-default-bitmap-missing-after-dispatch",
+                    "completed CreateCompatibleDC has no selected default bitmap",
+                )
+            })?;
+            let initial_font = runtime
+                .gdi_objects()
+                .get(&font_id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "compatible-dc-default-font-dangling-after-dispatch",
+                        "completed CreateCompatibleDC default font is not live",
+                    )
+                })?;
+            let initial_bitmap =
+                runtime
+                    .gdi_objects()
+                    .get(&bitmap_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        LoaderError::runtime_defect(
+                            "runtime-gdi",
+                            "compatible-dc-default-bitmap-dangling-after-dispatch",
+                            "completed CreateCompatibleDC default bitmap is not live",
+                        )
+                    })?;
+            Ok(Some(
+                GenericRuntimeGdiCompletion::CompatibleDeviceContextCreated {
+                    device_context,
+                    initial_font,
+                    initial_bitmap,
+                    live_device_contexts: runtime.gdi_device_contexts().len(),
+                    live_objects: runtime.gdi_objects().len(),
+                },
+            ))
+        }
+        vine_core::DELETE_DC_IMPLEMENTATION => {
+            let deleted = set_eax_result(
+                completion,
+                "delete-dc-return-register-invalid",
+                "DeleteDC dispatcher did not set EAX",
+            )? != 0;
+            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "delete-dc-hdc-missing-after-dispatch",
+                    "completed DeleteDC frame has no logical HDC",
+                )
+            })?;
+            Ok(Some(
+                GenericRuntimeGdiCompletion::CompatibleDeviceContextDeleted {
+                    handle,
+                    deleted,
+                    live_device_contexts: runtime.gdi_device_contexts().len(),
+                    live_objects: runtime.gdi_objects().len(),
+                },
+            ))
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion.frame.argument_u32(1).ok_or_else(|| {
@@ -12024,6 +12161,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-screen-dc" => GenericRuntimeCapability::ScreenDc,
                 "gdi-font-enumeration" => GenericRuntimeCapability::FontEnumeration,
                 "gdi-font-creation" => GenericRuntimeCapability::FontCreation,
+                "gdi-compatible-dc" => GenericRuntimeCapability::CompatibleDc,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

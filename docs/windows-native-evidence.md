@@ -4612,3 +4612,49 @@ transitions、clean cancel／watchdogを通した。Browser reportは44,116 byte
 `0x100D107C`／return `0x1002C8AD`の`endpoint-contract-missing`で、argumentはNULL HDCである。Compatible
 memory DC、DIB、selection／introspection／deletion、outline metrics、text output、glyph rasterization、host／browser
 font resolutionはこのcheckpointで実装済みとしない。
+
+## 138. BGI NULL-source compatible memory DC lifecycle
+
+Compatible-DC oracleを含むfont-object profileを独立に2回取得した。Primary raw traceは489,171 bytes／132 records／
+SHA-256 `4e7015df75b77ad133c8eb28437bfe26e45f5171e692aa913148cf3d74da1e72`、confirmationは489,137 bytes／
+132 records／SHA-256 `48ac1ae635eeb927b0da807bafa565c96d6905ada1dbb50dac53b282ca276008`で、diagnostics／hook
+errorsは0である。Main profileは`x86-bgi-gdi-font-object-lifecycle-v2`、outer controlled oracleは
+`x86-create-font-a-object-lifecycle-v2`、compatible-DC oracleは`x86-create-compatible-dc-null-lifecycle-v1`である。
+Raw traceは`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGIのRVA `0x0002C8AD`へ戻る`CreateCompatibleDC(NULL)`はnon-NULL HDCを返しLastError 0を保存する。Callerは
+resultをobject fieldへ格納し、testを挟まず同じHDCを`CreateDIBSection`へ渡す。Main ordered pipelineは
+`CreateFontA`、`CreateCompatibleDC`、`CreateDIBSection`、`GetObjectA`、二回の`SelectObject`、二回の
+`GetOutlineTextMetricsA`、`TextOutA`、二回のrestore `SelectObject`、二回の`DeleteObject`、`DeleteDC`で両run一致した。
+
+Controlled oracleはNULL sourceから三つのdistinct non-NULL HDCを作り、全てのobject typeが10であることを確認した。
+First／second DCのinitial fontは同じidentityでtype 6、initial bitmapも同じidentityでtype 7である。
+`ReleaseDC(NULL, firstMemoryDc)`は0、LastError 1425で、その後もfirst HDCのtypeは10のままである。`DeleteDC`は
+first／repeat／independent secondで1／0／1となり、first delete後のtypeは0である。三createと三deleteの全callは
+success／failureとも各sentinel LastErrorを保存し、hook result／LastErrorとSystemFunction結果が一致した。
+
+別variantでは`DeleteObject(thirdMemoryDc)`が1を返してtype 0へretireした。このcallはprimary pipelineで未到達であり、
+Vineの`DeleteObject` contractへ一般化しない。Vineは到達済みの`CreateCompatibleDC(NULL)`とlifecycle上必要な
+`DeleteDC`だけを実装する。`RuntimeGdi`はdistinct same-thread HDC、process-shared `SYSTEM_FONT` index 13、1 x 1
+monochrome `DEFAULT_BITMAP` index 21、selected object IDを一つのowner-local plan／commitで所有する。`ReleaseDC`、
+non-NULL source、native HDC、pixel storage、browser resourceはこのcontractに含めない。
+
+Nodeは18,613 supported calls、18,669 writebacks／37,584 dirty pages／2,947,967 changed bytes、17,297 host
+deltas、generation 36,537、semantic SHA-256
+`7a5429d465517e76d66ba8982448f640b48e654d711ba9d1e35975a7cc78fec6`、terminal memory SHA-256
+`2bcba5822cd7c9ec36e4a37a70865bc18411eeae5d3ce88e9fa2f38ce2f79e76`を通した。Node reportは68,391
+bytes／SHA-256 `2746dc4d80b50518b93769de1a1762e5d220b814b40fd8b9d5b19172cb3a8c09`である。Sequence 18,613は
+HDC `0x47010004`／DC ID 4、selected font／bitmap ID 3／4、stock handles `0x47020003`／`0x47020004`、
+live DC／object 1／4、guest write 0、LastError 0を返した。
+
+Chrome Runtime Worker protocol v8もsame ordered semantics／terminal memoryを再現し、19,369 slices、19,367
+writebacks／39,202 pages、17,297 mapping deltas／18,813 dirty pages、generation 27→37,237、55,651 Wasm
+crossings、58,072 success transitions、clean cancel／watchdogを通した。Chromeは150.0.7871.130、browser reportは
+44,081 bytes／SHA-256 `6dbc90925d425a1574c68292db0a6e9cf23c1a477a75c45aa51a4e06409e3578`である。
+
+次stopはinstruction 11,960,150、`GDI32.dll!CreateDIBSection` endpoint ID 257／address `0x7F001000`／IAT
+`0x100D1090`／return `0x1002C8C5`の`endpoint-contract-missing`である。Argumentsはmemory HDC
+`0x47010004`、`BITMAPINFO` `0x2013A250`、usage 0、bits output `0x006FFEF4`、section 0、offset 0である。
+DIB identity／bytes、palette、guest output publication、object selection／introspection／deletion、metrics、text output、
+glyph rasterizationは次checkpointで扱う。

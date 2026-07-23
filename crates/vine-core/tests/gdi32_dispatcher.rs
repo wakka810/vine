@@ -9,9 +9,10 @@ use vine_core::{
     RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDeviceContextTarget, RuntimeGdiObjectKind,
     RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     User32CompatibilityPolicy, X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH,
-    X86_NEWTEXTMETRICEXA_BYTE_LENGTH, create_font_a_contract, dispatch_gdi32_api_with_policy,
-    dispatch_user32_api_with_policy, enum_font_families_ex_a_contract, gdi32_contract_for_endpoint,
-    get_dc_contract, release_dc_contract,
+    X86_NEWTEXTMETRICEXA_BYTE_LENGTH, create_compatible_dc_contract, create_font_a_contract,
+    delete_dc_contract, dispatch_gdi32_api_with_policy, dispatch_user32_api_with_policy,
+    enum_font_families_ex_a_contract, gdi32_contract_for_endpoint, get_dc_contract,
+    release_dc_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -19,11 +20,15 @@ const GET_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1040);
 const RELEASE_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1060);
 const ENUM_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1080);
 const CREATE_FONT_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x10c0);
+const CREATE_COMPATIBLE_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1100);
+const DELETE_DC_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x1120);
 const LOW_ENUM_STACK_POINTER: GuestAddress = GuestAddress(MEMORY_BASE.0 + 8);
 const GET_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2000);
 const RELEASE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2004);
 const ENUM_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2008);
 const CREATE_FONT_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x200c);
+const CREATE_COMPATIBLE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2010);
+const DELETE_DC_IAT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2014);
 const CALLBACK_TARGET: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2100);
 const CALLBACK_SENTINEL: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2110);
 const LOG_FONT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2200);
@@ -32,10 +37,14 @@ const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
 const RELEASE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ef0);
 const ENUM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0fc0);
 const CREATE_FONT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ff0);
+const CREATE_COMPATIBLE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0fb0);
+const DELETE_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_1000);
 const GET_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c149);
 const RELEASE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
 const ENUM_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c16a);
 const CREATE_FONT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c838);
+const CREATE_COMPATIBLE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c8ad);
+const DELETE_DC_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1002_c472);
 const CALLBACK_PARAMETER: u32 = 0x100d_ce7c;
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
@@ -52,6 +61,8 @@ struct FontFixture {
     release_dc_endpoint: ApiEndpointIdentity,
     enum_endpoint: ApiEndpointIdentity,
     create_font_endpoint: ApiEndpointIdentity,
+    create_compatible_dc_endpoint: ApiEndpointIdentity,
+    delete_dc_endpoint: ApiEndpointIdentity,
     user32_policy: User32CompatibilityPolicy,
     gdi32_policy: Gdi32CompatibilityPolicy,
     callback_sentinel: GuestAddress,
@@ -97,11 +108,32 @@ impl FontFixture {
             "GDI32.dll",
             "CreateFontA",
         );
+        let create_compatible_dc_endpoint = endpoint(
+            owner,
+            252,
+            CREATE_COMPATIBLE_DC_ENDPOINT_ADDRESS,
+            CREATE_COMPATIBLE_DC_IAT_ADDRESS,
+            "GDI32.dll",
+            "CreateCompatibleDC",
+        );
+        let delete_dc_endpoint = endpoint(
+            owner,
+            257,
+            DELETE_DC_ENDPOINT_ADDRESS,
+            DELETE_DC_IAT_ADDRESS,
+            "GDI32.dll",
+            "DeleteDC",
+        );
         for (iat, target) in [
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (RELEASE_DC_IAT_ADDRESS, RELEASE_DC_ENDPOINT_ADDRESS),
             (ENUM_IAT_ADDRESS, ENUM_ENDPOINT_ADDRESS),
             (CREATE_FONT_IAT_ADDRESS, CREATE_FONT_ENDPOINT_ADDRESS),
+            (
+                CREATE_COMPATIBLE_DC_IAT_ADDRESS,
+                CREATE_COMPATIBLE_DC_ENDPOINT_ADDRESS,
+            ),
+            (DELETE_DC_IAT_ADDRESS, DELETE_DC_ENDPOINT_ADDRESS),
         ] {
             memory
                 .write_initialization(owner, iat, &target.0.to_le_bytes())
@@ -131,6 +163,8 @@ impl FontFixture {
                 release_dc_endpoint.clone(),
                 enum_endpoint.clone(),
                 create_font_endpoint.clone(),
+                create_compatible_dc_endpoint.clone(),
+                delete_dc_endpoint.clone(),
             ],
             [
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -138,11 +172,14 @@ impl FontFixture {
                 enum_font_families_ex_a_contract(enum_endpoint.clone())
                     .expect("EnumFontFamiliesExA contract"),
                 create_font_a_contract(create_font_endpoint.clone()).expect("CreateFontA contract"),
+                create_compatible_dc_contract(create_compatible_dc_endpoint.clone())
+                    .expect("CreateCompatibleDC contract"),
+                delete_dc_contract(delete_dc_endpoint.clone()).expect("DeleteDC contract"),
             ],
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v2();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -158,6 +195,8 @@ impl FontFixture {
             release_dc_endpoint,
             enum_endpoint,
             create_font_endpoint,
+            create_compatible_dc_endpoint,
+            delete_dc_endpoint,
             user32_policy,
             gdi32_policy,
             callback_sentinel: CALLBACK_SENTINEL,
@@ -250,6 +289,28 @@ impl FontFixture {
         )
     }
 
+    fn dispatch_create_compatible_dc(&mut self, source_device_context: u32) -> DispatchOutcome {
+        self.write_words(
+            CREATE_COMPATIBLE_DC_STACK_POINTER,
+            &[CREATE_COMPATIBLE_DC_RETURN_ADDRESS.0, source_device_context],
+        );
+        let endpoint = self.create_compatible_dc_endpoint.clone();
+        self.dispatch_endpoint(
+            endpoint,
+            CREATE_COMPATIBLE_DC_STACK_POINTER,
+            CREATE_COMPATIBLE_DC_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_delete_dc(&mut self, device_context: u32) -> DispatchOutcome {
+        self.write_words(
+            DELETE_DC_STACK_POINTER,
+            &[DELETE_DC_RETURN_ADDRESS.0, device_context],
+        );
+        let endpoint = self.delete_dc_endpoint.clone();
+        self.dispatch_endpoint(endpoint, DELETE_DC_STACK_POINTER, DELETE_DC_RETURN_ADDRESS)
+    }
+
     fn write_words(&mut self, address: GuestAddress, words: &[u32]) {
         let bytes = words
             .iter()
@@ -313,6 +374,175 @@ impl FontFixture {
             },
         )
     }
+}
+
+#[test]
+fn compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts() {
+    let fixture = FontFixture::new();
+    let create = gdi32_contract_for_endpoint(fixture.create_compatible_dc_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("CreateCompatibleDC contract");
+    assert_eq!(create.abi.arguments.len(), 1);
+    assert!(matches!(
+        &create.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && *nullable
+    ));
+    assert!(matches!(
+        &create.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && *nullable
+    ));
+    assert_eq!(create.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(create.callback_policy, CallbackPolicy::Forbidden);
+
+    let delete = gdi32_contract_for_endpoint(fixture.delete_dc_endpoint.clone())
+        .expect("GDI32 catalog lookup")
+        .expect("DeleteDC contract");
+    assert_eq!(delete.abi.arguments.len(), 1);
+    assert!(matches!(
+        &delete.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-gdi-dc.v1" && *nullable
+    ));
+    assert_eq!(delete.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(delete.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(delete.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc() {
+    let mut fixture = FontFixture::new();
+    let first_completion = match fixture.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let RegisterUpdate::Set(first_handle) = first_completion.eax else {
+        panic!("CreateCompatibleDC did not set EAX")
+    };
+    assert_eq!(first_handle, 0x4701_0001);
+    assert_eq!(
+        first_completion.instruction_pointer,
+        CREATE_COMPATIBLE_DC_RETURN_ADDRESS
+    );
+    assert_eq!(
+        first_completion.stack_pointer,
+        GuestAddress(CREATE_COMPATIBLE_DC_STACK_POINTER.0 + 8)
+    );
+    assert_eq!(first_completion.last_error, INITIAL_LAST_ERROR);
+    assert!(first_completion.guest_writes.is_empty());
+
+    let first = fixture
+        .runtime
+        .gdi_device_context(first_handle)
+        .expect("first compatible memory DC");
+    assert!(matches!(
+        first.target,
+        RuntimeDeviceContextTarget::Memory {
+            compatible_monitor_handle: 0x4f01_0001,
+            ..
+        }
+    ));
+    assert_eq!(first.selected_font_id.map(|id| id.0), Some(1));
+    assert_eq!(first.selected_bitmap_id.map(|id| id.0), Some(2));
+    let first_selected_font_id = first.selected_font_id;
+    let first_selected_bitmap_id = first.selected_bitmap_id;
+    assert_eq!(fixture.runtime.gdi_objects().len(), 2);
+    assert!(fixture.runtime.gdi_objects().values().any(|object| {
+        object.shared && matches!(object.object, RuntimeGdiObjectKind::StockFont { index: 13 })
+    }));
+    assert!(fixture.runtime.gdi_objects().values().any(|object| {
+        object.shared
+            && matches!(
+                object.object,
+                RuntimeGdiObjectKind::StockBitmap {
+                    index: 21,
+                    width: 1,
+                    height: 1,
+                    bits_per_pixel: 1,
+                }
+            )
+    }));
+
+    let second_completion = match fixture.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated CreateCompatibleDC completion, got {other:?}"),
+    };
+    let RegisterUpdate::Set(second_handle) = second_completion.eax else {
+        panic!("repeated CreateCompatibleDC did not set EAX")
+    };
+    assert_eq!(second_handle, first_handle + 1);
+    let second = fixture
+        .runtime
+        .gdi_device_context(second_handle)
+        .expect("second compatible memory DC");
+    assert_eq!(second.selected_font_id, first_selected_font_id);
+    assert_eq!(second.selected_bitmap_id, first_selected_bitmap_id);
+    assert_eq!(fixture.runtime.gdi_objects().len(), 2);
+
+    let delete_first = match fixture.dispatch_delete_dc(first_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected DeleteDC completion, got {other:?}"),
+    };
+    assert_eq!(delete_first.eax, RegisterUpdate::Set(1));
+    assert_eq!(delete_first.last_error, INITIAL_LAST_ERROR);
+    assert!(delete_first.guest_writes.is_empty());
+    assert!(fixture.runtime.gdi_device_context(first_handle).is_err());
+    assert!(fixture.runtime.gdi_device_context(second_handle).is_ok());
+    assert_eq!(fixture.runtime.gdi_objects().len(), 2);
+
+    let runtime_before_repeat = fixture.runtime.clone();
+    let repeated_delete = match fixture.dispatch_delete_dc(first_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated DeleteDC completion, got {other:?}"),
+    };
+    assert_eq!(repeated_delete.eax, RegisterUpdate::Set(0));
+    assert_eq!(repeated_delete.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(fixture.runtime, runtime_before_repeat);
+}
+
+#[test]
+fn compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically() {
+    let mut nonnull = FontFixture::new();
+    let runtime_before_nonnull = nonnull.runtime.clone();
+    let fault = match nonnull.dispatch_create_compatible_dc(0x4701_0001) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected non-NULL CreateCompatibleDC fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "create-compatible-dc-source-unsupported");
+    assert_eq!(nonnull.runtime, runtime_before_nonnull);
+
+    let mut disabled = FontFixture::new();
+    disabled.gdi32_policy.create_compatible_dc = None;
+    let runtime_before_disabled = disabled.runtime.clone();
+    let fault = match disabled.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled CreateCompatibleDC fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "create-compatible-dc-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before_disabled);
+
+    let mut wrong_target = FontFixture::new();
+    let screen_dc = wrong_target.acquire_screen_dc();
+    let runtime_before_delete = wrong_target.runtime.clone();
+    let completion = match wrong_target.dispatch_delete_dc(screen_dc) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected non-memory DeleteDC completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(wrong_target.runtime, runtime_before_delete);
+
+    let runtime_before_null = wrong_target.runtime.clone();
+    let completion = match wrong_target.dispatch_delete_dc(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected NULL DeleteDC completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(wrong_target.runtime, runtime_before_null);
 }
 
 #[test]

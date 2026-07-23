@@ -524,7 +524,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v2();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v3();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2733,6 +2733,9 @@ fn bgi_gdi_completion_metadata(
                     "deviceContext": device_context,
                     "liveDeviceContexts": runtime.gdi_device_contexts().len(),
                 }))),
+                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
+                    Err("USER32 GetDC completion resolved to a memory HDC".to_owned())
+                }
                 vine_core::RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
                     Err("USER32 GetDC completion resolved to a graphics-surface HDC".to_owned())
                 }
@@ -2790,6 +2793,9 @@ fn bgi_gdi_completion_metadata(
                 vine_core::RuntimeDeviceContextTarget::Screen { .. } => {
                     Err("screen FillRect completed outside the reached GDI support band".to_owned())
                 }
+                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
+                    Err("memory FillRect completed before a logical DIB was selected".to_owned())
+                }
             }
         }
         vine_core::ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => {
@@ -2831,6 +2837,54 @@ fn bgi_gdi_completion_metadata(
             Ok(Some(json!({
                 "action": "font-created",
                 "object": object,
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::CREATE_COMPATIBLE_DC_IMPLEMENTATION => {
+            let RegisterUpdate::Set(handle) = completion.eax else {
+                return Err("CreateCompatibleDC completion did not set EAX".to_owned());
+            };
+            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
+            if !matches!(
+                device_context.target,
+                vine_core::RuntimeDeviceContextTarget::Memory { .. }
+            ) {
+                return Err("CreateCompatibleDC completion resolved to a non-memory HDC".to_owned());
+            }
+            let font_id = device_context.selected_font_id.ok_or_else(|| {
+                "CreateCompatibleDC completion has no selected default font".to_owned()
+            })?;
+            let bitmap_id = device_context.selected_bitmap_id.ok_or_else(|| {
+                "CreateCompatibleDC completion has no selected default bitmap".to_owned()
+            })?;
+            let initial_font = runtime.gdi_objects().get(&font_id).ok_or_else(|| {
+                "CreateCompatibleDC completion default font is not live".to_owned()
+            })?;
+            let initial_bitmap = runtime.gdi_objects().get(&bitmap_id).ok_or_else(|| {
+                "CreateCompatibleDC completion default bitmap is not live".to_owned()
+            })?;
+            Ok(Some(json!({
+                "action": "compatible-device-context-created",
+                "deviceContext": device_context,
+                "initialFont": initial_font,
+                "initialBitmap": initial_bitmap,
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+                "liveObjects": runtime.gdi_objects().len(),
+            })))
+        }
+        vine_core::DELETE_DC_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("DeleteDC completion did not set EAX".to_owned());
+            };
+            let handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "DeleteDC completion has no logical HDC argument".to_owned())?;
+            Ok(Some(json!({
+                "action": "compatible-device-context-deleted",
+                "handle": handle,
+                "deleted": result != 0,
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
                 "liveObjects": runtime.gdi_objects().len(),
             })))
         }

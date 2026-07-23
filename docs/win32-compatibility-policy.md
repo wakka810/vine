@@ -176,7 +176,7 @@ DOM screen geometry, or browser renderer resource.
 
 ## GDI32 font catalog and logical object policy
 
-`Gdi32CompatibilityPolicy` version 2 is a separate Rust-owned policy because a
+`Gdi32CompatibilityPolicy` version 3 is a separate Rust-owned policy because a
 guest-visible Windows font catalog and its metrics are neither display topology
 nor browser resource state. Profile `primary-cp932-ms-gothic-regular-v1`
 accepts only the reached flags-zero `SHIFTJIS_CHARSET`／Windows-932 `MS Gothic`
@@ -204,6 +204,22 @@ stale plans fail before object identity or allocator mutation.
 The policy neither discovers host fonts nor creates a browser `FontFace`,
 selected DC state, metric consumer, or glyph rasterizer. Native numeric font
 handles and native raster bytes are evidence, not policy values.
+
+Compatible-DC profile `primary-null-screen-memory-dc-v1` independently admits
+only `CreateCompatibleDC(NULL)`. It fixes the initial logical objects to
+`SYSTEM_FONT` index 13 and a 1 x 1 monochrome `DEFAULT_BITMAP` index 21.
+`RuntimeKernel` revalidates the primary display relation and `RuntimeGdi`
+preflights HDC capacity plus both missing stock-object identities before a
+targeted commit. Success returns one distinct same-thread memory HDC, writes no
+guest bytes, and preserves LastError. Later memory DCs share the two default
+object identities.
+
+The paired `DeleteDC` contract retires only a live same-thread memory HDC and
+preserves LastError on TRUE and FALSE. NULL, unknown, repeated, wrong-thread,
+and non-memory handles cannot mutate another DC or the shared objects.
+`ReleaseDC` for memory HDCs, non-NULL compatible sources, native HDC import,
+browser DC resources, DIB storage, and object selection changes are not enabled
+by this policy.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only

@@ -314,8 +314,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v7") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v7");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v8") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v8");
   }
   if (
     browser.executionEngineProfile !==
@@ -543,6 +543,7 @@ export function validateCurrentCheckpoint(manifest) {
     "finalGeneration",
     "nodeFinalGeneration",
     "wasmBridgeCalls",
+    "runtimeCoreLinearMemoryBytes",
     "executionEngineLinearMemoryBytes",
     "heartbeatSamples",
     "cancelInstructions",
@@ -882,6 +883,22 @@ export function validateCurrentCheckpoint(manifest) {
     "fontCreationLiveObjects",
     "fontCreationNodeCompletions",
     "fontCreationChromeCompletions",
+    "compatibleDcCompletions",
+    "compatibleDcSequence",
+    "compatibleDcInstructionCount",
+    "compatibleDcLastError",
+    "compatibleDcGuestWriteBytes",
+    "compatibleDcDeviceContextId",
+    "compatibleDcOwnerThreadId",
+    "compatibleDcSelectedFontId",
+    "compatibleDcSelectedBitmapId",
+    "compatibleDcSelectionGeneration",
+    "compatibleDcInitialFontStockIndex",
+    "compatibleDcInitialBitmapStockIndex",
+    "compatibleDcLiveDeviceContexts",
+    "compatibleDcLiveObjects",
+    "compatibleDcNodeCompletions",
+    "compatibleDcChromeCompletions",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -953,7 +970,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_069 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_072 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -1804,7 +1821,7 @@ export function validateCurrentCheckpoint(manifest) {
       11_957_981 ||
     bgiBrowserEvidence.fontEnumerationCallbackScratchBytes !== 284 ||
     bgiBrowserEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-font-object-v2" ||
+      "gdi32-primary-cp932-memory-dc-v3" ||
     bgiBrowserEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     bgiBrowserEvidence.fontEnumerationCharacterSet !== 128 ||
@@ -1844,7 +1861,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.fontCreationImplementationId !==
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     bgiBrowserEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-font-object-v2" ||
+      "gdi32-primary-cp932-memory-dc-v3" ||
     bgiBrowserEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     bgiBrowserEvidence.fontCreationObjectId !== 2 ||
@@ -1867,6 +1884,61 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.fontCreationNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI logical font-creation evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.compatibleDcCompletions !== 1 ||
+    bgiBrowserEvidence.compatibleDcSequence !== 18_613 ||
+    bgiBrowserEvidence.compatibleDcInstructionCount !== 11_960_140 ||
+    bgiBrowserEvidence.compatibleDcArguments?.join(",") !== "0x00000000" ||
+    bgiBrowserEvidence.compatibleDcResult !== "0x47010004" ||
+    bgiBrowserEvidence.compatibleDcReturnAddress !== "0x1002c8ad" ||
+    bgiBrowserEvidence.compatibleDcLastError !== 0 ||
+    bgiBrowserEvidence.compatibleDcGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.compatibleDcImplementationId !==
+      "gdi32.create-compatible-dc.null-screen-memory.v1" ||
+    bgiBrowserEvidence.compatibleDcPolicyId !==
+      "gdi32-primary-cp932-memory-dc-v3" ||
+    bgiBrowserEvidence.compatibleDcProfileId !==
+      "primary-null-screen-memory-dc-v1" ||
+    bgiBrowserEvidence.compatibleDcDeviceContextId !== 4 ||
+    bgiBrowserEvidence.compatibleDcHandleNamespace !==
+      "vine.logical-gdi-dc.v1" ||
+    bgiBrowserEvidence.compatibleDcOwnerThreadId !== 8_192 ||
+    bgiBrowserEvidence.compatibleDcTargetKind !== "memory" ||
+    bgiBrowserEvidence.compatibleDcMonitorHandle !== "0x4f010001" ||
+    bgiBrowserEvidence.compatibleDcRect?.join(",") !== "0,0,1920,1080" ||
+    bgiBrowserEvidence.compatibleDcSelectedFontId !== 3 ||
+    bgiBrowserEvidence.compatibleDcSelectedBitmapId !== 4 ||
+    bgiBrowserEvidence.compatibleDcSelectionGeneration !== 0 ||
+    bgiBrowserEvidence.compatibleDcInitialFontHandle !== "0x47020003" ||
+    bgiBrowserEvidence.compatibleDcInitialFontStockIndex !== 13 ||
+    bgiBrowserEvidence.compatibleDcInitialFontShared !== true ||
+    bgiBrowserEvidence.compatibleDcInitialBitmapHandle !== "0x47020004" ||
+    bgiBrowserEvidence.compatibleDcInitialBitmapStockIndex !== 21 ||
+    bgiBrowserEvidence.compatibleDcInitialBitmapGeometry?.join(",") !== "1,1,1" ||
+    bgiBrowserEvidence.compatibleDcInitialBitmapShared !== true ||
+    bgiBrowserEvidence.compatibleDcLiveDeviceContexts !== 1 ||
+    bgiBrowserEvidence.compatibleDcLiveObjects !== 4 ||
+    bgiBrowserEvidence.compatibleDcStateAuthority !==
+      "runtime/gdi.rs::RuntimeGdi" ||
+    bgiBrowserEvidence.compatibleDcDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    bgiBrowserEvidence.compatibleDcRelation !==
+      "non-owning-primary-monitor-and-creating-thread" ||
+    bgiBrowserEvidence.compatibleDcMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    bgiBrowserEvidence.compatibleDcFailureAtomicity !== true ||
+    bgiBrowserEvidence.compatibleDcBrowserResourceCreated !== false ||
+    bgiBrowserEvidence.compatibleDcPixelStorageCreated !== false ||
+    bgiBrowserEvidence.compatibleDcNodeCompletions !== 1 ||
+    bgiBrowserEvidence.compatibleDcChromeCompletions !== 1 ||
+    bgiBrowserEvidence.compatibleDcNodeChromeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.deleteDcContractImplemented !== true ||
+    bgiBrowserEvidence.deleteDcImplementationId !==
+      "gdi32.delete-dc.logical-memory.v1" ||
+    bgiBrowserEvidence.deleteDcReachedBeforeNextStop !== false
+  ) {
+    errors.push("browser BGI compatible memory-DC evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -2454,7 +2526,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
-      "runtime::gdi::tests::device_context_acquisitions_are_distinct_and_release_is_relation_checked,runtime::gdi::tests::stock_brush_and_surface_fill_preserve_failure_atomicity,runtime::gdi::tests::device_context_serialization_preserves_window_shape_and_types_graphics_targets,runtime::gdi::tests::screen_device_context_acquisitions_are_distinct_typed_and_relation_checked,runtime::gdi::tests::graphics_surface_dc_is_single_outstanding_and_guards_com_retirement,runtime::gdi::tests::graphics_surface_dc_capacity_failure_preserves_allocator_state,runtime::gdi::tests::font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans" ||
+      "runtime::gdi::tests::device_context_acquisitions_are_distinct_and_release_is_relation_checked,runtime::gdi::tests::stock_brush_and_surface_fill_preserve_failure_atomicity,runtime::gdi::tests::device_context_serialization_preserves_window_shape_and_types_graphics_targets,runtime::gdi::tests::screen_device_context_acquisitions_are_distinct_typed_and_relation_checked,runtime::gdi::tests::graphics_surface_dc_is_single_outstanding_and_guards_com_retirement,runtime::gdi::tests::graphics_surface_dc_capacity_failure_preserves_allocator_state,runtime::gdi::tests::font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans,runtime::gdi::tests::compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically,runtime::gdi::tests::compatible_memory_dc_multi_object_preflight_preserves_all_allocators" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::graphics::"))
       .join(",") !==
@@ -2539,7 +2611,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeAtomicTests
       .filter((test) => test.startsWith("gdi32_dispatcher::"))
       .join(",") !==
-      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically" ||
+      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -4896,9 +4968,9 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    gdi.schema !== "vine.runtime-gdi-frontend.v4" ||
+    gdi.schema !== "vine.runtime-gdi-frontend.v5" ||
     gdi.status !==
-      "window-screen-font-enumeration-font-object-and-graphics-surface-dc-slices-implemented-and-verified" ||
+      "window-screen-memory-font-enumeration-font-object-and-graphics-surface-dc-slices-implemented-and-verified" ||
     gdi.stateOwner !== "runtime/gdi.rs::RuntimeGdi" ||
     gdi.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
     gdi.mutableCollectionVisibility !== "private" ||
@@ -4914,9 +4986,9 @@ export function validateCurrentCheckpoint(manifest) {
       "non-owning-revalidated-live-com-and-graphics-identity" ||
     gdi.deviceContextHandleNamespace !== "vine.logical-gdi-dc.v1" ||
     gdi.deviceContextHandleBase !== "0x47010001" ||
-    gdi.deviceContextAcquisitionIdentity !== "distinct-monotonic-per-getdc" ||
+    gdi.deviceContextAcquisitionIdentity !== "distinct-monotonic-per-acquisition" ||
     gdi.deviceContextTargetVariants?.join(",") !==
-      "window,screen,graphics-surface" ||
+      "window,screen,memory,graphics-surface" ||
     gdi.screenOutstandingDeviceContexts !== "distinct-per-acquisition" ||
     gdi.screenSurfaceCreated !== false ||
     gdi.screenRendererResourceCreated !== false ||
@@ -4942,11 +5014,26 @@ export function validateCurrentCheckpoint(manifest) {
     gdi.fontObjectState !== "exact-60-byte-logfonta-semantic-fields" ||
     gdi.fontObjectBrowserResourceCreated !== false ||
     gdi.glyphRasterizationImplemented !== false ||
+    gdi.compatibleMemoryDcProfileId !== "primary-null-screen-memory-dc-v1" ||
+    gdi.compatibleMemoryDcCreationImplemented !== true ||
+    gdi.compatibleMemoryDcDeletionImplemented !== true ||
+    gdi.compatibleMemoryDcSourceVariants?.join(",") !==
+      "null-primary-screen" ||
+    gdi.compatibleMemoryDcInitialFontStockIndex !== 13 ||
+    gdi.compatibleMemoryDcInitialBitmapStockIndex !== 21 ||
+    gdi.compatibleMemoryDcInitialBitmapGeometry?.join(",") !== "1,1,1" ||
+    gdi.compatibleMemoryDcDefaultObjectsShared !== true ||
+    gdi.compatibleMemoryDcOwnerRelation !== "creating-thread-exact-delete" ||
+    gdi.compatibleMemoryDcSelectionState !==
+      "selected-font-id-selected-bitmap-id-generation" ||
+    gdi.compatibleMemoryDcPixelStorageCreated !== false ||
+    gdi.compatibleMemoryDcBrowserResourceCreated !== false ||
+    gdi.compatibleMemoryDcReleaseDcImplemented !== false ||
     gdi.graphicsSurfaceOutstandingDeviceContexts !==
       "at-most-one-per-surface" ||
     gdi.graphicsSurfaceDeviceContextRetainsComReference !== false ||
     gdi.deviceContextSerializationCompatibility !==
-      "window-shape-preserved-screen-and-graphics-targets-explicitly-typed" ||
+      "window-shape-preserved-screen-memory-and-graphics-targets-explicitly-typed" ||
     gdi.nativeNumericHandleReuseImported !== false ||
     gdi.gdiObjectHandleNamespace !== "vine.logical-gdi-object.v1" ||
     gdi.gdiObjectHandleBase !== "0x47020001" ||
@@ -4974,7 +5061,7 @@ export function validateCurrentCheckpoint(manifest) {
       "RuntimeGraphics-logical-surface-fill-command-history" ||
     gdi.gdiAndDirect3dFrontendsRemainSeparate !== true ||
     gdiImplementedApis.join(",") !==
-      "GetDC,GetStockObject,EnumFontFamiliesExA,CreateFontA,FillRect,ReleaseDC" ||
+      "GetDC,GetStockObject,EnumFontFamiliesExA,CreateFontA,CreateCompatibleDC,DeleteDC,FillRect,ReleaseDC" ||
     gdi.generalGdiRenderingClaimed !== false
   ) {
     errors.push("active GDI frontend boundary is invalid");
@@ -5518,10 +5605,10 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     gdi32Policy.schema !== "vine.gdi32-compatibility-policy" ||
-    gdi32Policy.schemaVersion !== 2 ||
-    gdi32Policy.id !== "gdi32-primary-cp932-font-object-v2" ||
+    gdi32Policy.schemaVersion !== 3 ||
+    gdi32Policy.id !== "gdi32-primary-cp932-memory-dc-v3" ||
     gdi32Policy.source !==
-      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v2" ||
+      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v3" ||
     gdi32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     gdi32Policy.enumerationProfileId !==
@@ -5555,6 +5642,20 @@ export function validateCurrentCheckpoint(manifest) {
     gdi32Policy.creationObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
     gdi32Policy.creationHostFontResolutionImported !== false ||
     gdi32Policy.creationBrowserFontResolutionImported !== false ||
+    gdi32Policy.compatibleDcProfileId !== "primary-null-screen-memory-dc-v1" ||
+    gdi32Policy.compatibleDcSourceDeviceContext !== "0x00000000" ||
+    gdi32Policy.compatibleDcInitialFontStockIndex !== 13 ||
+    gdi32Policy.compatibleDcInitialBitmapStockIndex !== 21 ||
+    gdi32Policy.compatibleDcInitialBitmapGeometry?.join(",") !== "1,1,1" ||
+    gdi32Policy.compatibleDcObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    gdi32Policy.compatibleDcDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    gdi32Policy.compatibleDcOwnerThreadRelation !==
+      "creating-thread-exact-delete" ||
+    gdi32Policy.compatibleDcLastErrorPolicy !==
+      "preserve-success-and-failure" ||
+    gdi32Policy.compatibleDcHostDeviceContextImported !== false ||
+    gdi32Policy.compatibleDcBrowserResourceImported !== false ||
     gdi32Policy.failureAtomicity !== true
   ) {
     errors.push("active GDI32 compatibility policy boundary is invalid");
@@ -6351,7 +6452,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdi-font-creation.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-gdi-compatible-dc.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -6813,11 +6914,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_668 ||
-    latestEvidence.writebackDirtyPages !== 37_583 ||
-    latestEvidence.writebackChangedBytes !== 2_947_946 ||
+    latestEvidence.writebackBatches !== 18_669 ||
+    latestEvidence.writebackDirtyPages !== 37_584 ||
+    latestEvidence.writebackChangedBytes !== 2_947_967 ||
     latestEvidence.hostDeltaBatches !== 17_297 ||
-    latestEvidence.finalMemoryGeneration !== 36_536
+    latestEvidence.finalMemoryGeneration !== 36_537
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -8740,10 +8841,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "1cba61d15517881f4eda4fbf65fb8a7544cddb24d3c7e2f9bfab18e3d319a753" ||
+      "7a5429d465517e76d66ba8982448f640b48e654d711ba9d1e35975a7cc78fec6" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "c85b014991b18f2e7a6e277d223c9fe49370f23186ddc13b9af2cc2eb5f4796d" ||
+      "2bcba5822cd7c9ec36e4a37a70865bc18411eeae5d3ce88e9fa2f38ce2f79e76" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -9503,9 +9604,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.enum-font-families-ex-a.cp932-screen.v1" ||
     latestEvidence.fontEnumerationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontEnumerationPolicySchemaVersion !== 2 ||
+    latestEvidence.fontEnumerationPolicySchemaVersion !== 3 ||
     latestEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-font-object-v2" ||
+      "gdi32-primary-cp932-memory-dc-v3" ||
     latestEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     latestEvidence.fontEnumerationSequence !== 18_609 ||
@@ -9610,9 +9711,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     latestEvidence.fontCreationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontCreationPolicySchemaVersion !== 2 ||
+    latestEvidence.fontCreationPolicySchemaVersion !== 3 ||
     latestEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-font-object-v2" ||
+      "gdi32-primary-cp932-memory-dc-v3" ||
     latestEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     latestEvidence.fontCreationSequence !== 18_611 ||
@@ -9644,6 +9745,117 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.fontCreationNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest bounded logical font-creation evidence is invalid");
+  }
+  for (const field of [
+    "nativeCompatibleDcPrimaryTraceSha256",
+    "nativeCompatibleDcConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeCompatibleDcPrimaryTraceBytes !== 489_171 ||
+    latestEvidence.nativeCompatibleDcPrimaryTraceLines !== 132 ||
+    latestEvidence.nativeCompatibleDcPrimaryTraceSha256 !==
+      "4e7015df75b77ad133c8eb28437bfe26e45f5171e692aa913148cf3d74da1e72" ||
+    latestEvidence.nativeCompatibleDcConfirmationTraceBytes !== 489_137 ||
+    latestEvidence.nativeCompatibleDcConfirmationTraceLines !== 132 ||
+    latestEvidence.nativeCompatibleDcConfirmationTraceSha256 !==
+      "48ac1ae635eeb927b0da807bafa565c96d6905ada1dbb50dac53b282ca276008" ||
+    latestEvidence.nativeCompatibleDcTraceDiagnostics !== 0 ||
+    latestEvidence.nativeCompatibleDcHookErrors !== 0 ||
+    latestEvidence.nativeCompatibleDcProfile !==
+      "x86-bgi-gdi-font-object-lifecycle-v2" ||
+    latestEvidence.nativeCompatibleDcOuterOracleProfile !==
+      "x86-create-font-a-object-lifecycle-v2" ||
+    latestEvidence.nativeCompatibleDcOracleProfile !==
+      "x86-create-compatible-dc-null-lifecycle-v1" ||
+    latestEvidence.nativeCompatibleDcCallerReturnRva !== "0x0002c8ad" ||
+    latestEvidence.nativeCompatibleDcResultNonNull !== true ||
+    latestEvidence.nativeCompatibleDcLastError !== 0 ||
+    latestEvidence.nativeCompatibleDcConsumer !==
+      "store-directly-then-create-dib-section" ||
+    latestEvidence.nativeCompatibleDcOrderedApis?.join(",") !==
+      "CreateFontA,CreateCompatibleDC,CreateDIBSection,GetObjectA,SelectObject,SelectObject,GetOutlineTextMetricsA,GetOutlineTextMetricsA,TextOutA,SelectObject,SelectObject,DeleteObject,DeleteObject,DeleteDC" ||
+    latestEvidence.nativeCompatibleDcExecutableHashUnchanged !== true ||
+    latestEvidence.compatibleDcOracleCreateCount !== 3 ||
+    latestEvidence.compatibleDcOracleHandlesDistinct !== true ||
+    latestEvidence.compatibleDcOracleObjectType !== 10 ||
+    latestEvidence.compatibleDcOracleInitialFontType !== 6 ||
+    latestEvidence.compatibleDcOracleInitialBitmapType !== 7 ||
+    latestEvidence.compatibleDcOracleInitialFontShared !== true ||
+    latestEvidence.compatibleDcOracleInitialBitmapShared !== true ||
+    latestEvidence.compatibleDcOracleWrongReleaseResult !== 0 ||
+    latestEvidence.compatibleDcOracleWrongReleaseLastError !== 1_425 ||
+    latestEvidence.compatibleDcOracleTypeAfterWrongRelease !== 10 ||
+    latestEvidence.compatibleDcOracleDeleteResults?.join(",") !== "1,0,1" ||
+    latestEvidence.compatibleDcOracleTypeAfterDelete !== 0 ||
+    latestEvidence.compatibleDcOracleDeleteObjectVariantResult !== 1 ||
+    latestEvidence.compatibleDcOracleDeleteObjectVariantTypeAfter !== 0 ||
+    latestEvidence.compatibleDcOracleDeleteObjectVariantClaimed !== false ||
+    latestEvidence.compatibleDcOracleResultsMatchHooks !== true ||
+    latestEvidence.compatibleDcOracleSuccessAndFailurePreserveLastError !== true ||
+    latestEvidence.compatibleDcImplemented !== true ||
+    latestEvidence.compatibleDcImplementationId !==
+      "gdi32.create-compatible-dc.null-screen-memory.v1" ||
+    latestEvidence.deleteDcContractImplemented !== true ||
+    latestEvidence.deleteDcImplementationId !==
+      "gdi32.delete-dc.logical-memory.v1" ||
+    latestEvidence.deleteDcReachedBeforeNextStop !== false ||
+    latestEvidence.compatibleDcPolicySchema !==
+      "vine.gdi32-compatibility-policy" ||
+    latestEvidence.compatibleDcPolicySchemaVersion !== 3 ||
+    latestEvidence.compatibleDcPolicyId !==
+      "gdi32-primary-cp932-memory-dc-v3" ||
+    latestEvidence.compatibleDcProfileId !==
+      "primary-null-screen-memory-dc-v1" ||
+    latestEvidence.compatibleDcSequence !== 18_613 ||
+    latestEvidence.compatibleDcInstructionCount !== 11_960_140 ||
+    latestEvidence.compatibleDcArguments?.join(",") !== "0x00000000" ||
+    latestEvidence.compatibleDcReturnAddress !== "0x1002c8ad" ||
+    latestEvidence.compatibleDcResult !== "0x47010004" ||
+    latestEvidence.compatibleDcLastError !== 0 ||
+    latestEvidence.compatibleDcGuestWriteBytes !== 0 ||
+    latestEvidence.compatibleDcDeviceContextId !== 4 ||
+    latestEvidence.compatibleDcHandleNamespace !== "vine.logical-gdi-dc.v1" ||
+    latestEvidence.compatibleDcOwnerThreadId !== 8_192 ||
+    latestEvidence.compatibleDcTargetKind !== "memory" ||
+    latestEvidence.compatibleDcMonitorHandle !== "0x4f010001" ||
+    latestEvidence.compatibleDcRect?.join(",") !== "0,0,1920,1080" ||
+    latestEvidence.compatibleDcSelectedFontId !== 3 ||
+    latestEvidence.compatibleDcSelectedBitmapId !== 4 ||
+    latestEvidence.compatibleDcSelectionGeneration !== 0 ||
+    latestEvidence.compatibleDcInitialFontObjectId !== 3 ||
+    latestEvidence.compatibleDcInitialFontHandle !== "0x47020003" ||
+    latestEvidence.compatibleDcInitialFontStockIndex !== 13 ||
+    latestEvidence.compatibleDcInitialFontShared !== true ||
+    latestEvidence.compatibleDcInitialBitmapObjectId !== 4 ||
+    latestEvidence.compatibleDcInitialBitmapHandle !== "0x47020004" ||
+    latestEvidence.compatibleDcInitialBitmapStockIndex !== 21 ||
+    latestEvidence.compatibleDcInitialBitmapGeometry?.join(",") !== "1,1,1" ||
+    latestEvidence.compatibleDcInitialBitmapShared !== true ||
+    latestEvidence.compatibleDcLiveDeviceContexts !== 1 ||
+    latestEvidence.compatibleDcLiveObjects !== 4 ||
+    latestEvidence.compatibleDcStateAuthority !==
+      "runtime/gdi.rs::RuntimeGdi" ||
+    latestEvidence.compatibleDcDisplayAuthority !==
+      "runtime/displays.rs::RuntimeDisplays" ||
+    latestEvidence.compatibleDcRelation !==
+      "non-owning-primary-monitor-and-creating-thread" ||
+    latestEvidence.compatibleDcMutation !==
+      "owner-plan-stale-check-targeted-commit" ||
+    latestEvidence.compatibleDcFailureAtomicity !== true ||
+    latestEvidence.compatibleDcHostDeviceContextImported !== false ||
+    latestEvidence.compatibleDcBrowserResourceCreated !== false ||
+    latestEvidence.compatibleDcPixelStorageCreated !== false ||
+    latestEvidence.compatibleDcNodeCompletions !== 1 ||
+    latestEvidence.compatibleDcChromeCompletions !== 1 ||
+    latestEvidence.compatibleDcNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest compatible memory-DC evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -10258,7 +10470,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned bounded CP932 font catalog, callback delivery, and exact logical LOGFONTA object creation" ||
+      "Rust-owned bounded CP932 font catalog, logical font object, and NULL-source compatible memory DC lifecycle" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

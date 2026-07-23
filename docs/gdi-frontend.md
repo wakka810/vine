@@ -6,8 +6,9 @@ The GDI frontend owns guest-visible GDI identity, lifetime, and logical drawing
 state in Rust. The current bounded slice implements `USER32!GetDC` and
 `USER32!ReleaseDC` for a logical window, the NULL-window primary screen
 acquisition, one policy-owned `GDI32!EnumFontFamiliesExA` callback record, and
-one exact `GDI32!CreateFontA` logical object variant, plus the reached D3D9
-system-memory surface. `GDI32!GetStockObject`
+one exact `GDI32!CreateFontA` logical object variant. It also implements the
+NULL-source `GDI32!CreateCompatibleDC` memory-DC lifecycle and `GDI32!DeleteDC`,
+plus the reached D3D9 system-memory surface. `GDI32!GetStockObject`
 for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
 graphics-surface paths. This establishes the responsibility boundary needed for
 later GDI work without claiming a pixel renderer, screen drawing, general DC
@@ -76,6 +77,20 @@ does not resolve that request to a native or browser font. Object selection,
 introspection, and deletion are separate later lifetime transitions and are not
 implied by successful creation.
 
+Each successful reached `CreateCompatibleDC(NULL)` call creates a distinct
+same-thread memory HDC. The first call also publishes the process-shared
+`SYSTEM_FONT` index 13 and 1 x 1 monochrome `DEFAULT_BITMAP` index 21 through
+the same GDI-object allocator; later calls reuse those exact object identities.
+The memory DC stores their selected object IDs and a zero selection generation.
+It has a non-owning relation to the current primary monitor rectangle, but no
+pixel storage, native HDC, Canvas context, or browser renderer resource.
+
+`DeleteDC` retires only a live same-thread memory HDC. Unknown, repeated,
+wrong-thread, and non-memory handles return FALSE while preserving LastError
+and cannot retire another DC or either shared default object. `ReleaseDC` does
+not delete memory DCs. Process teardown retires the remaining HDCs and stock
+objects through the existing GDI owner boundary.
+
 ## Surface mutation and failure ordering
 
 The reached surface is an 800 by 600 logical surface. `FillRect` currently
@@ -107,10 +122,14 @@ A screen HDC has no drawing surface in this checkpoint. Passing it to the
 current `FillRect` path produces the typed `screen-dc-drawing-unsupported`
 failure before mutation.
 
-## Bounded font catalog and creation
+A memory HDC also has no drawable surface until a selected DIB exists. Passing
+it to the current `FillRect` path produces the typed
+`memory-dc-drawing-unsupported` failure before mutation.
+
+## Bounded font catalog, creation, and memory DC policy
 
 `Gdi32CompatibilityPolicy` owns the reached catalog, not `RuntimeGdi`, the
-browser, or a host font query. Version 2 accepts only flags zero and the exact
+browser, or a host font query. Version 3 accepts only flags zero and the exact
 Windows-932 `MS Gothic` face with `SHIFTJIS_CHARSET` on a live same-thread
 screen HDC. Other `LOGFONTA` fields are deliberately ignored because the native
 caller leaves them as unstable stack bytes. Unsupported face or charset,
@@ -143,6 +162,14 @@ allocates no glyph outline, raster surface, browser `FontFace`, Canvas text
 state, or renderer resource. Object selection, `GetObjectA`, deletion, text
 measurement, glyph rasterization, and font substitution remain subsequent
 gateways.
+
+The compatible-DC profile independently admits only source HDC zero. The
+aggregate resolves and revalidates the Rust-owned primary display before the
+GDI owner plans one HDC plus any missing default objects. Capacity for the DC
+and both initial objects is preflighted before one targeted commit. A stale or
+duplicate plan, invalid display relation, non-NULL source, identity exhaustion,
+or object-index conflict changes neither collection nor allocator. The policy
+does not authorize a host-compatible DC, DIB, bitmap bytes, or renderer state.
 
 ## Direct3D and renderer separation
 
@@ -183,7 +210,12 @@ callback-result propagation, stale／cross-thread HDCs, unsupported filters and
 flags, callback preparation failure, and allocator／memory preservation. The
 same suite covers the exact 14-word `CreateFontA` ABI, distinct logical object
 identity, exact LOGFONTA state, bounded string reads, policy-disabled and
-malformed variants, stale plans, and allocator／memory preservation.
+malformed variants, stale plans, and allocator／memory preservation. Compatible
+DC tests cover the one-word create／delete ABIs, distinct HDC identity, shared
+default-object identity, exact serialized memory-DC state, two-object capacity
+preflight, stale plans, policy-disabled／non-NULL source, same-thread deletion,
+repeat／unknown／wrong-target deletion, LastError preservation, and zero guest
+writes.
 The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
@@ -204,9 +236,9 @@ npm run check:runtime:bgi-browser
 
 - Drawing through the primary screen HDC, non-primary or multiple monitors,
   child or multiple windows, cross-thread DC use, class/private/cached DC
-  policy, compatible DCs, SaveDC/RestoreDC, object selection／introspection／
-  deletion, clipping, mapping modes, DIBs, palettes, text rendering, BitBlt,
-  StretchBlt, and general GDI objects are not implemented.
+  policy, compatible DCs from non-NULL sources, SaveDC/RestoreDC, object
+  selection／introspection／deletion, clipping, mapping modes, DIBs, palettes,
+  text rendering, BitBlt, StretchBlt, and general GDI objects are not implemented.
 - The single enumerated record is not general system-font discovery and does
   not claim that a browser or host has the corresponding font installed.
 - Neither logical fill history is a raster buffer; the reached D3D9 fill does

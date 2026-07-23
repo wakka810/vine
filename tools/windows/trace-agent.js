@@ -9824,7 +9824,7 @@ function maybeCompleteFontObjectObservation(generation) {
   }
   fontObjectCompletionRecorded = true;
   emit("font-object-complete", {
-    profile: "x86-bgi-gdi-font-object-lifecycle-v1",
+    profile: "x86-bgi-gdi-font-object-lifecycle-v2",
     mainModuleCalls: fontObjectMainModuleCalls,
     oracle: fontObjectOracleEvidence,
   });
@@ -10077,14 +10077,23 @@ function attachFontPipelineHook(module, name) {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
       const callerModule = caller.module?.toLowerCase() ?? null;
-      if (
-        callerModule !== Process.mainModule.name.toLowerCase() ||
-        !fontObjectPrimaryStarted
-      ) {
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase() &&
+        fontObjectPrimaryStarted;
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        fontObjectOracleCall !== null &&
+        fontObjectOracleCall.api === name;
+      if (!isMainModuleCaller && !isOracleCaller) {
         this.traceFrame = null;
         return;
       }
       this.api = name;
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = fontObjectOracleCall.sentinel;
+      }
       this.argumentPointers = [];
       for (let index = 0; index < argumentCounts[name]; index += 1) {
         this.argumentPointers.push(args[index]);
@@ -10123,7 +10132,9 @@ function attachFontPipelineHook(module, name) {
               )
             : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
-      this.immediateConsumer = snapshotInstructions(this.returnAddress, 96);
+      this.immediateConsumer = isMainModuleCaller
+        ? snapshotInstructions(this.returnAddress, 96)
+        : null;
       this.traceFrame = beginCall(
         {
           module: module.name,
@@ -10213,6 +10224,13 @@ function attachFontPipelineHook(module, name) {
         },
         this.lastError,
       );
+      if (this.oracleCaller) {
+        fontObjectOracleCall.hookResult = resultValue;
+        fontObjectOracleCall.hookLastErrorAfter = lastError;
+      }
+      if (!this.mainModuleCaller) {
+        return;
+      }
       fontObjectMainModuleCalls.push({
         callId: this.traceFrame.callId,
         api: this.api,
@@ -10243,6 +10261,10 @@ function scheduleFontObjectOracle(module) {
       const getObjectAAddress = findExport(module, "GetObjectA");
       const selectObjectAddress = findExport(module, "SelectObject");
       const deleteObjectAddress = findExport(module, "DeleteObject");
+      const createCompatibleDcAddress = findExport(module, "CreateCompatibleDC");
+      const deleteDcAddress = findExport(module, "DeleteDC");
+      const getCurrentObjectAddress = findExport(module, "GetCurrentObject");
+      const getObjectTypeAddress = findExport(module, "GetObjectType");
       const user32 = Process.getModuleByName("user32.dll");
       const getDcAddress = findExport(user32, "GetDC");
       const releaseDcAddress = findExport(user32, "ReleaseDC");
@@ -10251,6 +10273,10 @@ function scheduleFontObjectOracle(module) {
         getObjectAAddress === null ||
         selectObjectAddress === null ||
         deleteObjectAddress === null ||
+        createCompatibleDcAddress === null ||
+        deleteDcAddress === null ||
+        getCurrentObjectAddress === null ||
+        getObjectTypeAddress === null ||
         getDcAddress === null ||
         releaseDcAddress === null
       ) {
@@ -10295,6 +10321,30 @@ function scheduleFontObjectOracle(module) {
         ["pointer"],
         "stdcall",
       );
+      const createCompatibleDc = new SystemFunction(
+        createCompatibleDcAddress,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
+      const deleteDc = new SystemFunction(
+        deleteDcAddress,
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const getCurrentObject = new SystemFunction(
+        getCurrentObjectAddress,
+        "pointer",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const getObjectType = new SystemFunction(
+        getObjectTypeAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
       const getDc = new SystemFunction(getDcAddress, "pointer", ["pointer"], "stdcall");
       const releaseDc = new SystemFunction(
         releaseDcAddress,
@@ -10312,7 +10362,9 @@ function scheduleFontObjectOracle(module) {
         try {
           const outcome = callback();
           const systemResult =
-            api === "CreateFontA" || api === "SelectObject"
+            api === "CreateFontA" ||
+            api === "CreateCompatibleDC" ||
+            api === "SelectObject"
               ? outcome.value.toString()
               : Number(outcome.value);
           const systemLastError = Number(outcome.lastError) >>> 0;
@@ -10403,8 +10455,91 @@ function scheduleFontObjectOracle(module) {
         68,
       );
 
+      const firstCompatibleDc = invoke(
+        "create-compatible-first",
+        "CreateCompatibleDC",
+        0x88889999,
+        () => createCompatibleDc(ptr(0)),
+      );
+      const secondCompatibleDc = invoke(
+        "create-compatible-second",
+        "CreateCompatibleDC",
+        0x9999aaaa,
+        () => createCompatibleDc(ptr(0)),
+      );
+      const thirdCompatibleDc = invoke(
+        "create-compatible-third",
+        "CreateCompatibleDC",
+        0xaaaabbbb,
+        () => createCompatibleDc(ptr(0)),
+      );
+      if (
+        firstCompatibleDc.systemResult === "0x0" ||
+        secondCompatibleDc.systemResult === "0x0" ||
+        thirdCompatibleDc.systemResult === "0x0"
+      ) {
+        throw new Error("compatible DC oracle CreateCompatibleDC returned NULL");
+      }
+      const firstMemoryDc = ptr(firstCompatibleDc.systemResult);
+      const secondMemoryDc = ptr(secondCompatibleDc.systemResult);
+      const thirdMemoryDc = ptr(thirdCompatibleDc.systemResult);
+      const snapshotCompatibleDc = (deviceContext) => {
+        const currentFont = getCurrentObject(deviceContext, 6);
+        const currentBitmap = getCurrentObject(deviceContext, 7);
+        return {
+          objectType: Number(getObjectType(deviceContext).value),
+          currentFont: currentFont.value.toString(),
+          currentFontType: Number(getObjectType(currentFont.value).value),
+          currentBitmap: currentBitmap.value.toString(),
+          currentBitmapType: Number(getObjectType(currentBitmap.value).value),
+        };
+      };
+      const firstInitialState = snapshotCompatibleDc(firstMemoryDc);
+      const secondInitialState = snapshotCompatibleDc(secondMemoryDc);
+      const wrongRelease = releaseDc(ptr(0), firstMemoryDc);
+      const firstTypeAfterWrongRelease = Number(
+        getObjectType(firstMemoryDc).value,
+      );
+      const firstDeleteDc = invoke(
+        "delete-dc-first",
+        "DeleteDC",
+        0xbbbccccc,
+        () => deleteDc(firstMemoryDc),
+      );
+      const repeatedDeleteDc = invoke(
+        "delete-dc-repeat",
+        "DeleteDC",
+        0xcccddddd,
+        () => deleteDc(firstMemoryDc),
+      );
+      const firstTypeAfterDelete = Number(getObjectType(firstMemoryDc).value);
+      const secondDeleteDc = invoke(
+        "delete-dc-second",
+        "DeleteDC",
+        0xdddeeeee,
+        () => deleteDc(secondMemoryDc),
+      );
+      const deleteObjectVariant = invoke(
+        "delete-object-memory-dc",
+        "DeleteObject",
+        0xeeefffff,
+        () => deleteObject(thirdMemoryDc),
+      );
+      const thirdTypeAfterDeleteObject = Number(
+        getObjectType(thirdMemoryDc).value,
+      );
+      const compatibleDcCalls = [
+        firstCompatibleDc,
+        secondCompatibleDc,
+        thirdCompatibleDc,
+        firstDeleteDc,
+        repeatedDeleteDc,
+        secondDeleteDc,
+        deleteObjectVariant,
+      ];
+
       fontObjectOracleEvidence = {
-        profile: "x86-create-font-a-object-lifecycle-v1",
+        profile: "x86-create-font-a-object-lifecycle-v2",
         arguments: {
           height: 64,
           width: 32,
@@ -10455,6 +10590,30 @@ function scheduleFontObjectOracle(module) {
           repeatedDelete,
           staleGetObject,
         ].every((call) => call.hookAndSystemLastErrorMatch),
+        compatibleDc: {
+          profile: "x86-create-compatible-dc-null-lifecycle-v1",
+          calls: compatibleDcCalls,
+          handlesDistinct:
+            firstCompatibleDc.systemResult !== secondCompatibleDc.systemResult,
+          firstInitialState,
+          secondInitialState,
+          initialFontShared:
+            firstInitialState.currentFont === secondInitialState.currentFont,
+          initialBitmapShared:
+            firstInitialState.currentBitmap === secondInitialState.currentBitmap,
+          wrongReleaseResult: Number(wrongRelease.value),
+          wrongReleaseLastError: Number(wrongRelease.lastError) >>> 0,
+          firstTypeAfterWrongRelease,
+          firstTypeAfterDelete,
+          deleteObjectVariantResult: deleteObjectVariant.systemResult,
+          thirdTypeAfterDeleteObject,
+          allHookResultsMatch: compatibleDcCalls.every(
+            (call) => call.hookResultMatches,
+          ),
+          allHookAndSystemLastErrorsMatch: compatibleDcCalls.every(
+            (call) => call.hookAndSystemLastErrorMatch,
+          ),
+        },
       };
       fontObjectOracleComplete = true;
       emit("font-object-oracle", fontObjectOracleEvidence);

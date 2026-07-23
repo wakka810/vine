@@ -58,8 +58,8 @@ use super::files::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
 use super::gdi::{
-    RuntimeCreateFontAResult, RuntimeDeviceContext, RuntimeDeviceContextId,
-    RuntimeDeviceContextTarget, RuntimeGdi, RuntimeGdiComRetirementGuard,
+    RuntimeCreateCompatibleDcResult, RuntimeCreateFontAResult, RuntimeDeviceContext,
+    RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi, RuntimeGdiComRetirementGuard,
     RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiScreenTarget,
     RuntimeGdiSurface, RuntimeGdiSurfaceId, RuntimeGdiWindowTarget, RuntimeGetDcResult,
     RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult,
@@ -4037,6 +4037,33 @@ impl RuntimeKernel {
         self.gdi.commit_get_screen_dc(plan)
     }
 
+    pub(crate) fn create_compatible_memory_dc(
+        &mut self,
+    ) -> Result<RuntimeCreateCompatibleDcResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_screen_target()?;
+        let plan = self.gdi.plan_create_compatible_dc(target)?;
+        if self.resolve_gdi_screen_target()? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "create-compatible-dc-target-stale",
+                "logical display changed after CreateCompatibleDC was planned",
+            ));
+        }
+        self.gdi.commit_create_compatible_dc(plan)
+    }
+
+    pub(crate) fn delete_compatible_memory_dc(
+        &mut self,
+        device_context_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let plan = self
+            .gdi
+            .plan_delete_compatible_dc(device_context_handle, self.current_thread_id())?;
+        self.gdi.commit_release_dc(plan)
+    }
+
     pub(crate) fn validate_screen_dc_operation(
         &self,
         device_context_handle: u32,
@@ -4190,6 +4217,11 @@ impl RuntimeKernel {
                 "runtime-gdi",
                 "screen-dc-drawing-unsupported",
                 "drawing through a logical screen HDC is outside the reached GDI support band",
+            )),
+            RuntimeDeviceContextTarget::Memory { .. } => Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "memory-dc-drawing-unsupported",
+                "drawing through a logical memory DC requires a selected DIB surface",
             )),
         }
     }

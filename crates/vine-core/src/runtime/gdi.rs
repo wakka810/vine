@@ -11,6 +11,8 @@ pub const LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE: &str = "vine.logical-gdi-object.v
 pub const RUNTIME_DEVICE_CONTEXT_HANDLE_BASE: u32 = 0x4701_0001;
 pub const RUNTIME_GDI_OBJECT_HANDLE_BASE: u32 = 0x4702_0001;
 pub const RUNTIME_GDI_BLACK_BRUSH_INDEX: i32 = 4;
+pub const RUNTIME_GDI_SYSTEM_FONT_INDEX: i32 = 13;
+pub const RUNTIME_GDI_DEFAULT_BITMAP_INDEX: i32 = 21;
 pub const RUNTIME_GDI_DEVICE_CONTEXT_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_OBJECT_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_SURFACE_LIMIT: usize = 4_096;
@@ -73,6 +75,10 @@ pub enum RuntimeDeviceContextTarget {
         monitor_handle: u32,
         rect: RuntimeRect,
     },
+    Memory {
+        compatible_monitor_handle: u32,
+        compatible_rect: RuntimeRect,
+    },
     GraphicsSurface {
         surface_id: RuntimeGraphicsSurfaceId,
         surface_com_object_id: RuntimeComObjectId,
@@ -89,6 +95,9 @@ pub struct RuntimeDeviceContext {
     pub namespace: String,
     pub owner_thread_id: RuntimeThreadId,
     pub target: RuntimeDeviceContextTarget,
+    pub selected_font_id: Option<RuntimeGdiObjectId>,
+    pub selected_bitmap_id: Option<RuntimeGdiObjectId>,
+    pub selection_generation: u64,
 }
 
 impl RuntimeDeviceContext {
@@ -96,6 +105,7 @@ impl RuntimeDeviceContext {
         match self.target {
             RuntimeDeviceContextTarget::Window { surface_id, .. } => Some(surface_id),
             RuntimeDeviceContextTarget::Screen { .. }
+            | RuntimeDeviceContextTarget::Memory { .. }
             | RuntimeDeviceContextTarget::GraphicsSurface { .. } => None,
         }
     }
@@ -136,6 +146,23 @@ impl Serialize for RuntimeDeviceContext {
                 state.serialize_field("rect", &rect)?;
                 state.end()
             }
+            RuntimeDeviceContextTarget::Memory {
+                compatible_monitor_handle,
+                compatible_rect,
+            } => {
+                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 10)?;
+                state.serialize_field("id", &self.id)?;
+                state.serialize_field("handle", &self.handle)?;
+                state.serialize_field("namespace", &self.namespace)?;
+                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
+                state.serialize_field("targetKind", "memory")?;
+                state.serialize_field("compatibleMonitorHandle", &compatible_monitor_handle)?;
+                state.serialize_field("compatibleRect", &compatible_rect)?;
+                state.serialize_field("selectedFontId", &self.selected_font_id)?;
+                state.serialize_field("selectedBitmapId", &self.selected_bitmap_id)?;
+                state.serialize_field("selectionGeneration", &self.selection_generation)?;
+                state.end()
+            }
             RuntimeDeviceContextTarget::GraphicsSurface {
                 surface_id,
                 surface_com_object_id,
@@ -167,8 +194,22 @@ impl Serialize for RuntimeDeviceContext {
     rename_all_fields = "camelCase"
 )]
 pub enum RuntimeGdiObjectKind {
-    StockBrush { index: i32, color_ref: u32 },
-    FontA { log_font: RuntimeLogFontA },
+    StockBrush {
+        index: i32,
+        color_ref: u32,
+    },
+    StockFont {
+        index: i32,
+    },
+    StockBitmap {
+        index: i32,
+        width: u32,
+        height: u32,
+        bits_per_pixel: u16,
+    },
+    FontA {
+        log_font: RuntimeLogFontA,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -285,6 +326,16 @@ pub struct RuntimeCreateFontAResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateCompatibleDcResult {
+    pub device_context_id: RuntimeDeviceContextId,
+    pub handle: u32,
+    pub selected_font_id: RuntimeGdiObjectId,
+    pub selected_bitmap_id: RuntimeGdiObjectId,
+    pub default_objects_created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeFillRectResult {
     pub surface_id: RuntimeGdiSurfaceId,
     pub surface_generation: u64,
@@ -372,6 +423,36 @@ impl RuntimeGetScreenDcPlan {
             device_context_id: self.device_context.id,
             handle: self.device_context.handle,
             monitor_handle,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeCreateCompatibleDcPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_context: RuntimeDeviceContext,
+    new_default_objects: Vec<RuntimeGdiObject>,
+    next_device_context_id: u64,
+    next_device_context_handle: u32,
+    next_object_id: u64,
+    next_object_handle: u32,
+}
+
+impl RuntimeCreateCompatibleDcPlan {
+    fn result(&self) -> RuntimeCreateCompatibleDcResult {
+        let (Some(selected_font_id), Some(selected_bitmap_id)) = (
+            self.device_context.selected_font_id,
+            self.device_context.selected_bitmap_id,
+        ) else {
+            unreachable!("memory DC plan must publish initial font and bitmap selections")
+        };
+        RuntimeCreateCompatibleDcResult {
+            device_context_id: self.device_context.id,
+            handle: self.device_context.handle,
+            selected_font_id,
+            selected_bitmap_id,
+            default_objects_created: !self.new_default_objects.is_empty(),
         }
     }
 }
@@ -574,6 +655,9 @@ impl RuntimeGdi {
                     window_handle: target.window_handle,
                     surface_id,
                 },
+                selected_font_id: None,
+                selected_bitmap_id: None,
+                selection_generation: 0,
             },
             new_surface,
             next_device_context_id: allocation.next_id,
@@ -655,6 +739,9 @@ impl RuntimeGdi {
                     monitor_handle: target.monitor_handle,
                     rect: target.rect,
                 },
+                selected_font_id: None,
+                selected_bitmap_id: None,
+                selection_generation: 0,
             },
             next_device_context_id: allocation.next_id,
             next_device_context_handle: allocation.next_handle,
@@ -682,6 +769,179 @@ impl RuntimeGdi {
             .insert(plan.device_context.id, plan.device_context);
         self.next_device_context_id = plan.next_device_context_id;
         self.next_device_context_handle = plan.next_device_context_handle;
+        self.generation = plan.next_generation;
+        Ok(result)
+    }
+
+    pub(super) fn plan_create_compatible_dc(
+        &self,
+        target: RuntimeGdiScreenTarget,
+    ) -> Result<RuntimeCreateCompatibleDcPlan, RuntimeStateError> {
+        validate_screen_target(target)?;
+        let device_context_allocation = self.plan_device_context_allocation()?;
+        let existing_font = self.stock_object_by_index(RUNTIME_GDI_SYSTEM_FONT_INDEX)?;
+        if let Some(object) = existing_font {
+            validate_default_font_object(object)?;
+        }
+        let existing_bitmap = self.stock_object_by_index(RUNTIME_GDI_DEFAULT_BITMAP_INDEX)?;
+        if let Some(object) = existing_bitmap {
+            validate_default_bitmap_object(object)?;
+        }
+        let missing_default_objects =
+            usize::from(existing_font.is_none()) + usize::from(existing_bitmap.is_none());
+        let mut allocations = self
+            .plan_object_allocations(missing_default_objects)?
+            .into_iter();
+        let mut new_default_objects = Vec::with_capacity(missing_default_objects);
+        let selected_font_id = existing_font.map_or_else(
+            || {
+                let allocation = allocations
+                    .next()
+                    .expect("missing default font must reserve one object allocation");
+                new_default_objects.push(RuntimeGdiObject {
+                    id: allocation.id,
+                    handle: allocation.handle,
+                    namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                    shared: true,
+                    object: RuntimeGdiObjectKind::StockFont {
+                        index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+                    },
+                });
+                allocation.id
+            },
+            |object| object.id,
+        );
+        let selected_bitmap_id = existing_bitmap.map_or_else(
+            || {
+                let allocation = allocations
+                    .next()
+                    .expect("missing default bitmap must reserve one object allocation");
+                new_default_objects.push(RuntimeGdiObject {
+                    id: allocation.id,
+                    handle: allocation.handle,
+                    namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                    shared: true,
+                    object: RuntimeGdiObjectKind::StockBitmap {
+                        index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
+                        width: 1,
+                        height: 1,
+                        bits_per_pixel: 1,
+                    },
+                });
+                allocation.id
+            },
+            |object| object.id,
+        );
+        debug_assert!(allocations.next().is_none());
+        let (next_object_id, next_object_handle) = new_default_objects.last().map_or(
+            (self.next_object_id, self.next_object_handle),
+            |object| {
+                (
+                    object
+                        .id
+                        .0
+                        .checked_add(1)
+                        .expect("planned object ID advances"),
+                    object
+                        .handle
+                        .checked_add(1)
+                        .expect("planned object handle advances"),
+                )
+            },
+        );
+        Ok(RuntimeCreateCompatibleDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context: RuntimeDeviceContext {
+                id: device_context_allocation.id,
+                handle: device_context_allocation.handle,
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                owner_thread_id: target.owner_thread_id,
+                target: RuntimeDeviceContextTarget::Memory {
+                    compatible_monitor_handle: target.monitor_handle,
+                    compatible_rect: target.rect,
+                },
+                selected_font_id: Some(selected_font_id),
+                selected_bitmap_id: Some(selected_bitmap_id),
+                selection_generation: 0,
+            },
+            new_default_objects,
+            next_device_context_id: device_context_allocation.next_id,
+            next_device_context_handle: device_context_allocation.next_handle,
+            next_object_id,
+            next_object_handle,
+        })
+    }
+
+    pub(super) fn commit_create_compatible_dc(
+        &mut self,
+        plan: RuntimeCreateCompatibleDcPlan,
+    ) -> Result<RuntimeCreateCompatibleDcResult, RuntimeStateError> {
+        let result = plan.result();
+        if self.generation != plan.expected_generation
+            || self.next_device_context_id != plan.device_context.id.0
+            || self.next_device_context_handle != plan.device_context.handle
+            || self
+                .device_context_handle_index
+                .contains_key(&plan.device_context.handle)
+            || self.device_contexts.contains_key(&plan.device_context.id)
+        {
+            return Err(stale_plan("create-compatible-dc-plan-stale"));
+        }
+        let mut expected_object_id = self.next_object_id;
+        let mut expected_object_handle = self.next_object_handle;
+        for object in &plan.new_default_objects {
+            let index = default_object_index(object)
+                .ok_or_else(|| stale_plan("create-compatible-dc-plan-stale"))?;
+            if object.id.0 != expected_object_id
+                || object.handle != expected_object_handle
+                || !object.shared
+                || self.objects.contains_key(&object.id)
+                || self.object_handle_index.contains_key(&object.handle)
+                || self.stock_object_index.contains_key(&index)
+            {
+                return Err(stale_plan("create-compatible-dc-plan-stale"));
+            }
+            expected_object_id =
+                checked_next_identity(expected_object_id, "gdi-object-identity-exhausted")?;
+            expected_object_handle = expected_object_handle.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-gdi",
+                    "gdi-object-handle-exhausted",
+                    "logical GDI object handle namespace is exhausted",
+                )
+            })?;
+        }
+        if plan.next_object_id != expected_object_id
+            || plan.next_object_handle != expected_object_handle
+            || !self.plan_resolves_default_object(
+                result.selected_font_id,
+                &plan.new_default_objects,
+                validate_default_font_object,
+            )?
+            || !self.plan_resolves_default_object(
+                result.selected_bitmap_id,
+                &plan.new_default_objects,
+                validate_default_bitmap_object,
+            )?
+        {
+            return Err(stale_plan("create-compatible-dc-plan-stale"));
+        }
+        for object in plan.new_default_objects {
+            let index = default_object_index(&object)
+                .expect("validated compatible DC default object must have a stock index");
+            self.stock_object_index.insert(index, object.id);
+            self.object_handle_index.insert(object.handle, object.id);
+            self.objects.insert(object.id, object);
+        }
+        self.device_context_handle_index
+            .insert(plan.device_context.handle, plan.device_context.id);
+        self.device_contexts
+            .insert(plan.device_context.id, plan.device_context);
+        self.next_device_context_id = plan.next_device_context_id;
+        self.next_device_context_handle = plan.next_device_context_handle;
+        self.next_object_id = plan.next_object_id;
+        self.next_object_handle = plan.next_object_handle;
         self.generation = plan.next_generation;
         Ok(result)
     }
@@ -717,6 +977,9 @@ impl RuntimeGdi {
                     height: target.height,
                     color_format: target.color_format,
                 },
+                selected_font_id: None,
+                selected_bitmap_id: None,
+                selection_generation: 0,
             },
             next_device_context_id: allocation.next_id,
             next_device_context_handle: allocation.next_handle,
@@ -979,6 +1242,33 @@ impl RuntimeGdi {
         })
     }
 
+    pub(super) fn plan_delete_compatible_dc(
+        &self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
+        let device_context = self
+            .device_context_by_handle(device_context_handle)?
+            .clone();
+        if !matches!(
+            device_context.target,
+            RuntimeDeviceContextTarget::Memory { .. }
+        ) || device_context.owner_thread_id != thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "delete-dc-relation-mismatch",
+                "DeleteDC requires a compatible memory DC owned by the current guest thread",
+            ));
+        }
+        self.validate_memory_dc_selections(&device_context)?;
+        Ok(RuntimeReleaseDcPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            device_context,
+        })
+    }
+
     pub(super) fn validate_screen_dc_access(
         &self,
         target: RuntimeGdiScreenTarget,
@@ -1147,6 +1437,7 @@ impl RuntimeGdi {
             .get_mut(&match plan.device_context.target {
                 RuntimeDeviceContextTarget::Window { surface_id, .. } => surface_id,
                 RuntimeDeviceContextTarget::Screen { .. }
+                | RuntimeDeviceContextTarget::Memory { .. }
                 | RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
                     return Err(stale_plan("fill-rect-plan-stale"));
                 }
@@ -1384,38 +1675,139 @@ impl RuntimeGdi {
         self.device_contexts.is_empty() && self.objects.is_empty() && self.surfaces.is_empty()
     }
 
+    fn stock_object_by_index(
+        &self,
+        index: i32,
+    ) -> Result<Option<&RuntimeGdiObject>, RuntimeStateError> {
+        let Some(object_id) = self.stock_object_index.get(&index) else {
+            return Ok(None);
+        };
+        self.objects.get(object_id).map(Some).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "stock-object-index-dangling",
+                "GDI stock object index does not resolve to a live object",
+            )
+        })
+    }
+
+    fn plan_resolves_default_object(
+        &self,
+        object_id: RuntimeGdiObjectId,
+        new_objects: &[RuntimeGdiObject],
+        validate: fn(&RuntimeGdiObject) -> Result<(), RuntimeStateError>,
+    ) -> Result<bool, RuntimeStateError> {
+        let object = new_objects
+            .iter()
+            .find(|object| object.id == object_id)
+            .or_else(|| self.objects.get(&object_id));
+        let Some(object) = object else {
+            return Ok(false);
+        };
+        validate(object)?;
+        Ok(true)
+    }
+
+    fn validate_memory_dc_selections(
+        &self,
+        device_context: &RuntimeDeviceContext,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(font_id) = device_context.selected_font_id else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "memory-dc-font-selection-missing",
+                "logical memory DC has no selected font identity",
+            ));
+        };
+        let Some(bitmap_id) = device_context.selected_bitmap_id else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "memory-dc-bitmap-selection-missing",
+                "logical memory DC has no selected bitmap identity",
+            ));
+        };
+        let font = self.objects.get(&font_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "memory-dc-font-selection-dangling",
+                "logical memory DC selected font does not resolve to a live object",
+            )
+        })?;
+        validate_default_font_object(font)?;
+        let bitmap = self.objects.get(&bitmap_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "memory-dc-bitmap-selection-dangling",
+                "logical memory DC selected bitmap does not resolve to a live object",
+            )
+        })?;
+        validate_default_bitmap_object(bitmap)
+    }
+
     fn plan_object_allocation(&self) -> Result<RuntimeGdiObjectAllocation, RuntimeStateError> {
-        if self.objects.len() >= RUNTIME_GDI_OBJECT_LIMIT {
+        self.plan_object_allocations(1)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-gdi",
+                    "gdi-object-allocation-missing",
+                    "single logical GDI object allocation plan is empty",
+                )
+            })
+    }
+
+    fn plan_object_allocations(
+        &self,
+        count: usize,
+    ) -> Result<Vec<RuntimeGdiObjectAllocation>, RuntimeStateError> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        if self
+            .objects
+            .len()
+            .checked_add(count)
+            .is_none_or(|length| length > RUNTIME_GDI_OBJECT_LIMIT)
+        {
             return Err(RuntimeStateError::resource_limit(
                 "runtime-gdi",
                 "gdi-object-capacity-exhausted",
                 "logical GDI object capacity is exhausted",
             ));
         }
-        let id = RuntimeGdiObjectId(self.next_object_id);
-        let next_id = checked_next_identity(self.next_object_id, "gdi-object-identity-exhausted")?;
-        let handle = self.next_object_handle;
-        if handle < RUNTIME_GDI_OBJECT_HANDLE_BASE || self.object_handle_index.contains_key(&handle)
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "gdi-object-handle-allocator-invalid",
-                "logical GDI object handle allocator is not at a free namespace value",
-            ));
+        let mut allocations = Vec::with_capacity(count);
+        let mut next_id = self.next_object_id;
+        let mut next_handle = self.next_object_handle;
+        for _ in 0..count {
+            let id = RuntimeGdiObjectId(next_id);
+            let handle = next_handle;
+            if self.objects.contains_key(&id)
+                || handle < RUNTIME_GDI_OBJECT_HANDLE_BASE
+                || self.object_handle_index.contains_key(&handle)
+            {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-gdi",
+                    "gdi-object-handle-allocator-invalid",
+                    "logical GDI object allocator is not at a free identity and handle pair",
+                ));
+            }
+            next_id = checked_next_identity(next_id, "gdi-object-identity-exhausted")?;
+            next_handle = handle.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-gdi",
+                    "gdi-object-handle-exhausted",
+                    "logical GDI object handle namespace is exhausted",
+                )
+            })?;
+            allocations.push(RuntimeGdiObjectAllocation {
+                id,
+                handle,
+                next_id,
+                next_handle,
+            });
         }
-        let next_handle = handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "gdi-object-handle-exhausted",
-                "logical GDI object handle namespace is exhausted",
-            )
-        })?;
-        Ok(RuntimeGdiObjectAllocation {
-            id,
-            handle,
-            next_id,
-            next_handle,
-        })
+        Ok(allocations)
     }
 
     fn plan_device_context_allocation(
@@ -1457,6 +1849,65 @@ impl RuntimeGdi {
             next_handle,
         })
     }
+}
+
+fn default_object_index(object: &RuntimeGdiObject) -> Option<i32> {
+    match object.object {
+        RuntimeGdiObjectKind::StockFont {
+            index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+        } => Some(RUNTIME_GDI_SYSTEM_FONT_INDEX),
+        RuntimeGdiObjectKind::StockBitmap {
+            index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
+            width: 1,
+            height: 1,
+            bits_per_pixel: 1,
+        } => Some(RUNTIME_GDI_DEFAULT_BITMAP_INDEX),
+        RuntimeGdiObjectKind::StockBrush { .. }
+        | RuntimeGdiObjectKind::StockFont { .. }
+        | RuntimeGdiObjectKind::StockBitmap { .. }
+        | RuntimeGdiObjectKind::FontA { .. } => None,
+    }
+}
+
+fn validate_default_font_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
+    if !object.shared
+        || object.namespace != LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE
+        || !matches!(
+            object.object,
+            RuntimeGdiObjectKind::StockFont {
+                index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+            }
+        )
+    {
+        return Err(RuntimeStateError::runtime_defect(
+            "runtime-gdi",
+            "memory-dc-default-font-invalid",
+            "logical memory DC default font identity is not the shared system font",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_default_bitmap_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
+    if !object.shared
+        || object.namespace != LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE
+        || !matches!(
+            object.object,
+            RuntimeGdiObjectKind::StockBitmap {
+                index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
+                width: 1,
+                height: 1,
+                bits_per_pixel: 1,
+            }
+        )
+    {
+        return Err(RuntimeStateError::runtime_defect(
+            "runtime-gdi",
+            "memory-dc-default-bitmap-invalid",
+            "logical memory DC default bitmap identity is not the shared 1x1 monochrome bitmap",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_log_font_a(log_font: &RuntimeLogFontA) -> Result<(), RuntimeStateError> {
@@ -1787,6 +2238,117 @@ mod tests {
         );
         assert!(gdi.device_context_by_handle(first.handle).is_err());
         assert!(gdi.device_context_by_handle(second.handle).is_ok());
+    }
+
+    #[test]
+    fn compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically() {
+        let mut gdi = RuntimeGdi::default();
+        let mut invalid_target = screen_target();
+        invalid_target.monitor_handle = 0;
+        let before_invalid = gdi.clone();
+        assert_eq!(
+            gdi.plan_create_compatible_dc(invalid_target)
+                .unwrap_err()
+                .code,
+            "screen-dc-target-invalid"
+        );
+        assert_eq!(gdi, before_invalid);
+
+        let first_plan = gdi.plan_create_compatible_dc(screen_target()).unwrap();
+        let stale_first = first_plan.clone();
+        let first = gdi.commit_create_compatible_dc(first_plan).unwrap();
+        assert_eq!(first.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        assert_eq!(first.selected_font_id, RuntimeGdiObjectId(1));
+        assert_eq!(first.selected_bitmap_id, RuntimeGdiObjectId(2));
+        assert!(first.default_objects_created);
+        assert_eq!(gdi.objects.len(), 2);
+        validate_default_font_object(&gdi.objects[&first.selected_font_id]).unwrap();
+        validate_default_bitmap_object(&gdi.objects[&first.selected_bitmap_id]).unwrap();
+        assert_eq!(
+            serde_json::to_value(gdi.device_context_by_handle(first.handle).unwrap()).unwrap(),
+            serde_json::json!({
+                "id": 1,
+                "handle": 0x4701_0001_u32,
+                "namespace": "vine.logical-gdi-dc.v1",
+                "ownerThreadId": 8192,
+                "targetKind": "memory",
+                "compatibleMonitorHandle": 0x4f01_0001_u32,
+                "compatibleRect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1920,
+                    "bottom": 1080,
+                },
+                "selectedFontId": 1,
+                "selectedBitmapId": 2,
+                "selectionGeneration": 0,
+            })
+        );
+        assert_eq!(
+            gdi.commit_create_compatible_dc(stale_first)
+                .unwrap_err()
+                .code,
+            "create-compatible-dc-plan-stale"
+        );
+
+        let second = gdi
+            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
+            .unwrap();
+        assert_eq!(second.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE + 1);
+        assert_eq!(second.selected_font_id, first.selected_font_id);
+        assert_eq!(second.selected_bitmap_id, first.selected_bitmap_id);
+        assert!(!second.default_objects_created);
+        assert_eq!(gdi.objects.len(), 2);
+
+        let before_wrong_thread = gdi.clone();
+        assert_eq!(
+            gdi.plan_delete_compatible_dc(first.handle, RuntimeThreadId(8193))
+                .unwrap_err()
+                .code,
+            "delete-dc-relation-mismatch"
+        );
+        assert_eq!(gdi, before_wrong_thread);
+
+        let screen = gdi
+            .commit_get_screen_dc(gdi.plan_get_screen_dc(screen_target()).unwrap())
+            .unwrap();
+        let before_wrong_target = gdi.clone();
+        assert_eq!(
+            gdi.plan_delete_compatible_dc(screen.handle, screen_target().owner_thread_id)
+                .unwrap_err()
+                .code,
+            "delete-dc-relation-mismatch"
+        );
+        assert_eq!(gdi, before_wrong_target);
+
+        let delete = gdi
+            .plan_delete_compatible_dc(first.handle, screen_target().owner_thread_id)
+            .unwrap();
+        let stale_delete = delete.clone();
+        gdi.commit_release_dc(delete).unwrap();
+        assert_eq!(
+            gdi.commit_release_dc(stale_delete).unwrap_err().code,
+            "release-dc-plan-stale"
+        );
+        assert!(gdi.device_context_by_handle(first.handle).is_err());
+        assert!(gdi.device_context_by_handle(second.handle).is_ok());
+        assert_eq!(gdi.objects.len(), 2);
+    }
+
+    #[test]
+    fn compatible_memory_dc_multi_object_preflight_preserves_all_allocators() {
+        let gdi = RuntimeGdi {
+            next_object_handle: u32::MAX - 1,
+            ..RuntimeGdi::default()
+        };
+        let before = gdi.clone();
+        assert_eq!(
+            gdi.plan_create_compatible_dc(screen_target())
+                .unwrap_err()
+                .code,
+            "gdi-object-handle-exhausted"
+        );
+        assert_eq!(gdi, before);
     }
 
     #[test]

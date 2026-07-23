@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 7 as const;
+export const protocolVersion = 8 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -409,6 +409,41 @@ export interface RuntimeGdiScreenDeviceContextSnapshot {
   rect: { left: number; top: number; right: number; bottom: number };
 }
 
+export interface RuntimeGdiMemoryDeviceContextSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  ownerThreadId: number;
+  targetKind: "memory";
+  compatibleMonitorHandle: number;
+  compatibleRect: { left: number; top: number; right: number; bottom: number };
+  selectedFontId: number;
+  selectedBitmapId: number;
+  selectionGeneration: number;
+}
+
+export interface RuntimeGdiStockFontSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: true;
+  object: { kind: "stock-font"; index: number };
+}
+
+export interface RuntimeGdiStockBitmapSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  shared: true;
+  object: {
+    kind: "stock-bitmap";
+    index: number;
+    width: number;
+    height: number;
+    bitsPerPixel: number;
+  };
+}
+
 export type RuntimeGdiSnapshot =
   | {
       action: "device-context-acquired";
@@ -465,6 +500,21 @@ export type RuntimeGdiSnapshot =
           };
         };
       };
+      liveObjects: number;
+    }
+  | {
+      action: "compatible-device-context-created";
+      deviceContext: RuntimeGdiMemoryDeviceContextSnapshot;
+      initialFont: RuntimeGdiStockFontSnapshot;
+      initialBitmap: RuntimeGdiStockBitmapSnapshot;
+      liveDeviceContexts: number;
+      liveObjects: number;
+    }
+  | {
+      action: "compatible-device-context-deleted";
+      handle: number;
+      deleted: boolean;
+      liveDeviceContexts: number;
       liveObjects: number;
     }
   | {

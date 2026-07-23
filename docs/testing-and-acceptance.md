@@ -550,6 +550,20 @@ object ID 2、guest write 0、LastError preserve、browser font resource 0、同
 instruction 11,960,140の`GDI32.dll!CreateCompatibleDC(NULL)` stopを要求する。Object selection、`GetObjectA`、
 `DeleteObject`、DIB creation、metrics、glyph rasterization、host／browser font resolutionはまだclaimしない。
 
+Reached compatible-memory-DC gateはone-word x86 stdcall `CreateCompatibleDC(NULL)`と`DeleteDC` lifecycleを固定する。
+Native two-run oracleは三つのdistinct non-NULL HDC、object type 10、共有initial font type 6、共有initial bitmap type 7、
+`ReleaseDC(NULL, memoryHdc)`の0／LastError 1425／HDC生存、`DeleteDC` first／repeat／independentの1／0／1、削除後
+object type 0、全hook／system resultとLastError sentinelの一致を要求する。到達していない`DeleteObject(HDC)` variantは
+nativeではretireするが、本contractのclaimやdispatch経路へ取り込まない。
+
+Rust model／dispatcher testsは初回だけ二つの共有default objectを作ること、後続HDCがidentityを再利用すること、DCと
+二objectのcapacity preflight、owner-local stale／duplicate plan rejection、policy-disabled／non-NULL source、unknown／
+repeat／wrong-thread／non-memory deletionがcollection、allocator、LastError、guest memoryを部分更新しないことを検査する。
+Node／Chrome gateはsequence 18,613、HDC `0x47010004`、DC ID 4、selected font／bitmap ID 3／4、guest write 0、
+LastError preserve、browser DC resource 0、同じsemantic digest／terminal memoryと、instruction 11,960,150の
+`GDI32.dll!CreateDIBSection` stopを要求する。DIB publication、bitmap bytes、selection変更、metrics、text output、glyph
+rasterizationはまだclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

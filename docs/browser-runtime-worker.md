@@ -5,7 +5,7 @@
 - Status: Verified controlled fixture and private BGI semantic checkpoint
 - Date: 2026-07-22
 - Browser: Chrome `150.0.7871.129`
-- Protocol: `vine.browser-runtime-worker` version `7`
+- Protocol: `vine.browser-runtime-worker` version `8`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -241,7 +241,12 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. The reached D3D9 path now includes one Rust-owned logical device; three
+same structured stop. Protocol v8 adds immutable snapshots for the Rust-owned NULL-source memory
+DC plus its selected shared default font and bitmap, and a deletion notification for the paired
+`DeleteDC` contract. These messages create no DOM, Canvas, native HDC, or browser font state; the
+Worker remains an observer until a later renderer adapter consumes an explicit Rust resource.
+
+The reached D3D9 path now includes one Rust-owned logical device; three
 logical textures covering the exact system-memory／default／dynamic-default initial band; the first
 texture's level-zero surface; a typed surface HDC; one bounded graphics fill command; and their
 COM／GDI lifetime relations. It also creates one Rust-owned 112-byte logical vertex buffer, exposes

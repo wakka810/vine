@@ -776,8 +776,11 @@ recordを所有し、`RuntimeGdi`はlive same-thread screen HDC relationだけ�
 fieldのNUL以降に残る未初期化byteはimportせず、semantic valueだけをcanonical zero-filled recordへ固定する。
 Exact `CreateFontA` profileはNUL-bounded Windows-932 faceと13 scalar fieldをpreflightし、`RuntimeGdi`自身の
 GDI-object allocator／collectionへdistinct nonshared identityと60-byte LOGFONTA stateをtargeted commitする。Native／
-browser font resolution、selected DC state、glyph dataはこのobjectのauthorityではない。DC state、selected object、
-mapping、clip、ROP、object deletion／rasterizationは必要な到達caseごとにruntime modelへ追加する。
+browser font resolution、glyph dataはこのobjectのauthorityではない。`CreateCompatibleDC(NULL)`はaggregateでprimary
+display relationを再検証し、`RuntimeGdi`内でdistinct same-thread memory HDCとprocess-shared `SYSTEM_FONT`／1 x 1
+monochrome `DEFAULT_BITMAP`をfailure-atomicにpublishする。Selected object IDとgenerationもDC ownerが持ち、native HDC／
+Canvas resourceを第二のauthorityにしない。`DeleteDC`はmatching memory HDCだけをretireする。DIB、selection変更、
+mapping、clip、ROP、font deletion／rasterizationは必要な到達caseごとにruntime modelへ追加する。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend
