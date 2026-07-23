@@ -4747,7 +4747,7 @@ SHA-256 `5f9f6af3149ede65f3c2299a2ddd08d5e9896f5e8e8c3da53497e4de403f9d8b`であ
 Chrome Runtime Worker protocol v11もsame ordered completionとterminal memoryを再現し、19,402 slices、19,400
 writebacks／39,258 pages、17,315 mapping deltas／18,835 dirty pages、generation 27→37,290、55,729 Wasm
 crossings、58,171 success transitions、clean cancel／watchdogを通した。Chromeは150.0.7871.130、browser reportは
-44,215 bytes／SHA-256 `f6af954bc439f3062cace6a5d0a0676b153ab6017911d4dbcd282bc8b1b2c8c6`である。
+44,216 bytes／SHA-256 `a829b52ea8cc08532eca54edc30e57c76cc6829bc44cd8312b8ed6440bb52e9a`である。
 
 次stopはinstruction 12,073,370、`KERNEL32.dll!VirtualAlloc` endpoint ID 28／address `0x7F0001B0`／IAT
 `0x100D1118`／return `0x1008FBA8`の`endpoint-contract-missing`である。ArgumentsはNULL preferred address、
