@@ -439,6 +439,35 @@ export type RuntimeGdiSnapshot =
       liveDeviceContexts: number;
     }
   | {
+      action: "font-created";
+      object: {
+        id: number;
+        handle: number;
+        namespace: string;
+        shared: boolean;
+        object: {
+          kind: "font-a";
+          logFont: {
+            height: number;
+            width: number;
+            escapement: number;
+            orientation: number;
+            weight: number;
+            italic: number;
+            underline: number;
+            strikeOut: number;
+            characterSet: number;
+            outputPrecision: number;
+            clipPrecision: number;
+            quality: number;
+            pitchAndFamily: number;
+            faceNameWindows932: number[];
+          };
+        };
+      };
+      liveObjects: number;
+    }
+  | {
       action: "stock-object-resolved";
       object: {
         id: number;

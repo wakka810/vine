@@ -213,6 +213,7 @@ enum GenericRuntimeCapability {
     SetThreadPriority,
     ScreenDc,
     FontEnumeration,
+    FontCreation,
 }
 
 struct GenericRuntimeProcess {
@@ -496,6 +497,10 @@ enum GenericRuntimeGdiCompletion {
         enumeration: vine_core::Gdi32FontEnumerationPolicy,
         callback_result: u32,
         live_device_contexts: usize,
+    },
+    FontCreated {
+        object: vine_core::RuntimeGdiObject,
+        live_objects: usize,
     },
     StockObjectResolved {
         object: vine_core::RuntimeGdiObject,
@@ -2404,6 +2409,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SetThreadPriority
                     | GenericRuntimeCapability::ScreenDc
                     | GenericRuntimeCapability::FontEnumeration
+                    | GenericRuntimeCapability::FontCreation
             )
         ) {
             let loader = kernel32_policy
@@ -3065,6 +3071,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3079,6 +3086,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     );
     let dsound_root_enabled = matches!(
@@ -3092,6 +3100,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3104,6 +3113,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3115,6 +3125,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     );
     let requested_capability = match enabled_capability {
@@ -3128,7 +3139,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::CreateThread
             | GenericRuntimeCapability::SetThreadPriority
             | GenericRuntimeCapability::ScreenDc
-            | GenericRuntimeCapability::FontEnumeration,
+            | GenericRuntimeCapability::FontEnumeration
+            | GenericRuntimeCapability::FontCreation,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3210,7 +3222,11 @@ fn run_v86_generic_runtime_session(
     };
     let font_enumeration_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FontEnumeration)
+        Some(GenericRuntimeCapability::FontEnumeration | GenericRuntimeCapability::FontCreation)
+    );
+    let font_creation_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::FontCreation)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3327,20 +3343,28 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::SetThreadPriority
                 | GenericRuntimeCapability::ScreenDc
                 | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
         )
     ) {
         user32_policy.set_timer = None;
     }
     if !matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::ScreenDc | GenericRuntimeCapability::FontEnumeration)
+        Some(
+            GenericRuntimeCapability::ScreenDc
+                | GenericRuntimeCapability::FontEnumeration
+                | GenericRuntimeCapability::FontCreation
+        )
     ) {
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v1();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v2();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
+    }
+    if !font_creation_enabled {
+        gdi32_policy.create_font_a = None;
     }
     gdi32_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
@@ -3690,6 +3714,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             font_enumeration_enabled
+        } else if endpoint.matches(
+            "gdi32.dll",
+            &ApiSymbol::Name {
+                name: "CreateFontA".to_owned(),
+            },
+        ) {
+            font_creation_enabled
         } else {
             runtime_capability_enables_endpoint(requested_capability, endpoint)
         };
@@ -3877,7 +3908,7 @@ fn run_v86_generic_runtime_session(
                 )
             )
             .then(|| user32_policy.id.clone()),
-            gdi32_compatibility_policy_id: font_enumeration_enabled
+            gdi32_compatibility_policy_id: (font_enumeration_enabled || font_creation_enabled)
                 .then(|| gdi32_policy.id.clone()),
             winmm_compatibility_policy_id: matches!(
                 endpoint_capability,
@@ -10880,6 +10911,39 @@ fn generic_runtime_gdi_completion(
                 },
             ))
         }
+        vine_core::CREATE_FONT_A_IMPLEMENTATION => {
+            let handle = set_eax_result(
+                completion,
+                "create-font-a-return-register-invalid",
+                "CreateFontA dispatcher did not set EAX",
+            )?;
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-gdi",
+                        "font-object-missing-after-dispatch",
+                        "completed CreateFontA has no matching logical font object",
+                    )
+                })?;
+            if !matches!(
+                &object.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-gdi",
+                    "font-object-kind-invalid-after-dispatch",
+                    "completed CreateFontA resolved to a non-font logical object",
+                ));
+            }
+            Ok(Some(GenericRuntimeGdiCompletion::FontCreated {
+                object,
+                live_objects: runtime.gdi_objects().len(),
+            }))
+        }
         vine_core::RELEASE_DC_IMPLEMENTATION => {
             let handle = completion.frame.argument_u32(1).ok_or_else(|| {
                 LoaderError::runtime_defect(
@@ -11959,6 +12023,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-set-thread-priority" => GenericRuntimeCapability::SetThreadPriority,
                 "gdi-screen-dc" => GenericRuntimeCapability::ScreenDc,
                 "gdi-font-enumeration" => GenericRuntimeCapability::FontEnumeration,
+                "gdi-font-creation" => GenericRuntimeCapability::FontCreation,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

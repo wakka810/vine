@@ -3,21 +3,24 @@ use serde::Serialize;
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
     ApiEndpointIdentity, ApiFault, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
-    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiSymbol, ApiValueSchema,
-    ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
     GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, LastErrorPolicy,
     ReentrancyPolicy, StackCleanup,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
-use crate::runtime::LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE;
-use crate::runtime::LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE;
+use crate::runtime::{
+    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
+    RUNTIME_LOG_FONT_A_BYTE_LENGTH, RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeLogFontA,
+};
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 2;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
-pub const X86_LOGFONTA_BYTE_LENGTH: u32 = 60;
+pub const CREATE_FONT_A_IMPLEMENTATION: &str = "gdi32.create-font-a.cp932-logical-object.v1";
+pub const X86_LOGFONTA_BYTE_LENGTH: u32 = RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32;
 pub const X86_ENUMLOGFONTEXA_BYTE_LENGTH: usize = 188;
 pub const X86_NEWTEXTMETRICEXA_BYTE_LENGTH: usize = 96;
 
@@ -53,20 +56,29 @@ pub struct Gdi32FontEnumerationPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Gdi32FontCreationPolicy {
+    pub profile_id: String,
+    pub log_font: RuntimeLogFontA,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Gdi32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub enum_font_families_ex_a: Option<Gdi32FontEnumerationPolicy>,
+    pub create_font_a: Option<Gdi32FontCreationPolicy>,
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v1() -> Self {
+    pub fn controlled_v2() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-font-catalog-v1".to_owned(),
+            id: "gdi32-primary-cp932-font-object-v2".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
+            create_font_a: Some(controlled_font_creation_policy()),
         }
     }
 
@@ -88,6 +100,15 @@ impl Gdi32CompatibilityPolicy {
                 "gdi32-compatibility-policy",
                 "gdi32-font-enumeration-profile-invalid",
                 "GDI32 font enumeration policy must match the evidenced single CP932 MS Gothic record",
+            ));
+        }
+        if let Some(creation) = self.create_font_a.as_ref()
+            && creation != &controlled_font_creation_policy()
+        {
+            return Err(ApiFault::runtime_defect(
+                "gdi32-compatibility-policy",
+                "gdi32-font-creation-profile-invalid",
+                "GDI32 font creation policy must match the evidenced CP932 MS Gothic request",
             ));
         }
         Ok(())
@@ -125,6 +146,12 @@ pub fn dispatch_gdi32_api_with_policy(
     session: &mut ExecutionSession<'_>,
 ) -> ApiHandlerResult {
     match contract.implementation_id.as_str() {
+        CREATE_FONT_A_IMPLEMENTATION => {
+            match handle_create_font_a(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => handle_enum_font_families_ex_a(
             policy,
             callback_return_sentinel,
@@ -134,6 +161,101 @@ pub fn dispatch_gdi32_api_with_policy(
         ),
         _ => dispatch_gdi32_api(contract, frame, session),
     }
+}
+
+fn handle_create_font_a(
+    policy: &Gdi32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let creation = policy.create_font_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "gdi32-fonts",
+            "create-font-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical font creation",
+                policy.id
+            ),
+        )
+    })?;
+    let face_address = required_argument(frame, 13, "ANSI face name")?;
+    let request = RuntimeLogFontA {
+        height: required_argument(frame, 0, "height")? as i32,
+        width: required_argument(frame, 1, "width")? as i32,
+        escapement: required_argument(frame, 2, "escapement")? as i32,
+        orientation: required_argument(frame, 3, "orientation")? as i32,
+        weight: required_argument(frame, 4, "weight")? as i32,
+        italic: required_byte_argument(frame, 5, "italic")?,
+        underline: required_byte_argument(frame, 6, "underline")?,
+        strike_out: required_byte_argument(frame, 7, "strike out")?,
+        character_set: required_byte_argument(frame, 8, "character set")?,
+        output_precision: required_byte_argument(frame, 9, "output precision")?,
+        clip_precision: required_byte_argument(frame, 10, "clip precision")?,
+        quality: required_byte_argument(frame, 11, "quality")?,
+        pitch_and_family: required_byte_argument(frame, 12, "pitch and family")?,
+        face_name_windows_932: read_font_face_name(contract, session, GuestAddress(face_address))?,
+    };
+    if request != creation.log_font {
+        return Err(ApiFault::unsupported(
+            "gdi32-fonts",
+            "create-font-a-variant-unsupported",
+            "CreateFontA currently supports only the evidenced CP932 MS Gothic request",
+        ));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let result = session
+        .runtime_mut()
+        .create_gdi_font_a(request)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+        value: result.handle,
+    })
+    .with_last_error(preserved_last_error))
+}
+
+fn read_font_face_name(
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+    address: GuestAddress,
+) -> Result<Vec<u8>, ApiFault> {
+    let mut bytes = Vec::with_capacity(RUNTIME_LOG_FONT_A_FACE_CAPACITY);
+    for offset in 0..RUNTIME_LOG_FONT_A_FACE_CAPACITY {
+        let offset = u32::try_from(offset).map_err(|_| {
+            ApiFault::runtime_defect(
+                "gdi32-fonts",
+                "create-font-a-face-offset-invalid",
+                "validated LF_FACESIZE does not fit x86 address accounting",
+            )
+        })?;
+        let current = address
+            .0
+            .checked_add(offset)
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                ApiFault::invalid_call(
+                    "gdi32-fonts",
+                    "create-font-a-face-address-overflow",
+                    "CreateFontA face-name read overflowed x86 address accounting",
+                )
+            })?;
+        let byte = session
+            .memory()
+            .read(current, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        if byte == 0 {
+            return Ok(bytes);
+        }
+        bytes.push(byte);
+    }
+    Err(ApiFault::unsupported(
+        "gdi32-fonts",
+        "create-font-a-face-name-unterminated",
+        "CreateFontA face name is not NUL-terminated within LF_FACESIZE",
+    ))
 }
 
 fn handle_get_stock_object(
@@ -278,6 +400,7 @@ pub fn gdi32_contract_for_endpoint(
     match name.as_str() {
         "GetStockObject" => Ok(Some(get_stock_object_contract(endpoint)?)),
         "EnumFontFamiliesExA" => Ok(Some(enum_font_families_ex_a_contract(endpoint)?)),
+        "CreateFontA" => Ok(Some(create_font_a_contract(endpoint)?)),
         _ => Ok(None),
     }
 }
@@ -335,6 +458,44 @@ pub fn enum_font_families_ex_a_contract(
     })
 }
 
+pub fn create_font_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: [
+                "height",
+                "width",
+                "escapement",
+                "orientation",
+                "weight",
+                "italic",
+                "underline",
+                "strikeOut",
+                "characterSet",
+                "outputPrecision",
+                "clipPrecision",
+                "quality",
+                "pitchAndFamily",
+            ]
+            .into_iter()
+            .map(u32_argument)
+            .chain(std::iter::once(input_font_face_argument()))
+            .collect(),
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: CREATE_FONT_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
 fn controlled_font_enumeration_policy() -> Gdi32FontEnumerationPolicy {
     Gdi32FontEnumerationPolicy {
         profile_id: "primary-cp932-ms-gothic-regular-v1".to_owned(),
@@ -345,6 +506,28 @@ fn controlled_font_enumeration_policy() -> Gdi32FontEnumerationPolicy {
             font_type: TRUETYPE_FONTTYPE,
             enum_log_font_ex_a: controlled_enum_log_font_ex_a(),
             new_text_metric_ex_a: controlled_new_text_metric_ex_a(),
+        },
+    }
+}
+
+fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
+    Gdi32FontCreationPolicy {
+        profile_id: "primary-cp932-ms-gothic-64x32-thin-v1".to_owned(),
+        log_font: RuntimeLogFontA {
+            height: 64,
+            width: 32,
+            escapement: 0,
+            orientation: 0,
+            weight: 100,
+            italic: 0,
+            underline: 0,
+            strike_out: 0,
+            character_set: SHIFT_JIS_CHARSET,
+            output_precision: 4,
+            clip_precision: 0,
+            quality: 2,
+            pitch_and_family: 0,
+            face_name_windows_932: MS_GOTHIC_WINDOWS_932.to_vec(),
         },
     }
 }
@@ -421,6 +604,21 @@ fn required_argument(
     })
 }
 
+fn required_byte_argument(
+    frame: &ApiCallFrame,
+    index: usize,
+    description: &str,
+) -> Result<u8, ApiFault> {
+    let value = required_argument(frame, index, description)?;
+    u8::try_from(value).map_err(|_| {
+        ApiFault::unsupported(
+            "gdi32-fonts",
+            "create-font-a-variant-unsupported",
+            format!("CreateFontA {description} is outside the evidenced byte-sized variant"),
+        )
+    })
+}
+
 fn u32_argument(name: &str) -> ApiArgumentSchema {
     ApiArgumentSchema {
         name: name.to_owned(),
@@ -447,6 +645,26 @@ fn opaque_pointer_argument(name: &str, nullable: bool, alignment: u32) -> ApiArg
         value: ApiValueSchema::OpaquePointer {
             nullable,
             alignment,
+        },
+    }
+}
+
+fn input_font_face_argument() -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: "faceName".to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 1,
+                byte_length: 1,
+                pointee: ApiPointeeSchema::String {
+                    encoding: ApiStringEncoding::Windows932,
+                    maximum_code_units: RUNTIME_LOG_FONT_A_FACE_CAPACITY as u32,
+                    nul_terminated: true,
+                },
+                write_requirement: ApiWriteRequirement::None,
+            },
         },
     }
 }
@@ -483,9 +701,9 @@ mod tests {
 
     #[test]
     fn controlled_font_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v1();
+        let policy = Gdi32CompatibilityPolicy::controlled_v2();
         policy.validate().unwrap();
-        let enumeration = policy.enum_font_families_ex_a.unwrap();
+        let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
         assert_eq!(
             enumeration.input_face_name_windows_932,
@@ -509,11 +727,31 @@ mod tests {
             enumeration.record.new_text_metric_ex_a[52],
             SHIFT_JIS_CHARSET
         );
+        let creation = policy.create_font_a.as_ref().unwrap();
+        assert_eq!(creation.log_font.height, 64);
+        assert_eq!(creation.log_font.width, 32);
+        assert_eq!(creation.log_font.weight, 100);
+        assert_eq!(creation.log_font.character_set, SHIFT_JIS_CHARSET);
+        assert_eq!(creation.log_font.output_precision, 4);
+        assert_eq!(creation.log_font.clip_precision, 0);
+        assert_eq!(creation.log_font.quality, 2);
+        assert_eq!(creation.log_font.pitch_and_family, 0);
+        assert_eq!(
+            creation.log_font.face_name_windows_932,
+            MS_GOTHIC_WINDOWS_932
+        );
+        assert_eq!(
+            creation.log_font.to_bytes().unwrap()[..46],
+            [
+                64, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 128, 4, 0,
+                2, 0, 130, 108, 130, 114, 32, 131, 83, 131, 86, 131, 98, 131, 78, 0, 0, 0, 0, 0,
+            ]
+        );
     }
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v1();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v2();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -522,5 +760,10 @@ mod tests {
             .enum_log_font_ex_a[188 - 1] = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
+
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v2();
+        policy.create_font_a.as_mut().unwrap().log_font.quality = 1;
+        let fault = policy.validate().unwrap_err();
+        assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
     }
 }

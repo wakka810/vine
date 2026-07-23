@@ -774,7 +774,10 @@ screen acquisitionはtyped HDCだけを作り、window surface、pixel storage�
 recordを所有し、`RuntimeGdi`はlive same-thread screen HDC relationだけを検証する。Callback scratchとframe lifetimeは
 共通execution boundaryを使い、host／browser font discoveryを同期APIの第二のauthorityにしない。Native固定長ANSI
 fieldのNUL以降に残る未初期化byteはimportせず、semantic valueだけをcanonical zero-filled recordへ固定する。
-DC state、selected object、mapping、clip、ROP、font creation／rasterizationは必要な到達caseごとにruntime modelへ追加する。
+Exact `CreateFontA` profileはNUL-bounded Windows-932 faceと13 scalar fieldをpreflightし、`RuntimeGdi`自身の
+GDI-object allocator／collectionへdistinct nonshared identityと60-byte LOGFONTA stateをtargeted commitする。Native／
+browser font resolution、selected DC state、glyph dataはこのobjectのauthorityではない。DC state、selected object、
+mapping、clip、ROP、object deletion／rasterizationは必要な到達caseごとにruntime modelへ追加する。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend

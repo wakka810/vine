@@ -4570,3 +4570,45 @@ Enumerationの後に`ReleaseDC(NULL, 0x47010003)`が1を返してlive HDCを0に
 `0x1002C838`である。Captured argument prefixはheight 64、width 32、escapement／orientation 0／0、weight 100、
 italic／underline 0／0で、faultは`gdi32-api-contract／endpoint-contract-missing`である。Font object identity、
 selection、host／browser font resolution、text metrics consumer、glyph rasterizationはこのcheckpointでclaimしない。
+
+## 137. BGI CP932 logical font object creation
+
+`font-object` profileを独立に2回取得した。Primary raw traceは479,331 bytes／118 records／SHA-256
+`e247e276261c0ed0fd03874c45e1b7f51fa51a02163b427b58c7e6b5b7b0fcd8`、confirmationは479,085 bytes／
+117 records／SHA-256 `eade672e0bb09f6b14952059cbc092280ef760cc7138aa845dd2f1c3527f6642`で、diagnostics／
+hook errorsは0である。Main profileは`x86-bgi-gdi-font-object-lifecycle-v1`、controlled oracleは
+`x86-create-font-a-object-lifecycle-v1`である。Raw traceは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+RVA `0x0002C838`へ戻る`CreateFontA`はheight 64、width 32、escapement／orientation 0、weight 100、
+italic／underline／strikeout 0、charset 128、output／clip precision 4／0、quality 2、pitch-family 0、Windows-932
+face `ＭＳ ゴシック`を渡す。Resultはnon-NULL、LastErrorは0で、callerはhandleを保存してnonzeroを検査した後、
+`CreateCompatibleDC(NULL)`へ進む。Native numeric HFONTとpointerはartifact identityでありVineへimportしない。
+
+Primary lifecycleは`CreateFontA`、`CreateCompatibleDC`、`CreateDIBSection`、`GetObjectA`、二回の`SelectObject`、
+二回の`GetOutlineTextMetricsA`、`TextOutA`、二回のrestore `SelectObject`、二回の`DeleteObject`、`DeleteDC`の
+14 callである。DIBは128 x -96、8 bpp `BI_RGB`、stride 128、12,288 pixel bytes、256-entry reverse-grayscale
+paletteを持つ。`TextOutA(0, 0, "a", 1)`前後のpixel FNV-1aは`0x52965DC5`から`0xE6FC8461`へ変わり、0／255だけの
+476 bytes、bounding box `(3,20)-(28,54)`が変化した。CallerはDIB bytesを走査するため、このraster結果は単なる
+host artifactではなく後続guest-visible semanticsである。ただし本checkpointはrasterを実装しない。
+
+Controlled oracleは`GetObjectA(font, 60)`が60を返し、要求したLOGFONTAをexactにround-tripして前後guardを
+保存することを確認した。Font select／restoreはobject identityを保持し、`DeleteObject`はfirst callでTRUE、repeatで
+FALSEとなる。Deleted objectへの`GetObjectA`は0でoutputを保存し、全success／failure pathがLastError sentinelを
+保存する。Vineはこのうちcreationだけを実装し、`RuntimeGdi`がdistinct monotonic ID／handleとexact LOGFONTAを
+owner-local plan／commitで所有する。Successはguest write 0、LastError preserve、browser font resource 0である。
+
+Nodeは18,612 supported calls、18,668 writebacks／37,583 dirty pages／2,947,946 changed bytes、17,297 host
+deltas、generation 36,536、semantic SHA-256
+`1cba61d15517881f4eda4fbf65fb8a7544cddb24d3c7e2f9bfab18e3d319a753`、terminal memory SHA-256
+`c85b014991b18f2e7a6e277d223c9fe49370f23186ddc13b9af2cc2eb5f4796d`を通した。Node reportは66,512
+bytes／SHA-256 `3b77b539c3639fa7d160d7ffc1f7e9be80d30c5a8c089b94a99d0937a2bba2ea`である。Chrome Runtime
+Workerもsame ordered semantics／terminal memoryを再現し、19,368 slices、19,366 writebacks／39,201 pages、
+17,297 mapping deltas／18,813 dirty pages、generation 27→37,236、55,649 Wasm crossings、58,069 success
+transitions、clean cancel／watchdogを通した。Browser reportは44,116 bytes／SHA-256
+`46572eb6b101c70908079364ac98fd93741288fabe68633aacea76af9d64363c`である。
+
+次stopはinstruction 11,960,140、`GDI32.dll!CreateCompatibleDC` endpoint ID 252／address `0x7F000FB0`／IAT
+`0x100D107C`／return `0x1002C8AD`の`endpoint-contract-missing`で、argumentはNULL HDCである。Compatible
+memory DC、DIB、selection／introspection／deletion、outline metrics、text output、glyph rasterization、host／browser
+font resolutionはこのcheckpointで実装済みとしない。

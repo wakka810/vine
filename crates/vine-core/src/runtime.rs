@@ -74,11 +74,12 @@ pub use gdi::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
     RUNTIME_DEVICE_CONTEXT_HANDLE_BASE, RUNTIME_GDI_BLACK_BRUSH_INDEX,
     RUNTIME_GDI_DEVICE_CONTEXT_LIMIT, RUNTIME_GDI_OBJECT_HANDLE_BASE, RUNTIME_GDI_OBJECT_LIMIT,
-    RUNTIME_GDI_SURFACE_FILL_LIMIT, RUNTIME_GDI_SURFACE_LIMIT, RuntimeDeviceContext,
+    RUNTIME_GDI_SURFACE_FILL_LIMIT, RUNTIME_GDI_SURFACE_LIMIT, RUNTIME_LOG_FONT_A_BYTE_LENGTH,
+    RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeCreateFontAResult, RuntimeDeviceContext,
     RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeFillRectResult, RuntimeGdiObject,
     RuntimeGdiObjectId, RuntimeGdiObjectKind, RuntimeGdiSurface, RuntimeGdiSurfaceFill,
     RuntimeGdiSurfaceId, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcResult,
-    RuntimeGetStockObjectResult,
+    RuntimeGetStockObjectResult, RuntimeLogFontA,
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,

@@ -58,11 +58,12 @@ use super::files::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
 };
 use super::gdi::{
-    RuntimeDeviceContext, RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeGdi,
-    RuntimeGdiComRetirementGuard, RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject,
-    RuntimeGdiObjectId, RuntimeGdiScreenTarget, RuntimeGdiSurface, RuntimeGdiSurfaceId,
-    RuntimeGdiWindowTarget, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcPlan,
-    RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult, RuntimeGetStockObjectResult,
+    RuntimeCreateFontAResult, RuntimeDeviceContext, RuntimeDeviceContextId,
+    RuntimeDeviceContextTarget, RuntimeGdi, RuntimeGdiComRetirementGuard,
+    RuntimeGdiGraphicsSurfaceTarget, RuntimeGdiObject, RuntimeGdiObjectId, RuntimeGdiScreenTarget,
+    RuntimeGdiSurface, RuntimeGdiSurfaceId, RuntimeGdiWindowTarget, RuntimeGetDcResult,
+    RuntimeGetGraphicsSurfaceDcPlan, RuntimeGetGraphicsSurfaceDcResult, RuntimeGetScreenDcResult,
+    RuntimeGetStockObjectResult, RuntimeLogFontA,
 };
 use super::graphics::{
     RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
@@ -4114,6 +4115,15 @@ impl RuntimeKernel {
         self.require_gdi_operation_state()?;
         let plan = self.gdi.plan_get_stock_object(index)?;
         self.gdi.commit_get_stock_object(plan)
+    }
+
+    pub(crate) fn create_gdi_font_a(
+        &mut self,
+        log_font: RuntimeLogFontA,
+    ) -> Result<RuntimeCreateFontAResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        let plan = self.gdi.plan_create_font_a(log_font)?;
+        self.gdi.commit_create_font_a(plan)
     }
 
     pub(crate) fn fill_gdi_rect(

@@ -56,6 +56,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-thread-priority",
     "window-dc",
     "screen-dc",
+    "font-object",
     "set-window-long-a",
     "get-string-type-w",
     "lc-map-string-w",

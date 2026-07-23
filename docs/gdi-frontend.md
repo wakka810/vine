@@ -6,7 +6,8 @@ The GDI frontend owns guest-visible GDI identity, lifetime, and logical drawing
 state in Rust. The current bounded slice implements `USER32!GetDC` and
 `USER32!ReleaseDC` for a logical window, the NULL-window primary screen
 acquisition, one policy-owned `GDI32!EnumFontFamiliesExA` callback record, and
-the reached D3D9 system-memory surface. `GDI32!GetStockObject`
+one exact `GDI32!CreateFontA` logical object variant, plus the reached D3D9
+system-memory surface. `GDI32!GetStockObject`
 for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
 graphics-surface paths. This establishes the responsibility boundary needed for
 later GDI work without claiming a pixel renderer, screen drawing, general DC
@@ -68,6 +69,13 @@ wrong-thread, unknown, and repeated releases do not retire another acquisition.
 logical object. Stock objects are not owned by an HDC and remain live until
 process teardown.
 
+Each successful reached `CreateFontA` call creates a distinct, nonshared object
+in the same typed GDI-object namespace. `RuntimeGdi` owns the monotonic object
+ID and handle allocators and the exact 60-byte `LOGFONTA` semantic state. It
+does not resolve that request to a native or browser font. Object selection,
+introspection, and deletion are separate later lifetime transitions and are not
+implied by successful creation.
+
 ## Surface mutation and failure ordering
 
 The reached surface is an 800 by 600 logical surface. `FillRect` currently
@@ -99,10 +107,10 @@ A screen HDC has no drawing surface in this checkpoint. Passing it to the
 current `FillRect` path produces the typed `screen-dc-drawing-unsupported`
 failure before mutation.
 
-## Bounded font enumeration
+## Bounded font catalog and creation
 
 `Gdi32CompatibilityPolicy` owns the reached catalog, not `RuntimeGdi`, the
-browser, or a host font query. Version 1 accepts only flags zero and the exact
+browser, or a host font query. Version 2 accepts only flags zero and the exact
 Windows-932 `MS Gothic` face with `SHIFTJIS_CHARSET` on a live same-thread
 screen HDC. Other `LOGFONTA` fields are deliberately ignored because the native
 caller leaves them as unstable stack bytes. Unsupported face or charset,
@@ -119,10 +127,22 @@ fields are uninitialized and are not imported. Only the NUL-bounded face, full
 name, style, script, numeric LOGFONT fields, text metrics, and font signature
 are compatibility evidence.
 
-The record is logical catalog and metric data only. It creates no selected font
-object, glyph outline, raster surface, browser `FontFace`, Canvas text state, or
-renderer resource. `CreateFontA`, object selection, text measurement, glyph
-rasterization, and font substitution remain subsequent reached gateways.
+The enumeration record is logical catalog and metric data only. Separately,
+the creation profile accepts the exact reached request: height 64, width 32,
+zero escapement and orientation, weight 100, no italic／underline／strikeout,
+charset 128, output precision 4, clip precision 0, quality 2, pitch-family 0,
+and the same NUL-bounded Windows-932 face. The handler reads at most 32 bytes,
+requires the terminating NUL, preflights the full request and owner capacity,
+then commits one `RuntimeGdi` font object. Success returns the logical handle,
+writes no guest bytes, and preserves LastError.
+
+NULL, unterminated, cross-page, embedded-NUL policy mismatch, unsupported field
+values, exhausted identity, and stale or duplicate plans fail without consuming
+an object ID or handle and without changing GDI or guest-memory state. Creation
+allocates no glyph outline, raster surface, browser `FontFace`, Canvas text
+state, or renderer resource. Object selection, `GetObjectA`, deletion, text
+measurement, glyph rasterization, and font substitution remain subsequent
+gateways.
 
 ## Direct3D and renderer separation
 
@@ -160,7 +180,10 @@ tests cover nullable HWND ABI, LastError, guest pointer preflight, repeated
 screen release, policy/display authority, and failure atomicity. GDI32
 dispatcher tests additionally cover the exact 284-byte callback payload,
 callback-result propagation, stale／cross-thread HDCs, unsupported filters and
-flags, callback preparation failure, and allocator／memory preservation.
+flags, callback preparation failure, and allocator／memory preservation. The
+same suite covers the exact 14-word `CreateFontA` ABI, distinct logical object
+identity, exact LOGFONTA state, bounded string reads, policy-disabled and
+malformed variants, stale plans, and allocator／memory preservation.
 The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
@@ -181,8 +204,9 @@ npm run check:runtime:bgi-browser
 
 - Drawing through the primary screen HDC, non-primary or multiple monitors,
   child or multiple windows, cross-thread DC use, class/private/cached DC
-  policy, SaveDC/RestoreDC, selection, clipping, mapping modes, DIBs, palettes,
-  text rendering, BitBlt, StretchBlt, and general GDI objects are not implemented.
+  policy, compatible DCs, SaveDC/RestoreDC, object selection／introspection／
+  deletion, clipping, mapping modes, DIBs, palettes, text rendering, BitBlt,
+  StretchBlt, and general GDI objects are not implemented.
 - The single enumerated record is not general system-font discovery and does
   not claim that a browser or host has the corresponding font installed.
 - Neither logical fill history is a raster buffer; the reached D3D9 fill does

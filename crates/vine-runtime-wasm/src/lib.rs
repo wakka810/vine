@@ -524,7 +524,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v19();
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v1();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v2();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
@@ -2809,6 +2809,29 @@ fn bgi_gdi_completion_metadata(
                 "enumeration": enumeration,
                 "callbackResult": callback_result,
                 "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+            })))
+        }
+        vine_core::CREATE_FONT_A_IMPLEMENTATION => {
+            let RegisterUpdate::Set(handle) = completion.eax else {
+                return Err("CreateFontA completion did not set EAX".to_owned());
+            };
+            let object = runtime
+                .gdi_objects()
+                .values()
+                .find(|object| object.handle == handle)
+                .ok_or_else(|| {
+                    "CreateFontA completion has no matching logical font object".to_owned()
+                })?;
+            if !matches!(
+                &object.object,
+                vine_core::RuntimeGdiObjectKind::FontA { .. }
+            ) {
+                return Err("CreateFontA completion resolved to a non-font object".to_owned());
+            }
+            Ok(Some(json!({
+                "action": "font-created",
+                "object": object,
+                "liveObjects": runtime.gdi_objects().len(),
             })))
         }
         vine_core::RELEASE_DC_IMPLEMENTATION => {

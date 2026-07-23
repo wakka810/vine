@@ -174,9 +174,9 @@ display authority stops before identity allocation or mutation. The policy
 does not authorize screen drawing or font records, and it imports no host HDC,
 DOM screen geometry, or browser renderer resource.
 
-## GDI32 font catalog policy
+## GDI32 font catalog and logical object policy
 
-`Gdi32CompatibilityPolicy` version 1 is a separate Rust-owned policy because a
+`Gdi32CompatibilityPolicy` version 2 is a separate Rust-owned policy because a
 guest-visible Windows font catalog and its metrics are neither display topology
 nor browser resource state. Profile `primary-cp932-ms-gothic-regular-v1`
 accepts only the reached flags-zero `SHIFTJIS_CHARSET`／Windows-932 `MS Gothic`
@@ -189,8 +189,21 @@ result controls the outer enumeration result. NUL-bounded native strings and
 numeric fields are imported; unstable native tail bytes are canonicalized to
 zero. Disabling or mismatching the policy, unsupported filters or flags,
 invalid callback execution, and stale／wrong-thread HDCs stop before memory or
-callback-frame mutation. This policy neither discovers host fonts nor creates a
-browser font, GDI font object, selected object, or glyph rasterizer.
+callback-frame mutation.
+
+Creation profile `primary-cp932-ms-gothic-64x32-thin-v1` independently admits
+only the reached 14-word `CreateFontA` request: height／width 64／32, zero
+escapement／orientation, weight 100, zero italic／underline／strikeout, charset
+128, output／clip precision 4／0, quality 2, pitch-family 0, and the NUL-bounded
+Windows-932 `MS Gothic` face. The handler reads at most 32 face bytes, preserves
+LastError, writes no guest bytes, and asks `RuntimeGdi` to allocate one distinct
+nonshared logical object through its owner-local plan／commit boundary. Missing
+or unterminated strings, mismatched fields, disabled policy, exhaustion, and
+stale plans fail before object identity or allocator mutation.
+
+The policy neither discovers host fonts nor creates a browser `FontFace`,
+selected DC state, metric consumer, or glyph rasterizer. Native numeric font
+handles and native raster bytes are evidence, not policy values.
 
 `GetSystemMetrics` reads screen width／height for indices 0／1 from that same
 Rust-owned primary monitor rectangle. Version 6 policy separately owns only

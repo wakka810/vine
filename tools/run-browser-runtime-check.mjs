@@ -549,6 +549,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-thread-priority",
         "gdi-screen-dc",
         "gdi-font-enumeration",
+        "gdi-font-creation",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]

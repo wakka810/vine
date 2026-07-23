@@ -535,8 +535,20 @@ Rust dispatcher testsは188-byte `ENUMLOGFONTEXA`、96-byte `NEWTEXTMETRICEXA`�
 callback result propagation、wrong charset／face／flags、invalid callback、stale／cross-thread HDC、callback scratch failureが
 memory、frame allocator、HDC authorityを部分更新しないことを検査する。Node／Chrome gateはsequence 18,609の一callback、
 callback result 0、続くsequence 18,610の`ReleaseDC(NULL, hdc)` TRUE、live DC 0、同じsemantic digest／terminal memoryと、
-instruction 11,958,023の`GDI32.dll!CreateFontA` stopを要求する。Host／browser font discovery、font object creation、
-selection、text measurement、glyph rasterizationはclaimしない。
+instruction 11,958,023の`GDI32.dll!CreateFontA`到達を要求する。
+
+Reached `CreateFontA` gateは14-word x86 stdcallとexact CP932 requestを固定する。Native two-run evidenceはheight／width
+64／32、weight 100、charset 128、output precision 4、quality 2、Windows-932 `ＭＳ ゴシック`、non-NULL result、
+LastError preserveと、callerがhandleを保存／nonzero検査して`CreateCompatibleDC(NULL)`へ進むorderingを要求する。
+Controlled oracleは`GetObjectA(font, 60)`のexact round-tripとguard不変、select／restore identity、first／repeat
+`DeleteObject`のTRUE／FALSE、stale `GetObjectA`のoutput preserve、全success／failure LastError sentinel preserveを固定する。
+
+Rust model／dispatcher testsはdistinct monotonic nonshared identity、exact 60-byte LOGFONTA、owner-local stale／duplicate
+plan rejection、NULL／unterminated／cross-page face、policy-disabled／mismatched fields、capacity failureがobject collection、
+allocators、guest memoryを部分更新しないことを検査する。Node／Chrome gateはsequence 18,611、handle `0x47020002`、
+object ID 2、guest write 0、LastError preserve、browser font resource 0、同じsemantic digest／terminal memoryと、
+instruction 11,960,140の`GDI32.dll!CreateCompatibleDC(NULL)` stopを要求する。Object selection、`GetObjectA`、
+`DeleteObject`、DIB creation、metrics、glyph rasterization、host／browser font resolutionはまだclaimしない。
 
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは

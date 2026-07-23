@@ -11,6 +11,8 @@ const focusedWindowDcObservation =
   selectedObservations.size === 1 && selectedObservations.has("window-dc");
 const focusedScreenDcObservation =
   selectedObservations.size === 1 && selectedObservations.has("screen-dc");
+const focusedFontObjectObservation =
+  selectedObservations.size === 1 && selectedObservations.has("font-object");
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
@@ -347,6 +349,18 @@ const screenDcMainModuleCalls = [];
 const activeScreenDcFontEnumerationsByThread = new Map();
 const attachedScreenDcFontCallbacks = new Set();
 const screenDcFontOracleCallbacks = [];
+let fontObjectOracleScheduled = false;
+let fontObjectOracleCall = null;
+let fontObjectOracleComplete = false;
+let fontObjectOracleEvidence = null;
+let fontObjectCompletionRecorded = false;
+let fontObjectActivityGeneration = 0;
+let fontObjectPrimaryStarted = false;
+const fontObjectMainModuleCalls = [];
+const fontObjectPrimaryHandles = new Set();
+const fontObjectSelectedDcHandles = new Map();
+const fontObjectDibSectionsByHandle = new Map();
+const fontObjectSelectedBitmapByDc = new Map();
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
 let setWindowLongAOracleComplete = false;
@@ -2530,6 +2544,47 @@ function snapshotD3d9RasterStatus(pointer) {
     };
   } catch (error) {
     return { pointer: pointer.toString(), size, error: error.message };
+  }
+}
+
+function snapshotBoundedAnsiBytes(pointer, maximumBytes = 32) {
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      maximumBytes,
+      bytesWithNul: [],
+      bytes: [],
+      string: null,
+    };
+  }
+  try {
+    const bytesWithNul = [];
+    for (let offset = 0; offset < maximumBytes; offset += 1) {
+      const value = pointer.add(offset).readU8();
+      bytesWithNul.push(value);
+      if (value === 0) {
+        return {
+          pointer: pointer.toString(),
+          maximumBytes,
+          bytesWithNul,
+          bytes: bytesWithNul.slice(0, -1),
+          string: readString(pointer, "ansi"),
+        };
+      }
+    }
+    return {
+      pointer: pointer.toString(),
+      maximumBytes,
+      bytesWithNul,
+      bytes: bytesWithNul,
+      error: "terminator not found within bounded observation",
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      maximumBytes,
+      error: error.message,
+    };
   }
 }
 
@@ -9524,6 +9579,890 @@ function maybeCompleteScreenDcObservation() {
   if (stopOnEvent === "screen-dc-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
+}
+
+function snapshotCreateFontAArguments(args) {
+  return {
+    height: signed32(args[0]),
+    width: signed32(args[1]),
+    escapement: signed32(args[2]),
+    orientation: signed32(args[3]),
+    weight: signed32(args[4]),
+    italic: args[5].toUInt32(),
+    underline: args[6].toUInt32(),
+    strikeOut: args[7].toUInt32(),
+    characterSet: args[8].toUInt32(),
+    outputPrecision: args[9].toUInt32(),
+    clipPrecision: args[10].toUInt32(),
+    quality: args[11].toUInt32(),
+    pitchAndFamily: args[12].toUInt32(),
+    face: snapshotBoundedAnsiBytes(args[13], 32),
+  };
+}
+
+function snapshotDibBitmapInfo(pointer) {
+  const maximumBitmapInfoBytes = 4096;
+  try {
+    const headerSize = pointer.readU32();
+    if (headerSize < 40 || headerSize > maximumBitmapInfoBytes) {
+      return {
+        pointer: pointer.toString(),
+        headerSize,
+        maximumBitmapInfoBytes,
+        error: "unsupported BITMAPINFO header size",
+      };
+    }
+    const width = pointer.add(4).readS32();
+    const height = pointer.add(8).readS32();
+    const planes = pointer.add(12).readU16();
+    const bitCount = pointer.add(14).readU16();
+    const compression = pointer.add(16).readU32();
+    const sizeImage = pointer.add(20).readU32();
+    const xPixelsPerMeter = pointer.add(24).readS32();
+    const yPixelsPerMeter = pointer.add(28).readS32();
+    const colorsUsed = pointer.add(32).readU32();
+    const colorsImportant = pointer.add(36).readU32();
+    const defaultColorCount = bitCount <= 8 ? 2 ** bitCount : 0;
+    const colorCount = colorsUsed !== 0 ? colorsUsed : defaultColorCount;
+    const bitmapInfoBytes = headerSize + colorCount * 4;
+    const absoluteWidth = Math.abs(width);
+    const absoluteHeight = Math.abs(height);
+    const strideBytes = Math.floor((absoluteWidth * bitCount + 31) / 32) * 4;
+    const pixelBytes = strideBytes * absoluteHeight;
+    return {
+      pointer: pointer.toString(),
+      headerSize,
+      width,
+      height,
+      topDown: height < 0,
+      planes,
+      bitCount,
+      compression,
+      sizeImage,
+      xPixelsPerMeter,
+      yPixelsPerMeter,
+      colorsUsed,
+      colorsImportant,
+      colorCount,
+      bitmapInfoBytes,
+      strideBytes,
+      pixelBytes,
+      raw: snapshotBoundedRawBytes(
+        pointer,
+        bitmapInfoBytes,
+        maximumBitmapInfoBytes,
+      ),
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      maximumBitmapInfoBytes,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotDibPixelPlane(dibSection) {
+  const maximumPixelBytes = 1024 * 1024;
+  const recordedPixelBytes = 64 * 1024;
+  const byteLength = dibSection.bitmapInfo.pixelBytes;
+  if (
+    !Number.isInteger(byteLength) ||
+    byteLength < 0 ||
+    byteLength > maximumPixelBytes
+  ) {
+    return {
+      evidence: {
+        bitsPointer: dibSection.bits.toString(),
+        byteLength,
+        maximumPixelBytes,
+        error: "DIB pixel plane is outside the bounded observation",
+      },
+      bytes: null,
+    };
+  }
+  try {
+    const bytes = [
+      ...new Uint8Array(dibSection.bits.readByteArray(byteLength)),
+    ];
+    const histogram = Array(256).fill(0);
+    let hash = 0x811c9dc5;
+    let minimumByte = 255;
+    let maximumByte = 0;
+    for (const byte of bytes) {
+      histogram[byte] += 1;
+      hash = fnv1aByte(hash, byte);
+      minimumByte = Math.min(minimumByte, byte);
+      maximumByte = Math.max(maximumByte, byte);
+    }
+    return {
+      evidence: {
+        bitsPointer: dibSection.bits.toString(),
+        byteLength,
+        maximumPixelBytes,
+        fnv1a32: `0x${hash.toString(16).padStart(8, "0")}`,
+        minimumByte: bytes.length === 0 ? null : minimumByte,
+        maximumByte: bytes.length === 0 ? null : maximumByte,
+        uniqueByteCount: histogram.filter((count) => count !== 0).length,
+        histogram,
+        bytes: byteLength <= recordedPixelBytes ? bytes : null,
+        bytesTruncated: byteLength > recordedPixelBytes,
+      },
+      bytes,
+    };
+  } catch (error) {
+    return {
+      evidence: {
+        bitsPointer: dibSection.bits.toString(),
+        byteLength,
+        maximumPixelBytes,
+        error: error.message,
+      },
+      bytes: null,
+    };
+  }
+}
+
+function diffDibPixelPlanes(dibSection, before, after) {
+  if (before === null || after === null || before.length !== after.length) {
+    return {
+      error: "DIB pixel planes are unavailable or have different lengths",
+    };
+  }
+  const maximumRecordedChanges = 64 * 1024;
+  const strideBytes = dibSection.bitmapInfo.strideBytes;
+  const absoluteHeight = Math.abs(dibSection.bitmapInfo.height);
+  let changedByteCount = 0;
+  let minimumXByte = null;
+  let maximumXByte = null;
+  let minimumStorageRow = null;
+  let maximumStorageRow = null;
+  let minimumLogicalY = null;
+  let maximumLogicalY = null;
+  const changes = [];
+  for (let offset = 0; offset < before.length; offset += 1) {
+    if (before[offset] === after[offset]) {
+      continue;
+    }
+    changedByteCount += 1;
+    const storageRow = Math.floor(offset / strideBytes);
+    const xByte = offset % strideBytes;
+    const logicalY = dibSection.bitmapInfo.topDown
+      ? storageRow
+      : absoluteHeight - storageRow - 1;
+    minimumXByte = minimumXByte === null ? xByte : Math.min(minimumXByte, xByte);
+    maximumXByte = maximumXByte === null ? xByte : Math.max(maximumXByte, xByte);
+    minimumStorageRow =
+      minimumStorageRow === null
+        ? storageRow
+        : Math.min(minimumStorageRow, storageRow);
+    maximumStorageRow =
+      maximumStorageRow === null
+        ? storageRow
+        : Math.max(maximumStorageRow, storageRow);
+    minimumLogicalY =
+      minimumLogicalY === null ? logicalY : Math.min(minimumLogicalY, logicalY);
+    maximumLogicalY =
+      maximumLogicalY === null ? logicalY : Math.max(maximumLogicalY, logicalY);
+    if (changes.length < maximumRecordedChanges) {
+      changes.push({
+        offset,
+        xByte,
+        storageRow,
+        logicalY,
+        before: before[offset],
+        after: after[offset],
+      });
+    }
+  }
+  return {
+    changedByteCount,
+    byteBounds:
+      changedByteCount === 0
+        ? null
+        : {
+            minimumXByte,
+            maximumXByte,
+            minimumStorageRow,
+            maximumStorageRow,
+            minimumLogicalY,
+            maximumLogicalY,
+          },
+    changes,
+    changesTruncated: changedByteCount > maximumRecordedChanges,
+  };
+}
+
+function fontObjectResult(name, result) {
+  return name === "CreateFontA" || name === "SelectObject"
+    ? result.toString()
+    : signed32(result);
+}
+
+function scheduleFontObjectCompletion() {
+  const generation = ++fontObjectActivityGeneration;
+  setTimeout(() => {
+    if (generation !== fontObjectActivityGeneration) {
+      return;
+    }
+    maybeCompleteFontObjectObservation(generation);
+  }, 250);
+}
+
+function maybeCompleteFontObjectObservation(generation) {
+  if (
+    fontObjectCompletionRecorded ||
+    generation !== fontObjectActivityGeneration ||
+    !fontObjectOracleComplete ||
+    !fontObjectMainModuleCalls.some((call) => call.api === "CreateFontA")
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(() => maybeCompleteFontObjectObservation(generation), 10);
+    return;
+  }
+  fontObjectCompletionRecorded = true;
+  emit("font-object-complete", {
+    profile: "x86-bgi-gdi-font-object-lifecycle-v1",
+    mainModuleCalls: fontObjectMainModuleCalls,
+    oracle: fontObjectOracleEvidence,
+  });
+  if (stopOnEvent === "font-object-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachFontObjectHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        fontObjectOracleCall !== null &&
+        fontObjectOracleCall.api === name;
+      this.handle =
+        name === "GetObjectA" || name === "DeleteObject" ? args[0] : null;
+      this.deviceContext =
+        name === "SelectObject" ||
+        name === "GetTextMetricsA" ||
+        name === "GetTextExtentPoint32A"
+          ? args[0]
+          : null;
+      this.object = name === "SelectObject" ? args[1] : null;
+      const handleKey = this.handle?.toString() ?? null;
+      const dcKey = this.deviceContext?.toString() ?? null;
+      const objectKey = this.object?.toString() ?? null;
+      const mainRelated =
+        isMainModuleCaller &&
+        (name === "CreateFontA" ||
+          fontObjectPrimaryStarted ||
+          (handleKey !== null && fontObjectPrimaryHandles.has(handleKey)) ||
+          (name === "SelectObject" &&
+            (fontObjectPrimaryHandles.has(objectKey) ||
+              fontObjectSelectedDcHandles.has(dcKey))));
+      if (!mainRelated && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+
+      this.api = name;
+      this.mainModuleCaller = mainRelated;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = fontObjectOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = mainRelated
+        ? snapshotInstructions(this.returnAddress, 96)
+        : null;
+      this.createFont = name === "CreateFontA" ? snapshotCreateFontAArguments(args) : null;
+      this.outputPointer =
+        name === "GetObjectA" ||
+        name === "GetTextMetricsA" ||
+        name === "GetTextExtentPoint32A"
+          ? name === "GetObjectA"
+            ? args[2]
+            : name === "GetTextMetricsA"
+              ? args[1]
+              : args[3]
+          : null;
+      this.outputBytes =
+        name === "GetObjectA"
+          ? signed32(args[1])
+          : name === "GetTextMetricsA"
+            ? 56
+            : name === "GetTextExtentPoint32A"
+              ? 8
+              : 0;
+      this.text =
+        name === "GetTextExtentPoint32A"
+          ? snapshotBoundedRawBytes(
+              args[1],
+              Math.min(args[2].toUInt32(), 256),
+              256,
+            )
+          : null;
+      this.arguments =
+        name === "CreateFontA"
+          ? [
+              this.createFont.height,
+              this.createFont.width,
+              this.createFont.escapement,
+              this.createFont.orientation,
+              this.createFont.weight,
+              this.createFont.italic,
+              this.createFont.underline,
+              this.createFont.strikeOut,
+              this.createFont.characterSet,
+              this.createFont.outputPrecision,
+              this.createFont.clipPrecision,
+              this.createFont.quality,
+              this.createFont.pitchAndFamily,
+              this.createFont.face.pointer,
+            ]
+          : name === "SelectObject"
+            ? [this.deviceContext.toString(), this.object.toString()]
+            : name === "GetObjectA"
+              ? [this.handle.toString(), this.outputBytes, this.outputPointer.toString()]
+              : name === "DeleteObject"
+                ? [this.handle.toString()]
+                : name === "GetTextMetricsA"
+                  ? [this.deviceContext.toString(), this.outputPointer.toString()]
+                  : [
+                      this.deviceContext.toString(),
+                      args[1].toString(),
+                      args[2].toUInt32(),
+                      this.outputPointer.toString(),
+                    ];
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          fontObject: {
+            createFont: this.createFont,
+            text: this.text,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = fontObjectResult(this.api, result);
+      const lastError = Number(this.lastError) >>> 0;
+      const output =
+        this.outputPointer !== null &&
+        this.outputBytes >= 0 &&
+        this.outputBytes <= 256
+          ? snapshotBoundedRawBytes(this.outputPointer, this.outputBytes, 256)
+          : null;
+      if (this.oracleCaller) {
+        fontObjectOracleCall.hookResult = resultValue;
+        fontObjectOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: result.toString(),
+          fontObject: {
+            result: resultValue,
+            output,
+          },
+        },
+        this.lastError,
+      );
+      if (!this.mainModuleCaller) {
+        return;
+      }
+
+      if (this.api === "CreateFontA" && resultValue !== "0x0") {
+        fontObjectPrimaryStarted = true;
+        fontObjectPrimaryHandles.add(resultValue);
+      } else if (this.api === "SelectObject" && resultValue !== "0x0") {
+        const dcKey = this.deviceContext.toString();
+        const objectKey = this.object.toString();
+        if (fontObjectPrimaryHandles.has(objectKey)) {
+          fontObjectSelectedDcHandles.set(dcKey, objectKey);
+        } else if (fontObjectPrimaryHandles.has(resultValue)) {
+          fontObjectSelectedDcHandles.delete(dcKey);
+        }
+        if (fontObjectDibSectionsByHandle.has(objectKey)) {
+          fontObjectSelectedBitmapByDc.set(dcKey, objectKey);
+        } else if (fontObjectDibSectionsByHandle.has(resultValue)) {
+          fontObjectSelectedBitmapByDc.delete(dcKey);
+        }
+      } else if (this.api === "DeleteObject" && resultValue !== 0) {
+        const handleKey = this.handle.toString();
+        fontObjectPrimaryHandles.delete(handleKey);
+        fontObjectDibSectionsByHandle.delete(handleKey);
+        for (const [dcKey, fontKey] of fontObjectSelectedDcHandles) {
+          if (fontKey === handleKey) {
+            fontObjectSelectedDcHandles.delete(dcKey);
+          }
+        }
+        for (const [dcKey, bitmapKey] of fontObjectSelectedBitmapByDc) {
+          if (bitmapKey === handleKey) {
+            fontObjectSelectedBitmapByDc.delete(dcKey);
+          }
+        }
+      }
+      fontObjectMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        createFont: this.createFont,
+        text: this.text,
+        result: resultValue,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        output,
+        immediateConsumer: this.immediateConsumer,
+      });
+      if (this.api === "CreateFontA") {
+        scheduleFontObjectOracle(module);
+      }
+      scheduleFontObjectCompletion();
+    },
+  });
+}
+
+function attachFontPipelineHook(module, name) {
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  const argumentCounts = {
+    CreateCompatibleDC: 1,
+    CreateDIBSection: 6,
+    DeleteDC: 1,
+    GetOutlineTextMetricsA: 3,
+    GetGlyphOutlineA: 7,
+    TextOutA: 5,
+    TextOutW: 5,
+    SetBkMode: 2,
+    SetTextColor: 2,
+    SelectPalette: 3,
+    CreatePalette: 1,
+  };
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      if (
+        callerModule !== Process.mainModule.name.toLowerCase() ||
+        !fontObjectPrimaryStarted
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      this.api = name;
+      this.argumentPointers = [];
+      for (let index = 0; index < argumentCounts[name]; index += 1) {
+        this.argumentPointers.push(args[index]);
+      }
+      this.arguments = this.argumentPointers.map((argument) => argument.toString());
+      this.bitmapInfo =
+        name === "CreateDIBSection" ? snapshotDibBitmapInfo(args[1]) : null;
+      this.deviceContextKey =
+        name === "TextOutA" || name === "TextOutW"
+          ? args[0].toString()
+          : null;
+      this.dibSectionKey =
+        this.deviceContextKey === null
+          ? null
+          : fontObjectSelectedBitmapByDc.get(this.deviceContextKey) ?? null;
+      this.dibSection =
+        this.dibSectionKey === null
+          ? null
+          : fontObjectDibSectionsByHandle.get(this.dibSectionKey) ?? null;
+      this.pixelPlaneBefore =
+        this.dibSection === null
+          ? null
+          : snapshotDibPixelPlane(this.dibSection);
+      this.text =
+        name === "TextOutA"
+          ? snapshotBoundedRawBytes(
+              args[3],
+              Math.min(args[4].toUInt32(), 512),
+              512,
+            )
+          : name === "TextOutW"
+            ? snapshotBoundedRawBytes(
+                args[3],
+                Math.min(args[4].toUInt32() * 2, 1024),
+                1024,
+              )
+            : null;
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = snapshotInstructions(this.returnAddress, 96);
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          fontPipeline: {
+            bitmapInfo: this.bitmapInfo,
+            text: this.text,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue =
+        this.api === "CreateCompatibleDC" || this.api === "CreateDIBSection"
+          ? result.toString()
+          : signed32(result);
+      const lastError = Number(this.lastError) >>> 0;
+      let output = null;
+      if (this.api === "CreateDIBSection") {
+        try {
+          const bits = this.argumentPointers[3].readPointer();
+          output = {
+            bitsPointer: bits.toString(),
+          };
+          if (resultValue !== "0x0" && !bits.isNull() && this.bitmapInfo.error === undefined) {
+            const dibSection = {
+              handle: result,
+              bits,
+              bitmapInfo: this.bitmapInfo,
+            };
+            fontObjectDibSectionsByHandle.set(resultValue, dibSection);
+            output.pixelPlane = snapshotDibPixelPlane(dibSection).evidence;
+          }
+        } catch (error) {
+          output = { error: error.message };
+        }
+      } else if (this.api === "GetOutlineTextMetricsA") {
+        const requestedBytes = Math.min(this.argumentPointers[1].toUInt32(), 4096);
+        output = snapshotBoundedRawBytes(
+          this.argumentPointers[2],
+          requestedBytes,
+          4096,
+        );
+      } else if (this.api === "GetGlyphOutlineA") {
+        output = {
+          glyphMetrics: snapshotBoundedRawBytes(this.argumentPointers[3], 20, 20),
+          buffer: snapshotBoundedRawBytes(
+            this.argumentPointers[5],
+            Math.min(this.argumentPointers[4].toUInt32(), 4096),
+            4096,
+          ),
+          transform: snapshotBoundedRawBytes(this.argumentPointers[6], 16, 16),
+        };
+      } else if (this.api === "TextOutA" || this.api === "TextOutW") {
+        const pixelPlaneAfter =
+          this.dibSection === null
+            ? null
+            : snapshotDibPixelPlane(this.dibSection);
+        output = {
+          dibSectionHandle: this.dibSectionKey,
+          pixelPlaneBefore: this.pixelPlaneBefore?.evidence ?? null,
+          pixelPlaneAfter: pixelPlaneAfter?.evidence ?? null,
+          pixelDiff:
+            this.dibSection === null
+              ? null
+              : diffDibPixelPlanes(
+                  this.dibSection,
+                  this.pixelPlaneBefore?.bytes ?? null,
+                  pixelPlaneAfter?.bytes ?? null,
+                ),
+        };
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: result.toString(),
+          fontPipeline: { result: resultValue, output },
+        },
+        this.lastError,
+      );
+      fontObjectMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        bitmapInfo: this.bitmapInfo,
+        text: this.text,
+        result: resultValue,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        output,
+        immediateConsumer: this.immediateConsumer,
+      });
+      scheduleFontObjectCompletion();
+    },
+  });
+}
+
+function scheduleFontObjectOracle(module) {
+  if (fontObjectOracleScheduled) {
+    return;
+  }
+  fontObjectOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const createFontAAddress = findExport(module, "CreateFontA");
+      const getObjectAAddress = findExport(module, "GetObjectA");
+      const selectObjectAddress = findExport(module, "SelectObject");
+      const deleteObjectAddress = findExport(module, "DeleteObject");
+      const user32 = Process.getModuleByName("user32.dll");
+      const getDcAddress = findExport(user32, "GetDC");
+      const releaseDcAddress = findExport(user32, "ReleaseDC");
+      if (
+        createFontAAddress === null ||
+        getObjectAAddress === null ||
+        selectObjectAddress === null ||
+        deleteObjectAddress === null ||
+        getDcAddress === null ||
+        releaseDcAddress === null
+      ) {
+        throw new Error("font object oracle export is unavailable");
+      }
+      const createFontA = new SystemFunction(
+        createFontAAddress,
+        "pointer",
+        [
+          "int32",
+          "int32",
+          "int32",
+          "int32",
+          "int32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "uint32",
+          "pointer",
+        ],
+        "stdcall",
+      );
+      const getObjectA = new SystemFunction(
+        getObjectAAddress,
+        "int32",
+        ["pointer", "int32", "pointer"],
+        "stdcall",
+      );
+      const selectObject = new SystemFunction(
+        selectObjectAddress,
+        "pointer",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const deleteObject = new SystemFunction(
+        deleteObjectAddress,
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const getDc = new SystemFunction(getDcAddress, "pointer", ["pointer"], "stdcall");
+      const releaseDc = new SystemFunction(
+        releaseDcAddress,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = (id, api, sentinel, callback) => {
+        fontObjectOracleCall = {
+          api,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = callback();
+          const systemResult =
+            api === "CreateFontA" || api === "SelectObject"
+              ? outcome.value.toString()
+              : Number(outcome.value);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            fontObjectOracleCall.hookResult === null ||
+            fontObjectOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(`${api} ${id} oracle did not pass through the hook`);
+          }
+          return {
+            id,
+            api,
+            sentinel,
+            systemResult,
+            systemLastError,
+            hookResult: fontObjectOracleCall.hookResult,
+            hookLastErrorAfter: fontObjectOracleCall.hookLastErrorAfter,
+            hookResultMatches: fontObjectOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              fontObjectOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          fontObjectOracleCall = null;
+        }
+      };
+
+      const faceBytes = [
+        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+        0x83, 0x4e, 0,
+      ];
+      const face = Memory.alloc(faceBytes.length);
+      face.writeByteArray(faceBytes);
+      const created = invoke("create", "CreateFontA", 0x11112222, () =>
+        createFontA(64, 32, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0, face),
+      );
+      if (created.systemResult === "0x0") {
+        throw new Error("font object oracle CreateFontA returned NULL");
+      }
+      const font = ptr(created.systemResult);
+      const objectStorage = Memory.alloc(68);
+      objectStorage.writeByteArray(Array(68).fill(0xa5));
+      const object = objectStorage.add(4);
+      const getObject = invoke("get-object", "GetObjectA", 0x22223333, () =>
+        getObjectA(font, 60, object),
+      );
+      const objectStorageAfter = snapshotBoundedRawBytes(objectStorage, 68, 68);
+
+      const dcOutcome = getDc(ptr(0));
+      const dc = dcOutcome.value;
+      if (dc.isNull()) {
+        throw new Error("font object oracle GetDC returned NULL");
+      }
+      let selected;
+      let restored;
+      let release;
+      try {
+        selected = invoke("select", "SelectObject", 0x33334444, () =>
+          selectObject(dc, font),
+        );
+        if (selected.systemResult === "0x0" || selected.systemResult === "0xffffffff") {
+          throw new Error("font object oracle SelectObject did not return a prior object");
+        }
+        restored = invoke("restore", "SelectObject", 0x44445555, () =>
+          selectObject(dc, ptr(selected.systemResult)),
+        );
+      } finally {
+        release = releaseDc(ptr(0), dc);
+      }
+      const deleted = invoke("delete", "DeleteObject", 0x55556666, () =>
+        deleteObject(font),
+      );
+      const repeatedDelete = invoke(
+        "delete-repeat",
+        "DeleteObject",
+        0x66667777,
+        () => deleteObject(font),
+      );
+      objectStorage.writeByteArray(Array(68).fill(0xa5));
+      const staleGetObject = invoke(
+        "get-object-stale",
+        "GetObjectA",
+        0x77778888,
+        () => getObjectA(font, 60, object),
+      );
+      const staleObjectStorageAfter = snapshotBoundedRawBytes(
+        objectStorage,
+        68,
+        68,
+      );
+
+      fontObjectOracleEvidence = {
+        profile: "x86-create-font-a-object-lifecycle-v1",
+        arguments: {
+          height: 64,
+          width: 32,
+          escapement: 0,
+          orientation: 0,
+          weight: 100,
+          italic: 0,
+          underline: 0,
+          strikeOut: 0,
+          characterSet: 128,
+          outputPrecision: 4,
+          clipPrecision: 0,
+          quality: 2,
+          pitchAndFamily: 0,
+          faceBytes,
+        },
+        calls: [
+          created,
+          getObject,
+          selected,
+          restored,
+          deleted,
+          repeatedDelete,
+          staleGetObject,
+        ],
+        objectStorageAfter,
+        releaseDcResult: Number(release.value),
+        releaseDcLastError: Number(release.lastError) >>> 0,
+        staleObjectStorageAfter,
+        createdHandle: created.systemResult,
+        selectedPreviousObject: selected.systemResult,
+        restoredFontObject: restored.systemResult,
+        allHookResultsMatch: [
+          created,
+          getObject,
+          selected,
+          restored,
+          deleted,
+          repeatedDelete,
+          staleGetObject,
+        ].every((call) => call.hookResultMatches),
+        allHookAndSystemLastErrorsMatch: [
+          created,
+          getObject,
+          selected,
+          restored,
+          deleted,
+          repeatedDelete,
+          staleGetObject,
+        ].every((call) => call.hookAndSystemLastErrorMatch),
+      };
+      fontObjectOracleComplete = true;
+      emit("font-object-oracle", fontObjectOracleEvidence);
+      scheduleFontObjectCompletion();
+    } catch (error) {
+      emit("font-object-oracle-error", { error: error.message });
+    }
+  });
 }
 
 function attachSetWindowLongAHook(module) {
@@ -18046,6 +18985,7 @@ Process.attachModuleObserver({
     if (
       !focusedWindowDcObservation &&
       !focusedScreenDcObservation &&
+      !focusedFontObjectObservation &&
       !focusedSetWindowLongAObservation &&
       !focusedSetWindowPosSizeObservation
     ) {
@@ -18501,6 +19441,52 @@ Process.attachModuleObserver({
           api: "EnumFontFamiliesExA",
           error: error.message,
         });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "gdi32.dll" &&
+      selectedObservations.has("font-object")
+    ) {
+      for (const name of [
+        "CreateFontA",
+        "SelectObject",
+        "GetObjectA",
+        "DeleteObject",
+        "GetTextMetricsA",
+        "GetTextExtentPoint32A",
+      ]) {
+        try {
+          attachFontObjectHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
+      }
+      for (const name of [
+        "CreateCompatibleDC",
+        "CreateDIBSection",
+        "DeleteDC",
+        "GetOutlineTextMetricsA",
+        "GetGlyphOutlineA",
+        "TextOutA",
+        "TextOutW",
+        "SetBkMode",
+        "SetTextColor",
+        "SelectPalette",
+        "CreatePalette",
+      ]) {
+        try {
+          attachFontPipelineHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
       }
     }
     if (

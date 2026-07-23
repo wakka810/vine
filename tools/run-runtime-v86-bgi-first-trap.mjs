@@ -166,6 +166,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-thread-priority",
         "gdi-screen-dc",
         "gdi-font-enumeration",
+        "gdi-font-creation",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -251,6 +252,7 @@ assert(
       "kernel32-set-thread-priority",
       "gdi-screen-dc",
       "gdi-font-enumeration",
+      "gdi-font-creation",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -300,6 +302,7 @@ if (
     "kernel32-set-thread-priority",
     "gdi-screen-dc",
     "gdi-font-enumeration",
+    "gdi-font-creation",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -318,6 +321,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "kernel32-set-thread-priority",
       "gdi-screen-dc",
       "gdi-font-enumeration",
+      "gdi-font-creation",
     ].includes(genericRuntimeCapability)
       ? "kernel32-set-thread-priority-v1.json"
       : genericRuntimeCapability === "kernel32-create-thread"
@@ -481,7 +485,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const fontEnumerationEnabled = genericRuntimeCapability === "gdi-font-enumeration";
+const fontCreationEnabled = genericRuntimeCapability === "gdi-font-creation";
+const fontEnumerationEnabled =
+  fontCreationEnabled || genericRuntimeCapability === "gdi-font-enumeration";
 const screenDcEnabled =
   fontEnumerationEnabled || genericRuntimeCapability === "gdi-screen-dc";
 const setThreadPriorityEnabled =
@@ -745,7 +751,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? fontEnumerationEnabled
+      ? fontCreationEnabled
+      ? "v86-bgi-font-creation"
+      : fontEnumerationEnabled
       ? "v86-bgi-font-enumeration"
       : screenDcEnabled
       ? "v86-bgi-screen-dc"
@@ -4743,6 +4751,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (fontCreationEnabled) {
+        validateFontCreationResult(genericResult);
       } else if (fontEnumerationEnabled) {
         validateFontEnumerationResult(genericResult);
       } else if (screenDcEnabled) {
@@ -4946,6 +4956,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : fontCreationEnabled
+          ? "bgi CP932 logical font object creation"
           : fontEnumerationEnabled
           ? "bgi CP932 logical font enumeration"
           : screenDcEnabled
@@ -6209,6 +6221,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : fontCreationEnabled
+          ? 82
         : fontEnumerationEnabled
           ? 81
         : setThreadPriorityEnabled
@@ -6391,7 +6405,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-font-catalog-v1",
+      "gdi32-primary-cp932-font-object-v2",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -14912,6 +14926,140 @@ function validateSetThreadPriorityResult(result) {
   ]);
 }
 
+function validateFontCreationResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_612);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.writebacks.length, 18_668);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_583,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_947_946,
+  );
+  assert.equal(result.hostDeltas.length, 17_297);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_536);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
+  );
+  assert.equal(calls.length, 1, "unexpected primary font creation completion count");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_611);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_958_023);
+  assert.deepEqual(call.arguments, [
+    64,
+    32,
+    0,
+    0,
+    100,
+    0,
+    0,
+    0,
+    128,
+    4,
+    0,
+    2,
+    0,
+    0x100d_ce7c,
+  ]);
+  assert.equal(
+    call.implementationId,
+    "gdi32.create-font-a.cp932-logical-object.v1",
+  );
+  assert.deepEqual(call.result, { action: "set", value: 0x4702_0002 });
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 60);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.gdi, {
+    action: "font-created",
+    object: {
+      id: 2,
+      handle: 0x4702_0002,
+      namespace: "vine.logical-gdi-object.v1",
+      shared: false,
+      object: {
+        kind: "font-a",
+        logFont: {
+          height: 64,
+          width: 32,
+          escapement: 0,
+          orientation: 0,
+          weight: 100,
+          italic: 0,
+          underline: 0,
+          strikeOut: 0,
+          characterSet: 128,
+          outputPrecision: 4,
+          clipPrecision: 0,
+          quality: 2,
+          pitchAndFamily: 0,
+          faceNameWindows932: [
+            0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+            0x83, 0x4e,
+          ],
+        },
+      },
+    },
+    liveObjects: 2,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-4).map(({ sequence, symbol, occurrence }) => ({
+      sequence,
+      symbol,
+      occurrence,
+    })),
+    [
+      { sequence: 18_609, symbol: "EnumFontFamiliesExA", occurrence: 1 },
+      { sequence: 18_610, symbol: "ReleaseDC", occurrence: 2 },
+      { sequence: 18_611, symbol: "CreateFontA", occurrence: 1 },
+      { sequence: 18_612, symbol: "HeapAlloc", occurrence: 158 },
+    ],
+  );
+  assert.equal(result.fault.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 252);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0fb0);
+  assert.equal(result.fault.endpoint.endpoint.module, "gdi32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "CreateCompatibleDC",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_107c);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c85b014991b18f2e7a6e277d223c9fe49370f23186ddc13b9af2cc2eb5f4796d",
+  );
+  assert.equal(result.terminal.instructionCount, 11_960_140);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 252);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0fb0);
+  assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "CreateCompatibleDC");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c8ad);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
+    0x1002_c8ad,
+    0,
+  ]);
+}
+
 function validateFontEnumerationResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -17970,10 +18118,20 @@ function buildGenericRuntimeReentryReport({
   if (fontEnumerationEnabled) {
     assert(fontEnumerationCall, "font enumeration report summary has no primary call");
   }
+  const fontCreationCall = fontCreationEnabled
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
+      )
+    : null;
+  if (fontCreationEnabled) {
+    assert(fontCreationCall, "font creation report summary has no primary call");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : fontCreationEnabled
+        ? "vine.v86-bgi-gdi-font-creation"
         : fontEnumerationEnabled
         ? "vine.v86-bgi-gdi-font-enumeration"
         : screenDcEnabled
@@ -18269,6 +18427,15 @@ function buildGenericRuntimeReentryReport({
             call: fontEnumerationCall,
             catalogAuthority: "rust-gdi32-compatibility-policy",
             browserFontDiscoveryUsed: false,
+            browserFontResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(fontCreationEnabled
+      ? {
+          fontCreation: {
+            call: fontCreationCall,
+            objectAuthority: "runtime-gdi-logical-object",
             browserFontResourceCreated: false,
           },
         }

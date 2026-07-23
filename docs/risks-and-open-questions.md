@@ -76,9 +76,11 @@ schedulerへimportしない。
 
 Primary `GetDC(NULL)`のlogical primary-monitor relationに加え、到達した`EnumFontFamiliesExA`のWindows-932
 filter、single-record catalog／metrics、callback lifetime／result propagationはRust authorityを保って成立した。
-Native未初期化tailもsemantic stringと分離でき、host／browser font discoveryを同期APIへ取り込んでいない。次の
-graphics riskは`CreateFontA`以降のfont object／selection／metric consumerと、実際のglyph rasterization／substitutionを
-可読性要件へ接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を第二のauthorityにしない。
+Native未初期化tailもsemantic stringと分離でき、exact `CreateFontA` requestからdistinct logical font objectを
+`RuntimeGdi`へfailure-atomicに作成できた。Host／browser font discoveryやnative handleは同期APIへ取り込んでいない。
+次のgraphics riskはcompatible memory DC、DIB、object selection／introspection／deletion、metric consumerを一つの
+lifetimeへ接続し、native evidenceでguest-visibleと確認したglyph rasterization／substitutionを可読性要件へ接続できるか
+である。Host HDCやDOM `Screen`、browser `FontFace`を第二のauthorityにしない。
 
 ## 5. Scope reduction／no-go trigger
 

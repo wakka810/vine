@@ -1343,6 +1343,7 @@ class BrowserRuntimeSession {
     const isGdiCompletion = [
       "user32.get-dc.window-or-screen-acquisition.v2",
       "gdi32.enum-font-families-ex-a.cp932-screen.v1",
+      "gdi32.create-font-a.cp932-logical-object.v1",
       "gdi32.get-stock-object.black-brush.v1",
       "user32.fill-rect.logical-surface.v1",
       "user32.release-dc.window-or-screen-acquisition.v2",

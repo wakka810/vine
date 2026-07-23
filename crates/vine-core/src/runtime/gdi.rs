@@ -15,6 +15,8 @@ pub const RUNTIME_GDI_DEVICE_CONTEXT_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_OBJECT_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_SURFACE_LIMIT: usize = 4_096;
 pub const RUNTIME_GDI_SURFACE_FILL_LIMIT: usize = 16_384;
+pub const RUNTIME_LOG_FONT_A_BYTE_LENGTH: usize = 60;
+pub const RUNTIME_LOG_FONT_A_FACE_CAPACITY: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -158,7 +160,7 @@ impl Serialize for RuntimeDeviceContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "kind",
     rename_all = "kebab-case",
@@ -166,6 +168,49 @@ impl Serialize for RuntimeDeviceContext {
 )]
 pub enum RuntimeGdiObjectKind {
     StockBrush { index: i32, color_ref: u32 },
+    FontA { log_font: RuntimeLogFontA },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeLogFontA {
+    pub height: i32,
+    pub width: i32,
+    pub escapement: i32,
+    pub orientation: i32,
+    pub weight: i32,
+    pub italic: u8,
+    pub underline: u8,
+    pub strike_out: u8,
+    pub character_set: u8,
+    pub output_precision: u8,
+    pub clip_precision: u8,
+    pub quality: u8,
+    pub pitch_and_family: u8,
+    pub face_name_windows_932: Vec<u8>,
+}
+
+impl RuntimeLogFontA {
+    pub fn to_bytes(&self) -> Result<[u8; RUNTIME_LOG_FONT_A_BYTE_LENGTH], RuntimeStateError> {
+        validate_log_font_a(self)?;
+        let mut bytes = [0; RUNTIME_LOG_FONT_A_BYTE_LENGTH];
+        bytes[0..4].copy_from_slice(&self.height.to_le_bytes());
+        bytes[4..8].copy_from_slice(&self.width.to_le_bytes());
+        bytes[8..12].copy_from_slice(&self.escapement.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.orientation.to_le_bytes());
+        bytes[16..20].copy_from_slice(&self.weight.to_le_bytes());
+        bytes[20] = self.italic;
+        bytes[21] = self.underline;
+        bytes[22] = self.strike_out;
+        bytes[23] = self.character_set;
+        bytes[24] = self.output_precision;
+        bytes[25] = self.clip_precision;
+        bytes[26] = self.quality;
+        bytes[27] = self.pitch_and_family;
+        bytes[28..28 + self.face_name_windows_932.len()]
+            .copy_from_slice(&self.face_name_windows_932);
+        Ok(bytes)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -229,6 +274,13 @@ pub struct RuntimeGetStockObjectResult {
     pub object_id: RuntimeGdiObjectId,
     pub handle: u32,
     pub already_created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCreateFontAResult {
+    pub object_id: RuntimeGdiObjectId,
+    pub handle: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -359,6 +411,15 @@ pub(super) struct RuntimeGetStockObjectPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeCreateFontAPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    object: RuntimeGdiObject,
+    next_object_id: u64,
+    next_object_handle: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeReleaseDcPlan {
     expected_generation: u64,
     next_generation: u64,
@@ -434,6 +495,14 @@ pub(super) struct RuntimeGdiTeardownPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RuntimeDeviceContextAllocation {
     id: RuntimeDeviceContextId,
+    handle: u32,
+    next_id: u64,
+    next_handle: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeGdiObjectAllocation {
+    id: RuntimeGdiObjectId,
     handle: u32,
     next_id: u64,
     next_handle: u32,
@@ -712,38 +781,13 @@ impl RuntimeGdi {
                 next_object_handle: self.next_object_handle,
             });
         }
-        if self.objects.len() >= RUNTIME_GDI_OBJECT_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "gdi-object-capacity-exhausted",
-                "logical GDI object capacity is exhausted",
-            ));
-        }
-        let object_id = RuntimeGdiObjectId(self.next_object_id);
-        let next_object_id =
-            checked_next_identity(self.next_object_id, "gdi-object-identity-exhausted")?;
-        let handle = self.next_object_handle;
-        if handle < RUNTIME_GDI_OBJECT_HANDLE_BASE || self.object_handle_index.contains_key(&handle)
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "gdi-object-handle-allocator-invalid",
-                "logical GDI object handle allocator is not at a free namespace value",
-            ));
-        }
-        let next_object_handle = handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "gdi-object-handle-exhausted",
-                "logical GDI object handle namespace is exhausted",
-            )
-        })?;
+        let allocation = self.plan_object_allocation()?;
         Ok(RuntimeGetStockObjectPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
             object: RuntimeGdiObject {
-                id: object_id,
-                handle,
+                id: allocation.id,
+                handle: allocation.handle,
                 namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
                 shared: true,
                 object: RuntimeGdiObjectKind::StockBrush {
@@ -752,8 +796,8 @@ impl RuntimeGdi {
                 },
             },
             already_created: false,
-            next_object_id,
-            next_object_handle,
+            next_object_id: allocation.next_id,
+            next_object_handle: allocation.next_handle,
         })
     }
 
@@ -781,11 +825,13 @@ impl RuntimeGdi {
             {
                 return Err(stale_plan("get-stock-object-plan-stale"));
             }
-            let RuntimeGdiObjectKind::StockBrush { index, .. } = plan.object.object;
-            if self.stock_object_index.contains_key(&index) {
+            let RuntimeGdiObjectKind::StockBrush { index, .. } = &plan.object.object else {
+                return Err(stale_plan("get-stock-object-plan-stale"));
+            };
+            if self.stock_object_index.contains_key(index) {
                 return Err(stale_plan("get-stock-object-plan-stale"));
             }
-            self.stock_object_index.insert(index, plan.object.id);
+            self.stock_object_index.insert(*index, plan.object.id);
             self.object_handle_index
                 .insert(plan.object.handle, plan.object.id);
             self.objects.insert(plan.object.id, plan.object.clone());
@@ -798,6 +844,60 @@ impl RuntimeGdi {
             handle: plan.object.handle,
             already_created: plan.already_created,
         })
+    }
+
+    pub(super) fn plan_create_font_a(
+        &self,
+        log_font: RuntimeLogFontA,
+    ) -> Result<RuntimeCreateFontAPlan, RuntimeStateError> {
+        validate_log_font_a(&log_font)?;
+        let allocation = self.plan_object_allocation()?;
+        Ok(RuntimeCreateFontAPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            object: RuntimeGdiObject {
+                id: allocation.id,
+                handle: allocation.handle,
+                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+                shared: false,
+                object: RuntimeGdiObjectKind::FontA { log_font },
+            },
+            next_object_id: allocation.next_id,
+            next_object_handle: allocation.next_handle,
+        })
+    }
+
+    pub(super) fn commit_create_font_a(
+        &mut self,
+        plan: RuntimeCreateFontAPlan,
+    ) -> Result<RuntimeCreateFontAResult, RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.next_object_id != plan.object.id.0
+            || self.next_object_handle != plan.object.handle
+            || self.objects.contains_key(&plan.object.id)
+            || self.object_handle_index.contains_key(&plan.object.handle)
+        {
+            return Err(stale_plan("create-font-a-plan-stale"));
+        }
+        let RuntimeGdiObjectKind::FontA { ref log_font } = plan.object.object else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "create-font-a-plan-kind-invalid",
+                "logical font creation plan does not contain a font object",
+            ));
+        };
+        validate_log_font_a(log_font)?;
+        let result = RuntimeCreateFontAResult {
+            object_id: plan.object.id,
+            handle: plan.object.handle,
+        };
+        self.object_handle_index
+            .insert(plan.object.handle, plan.object.id);
+        self.objects.insert(plan.object.id, plan.object);
+        self.next_object_id = plan.next_object_id;
+        self.next_object_handle = plan.next_object_handle;
+        self.generation = plan.next_generation;
+        Ok(result)
     }
 
     pub(super) fn plan_release_dc(
@@ -976,7 +1076,13 @@ impl RuntimeGdi {
                 "logical GDI object handle index does not resolve to a live object",
             )
         })?;
-        let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = brush.object;
+        let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = &brush.object else {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "fill-rect-object-not-brush",
+                "FillRect requires a logical brush object",
+            ));
+        };
         let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-gdi",
@@ -997,7 +1103,7 @@ impl RuntimeGdi {
             sequence: self.next_fill_sequence,
             rect,
             brush_id,
-            color_ref,
+            color_ref: *color_ref,
         });
         let (next_generation, next_surface_generation, next_fill_sequence) = if fill.is_some() {
             (
@@ -1112,14 +1218,20 @@ impl RuntimeGdi {
                 "logical GDI object handle index does not resolve to a live object",
             )
         })?;
-        let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = brush.object;
+        let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = &brush.object else {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "fill-rect-object-not-brush",
+                "FillRect requires a logical brush object",
+            ));
+        };
         validate_fill_rect_bounds(rect, width, height)?;
         Ok(RuntimeGraphicsSurfaceFillRectPlan {
             expected_generation: self.generation,
             device_context,
             brush_id,
             rect,
-            color_ref,
+            color_ref: *color_ref,
         })
     }
 
@@ -1272,6 +1384,40 @@ impl RuntimeGdi {
         self.device_contexts.is_empty() && self.objects.is_empty() && self.surfaces.is_empty()
     }
 
+    fn plan_object_allocation(&self) -> Result<RuntimeGdiObjectAllocation, RuntimeStateError> {
+        if self.objects.len() >= RUNTIME_GDI_OBJECT_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "gdi-object-capacity-exhausted",
+                "logical GDI object capacity is exhausted",
+            ));
+        }
+        let id = RuntimeGdiObjectId(self.next_object_id);
+        let next_id = checked_next_identity(self.next_object_id, "gdi-object-identity-exhausted")?;
+        let handle = self.next_object_handle;
+        if handle < RUNTIME_GDI_OBJECT_HANDLE_BASE || self.object_handle_index.contains_key(&handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-gdi",
+                "gdi-object-handle-allocator-invalid",
+                "logical GDI object handle allocator is not at a free namespace value",
+            ));
+        }
+        let next_handle = handle.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-gdi",
+                "gdi-object-handle-exhausted",
+                "logical GDI object handle namespace is exhausted",
+            )
+        })?;
+        Ok(RuntimeGdiObjectAllocation {
+            id,
+            handle,
+            next_id,
+            next_handle,
+        })
+    }
+
     fn plan_device_context_allocation(
         &self,
     ) -> Result<RuntimeDeviceContextAllocation, RuntimeStateError> {
@@ -1311,6 +1457,19 @@ impl RuntimeGdi {
             next_handle,
         })
     }
+}
+
+fn validate_log_font_a(log_font: &RuntimeLogFontA) -> Result<(), RuntimeStateError> {
+    if log_font.face_name_windows_932.len() >= RUNTIME_LOG_FONT_A_FACE_CAPACITY
+        || log_font.face_name_windows_932.contains(&0)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-gdi",
+            "log-font-a-face-name-invalid",
+            "logical LOGFONTA face name must fit LF_FACESIZE with one trailing NUL",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_window_target(target: RuntimeGdiWindowTarget) -> Result<(), RuntimeStateError> {
@@ -1476,6 +1635,27 @@ mod tests {
                 right: 1920,
                 bottom: 1080,
             },
+        }
+    }
+
+    fn font() -> RuntimeLogFontA {
+        RuntimeLogFontA {
+            height: 64,
+            width: 32,
+            escapement: 0,
+            orientation: 0,
+            weight: 100,
+            italic: 0,
+            underline: 0,
+            strike_out: 0,
+            character_set: 128,
+            output_precision: 4,
+            clip_precision: 0,
+            quality: 2,
+            pitch_and_family: 0,
+            face_name_windows_932: vec![
+                0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83, 0x4e,
+            ],
         }
     }
 
@@ -1765,6 +1945,69 @@ mod tests {
             "surface-generation-exhausted"
         );
         assert_eq!(gdi, before_generation_exhaustion);
+    }
+
+    #[test]
+    fn font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans() {
+        let mut gdi = RuntimeGdi::default();
+        let mut invalid = font();
+        invalid.face_name_windows_932 = vec![b'x'; RUNTIME_LOG_FONT_A_FACE_CAPACITY];
+        let before_invalid = gdi.clone();
+        assert_eq!(
+            gdi.plan_create_font_a(invalid).unwrap_err().code,
+            "log-font-a-face-name-invalid"
+        );
+        assert_eq!(gdi, before_invalid);
+
+        let first_plan = gdi.plan_create_font_a(font()).unwrap();
+        let stale_plan = first_plan.clone();
+        let first = gdi.commit_create_font_a(first_plan).unwrap();
+        assert_eq!(first.object_id, RuntimeGdiObjectId(1));
+        assert_eq!(first.handle, RUNTIME_GDI_OBJECT_HANDLE_BASE);
+        assert_eq!(
+            gdi.commit_create_font_a(stale_plan).unwrap_err().code,
+            "create-font-a-plan-stale"
+        );
+        let second = gdi
+            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
+            .unwrap();
+        assert_eq!(second.object_id, RuntimeGdiObjectId(2));
+        assert_eq!(second.handle, RUNTIME_GDI_OBJECT_HANDLE_BASE + 1);
+
+        let object = gdi.objects.get(&first.object_id).unwrap();
+        let RuntimeGdiObjectKind::FontA { log_font } = &object.object else {
+            panic!("created GDI object is not a font")
+        };
+        assert_eq!(log_font, &font());
+        assert_eq!(
+            &log_font.to_bytes().unwrap()[..46],
+            &[
+                64, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 128, 4, 0,
+                2, 0, 130, 108, 130, 114, 32, 131, 83, 131, 86, 131, 98, 131, 78, 0, 0, 0, 0, 0,
+            ]
+        );
+
+        let dc = gdi
+            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
+            .unwrap();
+        let before_wrong_kind = gdi.clone();
+        assert_eq!(
+            gdi.plan_fill_rect(
+                dc.handle,
+                RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1,
+                    bottom: 1,
+                },
+                first.handle,
+                target().owner_thread_id,
+            )
+            .unwrap_err()
+            .code,
+            "fill-rect-object-not-brush"
+        );
+        assert_eq!(gdi, before_wrong_kind);
     }
 
     #[test]
