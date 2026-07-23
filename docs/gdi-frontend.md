@@ -10,10 +10,12 @@ one exact `GDI32!CreateFontA` logical object variant. It also implements the
 NULL-source `GDI32!CreateCompatibleDC` memory-DC lifecycle and `GDI32!DeleteDC`,
 the reached 8-bpp `GDI32!CreateDIBSection` object and backing lifecycle, exact
 font／bitmap `GetObjectA`, memory-DC `SelectObject`, and bounded `DeleteObject`.
+The selected created font also supports bounded `GDI32!GetOutlineTextMetricsA`
+and one exact `GDI32!TextOutA` CP932 glyph raster into the selected 8-bpp DIB.
 It also supports the reached D3D9 system-memory surface. `GDI32!GetStockObject`
 for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
 graphics-surface paths. This establishes the responsibility boundary needed for
-later GDI work without claiming a pixel renderer, screen drawing, general DC
+later GDI work without claiming a general pixel renderer, screen drawing, general DC
 behavior, or a shared Direct3D device.
 
 `RuntimeGdi` is a private subsystem owned by `RuntimeKernel`. It owns the HDC,
@@ -95,7 +97,8 @@ for a top-down 128 x 96, 8-bpp `BI_RGB` bitmap. `RuntimeGdi` owns its descriptor
 relation. `GuestMemory` owns the 12,288 zero-initialized pixel bytes, and
 `ProcessAddressSpaceAllocator` owns the explicit-release allocation in the
 graphics resource arena. The observed address is evidence, not a policy value
-or stable ABI promise.
+or stable ABI promise. `RuntimeGdi` also owns the DIB content generation; it
+does not duplicate the pixel bytes.
 
 Creation preflights the HDC relation, policy descriptor, GDI object identity,
 address allocation, memory owner and mapping, zero-filled backing, and writable
@@ -150,14 +153,22 @@ A screen HDC has no drawing surface in this checkpoint. Passing it to the
 current `FillRect` path produces the typed `screen-dc-drawing-unsupported`
 failure before mutation.
 
-A DIB backing is byte storage, not a completed GDI raster surface. Passing a
-memory HDC to the current `FillRect` path still produces the typed
-`memory-dc-drawing-unsupported` failure before mutation.
+A DIB backing is byte storage with one bounded raster contract, not a general
+GDI surface. The reached `TextOutA(hdc, 0, 0, "a", 1)` path revalidates the
+same-thread memory HDC, selected FontA and DIB identities, policy profile,
+content generation, and the writable backing range. The kernel then preflights
+the expected old bytes before committing one 4,384-byte span to `GuestMemory`
+and advancing the DIB content generation from zero to one. The exact mask
+changes 476 bytes from palette index 0 to 255. Stale selection, stale content,
+unwritable or changed backing, and unsupported text fail without changing GDI
+state or guest bytes. Passing a memory HDC to `FillRect` still produces the
+typed `memory-dc-drawing-unsupported` failure before mutation.
 
 ## Bounded font, memory DC, and DIB policy
 
-`Gdi32CompatibilityPolicy` owns the reached catalog, not `RuntimeGdi`, the
-browser, or a host font query. Version 4 accepts only flags zero and the exact
+`Gdi32CompatibilityPolicy` owns the reached catalog, metrics, and exact raster
+mask, not `RuntimeGdi`, the browser, or a host font query. Version 6 accepts
+only flags zero and the exact
 Windows-932 `MS Gothic` face with `SHIFTJIS_CHARSET` on a live same-thread
 screen HDC. Other `LOGFONTA` fields are deliberately ignored because the native
 caller leaves them as unstable stack bytes. Unsupported face or charset,
@@ -187,10 +198,9 @@ NULL, unterminated, cross-page, embedded-NUL policy mismatch, unsupported field
 values, exhausted identity, and stale or duplicate plans fail without consuming
 an object ID or handle and without changing GDI or guest-memory state. Creation
 allocates no glyph outline, raster surface, browser `FontFace`, Canvas text
-state, or renderer resource. Object selection, `GetObjectA`, deletion, text
-measurement, glyph rasterization, and font substitution are independent
-contracts. The first three are bounded to the reached font／DIB lifecycle; the
-remaining raster behavior is not implied.
+state, or renderer resource. Object selection, `GetObjectA`, deletion, outline
+metrics, and the exact raster are independent bounded contracts. General text
+measurement, glyph rasterization, and font substitution are not implied.
 
 The compatible-DC profile independently admits only source HDC zero. The
 aggregate resolves and revalidates the Rust-owned primary display before the
@@ -207,6 +217,14 @@ reverse grayscale table. The runtime derives stride and backing length with
 checked arithmetic. Other dimensions, bit depths, compression, palette shapes,
 file-mapping sections, deleted HDCs, and non-memory HDCs stop before allocation
 or output mutation.
+
+The text profile admits only origin `(0, 0)`, one Windows-932 byte `0x61`, the
+selected 64 x 32 created font, and the selected 128 x 96 top-down 8-bpp DIB.
+It stores 35 rows of a 32-pixel monochrome mask, beginning at logical row 20,
+with expected whole-plane FNV-1a transition `0x52965dc5 -> 0xe6fc8461`.
+Zero-length text is a mutation-free success. No host font lookup, native HDC,
+browser font rasterization, Canvas text state, or browser bitmap resource is
+consulted or created.
 
 ## Direct3D and renderer separation
 
@@ -257,6 +275,11 @@ allocation and guest-output atomicity, zero backing, exact 24-byte `BITMAP`,
 font／bitmap select and restore order, selected-object rejection, release of all
 backing identities, stale output preservation, malformed and unreached
 variants, and wrong／deleted HDC rejection.
+Outline-metrics tests cover size queries, partial and complete output, selected
+font validation, native padding canonicalization, and write failure atomicity.
+Text-raster tests cover the nullable counted Windows-932 ABI, exact native mask,
+zero-length no-op, stale selection and content generations, changed or
+unwritable backing, and the combined memory／GDI transaction.
 The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
@@ -279,7 +302,8 @@ npm run check:runtime:bgi-browser
   child or multiple windows, cross-thread DC use, class/private/cached DC
   policy, compatible DCs from non-NULL sources, SaveDC/RestoreDC, object types
   outside the bounded font／DIB lifecycle, clipping, mapping modes, other DIB
-  dimensions／formats／palettes, file-mapped DIBs, text metrics and rendering,
+  dimensions／formats／palettes, file-mapped DIBs, other text, glyphs, fonts,
+  positions, colors, background modes, alignment, clipping or raster formats,
   BitBlt, StretchBlt, and general GDI objects are not implemented.
 - The single enumerated record is not general system-font discovery and does
   not claim that a browser or host has the corresponding font installed.

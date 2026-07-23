@@ -931,6 +931,29 @@ export function validateCurrentCheckpoint(manifest) {
     "outlineTextMetricsSelectionGeneration",
     "outlineTextMetricsNodeCompletions",
     "outlineTextMetricsChromeCompletions",
+    "textRasterCompletions",
+    "textRasterSequence",
+    "textRasterInstructionCount",
+    "textRasterResult",
+    "textRasterLastError",
+    "textRasterGuestWriteBytes",
+    "textRasterChangedBytes",
+    "textRasterDeviceContextId",
+    "textRasterSelectedFontId",
+    "textRasterSelectedDibId",
+    "textRasterSelectionGeneration",
+    "textRasterContentGeneration",
+    "textRasterNodeCompletions",
+    "textRasterChromeCompletions",
+    "dibDeleteObjectSequence",
+    "dibDeleteObjectInstructionCount",
+    "dibDeleteObjectResult",
+    "fontDeleteObjectSequence",
+    "fontDeleteObjectInstructionCount",
+    "fontDeleteObjectResult",
+    "deleteDcSequence",
+    "deleteDcInstructionCount",
+    "deleteDcResult",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -998,13 +1021,13 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.commit !== 71 ||
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
-    bgiMappingOperations.release !== 3 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_303 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_822 ||
+    bgiMappingOperations.release !== 4 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_312 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_832 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_099 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_162 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -1013,7 +1036,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
-    bgiBrowserEvidence.largeHeapPageMaterializations !== 1 ||
+    bgiBrowserEvidence.largeHeapPageMaterializations !== 31 ||
     bgiBrowserEvidence.largeHeapAllocationAddress !== "0x40000000" ||
     bgiBrowserEvidence.largeHeapAllocationBytes !== 64 * 1024 * 1024 ||
     bgiBrowserEvidence.largeHeapAllocationId !== 12 ||
@@ -1855,7 +1878,7 @@ export function validateCurrentCheckpoint(manifest) {
       11_957_981 ||
     bgiBrowserEvidence.fontEnumerationCallbackScratchBytes !== 284 ||
     bgiBrowserEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     bgiBrowserEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     bgiBrowserEvidence.fontEnumerationCharacterSet !== 128 ||
@@ -1895,7 +1918,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.fontCreationImplementationId !==
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     bgiBrowserEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     bgiBrowserEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     bgiBrowserEvidence.fontCreationObjectId !== 2 ||
@@ -1931,7 +1954,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.compatibleDcImplementationId !==
       "gdi32.create-compatible-dc.null-screen-memory.v1" ||
     bgiBrowserEvidence.compatibleDcPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     bgiBrowserEvidence.compatibleDcProfileId !==
       "primary-null-screen-memory-dc-v1" ||
     bgiBrowserEvidence.compatibleDcDeviceContextId !== 4 ||
@@ -1970,7 +1993,11 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.deleteDcContractImplemented !== true ||
     bgiBrowserEvidence.deleteDcImplementationId !==
       "gdi32.delete-dc.logical-memory.v1" ||
-    bgiBrowserEvidence.deleteDcReachedBeforeNextStop !== false
+    bgiBrowserEvidence.deleteDcReachedBeforeNextStop !== true ||
+    bgiBrowserEvidence.deleteDcSequence !== 18_628 ||
+    bgiBrowserEvidence.deleteDcInstructionCount !== 12_072_567 ||
+    bgiBrowserEvidence.deleteDcResult !== 1 ||
+    bgiBrowserEvidence.deleteDcReturnAddress !== "0x1002c472"
   ) {
     errors.push("browser BGI compatible memory-DC evidence is invalid");
   }
@@ -1989,7 +2016,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.dibCreateImplementationId !==
       "gdi32.create-dib-section.primary-8bpp.v1" ||
     bgiBrowserEvidence.dibCreatePolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     bgiBrowserEvidence.dibCreateProfileId !==
       "primary-128x-96-8bpp-reverse-grayscale-v1" ||
     bgiBrowserEvidence.dibObjectId !== 5 ||
@@ -2026,25 +2053,34 @@ export function validateCurrentCheckpoint(manifest) {
       "000000008000000060000000800000000100080000100044" ||
     bgiBrowserEvidence.dibGetObjectImplementationId !==
       "gdi32.get-object-a.font-or-dib.v1" ||
-    bgiBrowserEvidence.dibSelectCompletions !== 2 ||
-    bgiBrowserEvidence.dibSelectSequences?.join(",") !== "18617,18618" ||
+    bgiBrowserEvidence.dibSelectCompletions !== 4 ||
+    bgiBrowserEvidence.dibSelectSequences?.join(",") !==
+      "18617,18618,18624,18625" ||
     bgiBrowserEvidence.dibSelectInstructionCounts?.join(",") !==
-      "11960192,11960199" ||
+      "11960192,11960199,12072548,12072554" ||
     bgiBrowserEvidence.dibSelectHandles?.join(",") !==
-      "0x47020005,0x47020002" ||
+      "0x47020005,0x47020002,0x47020004,0x47020003" ||
     bgiBrowserEvidence.dibSelectPreviousHandles?.join(",") !==
-      "0x47020004,0x47020003" ||
+      "0x47020004,0x47020003,0x47020005,0x47020002" ||
     bgiBrowserEvidence.dibSelectReturnAddresses?.join(",") !==
-      "0x1002c90c,0x1002c922" ||
-    bgiBrowserEvidence.dibSelectLastErrors?.join(",") !== "0,0" ||
+      "0x1002c90c,0x1002c922,0x1002c43d,0x1002c44d" ||
+    bgiBrowserEvidence.dibSelectLastErrors?.join(",") !== "0,0,0,0" ||
     bgiBrowserEvidence.dibSelectGuestWriteBytes !== 0 ||
     bgiBrowserEvidence.dibSelectImplementationId !==
       "gdi32.select-object.memory-font-bitmap.v1" ||
-    bgiBrowserEvidence.dibSelectionGenerations?.join(",") !== "1,2" ||
+    bgiBrowserEvidence.dibSelectionGenerations?.join(",") !== "1,2,3,4" ||
     bgiBrowserEvidence.dibDeleteObjectContractImplemented !== true ||
     bgiBrowserEvidence.dibDeleteObjectImplementationId !==
       "gdi32.delete-object.font-or-dib.v1" ||
-    bgiBrowserEvidence.dibDeleteObjectReachedBeforeNextStop !== false ||
+    bgiBrowserEvidence.dibDeleteObjectReachedBeforeNextStop !== true ||
+    bgiBrowserEvidence.dibDeleteObjectSequence !== 18_626 ||
+    bgiBrowserEvidence.dibDeleteObjectInstructionCount !== 12_072_559 ||
+    bgiBrowserEvidence.dibDeleteObjectResult !== 1 ||
+    bgiBrowserEvidence.dibDeleteObjectReturnAddress !== "0x1002c45c" ||
+    bgiBrowserEvidence.fontDeleteObjectSequence !== 18_627 ||
+    bgiBrowserEvidence.fontDeleteObjectInstructionCount !== 12_072_563 ||
+    bgiBrowserEvidence.fontDeleteObjectResult !== 1 ||
+    bgiBrowserEvidence.fontDeleteObjectReturnAddress !== "0x1002c465" ||
     bgiBrowserEvidence.dibObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
     bgiBrowserEvidence.dibByteAuthority !== "rust-guest-memory" ||
     bgiBrowserEvidence.dibAddressAuthority !==
@@ -2053,8 +2089,8 @@ export function validateCurrentCheckpoint(manifest) {
       "address-gdi-memory-preflight-targeted-commit" ||
     bgiBrowserEvidence.dibFailureAtomicity !== true ||
     bgiBrowserEvidence.dibBrowserBitmapResourceCreated !== false ||
-    bgiBrowserEvidence.dibNodeCompletions !== 4 ||
-    bgiBrowserEvidence.dibChromeCompletions !== 4 ||
+    bgiBrowserEvidence.dibNodeCompletions !== 7 ||
+    bgiBrowserEvidence.dibChromeCompletions !== 7 ||
     bgiBrowserEvidence.dibNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI DIB-section lifecycle evidence is invalid");
@@ -2083,7 +2119,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.outlineTextMetricsImplementationId !==
       "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1" ||
     bgiBrowserEvidence.outlineTextMetricsPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     bgiBrowserEvidence.outlineTextMetricsProfileId !==
       "primary-cp932-ms-gothic-outline-metrics-v1" ||
     bgiBrowserEvidence.outlineTextMetricsDeviceContext !== "0x47010004" ||
@@ -2105,6 +2141,46 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.outlineTextMetricsNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI outline-text-metrics evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.textRasterCompletions !== 1 ||
+    bgiBrowserEvidence.textRasterSequence !== 18_623 ||
+    bgiBrowserEvidence.textRasterInstructionCount !== 11_961_619 ||
+    bgiBrowserEvidence.textRasterArguments?.join(",") !==
+      "0x47010004,0x00000000,0x00000000,0x006ffd6c,0x00000001" ||
+    bgiBrowserEvidence.textRasterResult !== 1 ||
+    bgiBrowserEvidence.textRasterReturnAddress !== "0x1002cab1" ||
+    bgiBrowserEvidence.textRasterLastError !== 0 ||
+    bgiBrowserEvidence.textRasterGuestWriteAddress !== "0x44001a00" ||
+    bgiBrowserEvidence.textRasterGuestWriteBytes !== 4_384 ||
+    bgiBrowserEvidence.textRasterChangedBytes !== 476 ||
+    bgiBrowserEvidence.textRasterImplementationId !==
+      "gdi32.text-out-a.cp932-8bpp-raster.v1" ||
+    bgiBrowserEvidence.textRasterPolicyId !==
+      "gdi32-primary-cp932-text-raster-v6" ||
+    bgiBrowserEvidence.textRasterProfileId !==
+      "primary-cp932-ms-gothic-a-8bpp-raster-v1" ||
+    bgiBrowserEvidence.textRasterDeviceContextId !== 4 ||
+    bgiBrowserEvidence.textRasterSelectedFontId !== 2 ||
+    bgiBrowserEvidence.textRasterSelectedDibId !== 5 ||
+    bgiBrowserEvidence.textRasterSelectionGeneration !== 2 ||
+    bgiBrowserEvidence.textRasterContentGeneration !== 1 ||
+    bgiBrowserEvidence.textRasterInitialPixelPlaneFnv1a32 !== "0x52965dc5" ||
+    bgiBrowserEvidence.textRasterOutputPixelPlaneFnv1a32 !== "0xe6fc8461" ||
+    bgiBrowserEvidence.textRasterObjectAuthority !==
+      "runtime/gdi.rs::RuntimeGdi" ||
+    bgiBrowserEvidence.textRasterByteAuthority !== "rust-guest-memory" ||
+    bgiBrowserEvidence.textRasterMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    bgiBrowserEvidence.textRasterFailureAtomicity !== true ||
+    bgiBrowserEvidence.textRasterHostFontRasterizationImported !== false ||
+    bgiBrowserEvidence.textRasterBrowserFontRasterizationImported !== false ||
+    bgiBrowserEvidence.textRasterBrowserBitmapResourceCreated !== false ||
+    bgiBrowserEvidence.textRasterNodeCompletions !== 1 ||
+    bgiBrowserEvidence.textRasterChromeCompletions !== 1 ||
+    bgiBrowserEvidence.textRasterNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("browser BGI bounded TextOutA raster evidence is invalid");
   }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
@@ -2777,7 +2853,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeAtomicTests
       .filter((test) => test.startsWith("gdi32_dispatcher::"))
       .join(",") !==
-      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically,gdi32_dispatcher::dib_object_catalog_exposes_bounded_x86_lifecycle_contracts,gdi32_dispatcher::dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle,gdi32_dispatcher::create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically,gdi32_dispatcher::outline_text_metrics_catalog_exposes_nullable_size_query_and_bounded_output,gdi32_dispatcher::outline_text_metrics_matches_native_size_partial_failure_and_full_buffer_contracts,gdi32_dispatcher::outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state,gdi32_dispatcher::outline_text_metrics_rejects_unprofiled_selection_or_disabled_policy_atomically" ||
+      "gdi32_dispatcher::enum_font_families_ex_a_catalog_exposes_bounded_callback_contract,gdi32_dispatcher::enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result,gdi32_dispatcher::enum_font_families_ex_a_rejects_unreached_filters_flags_and_callbacks_atomically,gdi32_dispatcher::enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically,gdi32_dispatcher::font_callback_preparation_failure_preserves_memory_and_frame_identity,gdi32_dispatcher::create_font_a_catalog_exposes_bounded_windows_932_contract,gdi32_dispatcher::create_font_a_creates_distinct_rust_owned_objects_without_guest_writes,gdi32_dispatcher::create_font_a_rejects_unreached_or_malformed_variants_atomically,gdi32_dispatcher::compatible_dc_catalog_exposes_nullable_source_and_owned_delete_contracts,gdi32_dispatcher::compatible_dc_creation_shares_defaults_and_delete_retires_only_the_exact_dc,gdi32_dispatcher::compatible_dc_rejects_nonnull_or_disabled_creation_and_nonmemory_delete_atomically,gdi32_dispatcher::dib_object_catalog_exposes_bounded_x86_lifecycle_contracts,gdi32_dispatcher::dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle,gdi32_dispatcher::create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically,gdi32_dispatcher::outline_text_metrics_catalog_exposes_nullable_size_query_and_bounded_output,gdi32_dispatcher::outline_text_metrics_matches_native_size_partial_failure_and_full_buffer_contracts,gdi32_dispatcher::outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state,gdi32_dispatcher::outline_text_metrics_rejects_unprofiled_selection_or_disabled_policy_atomically,gdi32_dispatcher::text_out_catalog_exposes_nullable_counted_windows_932_input,gdi32_dispatcher::text_out_rasterizes_native_a_mask_into_selected_dib_and_zero_length_is_noop,gdi32_dispatcher::text_out_rejects_stale_selection_content_and_unwritable_backing_atomically" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -5794,10 +5870,10 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     gdi32Policy.schema !== "vine.gdi32-compatibility-policy" ||
-    gdi32Policy.schemaVersion !== 5 ||
-    gdi32Policy.id !== "gdi32-primary-cp932-outline-text-v5" ||
+    gdi32Policy.schemaVersion !== 6 ||
+    gdi32Policy.id !== "gdi32-primary-cp932-text-raster-v6" ||
     gdi32Policy.source !==
-      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v5" ||
+      "crates/vine-core/src/gdi32.rs::Gdi32CompatibilityPolicy::controlled_v6" ||
     gdi32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     gdi32Policy.enumerationProfileId !==
@@ -5881,6 +5957,25 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-four-nondeterministic-padding-bytes" ||
     gdi32Policy.outlineTextMetricsHostFontMeasurementImported !== false ||
     gdi32Policy.outlineTextMetricsBrowserFontMeasurementImported !== false ||
+    gdi32Policy.textRasterProfileId !==
+      "primary-cp932-ms-gothic-a-8bpp-raster-v1" ||
+    gdi32Policy.textRasterPosition?.join(",") !== "0,0" ||
+    gdi32Policy.textRasterTextWindows932Hex !== "61" ||
+    gdi32Policy.textRasterCellTop !== 20 ||
+    gdi32Policy.textRasterCellWidth !== 32 ||
+    gdi32Policy.textRasterRowCount !== 35 ||
+    gdi32Policy.textRasterChangedBytes !== 476 ||
+    gdi32Policy.textRasterInitialPixel !== 0 ||
+    gdi32Policy.textRasterForegroundPixel !== 255 ||
+    gdi32Policy.textRasterInitialPixelPlaneFnv1a32 !== "0x52965dc5" ||
+    gdi32Policy.textRasterOutputPixelPlaneFnv1a32 !== "0xe6fc8461" ||
+    gdi32Policy.textRasterObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    gdi32Policy.textRasterByteAuthority !== "rust-guest-memory" ||
+    gdi32Policy.textRasterMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    gdi32Policy.textRasterHostFontRasterizationImported !== false ||
+    gdi32Policy.textRasterBrowserFontRasterizationImported !== false ||
+    gdi32Policy.textRasterBrowserBitmapResourceImported !== false ||
     gdi32Policy.failureAtomicity !== true
   ) {
     errors.push("active GDI32 compatibility policy boundary is invalid");
@@ -6677,7 +6772,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdi-outline-text-metrics.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-gdi-text-raster.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7139,11 +7234,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_678 ||
-    latestEvidence.writebackDirtyPages !== 37_597 ||
-    latestEvidence.writebackChangedBytes !== 2_948_267 ||
-    latestEvidence.hostDeltaBatches !== 17_303 ||
-    latestEvidence.finalMemoryGeneration !== 36_554
+    latestEvidence.writebackBatches !== 18_693 ||
+    latestEvidence.writebackDirtyPages !== 37_623 ||
+    latestEvidence.writebackChangedBytes !== 2_949_432 ||
+    latestEvidence.hostDeltaBatches !== 17_312 ||
+    latestEvidence.finalMemoryGeneration !== 36_578
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9066,10 +9161,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "cd1c460bbb9cf5f147f03632bf437f4135ade530629692caaf78fe374313347a" ||
+      "5985339a48bb0de56faf0d383f44bd05ddeeb1dd148d42d9c659e2ffa4722ba2" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "539b45ea0e9361c435c20ee8c84633a553d9fb475cf97e061b7e0dad640647d6" ||
+      "4cf34f8569192fb4195be85e0e8e32784079d49d1023cfd049b90f4a21d164c5" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -9829,9 +9924,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.enum-font-families-ex-a.cp932-screen.v1" ||
     latestEvidence.fontEnumerationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontEnumerationPolicySchemaVersion !== 5 ||
+    latestEvidence.fontEnumerationPolicySchemaVersion !== 6 ||
     latestEvidence.fontEnumerationPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     latestEvidence.fontEnumerationProfileId !==
       "primary-cp932-ms-gothic-regular-v1" ||
     latestEvidence.fontEnumerationSequence !== 18_609 ||
@@ -9936,9 +10031,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.create-font-a.cp932-logical-object.v1" ||
     latestEvidence.fontCreationPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.fontCreationPolicySchemaVersion !== 5 ||
+    latestEvidence.fontCreationPolicySchemaVersion !== 6 ||
     latestEvidence.fontCreationPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     latestEvidence.fontCreationProfileId !==
       "primary-cp932-ms-gothic-64x32-thin-v1" ||
     latestEvidence.fontCreationSequence !== 18_611 ||
@@ -10029,12 +10124,16 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.deleteDcContractImplemented !== true ||
     latestEvidence.deleteDcImplementationId !==
       "gdi32.delete-dc.logical-memory.v1" ||
-    latestEvidence.deleteDcReachedBeforeNextStop !== false ||
+    latestEvidence.deleteDcReachedBeforeNextStop !== true ||
+    latestEvidence.deleteDcSequence !== 18_628 ||
+    latestEvidence.deleteDcInstructionCount !== 12_072_567 ||
+    latestEvidence.deleteDcResult !== 1 ||
+    latestEvidence.deleteDcReturnAddress !== "0x1002c472" ||
     latestEvidence.compatibleDcPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.compatibleDcPolicySchemaVersion !== 5 ||
+    latestEvidence.compatibleDcPolicySchemaVersion !== 6 ||
     latestEvidence.compatibleDcPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     latestEvidence.compatibleDcProfileId !==
       "primary-null-screen-memory-dc-v1" ||
     latestEvidence.compatibleDcSequence !== 18_613 ||
@@ -10158,10 +10257,18 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.dibDeleteObjectImplemented !== true ||
     latestEvidence.dibDeleteObjectImplementationId !==
       "gdi32.delete-object.font-or-dib.v1" ||
-    latestEvidence.dibDeleteObjectReachedBeforeNextStop !== false ||
+    latestEvidence.dibDeleteObjectReachedBeforeNextStop !== true ||
+    latestEvidence.dibDeleteObjectSequence !== 18_626 ||
+    latestEvidence.dibDeleteObjectInstructionCount !== 12_072_559 ||
+    latestEvidence.dibDeleteObjectResult !== 1 ||
+    latestEvidence.dibDeleteObjectReturnAddress !== "0x1002c45c" ||
+    latestEvidence.fontDeleteObjectSequence !== 18_627 ||
+    latestEvidence.fontDeleteObjectInstructionCount !== 12_072_563 ||
+    latestEvidence.fontDeleteObjectResult !== 1 ||
+    latestEvidence.fontDeleteObjectReturnAddress !== "0x1002c465" ||
     latestEvidence.dibPolicySchema !== "vine.gdi32-compatibility-policy" ||
-    latestEvidence.dibPolicySchemaVersion !== 5 ||
-    latestEvidence.dibPolicyId !== "gdi32-primary-cp932-outline-text-v5" ||
+    latestEvidence.dibPolicySchemaVersion !== 6 ||
+    latestEvidence.dibPolicyId !== "gdi32-primary-cp932-text-raster-v6" ||
     latestEvidence.dibProfileId !==
       "primary-128x-96-8bpp-reverse-grayscale-v1" ||
     latestEvidence.dibCreateSequence !== 18_614 ||
@@ -10206,17 +10313,18 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.dibGetObjectGuestWriteBytes !== 24 ||
     latestEvidence.dibGetObjectOutputHex !==
       "000000008000000060000000800000000100080000100044" ||
-    latestEvidence.dibSelectSequences?.join(",") !== "18617,18618" ||
+    latestEvidence.dibSelectSequences?.join(",") !==
+      "18617,18618,18624,18625" ||
     latestEvidence.dibSelectInstructionCounts?.join(",") !==
-      "11960192,11960199" ||
+      "11960192,11960199,12072548,12072554" ||
     latestEvidence.dibSelectHandles?.join(",") !==
-      "0x47020005,0x47020002" ||
+      "0x47020005,0x47020002,0x47020004,0x47020003" ||
     latestEvidence.dibSelectPreviousHandles?.join(",") !==
-      "0x47020004,0x47020003" ||
+      "0x47020004,0x47020003,0x47020005,0x47020002" ||
     latestEvidence.dibSelectReturnAddresses?.join(",") !==
-      "0x1002c90c,0x1002c922" ||
-    latestEvidence.dibSelectLastErrors?.join(",") !== "0,0" ||
-    latestEvidence.dibSelectionGenerations?.join(",") !== "1,2" ||
+      "0x1002c90c,0x1002c922,0x1002c43d,0x1002c44d" ||
+    latestEvidence.dibSelectLastErrors?.join(",") !== "0,0,0,0" ||
+    latestEvidence.dibSelectionGenerations?.join(",") !== "1,2,3,4" ||
     latestEvidence.dibObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
     latestEvidence.dibByteAuthority !== "rust-guest-memory" ||
     latestEvidence.dibAddressAuthority !==
@@ -10227,8 +10335,8 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.dibSelectedDeleteRejectedMutationFree !== true ||
     latestEvidence.dibStaleGetObjectPreservesOutput !== true ||
     latestEvidence.dibBrowserBitmapResourceCreated !== false ||
-    latestEvidence.dibNodeCompletions !== 4 ||
-    latestEvidence.dibChromeCompletions !== 4 ||
+    latestEvidence.dibNodeCompletions !== 7 ||
+    latestEvidence.dibChromeCompletions !== 7 ||
     latestEvidence.dibNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest bounded DIB-section lifecycle evidence is invalid");
@@ -10296,9 +10404,9 @@ export function validateCurrentCheckpoint(manifest) {
       "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1" ||
     latestEvidence.outlineTextMetricsPolicySchema !==
       "vine.gdi32-compatibility-policy" ||
-    latestEvidence.outlineTextMetricsPolicySchemaVersion !== 5 ||
+    latestEvidence.outlineTextMetricsPolicySchemaVersion !== 6 ||
     latestEvidence.outlineTextMetricsPolicyId !==
-      "gdi32-primary-cp932-outline-text-v5" ||
+      "gdi32-primary-cp932-text-raster-v6" ||
     latestEvidence.outlineTextMetricsProfileId !==
       "primary-cp932-ms-gothic-outline-metrics-v1" ||
     latestEvidence.outlineTextMetricsSequences?.join(",") !== "18619,18621" ||
@@ -10338,6 +10446,94 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.outlineTextMetricsNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest outline-text-metrics evidence is invalid");
+  }
+  for (const field of [
+    "nativeTextRasterPrimaryTraceSha256",
+    "nativeTextRasterConfirmationTraceSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeTextRasterPrimaryTraceBytes !== 971_658 ||
+    latestEvidence.nativeTextRasterPrimaryTraceLines !== 196 ||
+    latestEvidence.nativeTextRasterPrimaryTraceSha256 !==
+      "e0dd6369700f5845aaa10784b0f52b7ad72be10d94a32c6ea734b91255830db1" ||
+    latestEvidence.nativeTextRasterConfirmationTraceBytes !== 971_761 ||
+    latestEvidence.nativeTextRasterConfirmationTraceLines !== 196 ||
+    latestEvidence.nativeTextRasterConfirmationTraceSha256 !==
+      "6cab9c4794792f7cca125ea4839f7d3ca6ef0f7211fea8c63ec718d8a4a2f2c6" ||
+    latestEvidence.nativeTextRasterTraceDiagnostics !== 0 ||
+    latestEvidence.nativeTextRasterHookErrors !== 0 ||
+    latestEvidence.nativeTextRasterLifecycleProfile !==
+      "x86-bgi-gdi-font-object-lifecycle-v5" ||
+    latestEvidence.nativeTextRasterOuterOracleProfile !==
+      "x86-create-font-a-object-lifecycle-v5" ||
+    latestEvidence.nativeTextRasterOracleProfile !==
+      "x86-text-out-a-8bpp-raster-v1" ||
+    latestEvidence.nativeTextRasterCallerReturnRva !== "0x0002cab1" ||
+    latestEvidence.nativeTextRasterTextWindows932Hex !== "61" ||
+    latestEvidence.nativeTextRasterPosition?.join(",") !== "0,0" ||
+    latestEvidence.nativeTextRasterResult !== 1 ||
+    latestEvidence.nativeTextRasterLastError !== 0 ||
+    latestEvidence.nativeTextRasterInitialPixelPlaneFnv1a32 !== "0x52965dc5" ||
+    latestEvidence.nativeTextRasterOutputPixelPlaneFnv1a32 !== "0xe6fc8461" ||
+    latestEvidence.nativeTextRasterChangedBytes !== 476 ||
+    latestEvidence.nativeTextRasterBoundingBox?.join(",") !== "3,28,20,54" ||
+    latestEvidence.nativeTextRasterChangedValues?.join(",") !== "0,255" ||
+    latestEvidence.nativeTextRasterRepeatChangedBytes !== 0 ||
+    latestEvidence.nativeTextRasterZeroLengthChangedBytes !== 0 ||
+    latestEvidence.nativeTextRasterZeroLengthPreservesLastError !== true ||
+    latestEvidence.nativeTextRasterDeletedDcResult !== 0 ||
+    latestEvidence.nativeTextRasterDeletedDcLastError !== 0 ||
+    latestEvidence.nativeTextRasterHookResultsMatchSystem !== true ||
+    latestEvidence.nativeTextRasterHookLastErrorsMatchSystem !== true ||
+    latestEvidence.nativeTextRasterExecutableHashUnchanged !== true ||
+    latestEvidence.textRasterImplemented !== true ||
+    latestEvidence.textRasterImplementationId !==
+      "gdi32.text-out-a.cp932-8bpp-raster.v1" ||
+    latestEvidence.textRasterPolicySchema !== "vine.gdi32-compatibility-policy" ||
+    latestEvidence.textRasterPolicySchemaVersion !== 6 ||
+    latestEvidence.textRasterPolicyId !==
+      "gdi32-primary-cp932-text-raster-v6" ||
+    latestEvidence.textRasterProfileId !==
+      "primary-cp932-ms-gothic-a-8bpp-raster-v1" ||
+    latestEvidence.textRasterSequence !== 18_623 ||
+    latestEvidence.textRasterInstructionCount !== 11_961_619 ||
+    latestEvidence.textRasterArguments?.join(",") !==
+      "0x47010004,0x00000000,0x00000000,0x006ffd6c,0x00000001" ||
+    latestEvidence.textRasterReturnAddress !== "0x1002cab1" ||
+    latestEvidence.textRasterResult !== 1 ||
+    latestEvidence.textRasterLastError !== 0 ||
+    latestEvidence.textRasterGuestWriteAddress !== "0x44001a00" ||
+    latestEvidence.textRasterGuestWriteBytes !== 4_384 ||
+    latestEvidence.textRasterChangedBytes !== 476 ||
+    latestEvidence.textRasterDeviceContext !== "0x47010004" ||
+    latestEvidence.textRasterDeviceContextId !== 4 ||
+    latestEvidence.textRasterSelectedFont !== "0x47020002" ||
+    latestEvidence.textRasterSelectedFontId !== 2 ||
+    latestEvidence.textRasterSelectedDib !== "0x47020005" ||
+    latestEvidence.textRasterSelectedDibId !== 5 ||
+    latestEvidence.textRasterSelectionGeneration !== 2 ||
+    latestEvidence.textRasterContentGeneration !== 1 ||
+    latestEvidence.textRasterInitialPixelPlaneFnv1a32 !== "0x52965dc5" ||
+    latestEvidence.textRasterOutputPixelPlaneFnv1a32 !== "0xe6fc8461" ||
+    latestEvidence.textRasterObjectAuthority !== "runtime/gdi.rs::RuntimeGdi" ||
+    latestEvidence.textRasterByteAuthority !== "rust-guest-memory" ||
+    latestEvidence.textRasterMutation !==
+      "owner-plan-stale-check-transactional-commit" ||
+    latestEvidence.textRasterFailureAtomicity !== true ||
+    latestEvidence.textRasterHostFontRasterizationImported !== false ||
+    latestEvidence.textRasterBrowserFontRasterizationImported !== false ||
+    latestEvidence.textRasterBrowserBitmapResourceCreated !== false ||
+    latestEvidence.textRasterNodeCompletions !== 1 ||
+    latestEvidence.textRasterChromeCompletions !== 1 ||
+    latestEvidence.textRasterNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest bounded TextOutA raster evidence is invalid");
   }
   for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
@@ -10952,7 +11148,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned bounded CP932 font catalog, logical GDI object lifecycle, and selected FontA outline metrics output" ||
+      "Rust-owned bounded CP932 font catalog, logical GDI object lifecycle, selected FontA outline metrics, and transactional TextOutA DIB raster" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

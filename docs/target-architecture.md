@@ -785,8 +785,11 @@ address allocationを`ProcessAddressSpaceAllocator`に一意に置き、guest bi
 `GetObjectA`／`SelectObject`／`DeleteObject`はこのfont／DIB lifecycleだけを扱い、selected object deleteはmutation-freeに
 拒否する。Reached `GetOutlineTextMetricsA`はselected FontAを`RuntimeGdi`から再検証し、versioned GDI32 policyが
 fixed metricとCP932 stringを所有して`GuestMemory`へbounded outputをcommitする。Native padding、host／browser font
-measurement、native HDCをauthorityへ取り込まない。Mapping、clip、ROP、text rasterizationは必要な到達caseごとに
-runtime modelへ追加する。
+measurement、native HDCをauthorityへ取り込まない。Reached `TextOutA`は同じselected FontA／DIB relationと
+content generationを`RuntimeGdi`、pixel bytesを`GuestMemory`へ一意に置き、exact CP932 `0x61` maskのexpected
+before-imageとwritable rangeをpreflightしてmemory writeとcontent-generation advanceを一つのtransactionでcommitする。
+Browser／host font rasterizationやbitmap resourceを第二のauthorityにしない。Mapping、clip、ROP、一般text
+rasterizationは必要な到達caseごとにruntime modelへ追加する。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend

@@ -592,9 +592,20 @@ Rust dispatcher testsはlive same-thread memory HDC、selected nonshared FontA i
 partial／incomplete／oversized buffer、cross-page output、stale HDC／stock font／disabled policyを検査し、failure時に
 guest bytes、LastError以外のGDI state、allocatorを部分更新しないことを要求する。Node／Chrome gateはsequence
 18,619／18,621、size queryと269-byte write、HDC `0x47010004`、font `0x47020002`、selection generation 2、same
-semantic digest／terminal memoryを要求する。次stopはinstruction 11,961,619の
-`GDI32.dll!TextOutA(0x47010004, 0, 0, 0x006ffd6c, 1)`である。Text output、DIB raster mutation、glyph
-rasterization／substitution、host／browser font measurementはまだclaimしない。
+semantic digest／terminal memoryを要求する。
+
+Reached TextOut raster gateはfive-word x86 stdcall `TextOutA`のexact primary variantを固定する。Native two-run
+evidenceはorigin 0／0、Windows-932 byte `0x61`、BOOL 1／LastError 0、zero-filled 128 x 96 top-down 8-bpp planeの
+FNV-1a `0x52965dc5 -> 0xe6fc8461`、476 changed bytes、x 3..28／logical y 20..54を要求する。Repeat callと
+zero-length callはpixelを変えず、zero-length successはseeded LastErrorを保存し、deleted HDC callは0／LastError 0とする。
+
+Rust dispatcher／model testsはlive same-thread memory HDC、selected FontA／DIB、policy byte、selection／content
+generation、expected before-image、writable backingをpreflightし、4,384-byte guest writeとDIB content generationを
+failure-atomicにcommitすることを検査する。Node／Chrome gateはsequence 18,623、HDC `0x47010004`、font
+`0x47020002`、DIB `0x47020005`、content generation 1、same 18,637-call semantic digest／terminal memory、restore
+select sequence 18,624／18,625、DIB／font deletion 18,626／18,627、`DeleteDC` 18,628を要求する。次stopは
+instruction 12,073,229の`gdiplus.dll!GdiplusStartup`である。Other glyphs／fonts／positions／colors、general text
+rasterization／substitution、host／browser font resource、browser bitmap resourceはclaimしない。
 
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
