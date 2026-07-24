@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-23T18:16:36.504Z",
+  "recordedAt": "2026-07-24T13:24:55.924Z",
   "repository": {
-    "implementationCommit": "ee90305dbe36504d6f2f9e68dc701c8d083084d6",
-    "implementationTree": "61205c5379a1f221c707b60b6bcc3812a7dd2c9d",
-    "headCommit": "ee90305dbe36504d6f2f9e68dc701c8d083084d6",
+    "implementationCommit": "95987fcea00f17ffbf20932dc78529e3109d6ff4",
+    "implementationTree": "409a626a99039cac546144360f2501c552fc8217",
+    "headCommit": "95987fcea00f17ffbf20932dc78529e3109d6ff4",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,13 +27,13 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 3,
-    "runtimeCheckpoint": "gdiplus-startup",
-    "runtimeProfile": "gdiplus-startup",
+    "runtimeCheckpoint": "kernel32-virtual-alloc",
+    "runtimeProfile": "kernel32-virtual-alloc",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
-    "policyId": "kernel32-set-thread-priority-v1",
-    "policySource": "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-gdiplus-startup",
+    "policyId": "kernel32-virtual-alloc-reserve-v1",
+    "policySource": "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json",
+    "nodeReportSchema": "vine.v86-bgi-kernel32-virtual-alloc",
     "nodeReportSchemaVersion": 2,
     "browserRuntimeProtocol": "vine.browser-runtime-worker.v11",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
@@ -45,7 +45,7 @@
     "node": "v24.18.0",
     "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
     "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
-    "chrome": "150.0.7871.130",
+    "chrome": "150.0.7871.182",
     "llvm": {
       "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
       "wasmClang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
@@ -69,29 +69,29 @@
     "outcome": "passed",
     "node": {
       "outcome": "structured-stop",
-      "implementedApiContracts": 105,
-      "supportedCalls": 18640,
-      "callSemanticsSha256": "bc58f9c9dd15a6a98d84597022e571611b24ca008dc7fb6aaf7224b630aa4779",
-      "instructions": 12073370,
-      "finalGeneration": 36584,
-      "memoryContentSha256": "dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164",
-      "writebackBatches": 18696,
-      "dirtyPages": 37628,
-      "changedBytes": 2949586,
-      "hostDeltaBatches": 17315
+      "implementedApiContracts": 106,
+      "supportedCalls": 18642,
+      "callSemanticsSha256": "66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74",
+      "instructions": 12111929,
+      "finalGeneration": 36588,
+      "memoryContentSha256": "bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa",
+      "writebackBatches": 18698,
+      "dirtyPages": 37634,
+      "changedBytes": 2951429,
+      "hostDeltaBatches": 17317
     },
     "browser": {
       "outcome": "structured-stop",
-      "supportedCalls": 18640,
-      "callSemanticsSha256": "bc58f9c9dd15a6a98d84597022e571611b24ca008dc7fb6aaf7224b630aa4779",
-      "instructions": 12073370,
-      "finalGeneration": 37290,
-      "memoryContentSha256": "dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164",
-      "wasmBridgeCalls": 55729,
+      "supportedCalls": 18642,
+      "callSemanticsSha256": "66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74",
+      "instructions": 12111929,
+      "finalGeneration": 37296,
+      "memoryContentSha256": "bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa",
+      "wasmBridgeCalls": 55737,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 58171,
+          "transitionCount": 58183,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -138,23 +138,20 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "api-endpoint",
-      "nextCheckpoint": "virtual-alloc",
+      "nextCheckpoint": "imm32-get-default-ime-window",
       "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-      "instructionCount": 12073370,
-      "capabilityCluster": "kernel32-api-contract",
+      "instructionCount": 12111929,
+      "capabilityCluster": "imm32-api-contract",
       "reason": "endpoint-contract-missing",
       "endpointKind": "runtime-system-export",
-      "endpointId": 28,
-      "api": "kernel32.dll!VirtualAlloc",
+      "endpointId": 11,
+      "api": "imm32.dll!ImmGetDefaultIMEWnd",
       "arguments": [
-        "0x00000000",
-        "0x06000000",
-        "0x00102000",
-        "0x00000004"
+        "0x48010001"
       ],
-      "endpointAddress": "0x7f0001b0",
-      "iatAddress": "0x100d1118",
-      "returnAddress": "0x1008fba8"
+      "endpointAddress": "0x7f0000a0",
+      "iatAddress": "0x100d10d0",
+      "returnAddress": "0x100873da"
     },
     "cleanup": {
       "pendingHostCalls": 0,
@@ -169,14 +166,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-startup/report.json",
-      "bytes": 391410,
-      "sha256": "5f9f6af3149ede65f3c2299a2ddd08d5e9896f5e8e8c3da53497e4de403f9d8b"
+      "path": ".work/v86-bgi-virtual-alloc/report.json",
+      "bytes": 394030,
+      "sha256": "90c69bd17ec69e4cf298205ab5b7e0cd9a96787aef6986695aff9a0d81c138b5"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 44216,
-      "sha256": "a829b52ea8cc08532eca54edc30e57c76cc6829bc44cd8312b8ed6440bb52e9a"
+      "bytes": 44218,
+      "sha256": "b35284e2522b44279471231c5f61f162f3cbb4e84db5e8e15109606fe37106bb"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -191,12 +188,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "43585efb6267f1011461769065e50719b680a37fd0e2c2669552a1b9b22dbeb0"
+      "sha256": "c8823d20d277f6f6c4a7ecd9dff3609b6e7b83a64c48e3f2bae6b5ac436e129a"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4186861,
-      "sha256": "7d26971da88641d7d3a92ed6b10234d31204cc2cdd880ae5a3352862624d136e"
+      "bytes": 4219347,
+      "sha256": "44247456efe01b4b7a85772a81fe94d17b9925cb7bf13b9fb7fb1d59794196d4"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -228,5 +225,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "7d3569d11f27aedd01af06ff46f63f33afdfcd62e4a0e8b1ed61d31e7034a1c1"
   },
-  "payloadSha256": "3c41631f04c3e0b94e16fddf79f038b799fc245cb59bb5196b2bab343cc6a12f"
+  "payloadSha256": "b21633c458a4bbd2f80e88842c784173728fb1fd53e96045a186f631d93e4a16"
 }
