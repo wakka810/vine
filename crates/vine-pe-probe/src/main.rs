@@ -22,11 +22,11 @@ use vine_core::{
     ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
     Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass,
     LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
-    MemoryReflection, MemoryStats, ModuleIdentity, ModuleSnapshot, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
-    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RESUME_THREAD_IMPLEMENTATION,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
+    MemoryReflection, MemoryRegionSnapshot, MemoryStats, ModuleIdentity, ModuleSnapshot,
+    Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
+    RESUME_THREAD_IMPLEMENTATION, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
+    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
     RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
@@ -40,19 +40,19 @@ use vine_core::{
     RuntimeWaitableTimer, RuntimeWindowTimer, SET_THREAD_PRIORITY_IMPLEMENTATION,
     SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState,
     TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
-    UnsupportedPoint, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
-    bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan, complete_kernel32_source_read,
-    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
-    dispatch_kernel32_api, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    encode_pointer_contract, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
+    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -221,6 +221,7 @@ enum GenericRuntimeCapability {
     OutlineTextMetrics,
     TextRaster,
     GdiplusStartup,
+    VirtualAlloc,
 }
 
 struct GenericRuntimeProcess {
@@ -467,6 +468,8 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_priority: Option<GenericRuntimeThreadPriority>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    virtual_memory: Option<GenericRuntimeVirtualMemory>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     created_thread: Option<GenericRuntimeCreatedThread>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resumed_thread: Option<GenericRuntimeResumedThread>,
@@ -661,6 +664,18 @@ struct GenericRuntimeThreadPriority {
     handle: RuntimeHandle,
     thread_id: RuntimeThreadId,
     priority: RuntimeThreadPriority,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeVirtualMemory {
+    allocation: ProcessAddressAllocationRecord,
+    region: MemoryRegionSnapshot,
+    preferred_address: u32,
+    allocation_type: u32,
+    protection: u32,
+    reserve_only: bool,
+    top_down: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2509,6 +2524,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::OutlineTextMetrics
                     | GenericRuntimeCapability::TextRaster
                     | GenericRuntimeCapability::GdiplusStartup
+                    | GenericRuntimeCapability::VirtualAlloc
             )
         ) {
             let loader = kernel32_policy
@@ -3160,6 +3176,10 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let virtual_alloc_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::VirtualAlloc)
+    );
     let dinput8_factory_enabled = matches!(
         enabled_capability,
         Some(
@@ -3179,6 +3199,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3199,6 +3220,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let dsound_root_enabled = matches!(
@@ -3218,6 +3240,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3236,6 +3259,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3253,6 +3277,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let requested_capability = match enabled_capability {
@@ -3272,7 +3297,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::DibLifecycle
             | GenericRuntimeCapability::OutlineTextMetrics
             | GenericRuntimeCapability::TextRaster
-            | GenericRuntimeCapability::GdiplusStartup,
+            | GenericRuntimeCapability::GdiplusStartup
+            | GenericRuntimeCapability::VirtualAlloc,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3362,6 +3388,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let font_creation_enabled = matches!(
@@ -3373,6 +3400,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let compatible_dc_enabled = matches!(
@@ -3383,6 +3411,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let dib_lifecycle_enabled = matches!(
@@ -3392,6 +3421,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let outline_text_metrics_enabled = matches!(
@@ -3400,15 +3430,20 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     );
     let text_raster_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::TextRaster | GenericRuntimeCapability::GdiplusStartup)
+        Some(
+            GenericRuntimeCapability::TextRaster
+                | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
+        )
     );
     let gdiplus_startup_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::GdiplusStartup)
+        Some(GenericRuntimeCapability::GdiplusStartup | GenericRuntimeCapability::VirtualAlloc)
     );
     let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
     if !matches!(
@@ -3531,6 +3566,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     ) {
         user32_policy.set_timer = None;
@@ -3546,6 +3582,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::OutlineTextMetrics
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
         )
     ) {
         user32_policy.screen_dc = None;
@@ -3930,7 +3967,11 @@ fn run_v86_generic_runtime_session(
         } else if endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
             gdiplus_startup_enabled
         } else {
-            runtime_capability_enables_endpoint(requested_capability, endpoint)
+            runtime_capability_enables_endpoint(
+                requested_capability,
+                endpoint,
+                virtual_alloc_enabled,
+            )
         };
         if endpoint_enabled {
             contracts.push(contract);
@@ -4297,6 +4338,7 @@ fn run_v86_generic_runtime_session(
                             window_timer: None,
                             thread_affinity: None,
                             thread_priority: None,
+                            virtual_memory: None,
                             created_thread: None,
                             resumed_thread: None,
                             tick_count: None,
@@ -5126,6 +5168,11 @@ fn run_v86_generic_runtime_session(
                             session.runtime(),
                             &gdiplus_policy,
                         )?;
+                        let virtual_memory = generic_runtime_virtual_memory_completion(
+                            &completion,
+                            session.runtime(),
+                            session.memory(),
+                        )?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -5150,6 +5197,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer,
                                 thread_affinity,
                                 thread_priority,
+                                virtual_memory,
                                 created_thread,
                                 resumed_thread,
                                 tick_count,
@@ -5349,6 +5397,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
+                                virtual_memory: None,
                                 created_thread: None,
                                 resumed_thread: None,
                                 tick_count: None,
@@ -5454,6 +5503,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
+                                virtual_memory: None,
                                 created_thread: None,
                                 resumed_thread: None,
                                 tick_count: None,
@@ -5636,6 +5686,7 @@ fn run_v86_generic_runtime_session(
 fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
+    virtual_alloc_enabled: bool,
 ) -> bool {
     let get_monitor_info_a_enabled =
         matches!(enabled, Some(GenericRuntimeCapability::GetMonitorInfoA));
@@ -6298,6 +6349,7 @@ fn runtime_capability_enables_endpoint(
         "timeGetTime" => time_get_time_enabled,
         "GetVersionExA" => get_version_ex_a_enabled,
         "CreateWaitableTimerA" => create_waitable_timer_a_enabled,
+        "VirtualAlloc" => virtual_alloc_enabled,
         "LoadIconA" => load_icon_a_enabled,
         "LoadImageA" => load_image_a_enabled,
         "SendMessageA" => send_message_a_enabled,
@@ -10976,6 +11028,87 @@ fn set_eax_result(
     }
 }
 
+fn generic_runtime_virtual_memory_completion(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    memory: &GuestMemory,
+) -> Result<Option<GenericRuntimeVirtualMemory>, LoaderError> {
+    if completion.implementation_id != VIRTUAL_ALLOC_IMPLEMENTATION {
+        return Ok(None);
+    }
+    let address = GuestAddress(set_eax_result(
+        completion,
+        "virtual-alloc-return-register-invalid",
+        "VirtualAlloc dispatcher did not set EAX",
+    )?);
+    if address.0 == 0 {
+        return Err(LoaderError::runtime_defect(
+            "runtime-virtual-memory",
+            "virtual-alloc-primary-result-null",
+            "primary VirtualAlloc reserve unexpectedly returned NULL",
+        ));
+    }
+    let allocation = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+        .map_err(runtime_state_error)?
+        .clone();
+    if allocation.range.base != address {
+        return Err(LoaderError::runtime_defect(
+            "runtime-virtual-memory",
+            "virtual-alloc-address-authority-mismatch",
+            "VirtualAlloc return value does not identify its process address allocation",
+        ));
+    }
+    let region = memory
+        .region_snapshots()
+        .into_iter()
+        .find(|region| region.address_allocation_id == Some(allocation.id.0))
+        .ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-alloc-region-missing-after-dispatch",
+                "VirtualAlloc process address allocation has no guest memory reservation",
+            )
+        })?;
+    if region.range.start() != allocation.range.base
+        || region.range.byte_length() != allocation.range.byte_length
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-virtual-memory",
+            "virtual-alloc-region-authority-mismatch",
+            "VirtualAlloc process address allocation and guest memory reservation disagree",
+        ));
+    }
+    Ok(Some(GenericRuntimeVirtualMemory {
+        allocation,
+        region,
+        preferred_address: completion.frame.argument_u32(0).ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-alloc-preferred-address-missing-after-dispatch",
+                "VirtualAlloc completion has no preferred-address argument",
+            )
+        })?,
+        allocation_type: completion.frame.argument_u32(2).ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-alloc-allocation-type-missing-after-dispatch",
+                "VirtualAlloc completion has no allocation-type argument",
+            )
+        })?,
+        protection: completion.frame.argument_u32(3).ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-alloc-protection-missing-after-dispatch",
+                "VirtualAlloc completion has no protection argument",
+            )
+        })?,
+        reserve_only: true,
+        top_down: true,
+    }))
+}
+
 fn generic_runtime_gdiplus_completion(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
@@ -12849,6 +12982,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-outline-text-metrics" => GenericRuntimeCapability::OutlineTextMetrics,
                 "gdi-text-raster" => GenericRuntimeCapability::TextRaster,
                 "gdiplus-startup" => GenericRuntimeCapability::GdiplusStartup,
+                "kernel32-virtual-alloc" => GenericRuntimeCapability::VirtualAlloc,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

@@ -16,6 +16,8 @@ const focusedFontObjectObservation =
 const focusedGdiplusStartupObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("gdiplus-startup");
+const focusedVirtualAllocObservation =
+  selectedObservations.size === 1 && selectedObservations.has("virtual-alloc");
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
@@ -366,6 +368,10 @@ const fontObjectDibSectionsByHandle = new Map();
 const fontObjectSelectedBitmapByDc = new Map();
 let gdiplusStartupCompletionRecorded = false;
 let gdiplusStartupActivityGeneration = 0;
+let virtualAllocCompletionRecorded = false;
+let virtualAllocActivityGeneration = 0;
+const virtualAllocMainModuleCalls = [];
+let virtualQueryFunction = null;
 const gdiplusMainModuleCalls = [];
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
@@ -10475,6 +10481,196 @@ function attachGdiplusHook(module, name, argumentCount) {
   });
 }
 
+function snapshotVirtualAllocation(pointer, requestedBytes) {
+  if (pointer.isNull()) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      range: null,
+    };
+  }
+  try {
+    const first = Process.findRangeByAddress(pointer);
+    const lastAddress = pointer.add(Math.max(requestedBytes - 1, 0));
+    const last = Process.findRangeByAddress(lastAddress);
+    let memoryBasicInformation = null;
+    if (virtualQueryFunction !== null && Process.pointerSize === 4) {
+      const output = Memory.alloc(28);
+      const written = virtualQueryFunction(pointer, output, 28);
+      memoryBasicInformation =
+        written === 28
+          ? {
+              baseAddress: output.readPointer().toString(),
+              allocationBase: output.add(4).readPointer().toString(),
+              allocationProtect: output.add(8).readU32(),
+              regionSize: output.add(12).readU32(),
+              state: output.add(16).readU32(),
+              protect: output.add(20).readU32(),
+              type: output.add(24).readU32(),
+            }
+          : { error: `VirtualQuery returned ${written}` };
+    }
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      memoryBasicInformation,
+      range:
+        first === null
+          ? null
+          : {
+              base: first.base.toString(),
+              size: first.size,
+              protection: first.protection,
+              coversRequestedRange:
+                last !== null &&
+                last.base.equals(first.base) &&
+                last.size === first.size,
+            },
+    };
+  } catch (error) {
+    return {
+      pointer: pointer.toString(),
+      requestedBytes,
+      error: error.message,
+    };
+  }
+}
+
+function scheduleVirtualAllocCompletion() {
+  const generation = ++virtualAllocActivityGeneration;
+  setTimeout(() => {
+    if (generation !== virtualAllocActivityGeneration) {
+      return;
+    }
+    maybeCompleteVirtualAllocObservation(generation);
+  }, 250);
+}
+
+function maybeCompleteVirtualAllocObservation(generation) {
+  if (
+    virtualAllocCompletionRecorded ||
+    generation !== virtualAllocActivityGeneration ||
+    !virtualAllocMainModuleCalls.some((call) => call.api === "VirtualAlloc")
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(() => maybeCompleteVirtualAllocObservation(generation), 10);
+    return;
+  }
+  virtualAllocCompletionRecorded = true;
+  emit("virtual-alloc-complete", {
+    profile: "x86-bgi-virtual-alloc-reserve-top-down-v1",
+    mainModuleCalls: virtualAllocMainModuleCalls,
+  });
+  if (stopOnEvent === "virtual-alloc-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachVirtualAllocHook(module, name) {
+  if (virtualQueryFunction === null) {
+    const virtualQueryAddress = findExport(module, "VirtualQuery");
+    if (virtualQueryAddress === null) {
+      throw new Error("VirtualQuery export is unavailable");
+    }
+    virtualQueryFunction = new NativeFunction(
+      virtualQueryAddress,
+      "uint32",
+      ["pointer", "pointer", "uint32"],
+    );
+  }
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const isMainModuleCaller =
+        caller.module?.toLowerCase() === Process.mainModule.name.toLowerCase();
+      if (!isMainModuleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.api = name;
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.arguments =
+        name === "VirtualAlloc"
+          ? {
+              preferredAddress: args[0].toString(),
+              byteLength: args[1].toUInt32(),
+              allocationType: args[2].toUInt32(),
+              protection: args[3].toUInt32(),
+            }
+          : {
+              address: args[0].toString(),
+              byteLength: args[1].toUInt32(),
+              freeType: args[2].toUInt32(),
+            };
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructions(this.returnAddress, 96),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          8,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: this.arguments,
+          lastErrorBefore: this.lastErrorBefore,
+          immediateConsumer: this.immediateConsumer,
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue =
+        this.api === "VirtualAlloc" ? result.toString() : result.toUInt32();
+      const allocation =
+        this.api === "VirtualAlloc"
+          ? snapshotVirtualAllocation(result, this.arguments.byteLength)
+          : null;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: this.api,
+          result: resultValue,
+          allocation,
+        },
+        this.lastError,
+      );
+      virtualAllocMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        api: this.api,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.traceFrame.caller.rva,
+        arguments: this.arguments,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        result: resultValue,
+        allocation,
+        immediateConsumer: this.immediateConsumer,
+      });
+      scheduleVirtualAllocCompletion();
+    },
+  });
+}
+
 function scheduleFontObjectOracle(module) {
   if (fontObjectOracleScheduled) {
     return;
@@ -19853,6 +20049,7 @@ Process.attachModuleObserver({
       !focusedScreenDcObservation &&
       !focusedFontObjectObservation &&
       !focusedGdiplusStartupObservation &&
+      !focusedVirtualAllocObservation &&
       !focusedSetWindowLongAObservation &&
       !focusedSetWindowPosSizeObservation
     ) {
@@ -19881,6 +20078,22 @@ Process.attachModuleObserver({
           api: "QueryPerformanceFrequency",
           error: error.message,
         });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      focusedVirtualAllocObservation
+    ) {
+      for (const name of ["VirtualAlloc", "VirtualFree"]) {
+        try {
+          attachVirtualAllocHook(module, name);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
       }
     }
     if (

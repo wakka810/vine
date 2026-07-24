@@ -46,6 +46,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json",
   "fixtures/runtime-policies/kernel32-create-thread-v1.json",
   "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json",
+  "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -138,6 +139,17 @@ for (const relative of policyFiles) {
       allocationGranularity: 65536,
       processorLevel: 6,
       processorRevision: 0,
+    });
+  }
+  const virtualAlloc = policy.virtualAlloc ?? null;
+  if (virtualAlloc !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(systemInfo !== null);
+    assert.deepEqual(virtualAlloc, {
+      requireNullPreferredAddress: true,
+      allowedReserveByteLengths: [96 * 1024 * 1024],
+      allowedAllocationTypes: [0x0010_2000],
+      allowedProtections: [4],
     });
   }
   const tickCount = policy.tickCount ?? null;

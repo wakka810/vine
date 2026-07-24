@@ -21,7 +21,8 @@ use crate::runtime::{
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
     RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
     RuntimeSourceReadHostResponse, RuntimeStateErrorClass, RuntimeThreadPriority,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeVirtualMemoryReserveRequest, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -38,7 +39,7 @@ pub use policy::{
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
     Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy, Kernel32TickCountPolicy,
-    Kernel32WideCharToMultiBytePolicy,
+    Kernel32VirtualAllocPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -51,6 +52,7 @@ pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priori
 pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
 pub const RESUME_THREAD_IMPLEMENTATION: &str = "kernel32.resume-thread.v1";
 pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
+pub const VIRTUAL_ALLOC_IMPLEMENTATION: &str = "kernel32.virtual-alloc.reserve-top-down.v1";
 pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
@@ -134,6 +136,9 @@ const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
+pub const MEM_RESERVE: u32 = 0x0000_2000;
+pub const MEM_TOP_DOWN: u32 = 0x0010_0000;
+pub const PAGE_READWRITE: u32 = 0x0000_0004;
 
 pub fn dispatch_kernel32_api(
     contract: &ApiContract,
@@ -180,6 +185,7 @@ pub fn dispatch_kernel32_api_with_policy(
         CREATE_THREAD_IMPLEMENTATION => handle_create_thread(policy, contract, frame, session),
         RESUME_THREAD_IMPLEMENTATION => handle_resume_thread(contract, frame, session),
         GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
+        VIRTUAL_ALLOC_IMPLEMENTATION => handle_virtual_alloc(policy, contract, frame, session),
         GET_VERSION_EX_A_IMPLEMENTATION => {
             handle_get_version_ex_a(policy, contract, frame, session)
         }
@@ -308,6 +314,7 @@ pub fn kernel32_contract_for_endpoint(
         "CreateThread" => create_thread_contract(endpoint)?,
         "ResumeThread" => resume_thread_contract(endpoint)?,
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
+        "VirtualAlloc" => virtual_alloc_contract(endpoint)?,
         "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
@@ -407,6 +414,71 @@ fn handle_get_current_thread(
         .resolve_current_thread_pseudo_handle()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(resolution.value)))
+}
+
+fn handle_virtual_alloc(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let preferred_address = required_argument(contract, frame, 0, "preferred address")?;
+    let byte_length = required_argument(contract, frame, 1, "reservation size")?;
+    let allocation_type = required_argument(contract, frame, 2, "allocation type")?;
+    let protection = required_argument(contract, frame, 3, "protection")?;
+    let virtual_alloc = policy.virtual_alloc().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-virtual-memory",
+            "virtual-alloc-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable VirtualAlloc",
+                policy.id
+            ),
+        )
+    })?;
+    if (virtual_alloc.require_null_preferred_address && preferred_address != 0)
+        || !virtual_alloc
+            .allowed_reserve_byte_lengths
+            .contains(&byte_length)
+        || !virtual_alloc
+            .allowed_allocation_types
+            .contains(&allocation_type)
+        || !virtual_alloc.allowed_protections.contains(&protection)
+    {
+        return Err(ApiFault::unsupported(
+            "win32-virtual-memory",
+            "virtual-alloc-variant-unsupported",
+            format!(
+                "compatibility policy {} does not enable VirtualAlloc({preferred_address:#010x}, {byte_length:#010x}, {allocation_type:#010x}, {protection:#010x})",
+                policy.id
+            ),
+        ));
+    }
+    let system_info = policy.system_info().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-virtual-memory",
+            "virtual-alloc-system-info-missing",
+            "validated VirtualAlloc policy has no x86 system-information profile",
+        )
+    })?;
+    let reservation = session
+        .reserve_virtual_memory(RuntimeVirtualMemoryReserveRequest {
+            preferred_address: None,
+            byte_length,
+            minimum_application_address: GuestAddress(system_info.minimum_application_address),
+            maximum_application_address: GuestAddress(system_info.maximum_application_address),
+            allocation_granularity: system_info.allocation_granularity,
+            top_down: allocation_type == (MEM_RESERVE | MEM_TOP_DOWN),
+            protection: crate::memory::PageProtection {
+                read: protection == PAGE_READWRITE,
+                write: protection == PAGE_READWRITE,
+                execute: false,
+            },
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        reservation.range.base.0,
+    )))
 }
 
 fn handle_set_thread_affinity_mask(
@@ -3757,6 +3829,21 @@ pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         vec![out_struct("systemInfo", "SYSTEM_INFO", 36)],
         ApiReturnSchema::Void,
         GET_SYSTEM_INFO_IMPLEMENTATION,
+    )
+}
+
+pub fn virtual_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "VirtualAlloc",
+        vec![
+            opaque_pointer("preferredAddress", true, 1),
+            u32_argument("byteLength"),
+            u32_argument("allocationType"),
+            u32_argument("protection"),
+        ],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        VIRTUAL_ALLOC_IMPLEMENTATION,
     )
 }
 

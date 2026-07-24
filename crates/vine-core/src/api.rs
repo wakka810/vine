@@ -31,7 +31,8 @@ use crate::runtime::{
     RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeWindowCreationCallbackAction,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeVirtualMemoryReservation,
+    RuntimeVirtualMemoryReserveRequest, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowId,
 };
 
@@ -1634,6 +1635,13 @@ impl<'a> ExecutionSession<'a> {
             byte_length,
             initialization,
         )
+    }
+
+    pub fn reserve_virtual_memory(
+        &mut self,
+        request: RuntimeVirtualMemoryReserveRequest,
+    ) -> Result<RuntimeVirtualMemoryReservation, RuntimeStateError> {
+        self.runtime.reserve_virtual_memory(self.memory, request)
     }
 
     pub fn free_private_heap_block(

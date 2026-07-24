@@ -20,6 +20,7 @@ import {
   type RuntimeSourceReadSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
+  type RuntimeVirtualMemorySnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -172,6 +173,7 @@ interface CompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -248,6 +250,7 @@ interface HostCompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -289,6 +292,7 @@ interface CallbackCompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -1372,6 +1376,12 @@ class BrowserRuntimeSession {
       isGdiplusCompletion === (metadata.gdiplus !== undefined),
       "BGI GDI+ completion metadata mismatch",
     );
+    const isVirtualAllocCompletion =
+      completion.implementationId === "kernel32.virtual-alloc.reserve-top-down.v1";
+    invariant(
+      isVirtualAllocCompletion === (metadata.virtualMemory !== undefined),
+      "BGI virtual-memory completion metadata mismatch",
+    );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     const call = {
       sequence,
@@ -1416,6 +1426,9 @@ class BrowserRuntimeSession {
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
       ...(metadata.gdiplus === undefined ? {} : { gdiplus: metadata.gdiplus }),
+      ...(metadata.virtualMemory === undefined
+        ? {}
+        : { virtualMemory: metadata.virtualMemory }),
     };
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;

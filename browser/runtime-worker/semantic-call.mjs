@@ -297,6 +297,9 @@ export function normalizeSemanticCall(call) {
     sourceRead: call.sourceRead ?? null,
     gdi: call.gdi ?? null,
     ...(call.gdiplus === undefined ? {} : { gdiplus: call.gdiplus }),
+    ...(call.virtualMemory === undefined
+      ? {}
+      : { virtualMemory: call.virtualMemory }),
     interface: call.interface ?? null,
     vtableSlot: call.vtableSlot ?? null,
     referenceCount: call.referenceCount ?? null,

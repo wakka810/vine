@@ -415,6 +415,13 @@ mapping operationからBrowser mirrorまで保持する。owner／range／lifeti
 environment reservation、memory transaction、process metadataは一つのatomic planでcommitする。
 詳細は[process-address-space-allocator.md](process-address-space-allocator.md)を正とする。
 
+Reached `VirtualAlloc` reserveは同じallocatorのbounded top-down planを使う。Kernel32 policyはNULL preferred
+address、96 MiB、`MEM_RESERVE | MEM_TOP_DOWN`、`PAGE_READWRITE`だけを許可する。Runtime kernelはallocator、
+GuestMemory owner capacity、anonymous region overlapをmutation前に検証し、allocation ID付きreserve deltaを
+一つだけpublishする。Range `[0x79000000,0x7F000000)`はreserved／no-accessで、committed／physical pageと
+payloadは増えない。Hostまたはbrowserのaddressをguest identityへimportせず、TypeScriptはRust metadataと
+mapping deltaをmirrorするだけである。Commit／decommit／releaseと一般的なplacementは後続到達までclaimしない。
+
 ### 6.3 Heap と mapped file
 
 初期heap foundationはruntime-owned allocatorとしてguest memory内へblockを配置する。Version 1は32 x 16 MiB fixed band、8-byte first-fit、monotonic allocation ID、deterministic initialization／free poison、heap／process teardownを実装する。Win32 schema-v2 policyはimplemented flagsと16 MiB以下のnonzero rangeだけをこのallocatorへ渡し、historical schema-v1 exact-size policyをactive authorityにしない。Zero-size、other flags、failure-return／exception、reallocとtitle workload capacityは未完了である。VFS mapped file、image section、anonymous allocationは同じregion abstractionで表現するが、flush、copy-on-write、sharingのsemanticsは別metadataとする。詳細は[runtime-heap-backing.md](runtime-heap-backing.md)を正とする。

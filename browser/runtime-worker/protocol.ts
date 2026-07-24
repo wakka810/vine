@@ -347,6 +347,7 @@ export interface SessionReport {
     sourceRead?: RuntimeSourceReadSnapshot;
     gdi?: RuntimeGdiSnapshot;
     gdiplus?: RuntimeGdiplusSnapshot;
+    virtualMemory?: RuntimeVirtualMemorySnapshot;
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
   firstUnsupported: {
@@ -404,6 +405,34 @@ export type RuntimeGdiplusSnapshot =
       token: number;
       liveSessions: number;
     };
+
+export interface RuntimeVirtualMemorySnapshot {
+  allocation: {
+    id: number;
+    parentId: number | null;
+    purpose: { kind: "virtual-memory" };
+    owner: string;
+    range: { base: number; byteLength: number };
+    usableByteLength: number;
+    alignment: number;
+    guardPages: number;
+    classification: "virtual-memory";
+    lifetime: "process";
+    releasePolicy: "explicit";
+    executable: false;
+  };
+  region: {
+    addressAllocationId: number;
+    owner: number;
+    kind: "anonymous";
+    range: { start: number; byteLength: number };
+  };
+  preferredAddress: number;
+  allocationType: number;
+  protection: number;
+  reserveOnly: true;
+  topDown: true;
+}
 
 export interface RuntimeGdiDeviceContextSnapshot {
   id: number;

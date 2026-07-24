@@ -57,6 +57,16 @@ IDもreserve／commit／protect／decommit／releaseの全batch preflightで照�
 testはresult addressを固定せず、alignment、guard metadata、non-overlap、lifetime、release policyを
 検査する。mapped fileとprocess environmentも同じpurpose/classification modelへ追加できる。
 
+Search planはlow-to-high first-fitに加えてbounded top-downを持つ。Top-downは全live root allocationを
+mutationなしで走査し、指定range内のhighest aligned gapを選ぶ。Planはallocator generationとnext identityを
+保持し、重複またはstale commitを拒否する。Primary `VirtualAlloc(NULL, 0x06000000, MEM_RESERVE |
+MEM_TOP_DOWN, PAGE_READWRITE)`はこの経路でallocation ID 60、range `[0x79000000,0x7F000000)`を予約する。
+
+`RuntimeKernel::reserve_virtual_memory`はaddress plan、GuestMemory owner capacity、anonymous reserveを全て
+preflightしてからGuestMemory transaction内でmappingを作り、最後にallocator planをcommitする。Regionは同じ
+allocation IDを持つがpageをcommitせず、physical pageとpayloadを増やさない。Policy外のpreferred address、size、
+allocation type、protection、allocator exhaustion、memory overlapは両authorityとowner IDを変更しない。
+
 ## Atomicity and non-claims
 
 invalid requestとexhaustionはregistryを変更しない。explicit allocationだけをreleaseでき、live childを
@@ -65,6 +75,8 @@ invalid requestとexhaustionはregistryを変更しない。explicit allocation�
 このcheckpointは既存control arena、heap backing、active initial process environmentをallocation identityへ
 接続する。Guest imageとinitial stackのallocator record自体は存在するが、legacy materializerが作る最初の
 GuestMemory reserveをrecord-driven APIへ移すことはこのcontrol-mapping checkpointの範囲外である。
+Primary virtual-memory contractはreserve-onlyであり、preferred non-NULL、commit、decommit、protect、release、
+placeholder、large page、write-watch、failure returnの一般化は未実装である。
 
 ## Regression
 
@@ -72,6 +84,7 @@ GuestMemory reserveをrecord-driven APIへ移すことはこのcontrol-mapping c
 cargo test -p vine-core runtime::address_space::tests --locked
 cargo test -p vine-core --test address_allocation_mapping --locked
 cargo test -p vine-core --test runtime_heap_backing --locked
+cargo test -p vine-core --test kernel32_virtual_memory_dispatcher --locked
 npm run check:execution-engine-contract:prepared
 ```
 

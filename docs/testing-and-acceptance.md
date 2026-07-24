@@ -623,6 +623,21 @@ terminal memory SHA-256は`dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca
 次stopはinstruction 12,073,370の`kernel32.dll!VirtualAlloc(NULL, 0x06000000, 0x00102000, 4)`である。
 `GdiplusShutdown`のprimary到達、bitmap／codec／LockBits／browser resourceはこのgateでclaimしない。
 
+Reached VirtualAlloc gateはfour-word x86 stdcallのexact reserve-only variantを固定する。Native three-run evidenceは
+NULL preferred address、96 MiB、`MEM_RESERVE | MEM_TOP_DOWN`、`PAGE_READWRITE`、non-NULLでrunごとに異なる
+result、LastError 0を要求する。`VirtualQuery`相当のobservationはregion全体が`MEM_RESERVE`／`MEM_PRIVATE`、
+current protection no-access、allocation protection read-writeであることを固定する。CallerはEAXをglobalへ保存して
+returnし、focused trace中のcommit／decommit／releaseは未到達である。
+
+Rust allocator／dispatcher testsはhighest aligned gap、stale plan、policy外variant、owner capacity、GuestMemory
+overlapを検査し、allocator ID、owner ID、region、generationを部分更新しないことを要求する。成功はallocation ID 60、
+memory owner 30、anonymous range `[0x79000000,0x7F000000)`、generation 36,584→36,585、reserve operation 1、
+dirty／payload／physical page 0である。Node／Chrome full evidenceはsequence 18,641のmetadataを含む18,642 callsを
+ordered比較する。Summary semantic SHA-256は`66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74`、
+terminal memory SHA-256は`bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa`で一致する。
+次stopはinstruction 12,111,929の`imm32.dll!ImmGetDefaultIMEWnd(0x48010001)`である。Commit、preferred-address、
+VirtualFree、general protection、native/browser address identityはこのgateでclaimしない。
+
 COM structured-stop evidenceはRust ABI catalogの`explicitArgumentWords`をboundedなcapture幅とし、return
 address、this pointer、全explicit argumentsを保持してprefix一致では済ませない。Native two-run oracleは
 zero width／height／formatのresolution、remaining field preserve、non-NULL device、first reached device

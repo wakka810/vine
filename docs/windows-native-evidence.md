@@ -4797,3 +4797,46 @@ crossings、58,099 success transitions、clean cancel／watchdogを通した。C
 `0x100D106C`／return `0x1002CAB1`の`endpoint-contract-missing`である。Argumentsはmemory HDC
 `0x47010004`、x／y 0／0、Windows-932 text pointer `0x006FFD6C`、count 1で、byteはASCII `a`である。Text
 output、DIB pixel mutation、glyph rasterization／substitution、host／browser font measurementはこのcheckpointでclaimしない。
+
+## 142. BGI top-down reserve-only VirtualAlloc
+
+`x86-bgi-virtual-alloc-reserve-top-down-v1`を同じsource executableから3回取得した。Primary raw traceは
+48,303 bytes／77 records／SHA-256 `661e5a17058890dca9e9c6a7217334fb6f13e66d4ac5cb589dc84b87d0a99e2c`、
+confirmationは48,324 bytes／77 records／SHA-256
+`725d02d0f16f969ef79c25d64c824243940b40c50496189759cb1dc003c2d198`、lifecycle-focused captureは
+48,586 bytes／78 records／SHA-256 `e4e1d08da69b0b04d44e0426d024abcd7520d3fe3c7b9ff8a3be78d793aec9f7`
+である。Diagnostics／hook errorsは0、raw traceは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+BGI RVA `0x0008FBA8`へ戻る`VirtualAlloc`はpreferred address NULL、size `0x06000000`、allocation type
+`0x00102000` (`MEM_RESERVE | MEM_TOP_DOWN`)、protection `0x00000004` (`PAGE_READWRITE`)を渡す。各runの
+resultは`0x79CB0000`、`0x78ED0000`、`0x79A70000`でnon-NULLだが一致せず、numeric baseはartifact identityである。
+LastErrorは0を保存した。Memory observationは全96 MiBがstate `MEM_RESERVE`、type `MEM_PRIVATE`、current
+protection 0、allocation protection `PAGE_READWRITE`で、physical commitmentはない。Immediate wrapperはEAXを
+globalへ保存してreturnする。隣接codeにはbaseを使うcommit、decommit、release pathがあるが、focused capture中には
+到達しなかったためsemanticsをclaimしない。
+
+Vine policy `kernel32-virtual-alloc-reserve-v1`はこのexact four-word variantだけを許可する。
+`ProcessAddressSpaceAllocator`がhighest aligned top-down gap `[0x79000000,0x7F000000)`をallocation ID 60として
+planし、`GuestMemory`はowner 30のanonymous reserved regionを同じallocation IDへ結ぶ。Allocator capacity、memory
+owner capacity、overlapを全てpreflightし、generation 36,584→36,585のreserve operation 1をtransactional commit
+する。Deltaはcontrol 96 bytes、dirty page 0、payload 0／empty SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`で、reserved pageは24,576増えるが
+committed／physical pageは増えない。Host／browser addressはimportしない。
+
+Nodeは18,642 supported calls、18,698 writebacks／37,634 dirty pages／2,951,429 changed bytes、17,317 host
+deltas、generation 36,588、semantic SHA-256
+`66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74`、terminal memory SHA-256
+`bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa`を通した。Summary reportは394,030
+bytes／SHA-256 `90c69bd17ec69e4cf298205ab5b7e0cd9a96787aef6986695aff9a0d81c138b5`である。Full evidenceでも
+Node／Chromeの全18,642 ordered callsとVirtualAlloc allocation／region metadataが一致した。
+
+Chrome Runtime Worker protocol v11は19,406 slices、19,404 writebacks／39,269 pages、17,317 mapping deltas／
+18,837 dirty pages、generation 27→37,296、55,737 Wasm crossings、58,183 success transitions、clean
+cancel／watchdogを通した。Current measured artifact identityは[current-checkpoint.json](current-checkpoint.json)を正とする。
+
+次stopはinstruction 12,111,929、`IMM32.dll!ImmGetDefaultIMEWnd` endpoint ID 11／address `0x7F0000A0`／IAT
+`0x100D10D0`／return `0x100873DA`の`endpoint-contract-missing`である。Argumentはlogical main HWND
+`0x48010001`である。IME window identity、message integration、commit／decommit／release、general `VirtualAlloc`
+placementはこのcheckpointで実装済みとしない。

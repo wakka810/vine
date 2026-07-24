@@ -1467,6 +1467,13 @@ impl BrowserRuntime {
                         )? {
                             metadata["gdiplus"] = gdiplus;
                         }
+                        if let Some(virtual_memory) = bgi_virtual_memory_completion_metadata(
+                            &completion,
+                            &self.runtime,
+                            &self.memory,
+                        )? {
+                            metadata["virtualMemory"] = virtual_memory;
+                        }
                         metadata
                     }
                 };
@@ -2742,6 +2749,55 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
         "kind": kind,
         "completion": completion,
     })
+}
+
+fn bgi_virtual_memory_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    memory: &GuestMemory,
+) -> Result<Option<Value>, String> {
+    if completion.implementation_id != vine_core::VIRTUAL_ALLOC_IMPLEMENTATION {
+        return Ok(None);
+    }
+    let RegisterUpdate::Set(address) = completion.eax else {
+        return Err("VirtualAlloc completion did not set EAX".to_owned());
+    };
+    if address == 0 {
+        return Err("primary VirtualAlloc reserve unexpectedly returned NULL".to_owned());
+    }
+    let allocation = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+        .map_err(error_string)?;
+    if allocation.range.base.0 != address {
+        return Err(
+            "VirtualAlloc return value does not identify its process address allocation".to_owned(),
+        );
+    }
+    let region = memory
+        .region_snapshots()
+        .into_iter()
+        .find(|region| region.address_allocation_id == Some(allocation.id.0))
+        .ok_or_else(|| {
+            "VirtualAlloc process address allocation has no guest memory reservation".to_owned()
+        })?;
+    if region.range.start() != allocation.range.base
+        || region.range.byte_length() != allocation.range.byte_length
+    {
+        return Err(
+            "VirtualAlloc process address allocation and guest memory reservation disagree"
+                .to_owned(),
+        );
+    }
+    Ok(Some(json!({
+        "allocation": allocation,
+        "region": region,
+        "preferredAddress": completion.frame.argument_u32(0),
+        "allocationType": completion.frame.argument_u32(2),
+        "protection": completion.frame.argument_u32(3),
+        "reserveOnly": true,
+        "topDown": true,
+    })))
 }
 
 fn bgi_gdiplus_completion_metadata(

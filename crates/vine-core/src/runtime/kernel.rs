@@ -162,6 +162,7 @@ use super::user32::{
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
     RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
+use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1059,6 +1060,105 @@ impl RuntimeKernel {
 
     pub fn process_address_space_allocator(&self) -> &ProcessAddressSpaceAllocator {
         &self.address_space_allocator
+    }
+
+    pub fn reserve_virtual_memory(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeVirtualMemoryReserveRequest,
+    ) -> Result<RuntimeVirtualMemoryReservation, RuntimeStateError> {
+        self.require_virtual_memory_operation_state()?;
+        if request.preferred_address.is_some() || !request.top_down {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-virtual-memory",
+                "virtual-memory-placement-unsupported",
+                "the active virtual memory contract requires a null preferred address and top-down placement",
+            ));
+        }
+        let address_request = request.address_request()?;
+        let reservation = self
+            .address_space_allocator
+            .plan_top_down_reservation(address_request)?;
+        let allocation = &reservation.allocation;
+        if allocation.usable_byte_length != u64::from(request.byte_length)
+            || allocation.guard_pages != 0
+            || allocation.purpose != ProcessAddressAllocationPurpose::VirtualMemory
+            || allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Process
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable != request.protection.execute
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-address-plan-invalid",
+                "planned virtual memory reservation does not satisfy its runtime contract",
+            ));
+        }
+        let range = GuestRange::new(allocation.range.base, allocation.range.byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .preflight_growth(1, 1, 0, "runtime-virtual-memory")
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .preflight_fixed_reservation(
+                allocation.range.base,
+                allocation.range.byte_length,
+                "runtime-virtual-memory",
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        self.address_space_allocator
+            .preflight_reservation_commit(&reservation)?;
+
+        let mut transaction = memory.begin_transaction();
+        let memory_owner = transaction
+            .create_owner(MemoryOwnerKind::Anonymous)
+            .map_err(RuntimeStateError::from_memory)?;
+        let reserved = transaction
+            .reserve_fixed_for_address_allocation(
+                allocation.id.0,
+                memory_owner,
+                MemoryRegionKind::Anonymous,
+                allocation.range.base,
+                allocation.range.byte_length,
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        if reserved != range {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-region-range-mismatch",
+                "guest memory reserved a different range than the process address plan",
+            ));
+        }
+        self.address_space_allocator
+            .preflight_reservation_commit(&reservation)?;
+        let result = RuntimeVirtualMemoryReservation {
+            address_allocation_id: allocation.id,
+            memory_owner,
+            range: allocation.range,
+            usable_byte_length: request.byte_length,
+            top_down: request.top_down,
+            protection: request.protection,
+        };
+        self.address_space_allocator.commit_reservation(reservation);
+        transaction.commit_transaction();
+        Ok(result)
+    }
+
+    fn require_virtual_memory_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-virtual-memory",
+                "virtual-memory-operation-state-invalid",
+                "virtual memory reservation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
     }
 
     pub fn com(&self) -> &RuntimeCom {

@@ -172,6 +172,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-outline-text-metrics",
         "gdi-text-raster",
         "gdiplus-startup",
+        "kernel32-virtual-alloc",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -263,6 +264,7 @@ assert(
       "gdi-outline-text-metrics",
       "gdi-text-raster",
       "gdiplus-startup",
+      "kernel32-virtual-alloc",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -318,6 +320,7 @@ if (
     "gdi-outline-text-metrics",
     "gdi-text-raster",
     "gdiplus-startup",
+    "kernel32-virtual-alloc",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -332,7 +335,9 @@ if (
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    [
+    genericRuntimeCapability === "kernel32-virtual-alloc"
+      ? "kernel32-virtual-alloc-reserve-v1.json"
+      : [
       "kernel32-set-thread-priority",
       "gdi-screen-dc",
       "gdi-font-enumeration",
@@ -505,7 +510,9 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const gdiplusStartupEnabled = genericRuntimeCapability === "gdiplus-startup";
+const virtualAllocEnabled = genericRuntimeCapability === "kernel32-virtual-alloc";
+const gdiplusStartupEnabled =
+  virtualAllocEnabled || genericRuntimeCapability === "gdiplus-startup";
 const textRasterEnabled =
   gdiplusStartupEnabled || genericRuntimeCapability === "gdi-text-raster";
 const outlineTextMetricsEnabled =
@@ -781,7 +788,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? gdiplusStartupEnabled
+      ? virtualAllocEnabled
+      ? "v86-bgi-virtual-alloc"
+      : gdiplusStartupEnabled
       ? "v86-bgi-startup"
       : textRasterEnabled
       ? "v86-bgi-text-raster"
@@ -4791,6 +4800,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (virtualAllocEnabled) {
+        validateVirtualAllocResult(genericResult);
       } else if (gdiplusStartupEnabled) {
         validateGdiplusStartupResult(genericResult);
       } else if (textRasterEnabled) {
@@ -5006,6 +5017,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : virtualAllocEnabled
+          ? "bgi VirtualAlloc top-down reserve-only mapping"
           : gdiplusStartupEnabled
           ? "bgi logical GDI+ startup session"
           : textRasterEnabled
@@ -6207,6 +6220,9 @@ function buildGenericCallRecord(
     ...(completionFrame.threadPriority === undefined
       ? {}
       : { threadPriority: completionFrame.threadPriority }),
+    ...(completionFrame.virtualMemory === undefined
+      ? {}
+      : { virtualMemory: completionFrame.virtualMemory }),
     ...(completionFrame.createdThread === undefined
       ? {}
       : { createdThread: completionFrame.createdThread }),
@@ -6284,6 +6300,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : virtualAllocEnabled
+          ? 93
         : gdiplusStartupEnabled
           ? 92
         : textRasterEnabled
@@ -6834,6 +6852,10 @@ function applyRuntimeHostDelta(context, delta) {
     const graphicsResourceOperation = operation.regionKind === 11;
     const audioResourceOperation = operation.regionKind === 12;
     const gdiResourceOperation = operation.regionKind === 13;
+    const virtualMemoryOperation =
+      operation.regionKind === 8 &&
+      operation.address === 0x7900_0000 &&
+      operation.byteLength === 0x0600_0000;
     const guestThreadStackOperation = operation.regionKind === 2;
     const guestThreadEnvironmentOperation = operation.regionKind === 3;
     if (guestThreadStackOperation || guestThreadEnvironmentOperation) {
@@ -6900,6 +6922,15 @@ function applyRuntimeHostDelta(context, delta) {
       assert(0x4400_0000 <= operation.address && end <= 0x4500_0000);
       assert.equal(operation.byteLength, 3 * page.size);
     }
+    if (virtualMemoryOperation) {
+      assert(
+        virtualAllocEnabled,
+        "anonymous virtual-memory mapping requires the VirtualAlloc capability",
+      );
+      assert.equal(operation.address % 0x1_0000, 0);
+      assert.equal(operation.byteLength % page.size, 0);
+      assert.equal(end, 0x7f00_0000);
+    }
     if (operation.operation === 1) {
       const callbackScratchReserve =
         operation.regionKind === 9 &&
@@ -6913,6 +6944,7 @@ function applyRuntimeHostDelta(context, delta) {
           graphicsResourceOperation ||
           audioResourceOperation ||
           gdiResourceOperation ||
+          virtualMemoryOperation ||
           guestThreadStackOperation ||
           guestThreadEnvironmentOperation,
         "runtime host reserve has no enabled subsystem owner",
@@ -15351,6 +15383,166 @@ function validateGdiplusStartupResult(result) {
   ]);
 }
 
+function validateVirtualAllocResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_642);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.writebacks.length, 18_698);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_634,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_951_429,
+  );
+  assert.equal(result.hostDeltas.length, 17_317);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_588);
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
+  );
+  assert.equal(calls.length, 1, "expected one primary VirtualAlloc completion");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_641);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 12_073_370);
+  assert.deepEqual(call.arguments, [0, 0x0600_0000, 0x0010_2000, 4]);
+  assert.equal(call.implementationId, "kernel32.virtual-alloc.reserve-top-down.v1");
+  assert.deepEqual(call.result, { action: "set", value: 0x7900_0000 });
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 20);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.virtualMemory, {
+    allocation: {
+      id: 60,
+      parentId: null,
+      purpose: { kind: "virtual-memory" },
+      owner: "runtime-virtual-memory",
+      range: { base: 0x7900_0000, byteLength: 0x0600_0000 },
+      usableByteLength: 0x0600_0000,
+      alignment: 0x1_0000,
+      guardPages: 0,
+      classification: "virtual-memory",
+      lifetime: "process",
+      releasePolicy: "explicit",
+      executable: false,
+    },
+    region: {
+      addressAllocationId: 60,
+      owner: 30,
+      kind: "anonymous",
+      range: { start: 0x7900_0000, byteLength: 0x0600_0000 },
+    },
+    preferredAddress: 0,
+    allocationType: 0x0010_2000,
+    protection: 4,
+    reserveOnly: true,
+    topDown: true,
+  });
+  const delta = result.hostDeltas.find((candidate) => candidate.sequence === call.sequence);
+  assert(delta, "VirtualAlloc completion has no host memory delta");
+  assert.equal(delta.fromGeneration, 36_584);
+  assert.equal(delta.generation, 36_585);
+  assert.equal(delta.mappingOperations, 1);
+  assert.deepEqual(delta.dirtyPages, []);
+  assert.equal(delta.controlBytes, 96);
+  assert.equal(delta.payloadBytes, 0);
+  assert.equal(
+    delta.payloadSha256,
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  );
+  assert.deepEqual(delta.cacheEffects, {
+    flushTlb: false,
+    invalidateInstructionFetch: false,
+    invalidateGeneratedCode: false,
+  });
+  assert.deepEqual(
+    result.supportedCalls.slice(-5).map(
+      ({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+        sequence,
+        symbol,
+        occurrence,
+        trapInstructionCount,
+      }),
+    ),
+    [
+      {
+        sequence: 18_638,
+        symbol: "GdiplusStartup",
+        occurrence: 1,
+        trapInstructionCount: 12_073_229,
+      },
+      {
+        sequence: 18_639,
+        symbol: "GetVersionExA",
+        occurrence: 3,
+        trapInstructionCount: 12_073_339,
+      },
+      {
+        sequence: 18_640,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_397,
+        trapInstructionCount: 12_073_364,
+      },
+      {
+        sequence: 18_641,
+        symbol: "VirtualAlloc",
+        occurrence: 1,
+        trapInstructionCount: 12_073_370,
+      },
+      {
+        sequence: 18_642,
+        symbol: "HeapAlloc",
+        occurrence: 164,
+        trapInstructionCount: 12_073_417,
+      },
+    ],
+  );
+  assert.equal(result.supportedCalls.at(-1).result.value, 0x2013_9c50);
+  assert.equal(result.fault.capabilityCluster, "imm32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 11);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_00a0);
+  assert.equal(result.fault.endpoint.endpoint.module, "imm32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "ImmGetDefaultIMEWnd",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_10d0);
+  assert.equal(result.fault.memory.reservedPages, 29_676);
+  assert.equal(result.fault.memory.committedPages, 1_018);
+  assert.equal(result.fault.memory.physicalPages, 1_018);
+  assert.equal(result.fault.memory.generation, 36_588);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa",
+  );
+  assert.equal(result.terminal.instructionCount, 12_111_929);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 11);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_00a0);
+  assert.equal(result.terminal.terminal.thunk.module, "IMM32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "ImmGetDefaultIMEWnd");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_73da);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
+    0x1008_73da,
+    0x4801_0001,
+  ]);
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -19059,10 +19251,26 @@ function buildGenericRuntimeReentryReport({
       "GDI+ startup summary requires one call",
     );
   }
+  const virtualAllocCall = virtualAllocEnabled
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
+      )
+    : null;
+  const virtualAllocDelta = virtualAllocEnabled
+    ? genericResult.hostDeltas.find(
+        (delta) => delta.sequence === virtualAllocCall?.sequence,
+      )
+    : null;
+  if (virtualAllocEnabled) {
+    assert(virtualAllocCall, "VirtualAlloc report summary has no primary call");
+    assert(virtualAllocDelta, "VirtualAlloc report summary has no reserve delta");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : virtualAllocEnabled
+        ? "vine.v86-bgi-kernel32-virtual-alloc"
         : gdiplusStartupEnabled
         ? "vine.v86-bgi-gdiplus-startup"
         : textRasterEnabled
@@ -19439,6 +19647,20 @@ function buildGenericRuntimeReentryReport({
             mutation: "owner-plan-stale-check-transactional-commit",
             nativeTokenImported: false,
             browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(virtualAllocEnabled
+      ? {
+          virtualMemory: {
+            call: virtualAllocCall,
+            reservationDelta: virtualAllocDelta,
+            policyAuthority: "rust-kernel32-compatibility-policy",
+            addressAuthority: "runtime-process-address-space",
+            byteAuthority: "rust-guest-memory",
+            placement: "top-down-null-preferred-address",
+            commitment: "reserve-only-no-physical-pages",
+            mutation: "cross-owner-preflight-transactional-commit",
           },
         }
       : {}),

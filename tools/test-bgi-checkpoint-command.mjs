@@ -220,6 +220,10 @@ assert.equal(
   bgiProfileOutputDirectory("gdiplus-startup"),
   "v86-bgi-startup",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-virtual-alloc"),
+  "v86-bgi-virtual-alloc",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

@@ -25,6 +25,7 @@ mod synchronization;
 mod thread;
 mod timers;
 mod user32;
+mod virtual_memory;
 mod waits;
 
 pub use address_space::{
@@ -216,6 +217,10 @@ pub use user32::{
     RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowIconReference,
     RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
     RuntimeWindowProcedureCallingConvention,
+};
+pub use virtual_memory::{
+    RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER, RuntimeVirtualMemoryReservation,
+    RuntimeVirtualMemoryReserveRequest,
 };
 pub use waits::{
     RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,

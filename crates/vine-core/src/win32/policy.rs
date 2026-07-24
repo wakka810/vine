@@ -72,6 +72,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_info: Option<Kernel32SystemInfoPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub virtual_alloc: Option<Kernel32VirtualAllocPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version_info_a: Option<Kernel32OsVersionInfoAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tick_count: Option<Kernel32TickCountPolicy>,
@@ -262,6 +264,15 @@ pub struct Kernel32SystemInfoPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32VirtualAllocPolicy {
+    pub require_null_preferred_address: bool,
+    pub allowed_reserve_byte_lengths: Vec<u32>,
+    pub allowed_allocation_types: Vec<u32>,
+    pub allowed_protections: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32OsVersionInfoAPolicy {
     pub major_version: u32,
     pub minor_version: u32,
@@ -332,6 +343,7 @@ impl Kernel32CompatibilityPolicy {
             thread_priority: None,
             create_thread: None,
             system_info: None,
+            virtual_alloc: None,
             os_version_info_a: None,
             tick_count: None,
             performance_counter: None,
@@ -685,6 +697,42 @@ impl Kernel32CompatibilityPolicy {
                 "x86 system information requires schema v2, thread affinity, and the bounded PE32 virtual address profile",
             ));
         }
+        if let Some(virtual_alloc) = self.virtual_alloc.as_ref() {
+            let reserve_byte_lengths = virtual_alloc
+                .allowed_reserve_byte_lengths
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            let allocation_types = virtual_alloc
+                .allowed_allocation_types
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            let protections = virtual_alloc
+                .allowed_protections
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || self.system_info.is_none()
+                || !virtual_alloc.require_null_preferred_address
+                || reserve_byte_lengths.is_empty()
+                || reserve_byte_lengths.len() != virtual_alloc.allowed_reserve_byte_lengths.len()
+                || reserve_byte_lengths.len() > MAX_POLICY_ENTRIES
+                || reserve_byte_lengths
+                    .iter()
+                    .any(|byte_length| *byte_length != 0x0600_0000)
+                || allocation_types != BTreeSet::from([0x0010_2000])
+                || allocation_types.len() != virtual_alloc.allowed_allocation_types.len()
+                || protections != BTreeSet::from([0x0000_0004])
+                || protections.len() != virtual_alloc.allowed_protections.len()
+            {
+                return Err(policy_error(
+                    "kernel32-policy-virtual-alloc-invalid",
+                    "VirtualAlloc requires schema v2, the x86 address profile, null top-down reserve-only placement, the reached 96 MiB size, and PAGE_READWRITE",
+                ));
+            }
+        }
         if let Some(version) = self.os_version_info_a.as_ref()
             && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
                 || self.system_info.is_none()
@@ -915,6 +963,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn system_info(&self) -> Option<Kernel32SystemInfoPolicy> {
         self.system_info
+    }
+
+    pub fn virtual_alloc(&self) -> Option<&Kernel32VirtualAllocPolicy> {
+        self.virtual_alloc.as_ref()
     }
 
     pub fn os_version_info_a(&self) -> Option<&Kernel32OsVersionInfoAPolicy> {

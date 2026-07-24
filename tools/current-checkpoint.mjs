@@ -957,6 +957,16 @@ export function validateCurrentCheckpoint(manifest) {
     "gdiplusStartupLiveSessions",
     "gdiplusStartupNodeCompletions",
     "gdiplusStartupChromeCompletions",
+    "virtualAllocCompletions",
+    "virtualAllocSequence",
+    "virtualAllocInstructionCount",
+    "virtualAllocLastError",
+    "virtualAllocGuestWriteBytes",
+    "virtualAllocAddressAllocationId",
+    "virtualAllocMemoryOwner",
+    "virtualAllocReservedBytes",
+    "virtualAllocNodeCompletions",
+    "virtualAllocChromeCompletions",
     "dibDeleteObjectSequence",
     "dibDeleteObjectInstructionCount",
     "dibDeleteObjectResult",
@@ -1029,17 +1039,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 20 ||
+    bgiMappingOperations.reserve !== 21 ||
     bgiMappingOperations.commit !== 71 ||
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_315 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_835 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_317 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_837 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_171 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_183 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
@@ -2238,6 +2248,43 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browser BGI GDI+ startup session evidence is invalid");
   }
+  if (
+    bgiBrowserEvidence.virtualAllocCompletions !== 1 ||
+    bgiBrowserEvidence.virtualAllocSequence !== 18_641 ||
+    bgiBrowserEvidence.virtualAllocInstructionCount !== 12_073_370 ||
+    bgiBrowserEvidence.virtualAllocArguments?.join(",") !==
+      "0x00000000,0x06000000,0x00102000,0x00000004" ||
+    bgiBrowserEvidence.virtualAllocResult !== "0x79000000" ||
+    bgiBrowserEvidence.virtualAllocReturnAddress !== "0x1008fba8" ||
+    bgiBrowserEvidence.virtualAllocLastError !== 0 ||
+    bgiBrowserEvidence.virtualAllocGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.virtualAllocImplementationId !==
+      "kernel32.virtual-alloc.reserve-top-down.v1" ||
+    bgiBrowserEvidence.virtualAllocPolicyId !==
+      "kernel32-virtual-alloc-reserve-v1" ||
+    bgiBrowserEvidence.virtualAllocAddressAllocationId !== 60 ||
+    bgiBrowserEvidence.virtualAllocMemoryOwner !== 30 ||
+    bgiBrowserEvidence.virtualAllocAddressBase !== "0x79000000" ||
+    bgiBrowserEvidence.virtualAllocReservedBytes !== 96 * 1024 * 1024 ||
+    bgiBrowserEvidence.virtualAllocRegionKind !== "anonymous" ||
+    bgiBrowserEvidence.virtualAllocReserveOnly !== true ||
+    bgiBrowserEvidence.virtualAllocTopDown !== true ||
+    bgiBrowserEvidence.virtualAllocPolicyAuthority !==
+      "rust-kernel32-compatibility-policy" ||
+    bgiBrowserEvidence.virtualAllocAddressAuthority !==
+      "runtime-process-address-space" ||
+    bgiBrowserEvidence.virtualAllocByteAuthority !== "rust-guest-memory" ||
+    bgiBrowserEvidence.virtualAllocMutation !==
+      "cross-owner-preflight-transactional-commit" ||
+    bgiBrowserEvidence.virtualAllocFailureAtomicity !== true ||
+    bgiBrowserEvidence.virtualAllocHostAddressImported !== false ||
+    bgiBrowserEvidence.virtualAllocBrowserAddressImported !== false ||
+    bgiBrowserEvidence.virtualAllocNodeCompletions !== 1 ||
+    bgiBrowserEvidence.virtualAllocChromeCompletions !== 1 ||
+    bgiBrowserEvidence.virtualAllocNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("browser BGI VirtualAlloc reserve evidence is invalid");
+  }
   const bgiBenchmarkEvidence = requireRecord(
     browser.bgiBenchmarkEvidence,
     "browserCheckpoint.bgiBenchmarkEvidence",
@@ -2860,7 +2907,8 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("dinput8_dispatcher::") &&
           !test.startsWith("dsound_dispatcher::") &&
           !test.startsWith("gdi32_dispatcher::") &&
-          !test.startsWith("gdiplus_dispatcher::"),
+          !test.startsWith("gdiplus_dispatcher::") &&
+          !test.startsWith("kernel32_virtual_memory_dispatcher::"),
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
@@ -2920,6 +2968,10 @@ export function validateCurrentCheckpoint(manifest) {
       .filter((test) => test.startsWith("gdiplus_dispatcher::"))
       .join(",") !==
       "gdiplus_dispatcher::catalog_exposes_x86_startup_and_shutdown_lifetime_contracts,gdiplus_dispatcher::startup_writes_distinct_logical_tokens_and_shutdown_retires_exact_session,gdiplus_dispatcher::unsupported_version_returns_status_without_writing_or_allocating,gdiplus_dispatcher::unreached_variants_and_bad_pointers_fail_before_authority_mutation" ||
+    representativeAtomicTests
+      .filter((test) => test.startsWith("kernel32_virtual_memory_dispatcher::"))
+      .join(",") !==
+      "kernel32_virtual_memory_dispatcher::catalog_exposes_bounded_x86_virtual_alloc_contract,kernel32_virtual_memory_dispatcher::reserve_top_down_registers_one_process_allocation_and_lazy_guest_region,kernel32_virtual_memory_dispatcher::unreached_variants_fail_before_runtime_or_memory_authority_mutation,kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory,kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance" ||
     kernelBoundary.capabilityExpansionPausedAt !==
       root.nextStructuredStop?.nextCheckpoint
   ) {
@@ -5702,7 +5754,7 @@ export function validateCurrentCheckpoint(manifest) {
         addressSpace.heapSlotAllocationCount +
         addressSpace.largeHeapSlotAllocationCount ||
     addressPurposes.join(",") !==
-      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,thread-environment,com-endpoint,graphics-resource-arena,graphics-resource,gdi-resource,audio-resource-arena,audio-resource" ||
+      "import-thunks,callback-returns,dynamic-exports,private-heap-band,private-heap-slot,private-heap-large-slot,process-environment,thread-stack,thread-environment,com-endpoint,graphics-resource-arena,graphics-resource,gdi-resource,audio-resource-arena,audio-resource,virtual-memory" ||
     addressSpace.heapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapBackingUsesAllocationId !== true ||
     addressSpace.largeHeapAddressAllocationPermanent !== true ||
@@ -5731,7 +5783,16 @@ export function validateCurrentCheckpoint(manifest) {
       "memory-runtime-atomic-plan" ||
     addressSpace.dynamicThreadStackRegistered !== true ||
     addressSpace.dynamicThreadEnvironmentRegistered !== true ||
-    addressSpace.dynamicThreadReleaseAndReuseVerified !== true
+    addressSpace.dynamicThreadReleaseAndReuseVerified !== true ||
+    addressSpace.topDownReservation !==
+      "highest-aligned-gap-within-bounded-range" ||
+    addressSpace.topDownPlansRejectStaleCommit !== true ||
+    addressSpace.virtualMemoryAddressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    addressSpace.virtualMemoryByteAuthority !== "rust-guest-memory" ||
+    addressSpace.virtualMemoryRegionKind !== "anonymous" ||
+    addressSpace.virtualMemoryReservationCommit !==
+      "cross-owner-preflight-transactional-commit"
   ) {
     errors.push("active process address-space allocator boundary is invalid");
   }
@@ -5770,6 +5831,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.loadLibraryA",
     errors,
   );
+  const virtualAlloc = requireRecord(
+    kernel32Policy.virtualAlloc,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.virtualAlloc",
+    errors,
+  );
   const createThread = requireRecord(
     kernel32Policy.createThread,
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.createThread",
@@ -5778,9 +5844,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-set-thread-priority-v1" ||
+    kernel32Policy.id !== "kernel32-virtual-alloc-reserve-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json" ||
+      "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -5856,6 +5922,19 @@ export function validateCurrentCheckpoint(manifest) {
       "thread-affinity-process-mask" ||
     kernel32Policy.systemInfoProcessorCountSource !==
       "active-processor-mask-popcount" ||
+    virtualAlloc.requireNullPreferredAddress !== true ||
+    virtualAlloc.allowedReserveByteLengths?.join(",") !== `${96 * 1024 * 1024}` ||
+    virtualAlloc.allowedAllocationTypes?.join(",") !== `${0x0010_2000}` ||
+    virtualAlloc.allowedProtections?.join(",") !== "4" ||
+    virtualAlloc.addressAuthority !==
+      "runtime/address_space.rs::ProcessAddressSpaceAllocator" ||
+    virtualAlloc.memoryAuthority !== "rust-guest-memory" ||
+    virtualAlloc.regionKind !== "anonymous" ||
+    virtualAlloc.reservationAlignment !== 65_536 ||
+    virtualAlloc.commitment !== "reserve-only-no-physical-pages" ||
+    virtualAlloc.mutation !== "cross-owner-preflight-transactional-commit" ||
+    virtualAlloc.hostAddressImported !== false ||
+    virtualAlloc.browserAddressImported !== false ||
     kernel32Policy.systemDefaultLangId !== 0x0411 ||
     kernel32Policy.systemDefaultLangIdSource !== "explicit-policy-field" ||
     kernel32Policy.systemDefaultLangIdDerivedFromAllowedLocales !== false ||
@@ -6874,7 +6953,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-gdiplus-startup.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-kernel32-virtual-alloc.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7336,11 +7415,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_696 ||
-    latestEvidence.writebackDirtyPages !== 37_628 ||
-    latestEvidence.writebackChangedBytes !== 2_949_586 ||
-    latestEvidence.hostDeltaBatches !== 17_315 ||
-    latestEvidence.finalMemoryGeneration !== 36_584
+    latestEvidence.writebackBatches !== 18_698 ||
+    latestEvidence.writebackDirtyPages !== 37_634 ||
+    latestEvidence.writebackChangedBytes !== 2_951_429 ||
+    latestEvidence.hostDeltaBatches !== 17_317 ||
+    latestEvidence.finalMemoryGeneration !== 36_588
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9263,10 +9342,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "bc58f9c9dd15a6a98d84597022e571611b24ca008dc7fb6aaf7224b630aa4779" ||
+      "66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "dcc54fb1d9776de0ef5f3456cb080abc52955505e0169293546ca57ed1d2d164" ||
+      "bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -10726,6 +10805,107 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest GDI+ startup session evidence is invalid");
   }
   for (const field of [
+    "nativeVirtualAllocPrimaryTraceSha256",
+    "nativeVirtualAllocConfirmationTraceSha256",
+    "nativeVirtualMemoryLifecycleTraceSha256",
+    "virtualAllocDeltaPayloadSha256",
+  ]) {
+    requireSha256(
+      latestEvidence[field],
+      `activeRuntimeCheckpoint.latestEvidence.${field}`,
+      errors,
+    );
+  }
+  if (
+    latestEvidence.nativeVirtualAllocPrimaryTraceBytes !== 48_303 ||
+    latestEvidence.nativeVirtualAllocPrimaryTraceLines !== 77 ||
+    latestEvidence.nativeVirtualAllocPrimaryTraceSha256 !==
+      "661e5a17058890dca9e9c6a7217334fb6f13e66d4ac5cb589dc84b87d0a99e2c" ||
+    latestEvidence.nativeVirtualAllocConfirmationTraceBytes !== 48_324 ||
+    latestEvidence.nativeVirtualAllocConfirmationTraceLines !== 77 ||
+    latestEvidence.nativeVirtualAllocConfirmationTraceSha256 !==
+      "725d02d0f16f969ef79c25d64c824243940b40c50496189759cb1dc003c2d198" ||
+    latestEvidence.nativeVirtualMemoryLifecycleTraceBytes !== 48_586 ||
+    latestEvidence.nativeVirtualMemoryLifecycleTraceLines !== 78 ||
+    latestEvidence.nativeVirtualMemoryLifecycleTraceSha256 !==
+      "e4e1d08da69b0b04d44e0426d024abcd7520d3fe3c7b9ff8a3be78d793aec9f7" ||
+    latestEvidence.nativeVirtualAllocTraceDiagnostics !== 0 ||
+    latestEvidence.nativeVirtualAllocHookErrors !== 0 ||
+    latestEvidence.nativeVirtualAllocProfile !==
+      "x86-bgi-virtual-alloc-reserve-top-down-v1" ||
+    latestEvidence.nativeVirtualAllocCallsPerTrace !== 1 ||
+    latestEvidence.nativeVirtualAllocCallerReturnRva !== "0x0008fba8" ||
+    latestEvidence.nativeVirtualAllocPreferredAddress !== "0x00000000" ||
+    latestEvidence.nativeVirtualAllocRequestedBytes !== 96 * 1024 * 1024 ||
+    latestEvidence.nativeVirtualAllocAllocationType !== "0x00102000" ||
+    latestEvidence.nativeVirtualAllocProtection !== "0x00000004" ||
+    latestEvidence.nativeVirtualAllocResultsNonNull !== true ||
+    latestEvidence.nativeVirtualAllocResultsVaryAcrossRuns !== true ||
+    latestEvidence.nativeVirtualAllocLastError !== 0 ||
+    latestEvidence.nativeVirtualAllocMemoryState !== "0x00002000" ||
+    latestEvidence.nativeVirtualAllocMemoryType !== "0x00020000" ||
+    latestEvidence.nativeVirtualAllocMemoryProtect !== "0x00000000" ||
+    latestEvidence.nativeVirtualAllocAllocationProtect !== "0x00000004" ||
+    latestEvidence.nativeVirtualAllocRegionBytes !== 96 * 1024 * 1024 ||
+    latestEvidence.nativeVirtualAllocConsumer !== "store-eax-global-and-return" ||
+    latestEvidence.nativeVirtualAllocCommitDecommitReleaseReachedDuringFocusedTrace !==
+      false ||
+    latestEvidence.nativeVirtualAllocExecutableHashUnchanged !== true ||
+    latestEvidence.virtualAllocImplemented !== true ||
+    latestEvidence.virtualAllocImplementationId !==
+      "kernel32.virtual-alloc.reserve-top-down.v1" ||
+    latestEvidence.virtualAllocPolicySchema !==
+      "vine.kernel32-compatibility-policy" ||
+    latestEvidence.virtualAllocPolicySchemaVersion !== 2 ||
+    latestEvidence.virtualAllocPolicyId !==
+      "kernel32-virtual-alloc-reserve-v1" ||
+    latestEvidence.virtualAllocSequence !== 18_641 ||
+    latestEvidence.virtualAllocInstructionCount !== 12_073_370 ||
+    latestEvidence.virtualAllocArguments?.join(",") !==
+      "0x00000000,0x06000000,0x00102000,0x00000004" ||
+    latestEvidence.virtualAllocReturnAddress !== "0x1008fba8" ||
+    latestEvidence.virtualAllocResult !== "0x79000000" ||
+    latestEvidence.virtualAllocLastError !== 0 ||
+    latestEvidence.virtualAllocGuestWriteBytes !== 0 ||
+    latestEvidence.virtualAllocAddressAllocationId !== 60 ||
+    latestEvidence.virtualAllocAddressOwner !== "runtime-virtual-memory" ||
+    latestEvidence.virtualAllocAddressBase !== "0x79000000" ||
+    latestEvidence.virtualAllocReservedBytes !== 96 * 1024 * 1024 ||
+    latestEvidence.virtualAllocAlignment !== 65_536 ||
+    latestEvidence.virtualAllocMemoryOwner !== 30 ||
+    latestEvidence.virtualAllocRegionKind !== "anonymous" ||
+    latestEvidence.virtualAllocReserveOnly !== true ||
+    latestEvidence.virtualAllocTopDown !== true ||
+    latestEvidence.virtualAllocDeltaSequence !== 18_641 ||
+    latestEvidence.virtualAllocDeltaFromGeneration !== 36_584 ||
+    latestEvidence.virtualAllocDeltaGeneration !== 36_585 ||
+    latestEvidence.virtualAllocDeltaMappingOperations !== 1 ||
+    latestEvidence.virtualAllocDeltaDirtyPages !== 0 ||
+    latestEvidence.virtualAllocDeltaControlBytes !== 96 ||
+    latestEvidence.virtualAllocDeltaPayloadBytes !== 0 ||
+    latestEvidence.virtualAllocDeltaPayloadSha256 !==
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ||
+    latestEvidence.virtualAllocReservedPageIncrease !== 24_576 ||
+    latestEvidence.virtualAllocPhysicalPageIncrease !== 0 ||
+    latestEvidence.virtualAllocPolicyAuthority !==
+      "rust-kernel32-compatibility-policy" ||
+    latestEvidence.virtualAllocAddressAuthority !==
+      "runtime-process-address-space" ||
+    latestEvidence.virtualAllocByteAuthority !== "rust-guest-memory" ||
+    latestEvidence.virtualAllocMutation !==
+      "cross-owner-preflight-transactional-commit" ||
+    latestEvidence.virtualAllocFailureAtomicity !== true ||
+    latestEvidence.virtualAllocHostAddressImported !== false ||
+    latestEvidence.virtualAllocBrowserAddressImported !== false ||
+    latestEvidence.virtualAllocNodeCompletions !== 1 ||
+    latestEvidence.virtualAllocChromeCompletions !== 1 ||
+    latestEvidence.virtualAllocNodeChromeOrderedSemanticsMatched !== true ||
+    latestEvidence.virtualAllocCommitVariantImplemented !== false ||
+    latestEvidence.virtualFreeImplemented !== false
+  ) {
+    errors.push("latest VirtualAlloc reserve evidence is invalid");
+  }
+  for (const field of [
     "nativeD3d9GetSurfaceLevelPrimaryTraceSha256",
     "nativeD3d9GetSurfaceLevelPrimarySummarySha256",
     "nativeD3d9GetSurfaceLevelConfirmationTraceSha256",
@@ -11338,7 +11518,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned bounded CP932 GDI text raster plus policy-bounded logical GDI+ startup session and token lifetime" ||
+      "Rust-owned policy-bounded top-down reserve-only VirtualAlloc with process address and guest memory authority" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||

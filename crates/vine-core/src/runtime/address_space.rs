@@ -125,6 +125,7 @@ pub enum ProcessAddressAllocationPurpose {
     GdiResource,
     AudioResourceArena,
     AudioResource,
+    VirtualMemory,
     MappedFile,
 }
 
@@ -139,6 +140,7 @@ pub enum ProcessAddressAllocationClassification {
     Com,
     Graphics,
     Audio,
+    VirtualMemory,
     MappedFile,
 }
 
@@ -217,6 +219,12 @@ pub(crate) struct ProcessAddressReservationPlan {
     expected_next_id: u64,
     next_id: u64,
     pub(crate) allocation: ProcessAddressAllocationRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcessAddressSearchDirection {
+    LowToHigh,
+    HighToLow,
 }
 
 #[derive(Debug, Clone)]
@@ -400,7 +408,22 @@ impl ProcessAddressSpaceAllocator {
         &self,
         request: ProcessAddressAllocationRequest,
     ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
-        let (allocation, next_id) = self.build_reservation(None, request, false)?;
+        self.plan_reservation_in_direction(request, ProcessAddressSearchDirection::LowToHigh)
+    }
+
+    pub(crate) fn plan_top_down_reservation(
+        &self,
+        request: ProcessAddressAllocationRequest,
+    ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
+        self.plan_reservation_in_direction(request, ProcessAddressSearchDirection::HighToLow)
+    }
+
+    fn plan_reservation_in_direction(
+        &self,
+        request: ProcessAddressAllocationRequest,
+        direction: ProcessAddressSearchDirection,
+    ) -> Result<ProcessAddressReservationPlan, RuntimeStateError> {
+        let (allocation, next_id) = self.build_reservation(None, request, false, direction)?;
         Ok(ProcessAddressReservationPlan {
             expected_generation: self.mutation_generation,
             next_generation: self.next_mutation_generation()?,
@@ -431,6 +454,7 @@ impl ProcessAddressSpaceAllocator {
                 parent_id,
                 request,
                 false,
+                ProcessAddressSearchDirection::LowToHigh,
                 next_id,
                 &allocations,
             )?;
@@ -668,7 +692,12 @@ impl ProcessAddressSpaceAllocator {
         request: ProcessAddressAllocationRequest,
         preferred_required: bool,
     ) -> Result<ProcessAddressAllocationRecord, RuntimeStateError> {
-        let (record, next_id) = self.build_reservation(parent_id, request, preferred_required)?;
+        let (record, next_id) = self.build_reservation(
+            parent_id,
+            request,
+            preferred_required,
+            ProcessAddressSearchDirection::LowToHigh,
+        )?;
         let next_generation = self.next_mutation_generation()?;
         self.allocations.insert(record.id, record.clone());
         self.next_id = next_id;
@@ -681,11 +710,13 @@ impl ProcessAddressSpaceAllocator {
         parent_id: Option<ProcessAddressAllocationId>,
         request: ProcessAddressAllocationRequest,
         preferred_required: bool,
+        direction: ProcessAddressSearchDirection,
     ) -> Result<(ProcessAddressAllocationRecord, u64), RuntimeStateError> {
         self.build_reservation_with_pending(
             parent_id,
             request,
             preferred_required,
+            direction,
             self.next_id,
             &[],
         )
@@ -696,6 +727,7 @@ impl ProcessAddressSpaceAllocator {
         parent_id: Option<ProcessAddressAllocationId>,
         request: ProcessAddressAllocationRequest,
         preferred_required: bool,
+        direction: ProcessAddressSearchDirection,
         next_id: u64,
         pending: &[ProcessAddressAllocationRecord],
     ) -> Result<(ProcessAddressAllocationRecord, u64), RuntimeStateError> {
@@ -770,14 +802,21 @@ impl ProcessAddressSpaceAllocator {
         let base = available_preferred
             .or_else(|| {
                 (!preferred_required)
-                    .then(|| {
-                        self.first_fit_with_pending(
+                    .then(|| match direction {
+                        ProcessAddressSearchDirection::LowToHigh => self.first_fit_with_pending(
                             parent_id,
                             search_range,
                             total_size,
                             request.alignment,
                             pending,
-                        )
+                        ),
+                        ProcessAddressSearchDirection::HighToLow => self.last_fit_with_pending(
+                            parent_id,
+                            search_range,
+                            total_size,
+                            request.alignment,
+                            pending,
+                        ),
                     })
                     .flatten()
             })
@@ -855,6 +894,44 @@ impl ProcessAddressSpaceAllocator {
             return None;
         }
         Some(GuestAddress(u32::try_from(candidate).ok()?))
+    }
+
+    fn last_fit_with_pending(
+        &self,
+        parent_id: Option<ProcessAddressAllocationId>,
+        search: RuntimeAddressRange,
+        byte_length: u64,
+        alignment: u32,
+        pending: &[ProcessAddressAllocationRecord],
+    ) -> Option<GuestAddress> {
+        let search_start = u64::from(search.base.0);
+        let search_end = search.end_exclusive().ok()?;
+        let mut candidate = align_down(search_end.checked_sub(byte_length)?, u64::from(alignment))?;
+        let mut siblings: Vec<_> = self
+            .allocations
+            .values()
+            .chain(pending.iter())
+            .filter(|allocation| allocation.parent_id == parent_id)
+            .collect();
+        siblings.sort_by_key(|allocation| std::cmp::Reverse(allocation.range.base.0));
+        for allocation in siblings {
+            let allocation_start = u64::from(allocation.range.base.0);
+            let allocation_end = allocation.range.end_exclusive().ok()?;
+            let candidate_end = candidate.checked_add(byte_length)?;
+            if allocation_end <= candidate || allocation_start >= candidate_end {
+                continue;
+            }
+            candidate = align_down(
+                allocation_start.checked_sub(byte_length)?,
+                u64::from(alignment),
+            )?;
+        }
+        if candidate < search_start {
+            return None;
+        }
+        let base = GuestAddress(u32::try_from(candidate).ok()?);
+        self.range_is_available_with_pending(parent_id, base, byte_length, search, pending)
+            .then_some(base)
     }
 
     fn range_is_available_with_pending(
@@ -1026,6 +1103,12 @@ fn align_up(value: u64, alignment: u64) -> Option<u64> {
     value
         .checked_add(alignment.checked_sub(1)?)
         .map(|rounded| rounded & !(alignment - 1))
+}
+
+fn align_down(value: u64, alignment: u64) -> Option<u64> {
+    alignment
+        .is_power_of_two()
+        .then_some(value & !(alignment - 1))
 }
 
 fn address_error(code: &'static str, message: impl Into<String>) -> RuntimeStateError {
@@ -1225,6 +1308,39 @@ mod tests {
         assert!(image.range.end_exclusive().unwrap() <= u64::from(stack_one.range.base.0));
         assert!(stack_one.range.end_exclusive().unwrap() <= u64::from(stack_two.range.base.0));
         assert!(stack_two.range.end_exclusive().unwrap() <= u64::from(com.range.base.0));
+    }
+
+    #[test]
+    fn top_down_plan_selects_highest_aligned_gap_without_mutating_until_commit() {
+        let mut allocator =
+            ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
+        let request = ProcessAddressAllocationRequest {
+            purpose: ProcessAddressAllocationPurpose::VirtualMemory,
+            owner: "test-virtual-memory".to_owned(),
+            preferred_address: None,
+            search_range: RuntimeAddressRange {
+                base: GuestAddress(0x0001_0000),
+                byte_length: 0x7ffe_0000,
+            },
+            reserve_size: 0x0600_0000,
+            alignment: 0x1_0000,
+            guard_pages: 0,
+            classification: ProcessAddressAllocationClassification::VirtualMemory,
+            lifetime: ProcessAddressAllocationLifetime::Process,
+            release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+            executable: false,
+        };
+        let before = allocator.clone();
+        let plan = allocator
+            .plan_top_down_reservation(request.clone())
+            .unwrap();
+        assert_eq!(plan.allocation.range.base, GuestAddress(0x7900_0000));
+        assert_eq!(allocator, before);
+
+        allocator.preflight_reservation_commit(&plan).unwrap();
+        allocator.commit_reservation(plan);
+        let second = allocator.plan_top_down_reservation(request).unwrap();
+        assert_eq!(second.allocation.range.base, GuestAddress(0x7300_0000));
     }
 
     #[test]
