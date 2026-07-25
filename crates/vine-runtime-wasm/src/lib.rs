@@ -18,8 +18,9 @@ use vine_core::{
     Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE, ReentrancyPolicy,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
     RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
@@ -28,17 +29,17 @@ use vine_core::{
     RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
     StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
     bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
-    complete_kernel32_writable_commit, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
-    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
-    dispatch_gdiplus_api_with_policy, dispatch_imm32_api_with_policy,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
-    gdiplus_contract_for_endpoint, imm32_contract_for_endpoint, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, imm32_contract_for_endpoint,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -1113,6 +1114,18 @@ impl BrowserRuntime {
         Ok((metadata, buffers))
     }
 
+    fn current_memory_summary(&self) -> Result<Value, String> {
+        let stats = self.memory.stats();
+        Ok(json!({
+            "kind": "current-memory-summary",
+            "generation": stats.generation,
+            "acknowledgedGeneration": stats.acknowledged_generation,
+            "pageCount": stats.committed_pages,
+            "contentSha256": self.memory.current_content_sha256().map_err(error_string)?,
+            "regions": self.memory.region_snapshots(),
+        }))
+    }
+
     fn grow_initial_thread_stack(
         &mut self,
         fault_address: GuestAddress,
@@ -1847,6 +1860,11 @@ impl BrowserRuntime {
     }
 
     fn complete_host(&mut self, request_id: u64, result: u32) -> Result<Value, String> {
+        if self.pending_host.get(&request_id).is_some_and(|pending| {
+            pending.call.request.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+        }) {
+            return self.complete_waitable_timer_pacing(request_id, result);
+        }
         let pending = self
             .pending_host
             .remove(&request_id)
@@ -1912,6 +1930,100 @@ impl BrowserRuntime {
             "threadId": owner_thread_id.0,
             "scheduler": scheduler,
             "completion": completion,
+        }))
+    }
+
+    fn complete_waitable_timer_pacing(
+        &mut self,
+        request_id: u64,
+        acknowledgement: u32,
+    ) -> Result<Value, String> {
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "timer pacing completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+        {
+            return Err("timer pacing completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, wait_result) = complete_kernel32_waitable_timer_pacing(
+            &self.dispatcher,
+            pending.call.clone(),
+            acknowledgement,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("timer pacing completion produced a suspended outcome".to_owned());
+            }
+        };
+        let wait_result = wait_result.ok_or_else(|| {
+            "timer pacing API completed without committing its wait state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                if completion.request_id == request_id
+                    && completion.thread_id == owner_thread_id
+                    && completion.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE => {}
+            _ => return Err("timer pacing scheduler completion event mismatch".to_owned()),
+        }
+        let removed = self
+            .pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "timer pacing pending call disappeared before commit".to_owned())?;
+        debug_assert_eq!(removed.call.request.request_id, request_id);
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the timer pacing request".to_owned());
+        }
+        let handle = RuntimeHandle(
+            completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "timer pacing completion has no timer handle".to_owned())?,
+        );
+        let waitable_timer = json!({
+            "handle": handle,
+            "timer": self
+                .runtime
+                .waitable_timer_for_handle(handle)
+                .map_err(error_string)?,
+            "objectRecord": self
+                .runtime
+                .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)
+                .map_err(error_string)?,
+            "timerClock": self.runtime.timer_clock_state(),
+            "nextWaitRegistrationId": self.runtime.next_wait_registration_id(),
+        });
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "waitableTimer": waitable_timer,
+            "waitableTimerPacing": wait_result,
+            "memory": self.memory.stats(),
         }))
     }
 
@@ -3945,6 +4057,14 @@ pub extern "C" fn vine_bridge_current_reflection() -> u32 {
     run_bridge(|bridge| {
         let (metadata, reflection) = bridge.runtime_mut()?.current_reflection()?;
         bridge.set_output(metadata, reflection.control, reflection.page_bytes)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_current_memory_summary() -> u32 {
+    run_bridge(|bridge| {
+        let metadata = bridge.runtime_mut()?.current_memory_summary()?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
     })
 }
 

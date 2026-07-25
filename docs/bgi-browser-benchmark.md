@@ -2,72 +2,28 @@
 
 ## Status
 
-- Status: threshold passed
-- Date: 2026-07-22
-- Workload: 18,452-call `dinput8-enum-devices` private BGI generic session
-- Observation status: `current-dinput8-enum-devices-observation`
+- Status: structured performance-environment blocker
+- Workload: `runtime-waitable-timer-pacing` private BGI generic session
 - Duration: 180 seconds
-- Configuration: [`fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json)
-- Accepted evidence: `.work/browser-runtime/bgi-browser-benchmark-report.json`
-- Historical monitor diagnostic failures: `.work/browser-runtime/bgi-browser-get-monitor-info-a-first-failed-report.json`, `.work/browser-runtime/bgi-browser-get-monitor-info-a-confirmation-failed-report.json`
+- Configuration:
+  [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
+- Accepted performance evidence: none while the environment is invalid
 
-This observation repeats the complete `dinput8-enum-devices` BGI
-session in one Chrome Dedicated Worker. Each session starts from a new Rust
-runtime and v86 mirror, dispatches 18,452 calls before the 11,921,739-instruction
-`DSOUND.dll` ordinal 11 terminal stop, performs 55,176 Rust/Wasm bridge
-operations, and applies four
-initial-thread stack-growth commits. It opens the then-misclassified BGI.gdb twice,
-performs two complete 125,461-byte reads through the historical source service,
-closes both typed file lifetimes, completes one Rust-owned logical window through
-creation, small-icon send, initial show／hide callbacks, client-rect query,
-window-long update, and same-geometry activation, then creates one Rust-owned
-logical D3D9 device with an 800x600 format-22 presentation. It creates one
-1024x1024／one-level／format-22 system-memory logical texture and its level-zero
-surface, acquires one typed surface HDC, records one `[0,0,800,600]` black fill,
-releases the HDC, and retires the surface. It then creates two more logical
-textures with the same dimensions and format: one static default-pool variant
-and one dynamic default-pool variant. All three texture identities remain live,
-then the device creates one 112-byte write-only, managed vertex buffer. Its
-full-range Lock publishes Rust-owned guest backing, the caller writes the exact
-112-byte quad payload, and Unlock returns the range to read-only. The device
-reference count is five. Four typed slot-57 states set culling off, depth testing
-off, lighting off, and alpha blending on before slot 19
-`IDirect3DDevice9::GetRasterStatus(0, output)` returns the deterministic eight-byte
-status `0000000001000000`. Execution then reads the process-owned 10 MHz
-`QueryPerformanceFrequency` value and advances `QueryPerformanceCounter` in
-10,000-tick increments while the caller repeats its raster-polling loop. It then
-publishes the Rust-owned 40-byte primary `MONITORINFO` with monitor rect
-`(0,0)-(1920,1080)`, work rect `(0,0)-(1920,1032)`, and primary flag, followed
-by the reached frame／caption metrics. Execution then completes
-`DirectInput8Create`, atomically publishing one Rust-owned root
-COM object, canonical IUnknown／`IDirectInput8A` identities, refcount 1, exact
-11-slot vtable, and four-byte guest pointer. It completes
-`EnumDevices(4, callback, 0, 1)` as the native-evidenced empty attached
-game-controller catalog without scheduling the callback, then executes the
-following heap path and stops at `DirectSoundCreate8(NULL, output, NULL)`. The successful resource path
-does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
-texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
+This observation repeats the complete reached waitable-timer pacing path in one
+Chrome Dedicated Worker. Every session starts a fresh Rust runtime and v86
+mirror, executes the three bounded `SetWaitableTimer`／`WaitForSingleObjectEx`
+pairs, and stops at `KERNEL32.dll!EnterCriticalSection`. Rust remains authority
+for the logical clock, timer state, wait result, scheduler owner, guest memory,
+and terminal endpoint. The browser owns only cancellable delay resources.
 
-BGI.gdb is global writable state. Its byte count and hash in this historical
-benchmark identify that run only; they are not immutable title corpus identity.
-Current canonical runs use the writable SQLite profile boundary described in
-[runtime-vfs.md](runtime-vfs.md).
-
-The session includes all earlier process, NLS, heap, synchronization, display,
-COM, icon／cursor, window-class, logical-window, system-metric, large-heap,
-source-file, D3D9 adapter／resource, and reached WinMM capability／resolution contracts. Every
-repetition checks call and instruction counts, crossing count, large-allocation
-identity, materialization identity, source completion count, memory digest, next
-structured stop, and zero pending work before retaining only a compact scalar
-summary. Protocol v7 uses independently computed full-sequence canonical digests
-for the standalone Chrome／Node semantic-equivalence check and the repeated benchmark;
-the digest retains sequence uniqueness and terminal semantics without retaining
-18,452 detailed call objects or canonical strings on every repetition. Each
-benchmark session checks the call count, digest algorithm, and semantic SHA
-against the manifest. Completed report payloads, including source-read records,
-are released after scalar capture. The Rust/Wasm artifact, Worker transport,
-and canonical browser changed in this checkpoint, so the workload was rerun
-against those exact artifacts. Heartbeat P99 remains capped at 25 ms.
+Protocol version 14 carries full-width request, registration, arm-generation,
+clock-generation, and owner-thread identities. The benchmark checks the
+manifest-selected call count, instruction stop, canonical semantic digest,
+memory digest, completion count, next endpoint, pending-work cleanup, and
+runtime-resource metrics on every repetition. The final memory identity is
+computed directly from Rust-owned memory without materializing a second
+full-memory reflection; full reflection remains available only for execution
+mirror construction.
 
 This is title-workload evidence. The synthetic CPU／ABI／audio／background gate
 remains separately versioned in [v86-browser-benchmark.md](v86-browser-benchmark.md);
@@ -87,8 +43,9 @@ retain p50, p95, p99, and maximum values. Heartbeat uses a P99 responsiveness
 gate plus a separate hard freeze ceiling. The report stores all 17 threshold evaluations,
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
-decision and an independent environment qualification. The current decision is
-`passed`, reason `all-17-versioned-thresholds-passed`.
+decision and an independent environment qualification. The current workload
+decision is `passed`, but the observation is not acceptable while its
+independent environment decision is `invalid-environment`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -106,76 +63,34 @@ throttling. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The canonical DirectInput enumeration gate completed 127 sessions and passed
-all 17 versioned thresholds. Every session reproduced the exact 18,452-call
-semantic digest and `DSOUND.dll` ordinal 11 stop with zero semantic failure.
-The report is 1,955,904 bytes with SHA-256
-`b9bbd3d6ba8a8e5dbde7876f4913fb361f58e9972ab1d4077d20ddadbbffd507`.
+The unchanged waitable-timer workload passed all 17 versioned workload
+thresholds with zero semantic failures in both full runs. The first candidate
+also exposed a duplicated full-memory reflection at terminal publication. A
+copy-free Rust memory summary removed that observer-only allocation and brought
+the runtime-core linear-memory observation back below its unchanged ceiling
+without changing guest bytes, scheduling semantics, or any threshold.
 
-The environment monitor recorded 180 samples against a minimum of 153, no
-Updater, no sustained CPU or disk excursion, and no post-warm-up QoS transition.
-Total CPU mean／maximum were 8.594%／14.072%; browser-tree CPU mean／maximum were
-6.967%／9.391%; external CPU mean／maximum were 1.956%／9.338%. The independent
-environment decision is `valid`.
+Neither full run is acceptable performance evidence because the independent
+environment monitor observed the policy-defined consecutive external-CPU
+excursion. The first report and the unchanged confirmation report are retained
+under ignored `.work/` paths. No unrelated process was stopped, no threshold was
+relaxed, and no invalid-environment run was promoted to accepted evidence.
 
-| Metric | Threshold | Result |
-|---|---:|---:|
-| Completed sessions | >= 24 | 127 |
-| Failed sessions | <= 0 | 0 |
-| Main／Worker heap samples | >= 30 each | 38 / 37 |
-| Session latency p95 | <= 8,000 ms | 1,458.825 ms |
-| Maximum slice p99 | <= 10 ms | 2.125 ms |
-| Main heartbeat gap p99 | <= 25 ms | 6.060 ms |
-| Main heartbeat gap maximum | <= 250 ms | 33.110 ms |
-| Main used heap maximum | <= 16,777,216 bytes | 2,992,998 bytes |
-| Main heap slope | <= 2,097,152 bytes/min | 234,361.69 bytes/min |
-| Worker used heap maximum | <= 33,554,432 bytes | 29,562,368 bytes |
-| Worker heap slope | <= 8,388,608 bytes/min | -94,317.80 bytes/min |
-| Worker heap capacity maximum | <= 100,663,296 bytes | 75,456,512 bytes |
-| Worker backing storage maximum | <= 67,108,864 bytes | 43,569,325 bytes |
-| Worker backing slope | <= 10,485,760 bytes/min | -1,169,674.53 bytes/min |
-| Rust linear memory | <= 16,777,216 bytes | 12,124,160 bytes |
-| Execution-engine linear memory | <= 25,165,824 bytes | 18,219,008 bytes |
+This is a structured performance-environment blocker. Resume by running the
+same 180-second configuration and unchanged 17 thresholds on an isolated or
+explicitly quiescent host. The checkpoint may advance to
+`KERNEL32.dll!EnterCriticalSection` only when the workload passes and the
+environment decision is `valid`. Exact report identities, observed excursions,
+artifact hashes, metrics, attempted options, protected invariants, and the
+machine-readable resume condition live only in
+[current-checkpoint.json](current-checkpoint.json).
 
-The new workload reaches a subsequent one-MiB guest heap allocation. The
-standalone Chrome equivalence run measured the corresponding execution mirror
-at 18,219,008 bytes before the repeated gate, so this configuration versions a
-24 MiB execution-engine ceiling. The other 16 thresholds are unchanged. This
-does not relax a failed benchmark: the prior 16 MiB limit belonged to the
-earlier terminal workload and was known to be below the new semantic footprint
-before the three-minute run began.
+### Historical accepted DirectInput observation
 
-The preceding monitor checkpoint required an explicitly quiescent-host
-confirmation. Before that accepted run, two unchanged fixed-browser diagnostics completed with
-no semantic failure and valid policy observations but passed only 16 of 17
-thresholds. Their heartbeat P99 values were 33.480 ms and 33.865 ms while
-external CPU averaged 6.169% and 6.388%. The first run retained 21,643 heartbeat
-samples; 645 exceeded 25 ms and 457 exceeded 30 ms. The confirmation retained
-21,371 samples; 657 exceeded 25 ms and 488 exceeded 30 ms. Those reports remain
-historical diagnostics and were not accepted by retry or threshold change.
-
-A same-host three-run Node A/B compared the preceding
-`kernel32-query-performance-frequency` stop with the current stop. Their medians
-were 27,192.873 ms and 26,989.812 ms respectively, a `-0.747%` change. The
-1,059-byte A/B report has SHA-256
-`b4716f50ed7c495405154af8d5c2d71f0045414bcbefd5c6db1f7938be0ea19c`;
-it does not support the added monitor-info work as the cause of the Chrome
-heartbeat shift.
-
-The accepted monitor run used the same Worker, Rust/Wasm, v86, configuration, and pinned
-Chrome hashes as both failures; subsequent commits only captured the already
-measured implementation and its evidence. The shift to heartbeat P99 6.065 ms
-coincides with external CPU mean falling to 1.802%, so no repository scheduling
-remediation was justified. That historical blocker was resolved before the
-earlier DirectInput root run; it was not reopened or bypassed by this result.
-
-The capacity ceiling is the only version 2 threshold change. After the hot-path
-allocation reductions, a valid run still used at most 27,945,712 live Worker
-heap bytes with a 3,594,890 bytes/min slope, but CDP `totalSize` reserved
-78,077,952 bytes and failed the old 67,108,864-byte ceiling. A second run showed
-the same allocator-only separation. Version 2 therefore bounds V8 reservation
-at 96 MiB while retaining the 32 MiB live-heap, 8 MiB/min live slope, 64 MiB
-backing-storage, and all responsiveness limits.
+The earlier DirectInput enumeration workload completed without semantic
+failure and passed all 17 thresholds in a valid environment. Its exact workload,
+artifact, distribution, and report identities remain historical evidence; they
+do not substitute for the current waitable-timer pacing gate.
 
 ### Historical heartbeat investigation
 
@@ -235,8 +150,8 @@ timer dispatch as the direct cause and Worker SHA／writeback／dirty-scan／JSO
 transport churn as an amplifier. SHA-pinned Chrome for Testing, environment
 qualification, bounded Worker fast paths, a 16,384-instruction production slice,
 and explicit background-scheduling launch flags resolved that historical
-blocker. The current performance-clock run preserves those gates and advances
-the checkpoint to `GetMonitorInfoA`.
+blocker. The later performance-clock run preserved those gates and then
+advanced the checkpoint to `GetMonitorInfoA`.
 
 ## Surface DC heap-capacity correction
 
@@ -284,8 +199,8 @@ repository task and was not changed. The fixed duration and thresholds were
 preserved, and no rerun was used as acceptance evidence. The exact benchmark
 report and Node comparison identity, attempted options, protected invariants,
 required authority, and resume condition were structured in the then-current
-checkpoint manifest. The current manifest no longer carries the resolved
-blocker.
+checkpoint manifest. That resolved blocker is no longer active; the current
+manifest records the distinct waitable-timer environment blocker.
 
 The user paused both external workloads. One isolated rerun used the same
 180-second fixture and unchanged thresholds, completed 45 sessions, and passed
@@ -303,7 +218,7 @@ this stage selected the exact 17,849-call／11,807,772-instruction／`CreateText
 fixture. Later checkpoint fixtures preserve both identities rather than
 rewriting either historical workload.
 
-The first current run completed 14 sessions and had 14,831.200 ms P95, failing
+The first run of that workload completed 14 sessions and had 14,831.200 ms P95, failing
 minimum sessions and latency. The second completed 24 sessions but still had
 10,199.540 ms P95 and a 71,565,312-byte Worker capacity maximum, failing latency
 and capacity. Their ignored reports remain under `.work/`; neither was accepted
@@ -385,36 +300,21 @@ any threshold.
 
 ## Environment
 
-| Field | Value |
-|---|---|
-| Host | Windows `10.0.26200` x64 |
-| CPU | AMD Ryzen 7 8840U with Radeon 780M Graphics |
-| Logical CPUs | 16 |
-| Host memory | 16,398,209,024 bytes |
-| Chrome | Chrome for Testing `151.0.7922.34` |
-| Node.js | `v24.18.0` |
-
-The current report records base implementation commit
-`e20f8cc218be38cc6b62ea2f7c530da3725a9cf3` and `dirty: true` for the grouped
-DirectInput enumeration implementation under test.
-That Git value is run identity rather than the semantic gate; exact generated
-artifacts are independently fingerprinted below.
+The runner records the host, CPU, logical-CPU count, memory, Node version, pinned
+Chrome identity, process policy, and sampled environment in each report. Current
+values and both invalid-environment report identities are stored in
+[current-checkpoint.json](current-checkpoint.json), not duplicated here.
 
 ## Artifact identity
 
-| Artifact | Bytes | SHA-256 |
-|---|---:|---|
-| Rust runtime core Wasm | 3,711,515 | `e0fae96661e6559912a424ba6fdb0b80c195e8dc82670e2f63d5ae18f368b132` |
-| v86 adapter Wasm | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
-| Runtime Worker bundle | 159,624 | `c5b2542fe885b6855052232175e3903a11da610edcb035ceec4bf828386cd70c` |
-| BGI benchmark bundle | 10,453 | `17a5b08aa98e743d3c0673b1d61b799c48dd5605a291f587be652bcabbf31144` |
-| Execution-engine profile | 545 | `1111e3e9baea61abbc669a7e4b625b8874f4706ea37e5d976f4b8527edce68e8` |
-| DirectInput EnumDevices version 1 configuration | 1,160 | `172fa367239db5df92016b87707c3b7ec0407aede17b400522b284a2f7008ec7` |
+Every report fingerprints the Rust runtime core Wasm, v86 adapter Wasm,
+Runtime Worker bundle, benchmark bundle, execution-engine profile, workload
+configuration, Chrome manifest／archive／executable, and environment policy.
+Current byte counts and hashes live only in the checkpoint manifest.
 
 The private executable is never copied into the browser build or Git. The
-runner serves it only from its installed path and verifies its 1,193,472-byte
-SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
-before and after the run.
+runner serves it only from its installed path and verifies the configured
+fingerprint before and after the run.
 
 ## Reproduction
 
@@ -440,46 +340,24 @@ never falls back to installed Chrome.
 ## Non-claims
 
 - Three minutes of repeated startup is not a full-play or long-idle soak.
-- The reached path has no title rendering, audible output, DOM input delivery,
-  writable persistence, save／load, or general VFS workload. Source coverage is
-  two full reads of one immutable object; it does not cover large-corpus streaming,
-  replacement recovery, directory enumeration, writes, restart, or durability.
-  COM coverage is limited to per-thread initialization plus the reached D3D9
-  root／device／three texture／first level-zero surface／one vertex-buffer identities and lifetime. DC coverage is
-  one surface HDC acquisition, black-brush fill command, exact release, and COM
-  retirement relation. The logical textures and surface have no pixel storage or
-  pitch. Vertex-buffer coverage is one exact 112-byte zeroed backing, full-range
-  Lock, caller write, and Unlock; arbitrary descriptors, partial／flagged locks,
-  GPU upload, draw, and renderer resources remain unmeasured. General
-  COM and D3D9 resource behavior remain unmeasured. Likewise,
-  input coverage is limited to the logical mouse-button mapping transaction.
-  Waitable-timer coverage is limited to creation and initial nonsignaled
-  lifetime; no due-time, period, signal, or cancellation workload is measured.
-  Multimedia coverage reaches capability and resolution-request state, but this
-  successful graphics path does not call `timeGetTime`. It does not measure
-  elapsed host time, timer precision, sleep／wait timing, frame cadence, or audio
-  delivery.
-  Icon coverage is limited to logical module-resource selection, identity, and
-  one small-icon relation;
-  cursor coverage is limited to shared `IDC_ARROW` identity. Window-class
-  coverage is limited to two process-local registrations and logical ATOM／
-  metadata lifetime. Window coverage is limited to one logical top-level window,
-  bounded synchronous creation／small-icon／initial show／hide callbacks, default-
-  procedure results, and the reached invalid-menu chain. System-metric coverage is
-  limited to the reached initial-window indices. Monitor coverage is one logical
-  primary 40-byte `MONITORINFO`; multiple displays, negative origins, taskbar
-  movement, `MONITORINFOEXA`, native screen import, and browser display topology
-  are not measured. DirectInput coverage is limited to the root factory,
-  canonical IUnknown／`IDirectInput8A` identity, refcount, backing, and exact
-  vtable. Device enumeration is the next structured stop; callbacks, device
-  identities, acquire／state, and DOM input remain unimplemented. Large-heap coverage is one exact 64 MiB reserve and the pages reached
-  during startup; multiple／arbitrary large allocations and long-lived page growth are
-  not measured. No general z-order／resize／activation, queued window message, DOM
-  window, bitmap／cursor rendering, hotspot, active cursor, or browser resource is measured.
+- The reached timer path covers three relative one-shot arms and bounded finite
+  alertable waits. It does not establish `INFINITE`, APC delivery,
+  `WAIT_IO_COMPLETION`, general host-elapsed time, arbitrary due times,
+  periodic timers, multiple waiters, or fairness.
+- Browser pacing validates one-millisecond resources plus cancellation, stale
+  generation rejection, freeze／resume bookkeeping, and bounded catch-up. It
+  does not establish frame cadence, long-background behavior, audio clock
+  alignment, or general browser timer precision.
+- Holding the single emulated CPU during this service preserves the reached
+  caller ordering. It is not a general scheduler policy for mutex, event,
+  semaphore, wait-any, wait-all, or cross-thread host work.
+- The reached path still does not prove title rendering, audible output, DOM
+  input delivery, save／restart／load, large-corpus VFS behavior, or full-play
+  compatibility.
 - A passing slope threshold does not prove that V8 heap capacity has reached a
   permanent plateau; longer scenario-specific gates remain required.
-- Additional-thread stack lifecycle, stack overflow, and all title output remain
-  outside the completed workload.
+- Passing all workload thresholds in an invalid environment is diagnostic
+  evidence only; it is not accepted performance evidence.
 
 ## Heartbeat distribution correction
 

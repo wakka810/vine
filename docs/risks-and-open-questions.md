@@ -38,8 +38,10 @@ checkpointで偶然動いたことだけではResolvedにしない。
 | Q-055 | Full-play performance、fingerprint内容、soak／fuzz budget、acceptance evidence | Component／browser workload gateはあるがfull-play behaviorの代用ではない | Representative scene、versioned fuzz profile、long-run distribution、save／restart session、fingerprint collision／update test |
 
 Cooperative schedulerかsingle CPU contextかという旧判断は閉じた。Runtime Workerはper-thread CPU
-contextを保存／復元し、ownerがhost work待機中に別guest threadを実行する。残る判断はcontext switchの
-有無ではなく、実corpusが要求するWindows behaviorとfairnessである。
+contextを保存／復元し、通常のhost work待機中に別guest threadを実行する。Reached waitable-timer pacingだけは
+wall timingがguest orderを選ばないようsingle emulated CPUをholdし、Rust completionのowner laneを一度だけ
+直接復帰するbounded exceptionである。残る判断はcontext switchの有無ではなく、実corpusが要求するWindows
+behaviorとgeneral fairnessである。
 
 ## 4. Active structural risk
 
@@ -50,7 +52,7 @@ contextを保存／復元し、ownerがhost work待機中に別guest threadを�
 | R-MEMORY | Full-play／snapshot memoryがsemantic／mirror ceilingを超える、Worker pressureまたはstale mappingを起こす | Rust byte authority、bounded growing pool、page reclamation、typed preflight exhaustion | Title peakを測定しversioned limitを見直す。Atomicityを弱めずchecked sparse mirrorを比較する |
 | R-ASYNC | Sync Win32とasync host serviceがnested callback、wait、cancel、reentrancyでdeadlockする | Thread／request identity、per-thread CPU context、explicit state、scheduler-owned host request | 最小multi-thread／wait fixtureを追加し、unsupported reentrancyをmutation前に拒否する |
 | R-FAIRNESS | Cooperative schedulingがtiming-sensitive threadをstarveさせる、またはtitle-relevant raceを変える | Runnable-lane selectionとbounded Worker execution | Thread traceからfairness／virtual-time policyを定義し、測定上必要な場合だけSAB／multi-Workerを比較する |
-| R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolation、Rust-owned logical timer registration、explicit cancel／watchdog | `WM_TIMER`／TIMERPROC deliveryへ進む前にlogical clock、generation-checked cancellation、freeze／resume、bounded catch-upを定義する |
+| R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolation、Rust-owned logical timer registration、generation-checked cancel／stale rejection、remaining-delay freeze／resume、one-per-task catch-up | `WM_TIMER`／TIMERPROC、audio、saveへ広げる前に各resourceのclock authorityとlong-idle browser E2Eを固定する |
 | R-COMPAT | Subtle Win32／COM behaviorまたはsilent stubがbootを進め、後段stateを壊す | Caller-consumer oracle、typed fault、mutation-free negative path | Stubを正しいstateまたはfirst divergenceでのexplicit structured stopへ置き換える |
 | R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する | Supported format／stateをboundし、semantic＋visual oracleを追加し、非対応browser／GPUをtier分けする |
 | R-MEDIA | Audio timing／media dependencyまたはD3D9 scopeがplanned browser subsetを超える | Corpus-bounded frontendとseparate backend adapter | Early feasibility traceを行い、広いAPI実装前にsupport bandを再設計する |
@@ -59,6 +61,13 @@ contextを保存／復元し、ownerがhost work待機中に別guest threadを�
 | R-BROWSER | Browser feature／hosting policy差で同revisionのbehaviorが分岐する | Versioned adapterとcapability detection | Supported browser／deployment tierを狭めるか、測定済みfallbackを用意する |
 | R-PERFORMANCE | Ambient host loadまたはtitle workload growthでversioned latency／memory thresholdを外れ、clean oracleを判定できない | Fixed fixture／duration／threshold、repeated distribution、same-host bounded comparison、structured blocker | 外部workloadを勝手に停止せずisolated hostで同条件を再実行する。再現時だけprofileに基づくbounded optimizationを行う |
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
+
+Current waitable-timer pacing workloadは全versioned thresholdを通過したが、同じ
+external-CPU environment policyで初回とunchanged confirmationがともに無効化された。
+Repository外processを停止せず、invalid environmentをacceptせず、同じ180秒fixtureを
+isolatedまたは明示的にquiescentなhostで再実行することが現在のR-PERFORMANCE再開条件である。
+Exact evidenceとmachine-readable resume conditionは
+[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
 

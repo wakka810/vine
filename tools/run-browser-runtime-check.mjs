@@ -57,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v13";
+const runtimeProtocol = "vine.browser-runtime-worker.v14";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -624,6 +624,18 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         evidence.report.checkpointCompletion !== null,
         capabilityCheckpoint,
       );
+      if (capabilityCheckpoint) {
+        assert.deepEqual(evidence.report.timerPacing, {
+          requests: 3,
+          completions: 3,
+          cancellations: 0,
+          freezes: 0,
+          resumes: 0,
+          staleCallbacks: 0,
+          boundedCatchUps: 0,
+          pending: 0,
+        });
+      }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
       assert(evidence.heartbeatSamples > 0, "main heartbeat did not advance during BGI");
@@ -1153,6 +1165,15 @@ function validateBgiEquivalence(browser, oracle) {
   assert.equal(browser.report.initialGeneration, oracle.process.memory.generation);
   assert(browser.report.finalGeneration >= browser.report.initialGeneration);
   if (oracleCheckpoint !== null) {
+    assert.equal(
+      browser.report.timerPacing.requests,
+      oracle.waitableTimerWait.pacingRequests.length,
+      "Chrome Worker pacing request count differs from the Node transport oracle",
+    );
+    assert.equal(browser.report.timerPacing.completions, browser.report.timerPacing.requests);
+    assert.equal(browser.report.timerPacing.pending, 0);
+    assert.equal(browser.report.timerPacing.cancellations, 0);
+    assert.equal(browser.report.timerPacing.staleCallbacks, 0);
     assert.equal(browserStop, null);
     assert(browserCheckpoint !== null, "Chrome Worker omitted its capability checkpoint");
     assert.equal(browser.report.outcome, "checkpoint-complete");
@@ -1654,9 +1675,11 @@ if (serveOnly) {
         assert.equal(configuration.schema, "vine.bgi-browser-benchmark");
         assert.equal(configuration.schemaVersion, 1);
         const nextApi =
-          checkpoint.nextStructuredStop.kind === "com-method"
-            ? `${checkpoint.nextStructuredStop.interface}::${checkpoint.nextStructuredStop.method}`
-            : checkpoint.nextStructuredStop.api;
+          checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+            ? checkpoint.nextStructuredStop.nextEndpoint.api
+            : checkpoint.nextStructuredStop.kind === "com-method"
+              ? `${checkpoint.nextStructuredStop.interface}::${checkpoint.nextStructuredStop.method}`
+              : checkpoint.nextStructuredStop.api;
         assert.deepEqual(configuration.workload, {
           profile: checkpoint.activeRuntimeCheckpoint.profile,
           guestInstructions: checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,

@@ -16,12 +16,13 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `kernel32-wait-for-single-object-ex`: 18698 calls across 112 endpoint contracts / 110 APIs, memory generation 36680 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `environment-blocked` (102 sessions) |
+| Active blocker | `waitable-timer-pacing-performance-environment-v1`: `sustained-external-cpu`; Run the unchanged 180-second gate on an isolated or explicitly quiescent host and accept kernel32-enter-critical-section only after all 17 workload thresholds pass with a valid performance environment. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `kernel32-wait-for-single-object-ex` completed 3 recurring waits by instruction 11973853; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11973878 (`recurring-wait-checkpoint-complete`) |
+| Next structured stop | `kernel32-wait-for-single-object-ex` completed 3 recurring waits by instruction 11973853; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11973878 (`waitable-timer-pacing-complete`) |
 
-The active semantic report is 408,570 bytes with SHA-256
-`ee88f67fb63e49921804022133c0a1f72c974e021be28673890a9d616bc55273`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 409,861 bytes with SHA-256
+`bbe7befd631b7fe3c366f3fd16dd544e8d59475b7f286925658f7742d7ebbfe2`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

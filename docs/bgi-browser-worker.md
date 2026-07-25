@@ -40,6 +40,14 @@ cancellation identity are validated across the bridge. General Win32 thread crea
 TEB lifecycle, wait families, fairness policy, and exception delivery remain separate
 gateway work.
 
+The reached `runtime.timer-delay.v1` service is a bounded scheduling exception.
+Rust owns the logical target and completion result; the Worker owns only the
+browser delay and page-lifecycle resource. While that delay is pending, the
+single emulated CPU does not execute another guest lane. Completion consumes the
+Rust-selected owner lane once before normal scheduling resumes, preventing
+browser wall timing from changing ordered guest semantics. Other host services
+continue to allow a different runnable guest lane.
+
 `GuestMemory` remains the byte authority. The v86 mirror grows within the
 Rust-provided physical-page limit, reuses released pages, and rejects exhaustion before
 applying a mapping delta. Heap admission uses the versioned flags-and-size-range

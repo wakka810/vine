@@ -5,6 +5,7 @@ import {
   type HostCompletionMessage,
   type HostRequestMessage,
   type MainToWorkerMessage,
+  type PageLifecycleMessage,
   protocolVersion,
   type SessionConfiguration,
   type SessionFinishedMessage,
@@ -57,6 +58,7 @@ import {
   recoverableCommitHttpError,
   writableCommitFailureControl,
 } from "./profile-storage.js";
+import { TimerPacingService } from "./timer-pacing.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
@@ -438,6 +440,15 @@ interface CurrentReflectionMetadata {
   regions: MemoryRegionSnapshot[];
 }
 
+interface CurrentMemorySummaryMetadata {
+  kind: "current-memory-summary";
+  generation: number;
+  acknowledgedGeneration: number;
+  pageCount: number;
+  contentSha256: string;
+  regions: MemoryRegionSnapshot[];
+}
+
 interface CancellationMetadata {
   kind: "cancelled";
   cancellation: {
@@ -530,6 +541,14 @@ class BrowserRuntimeSession {
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
+  readonly #timerPacing: TimerPacingService;
+  #timerPacingResume:
+    | {
+        requestId: string;
+        threadId: number;
+        scheduler: ExecutableSchedulerMetadata;
+      }
+    | null = null;
   readonly #sourceReadControllers = new Map<string, AbortController>();
   readonly #profileTransportControllers = new Set<AbortController>();
   readonly #profileTransportTasks = new Set<Promise<unknown>>();
@@ -597,6 +616,15 @@ class BrowserRuntimeSession {
   constructor(sessionId: number, configuration: SessionConfiguration) {
     this.#sessionId = sessionId;
     this.#configuration = configuration;
+    this.#timerPacing = new TimerPacingService(
+      {
+        now: () => performance.now(),
+        setTimeout: (callback, delayMilliseconds) =>
+          worker.setTimeout(callback, delayMilliseconds),
+        clearTimeout: (handle) => worker.clearTimeout(handle),
+      },
+      configuration.pageLifecycle,
+    );
   }
 
   async run(): Promise<void> {
@@ -1223,8 +1251,25 @@ class BrowserRuntimeSession {
         resumeState === expectedResumeState,
         "Rust host completion disagrees with the recorded completion policy",
       );
+      if (
+        pending.service === "runtime.timer-delay.v1" &&
+        this.#requirePrepared().workload === "private-bgi"
+      ) {
+        this.#recordBgiCompletion(completion);
+      }
       this.#applyCpuResumeToThread(completion.threadId, completion.completion);
       this.#threadExecutionStates.set(completion.threadId, resumeState);
+      if (pending.service === "runtime.timer-delay.v1") {
+        invariant(
+          this.#timerPacingResume === null,
+          "timer pacing retained an unconsumed owner resume",
+        );
+        this.#timerPacingResume = {
+          requestId: pending.requestId,
+          threadId: completion.threadId,
+          scheduler: completion.scheduler,
+        };
+      }
       this.#report.rustSchedulerTransitions += 1;
       pending.resolve({
         result: message.result >>> 0,
@@ -1242,6 +1287,17 @@ class BrowserRuntimeSession {
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
       return;
+    }
+  }
+
+  updatePageLifecycle(message: PageLifecycleMessage): void {
+    if (message.sessionId !== this.#sessionId || this.#terminal || this.#stopping) {
+      return;
+    }
+    try {
+      this.#timerPacing.updateLifecycle(message.lifecycle);
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -1782,7 +1838,11 @@ class BrowserRuntimeSession {
         this.#report.hostRequests += 1;
         this.#status("waiting-host", metadata.service);
         this.#postHost(metadata);
-        await this.#scheduleAfterBlock(metadata.threadId, metadata.requestId);
+        await this.#scheduleAfterBlock(
+          metadata.threadId,
+          metadata.requestId,
+          metadata.service === "runtime.timer-delay.v1",
+        );
         break;
       }
       case "guest-callback": {
@@ -1933,8 +1993,12 @@ class BrowserRuntimeSession {
       returnAddress > 0 && returnAddress <= 0xffff_ffff,
       "BGI capability checkpoint return address is invalid",
     );
-    const reflection = this.#requireBridge().currentReflection<CurrentReflectionMetadata>().metadata;
-    invariant(reflection.kind === "current-reflection", "invalid checkpoint reflection metadata");
+    const reflection =
+      this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>().metadata;
+    invariant(
+      reflection.kind === "current-memory-summary",
+      "invalid checkpoint memory summary",
+    );
     invariant(
       reflection.generation === Number(this.#generation) &&
         reflection.acknowledgedGeneration === Number(this.#generation),
@@ -2818,7 +2882,74 @@ class BrowserRuntimeSession {
     if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
       this.#armWatchdog();
     }
-    if (metadata.service === "storage.source-read.v1") {
+    if (metadata.service === "runtime.timer-delay.v1") {
+      invariant(metadata.arguments.length === 13, "timer pacing request must contain thirteen words");
+      const [
+        version,
+        delayMilliseconds,
+        registrationLow,
+        registrationHigh,
+        timerLow,
+        timerHigh,
+        targetLow,
+        targetHigh,
+        clockGenerationLow,
+        clockGenerationHigh,
+        armGenerationLow,
+        armGenerationHigh,
+        outcome,
+      ] = metadata.arguments;
+      invariant(version === 1, "timer pacing request version mismatch");
+      invariant(
+        Number.isInteger(delayMilliseconds) &&
+          delayMilliseconds !== undefined &&
+          delayMilliseconds > 0 &&
+          delayMilliseconds <= 10,
+        "timer pacing delay exceeds the runtime policy",
+      );
+      invariant(
+        registrationLow !== undefined &&
+          registrationHigh !== undefined &&
+          (registrationLow !== 0 || registrationHigh !== 0),
+        "timer pacing wait registration identity is zero",
+      );
+      invariant(
+        timerLow !== undefined && timerHigh !== undefined && (timerLow !== 0 || timerHigh !== 0),
+        "timer pacing timer identity is zero",
+      );
+      invariant(
+        targetLow !== undefined && targetHigh !== undefined && (targetLow !== 0 || targetHigh !== 0),
+        "timer pacing logical target is zero",
+      );
+      invariant(
+        clockGenerationLow !== undefined && clockGenerationHigh !== undefined,
+        "timer pacing clock generation is missing",
+      );
+      invariant(
+        armGenerationLow !== undefined &&
+          armGenerationHigh !== undefined &&
+          (outcome !== 0 || armGenerationLow !== 0 || armGenerationHigh !== 0),
+        "timer pacing arm generation does not match its outcome",
+      );
+      invariant(outcome === 0 || outcome === 1, "timer pacing outcome is invalid");
+      if (this.#configuration.mode === "success") {
+        this.#timerPacing.schedule({
+          requestId: metadata.requestId,
+          threadId: metadata.threadId,
+          delayMilliseconds,
+          complete: () => {
+            this.completeHost({
+              type: "host-completion",
+              protocolVersion,
+              sessionId: this.#sessionId,
+              requestId: metadata.requestId,
+              threadId: metadata.threadId,
+              result: 1,
+            });
+          },
+        });
+      }
+    } else if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {
         void this.#serviceSourceRead(metadata).catch((error: unknown) => {
           if (!this.#terminal && !this.#stopping) {
@@ -2862,8 +2993,54 @@ class BrowserRuntimeSession {
     return resumeState;
   }
 
-  async #scheduleAfterBlock(blockedThreadId: number, requestId: string | null): Promise<void> {
+  async #scheduleAfterBlock(
+    blockedThreadId: number,
+    requestId: string | null,
+    waitForHostBeforeScheduling = false,
+  ): Promise<void> {
     this.#saveLiveThreadContext();
+    if (waitForHostBeforeScheduling) {
+      this.#liveThreadId = null;
+      const pending = this.#pendingHostRequests.first();
+      invariant(
+        pending?.requestId === requestId && pending.threadId === blockedThreadId,
+        "paced host wait has no matching delivery record",
+      );
+      this.#execution.transition("waiting-host", {
+        cause: "timer-pacing-execution-barrier",
+        threadId: blockedThreadId,
+        requestId,
+      });
+      await this.#waitForRunnable();
+      if (this.#terminal || this.#stopping) {
+        throw new SessionStopped("session ended during timer pacing");
+      }
+      invariant(
+        this.#execution.state() === "host-completion",
+        "timer pacing wake did not originate from its host completion",
+      );
+      const resume = this.#timerPacingResume;
+      invariant(
+        resume?.requestId === requestId && resume.threadId === blockedThreadId,
+        "timer pacing completion omitted its Rust-owned owner resume",
+      );
+      this.#timerPacingResume = null;
+      this.#execution.transition("thread-switch", {
+        cause: "rust-timer-pacing-owner-resume",
+        threadId: resume.threadId,
+        requestId,
+      });
+      this.#activateThread(resume.threadId, resume.scheduler);
+      this.#execution.transition(
+        resume.scheduler.state === "in-callback" ? "guest-callback" : "ready",
+        {
+          cause: "timer-pacing-owner-context-restored",
+          threadId: resume.threadId,
+          requestId,
+        },
+      );
+      return;
+    }
     while (!this.#terminal && !this.#stopping) {
       const metadata = this.#requireBridge().scheduleNextThread<
         ThreadScheduledMetadata | SchedulerIdleMetadata
@@ -3047,6 +3224,8 @@ class BrowserRuntimeSession {
       return;
     }
     this.#stopping = true;
+    this.#timerPacing.cancelAll();
+    this.#timerPacingResume = null;
     this.#abortSourceReads();
     this.#abortProfileTransports();
     this.#terminalTask = (async () => {
@@ -3250,6 +3429,7 @@ class BrowserRuntimeSession {
         ...terminal,
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
+        timerPacing: this.#timerPacing.metrics(),
         executionState: execution.state,
         executionTransitionCount: execution.transitionCount,
         lastExecutionTransition: execution.lastTransition,
@@ -3315,6 +3495,16 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             budgetYields: 0,
             hostRequests: 0,
             rustSchedulerTransitions: 0,
+            timerPacing: {
+              requests: 0,
+              completions: 0,
+              cancellations: 0,
+              freezes: 0,
+              resumes: 0,
+              staleCallbacks: 0,
+              boundedCatchUps: 0,
+              pending: 0,
+            },
             registeredThreadIds: [],
             executedThreadIds: [],
             contextSwitches: 0,
@@ -3384,6 +3574,9 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
       break;
     case "host-completion":
       activeSession?.completeHost(message);
+      break;
+    case "page-lifecycle":
+      activeSession?.updatePageLifecycle(message);
       break;
   }
 });

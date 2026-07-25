@@ -9,8 +9,8 @@ object signalでdeterministically runnableへ戻る既存contractとserialized s
 
 Foundation checkpoint自体はguest wait APIを追加しなかった。その後のbounded
 `WaitForSingleObjectEx` checkpointはwaitable timerだけを対象に、0..10 msのfinite timeout、
-alertable flag、logical deadline、immediate scheduler lane roundtripをこのboundaryへ追加した。
-General wait-any／wait-all、APC、cross-thread timer wake、host-elapsed pacingはまだ実装しない。
+alertable flag、logical deadline、versioned browser pacing requestをこのboundaryへ追加した。
+General wait-any／wait-all、APC、cross-thread timer wakeはまだ実装しない。
 
 ## Subsystem boundary
 
@@ -56,14 +56,27 @@ exact arm generation、`RuntimeObjectTable`のwait state、`RuntimeWaits`のregi
 `RuntimeScheduler`のlane transitionを一つのbounded transactionとして扱う。Registrationは従来の
 thread／object／handle identityにoptional timeout deadlineとalertable flagを加える。
 
-Already-signaled manual-reset timerはqueueを作らず`WAIT_OBJECT_0`を返す。Nonsignaled timerでは
-timer deadlineとtimeout deadlineの早い方までlogical clockを進める。時間が進む場合だけcurrent laneを
-`WaitingObject`へ移し、同じtransaction内でexact prior `Runnable`／`InCallback` stateへ戻す。
-Timer deadlineが先ならlive armをexpireしてmanual-reset objectをsignalし、timeoutが先ならarmと
-object stateを保持して`WAIT_TIMEOUT`を返す。Zero-time waitはclock／registration allocatorを進めない。
+Already-signaled manual-reset timerとzero-time waitはhost requestを作らず、logical stateだけから
+`WAIT_OBJECT_0`または`WAIT_TIMEOUT`を返す。Nonsignaled timerでpositive delayが必要な場合は、
+Rustがregistration ID、request ID、timer ID、target logical time、clock generation、arm generation、
+terminal outcomeを一つのplanへ固定し、laneを`WaitingObject`へ移して
+`runtime.timer-delay.v1` requestをpublishする。52-byte payloadはversion 1とfull-width U64 identityを持つ。
 
-このimmediate completionはRust semantic modelであり、browser wall clock待機ではない。Existing
-cross-thread waiterがある場合はinterleaveせずmutation前にstructured conflictとする。詳細は
+Browser completionのackはelapsed timeやWindows resultを運ばない。Kernelはrequest、thread、wait、
+object、timer、clock、armのidentityを全件preflightし、logical clock advance、exact arm expiration、
+manual-reset signal、registration retirement、scheduler owner-lane resumeを一つのtargeted commitで行う。
+Timer deadlineが先なら`WAIT_OBJECT_0`、timeoutが先ならarmとobject stateを保持して`WAIT_TIMEOUT`を返す。
+Wrong ack、stale／duplicate completion、rearm、close、thread cancellationはpartial mutationを残さない。
+
+Workerはpositive delayにだけbrowser timer resourceを作る。Page lifecycle generationを検証し、
+freeze時にremaining delayを保持、resume時に再armし、同じtaskでのcatch-upを一件に制限する。
+Cancellationはresourceをretireし、late callbackはstaleとして数える。Node runnerはsleepせず同じpayloadへ
+deterministic ackを返すため、guest-visible logical resultはbrowser wall timeから独立する。
+
+このserviceに限り、Workerはdelay完了まで単一emulated CPUのguest実行を止め、Rust completionが指定した
+owner laneを一度だけ直接復帰させる。Wall timingで別laneのinstruction orderが変わることを防ぐための
+bounded policyであり、他のhost requestは従来どおり別guest laneを実行できる。Existing cross-thread waiterが
+ある場合はinterleaveせずmutation前にstructured conflictとする。詳細は
 [bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
 
 ## Signal and wake
@@ -114,9 +127,10 @@ next structured stopは[current checkpoint manifest](current-checkpoint.json)だ
 This checkpoint did not initially implement event／mutex／semaphore／timer objects. The reached
 `CreateMutexA` checkpoint now adds named mutex object identity and immediate unowned／recursive
 acquisition through this one-object boundary, but not cross-thread waiter registration. Reached
-waitable-timer creation, arm, logical expiration, bounded finite timeout, manual-reset signal, and
-alertable-flag acceptance are now implemented. Event／semaphore, mutex abandonment, waiter priority,
-multiple waiters, wait-any／wait-all, APC delivery, message wake, `INFINITE`, async browser pacing, and
+waitable-timer creation, arm, logical expiration, bounded finite timeout, manual-reset signal,
+alertable-flag acceptance, versioned browser pacing, cancellation, stale completion, and page
+freeze／resume policy are now implemented. Event／semaphore, mutex abandonment, waiter priority,
+multiple waiters, wait-any／wait-all, APC delivery, message wake, `INFINITE`, general wait fairness, and
 general guest wait API coverage remain unimplemented.
 It is partial evidence for `P1-SCH-01`／`REQ-API-03`, not their completion.
 

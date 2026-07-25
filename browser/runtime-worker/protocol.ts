@@ -1,9 +1,15 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 13 as const;
+export const protocolVersion = 14 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
+export type PageLifecycleState = "active" | "frozen";
+
+export interface PageLifecycleSnapshot {
+  state: PageLifecycleState;
+  generation: number;
+}
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
 
 export interface RuntimeCurrentDirectoryA {
@@ -189,6 +195,7 @@ export interface SessionConfiguration {
   instructionBudget: number;
   watchdogInstructionLimit: number;
   watchdogWallMilliseconds: number;
+  pageLifecycle: PageLifecycleSnapshot;
 }
 
 export interface StartSessionMessage {
@@ -213,10 +220,18 @@ export interface HostCompletionMessage {
   result: number;
 }
 
+export interface PageLifecycleMessage {
+  type: "page-lifecycle";
+  protocolVersion: typeof protocolVersion;
+  sessionId: number;
+  lifecycle: PageLifecycleSnapshot;
+}
+
 export type MainToWorkerMessage =
   | StartSessionMessage
   | CancelSessionMessage
-  | HostCompletionMessage;
+  | HostCompletionMessage
+  | PageLifecycleMessage;
 
 export interface SessionStatusMessage {
   type: "session-status";
@@ -252,6 +267,16 @@ export interface SessionReport {
   budgetYields: number;
   hostRequests: number;
   rustSchedulerTransitions: number;
+  timerPacing: {
+    requests: number;
+    completions: number;
+    cancellations: number;
+    freezes: number;
+    resumes: number;
+    staleCallbacks: number;
+    boundedCatchUps: number;
+    pending: number;
+  };
   registeredThreadIds: number[];
   executedThreadIds: number[];
   contextSwitches: number;

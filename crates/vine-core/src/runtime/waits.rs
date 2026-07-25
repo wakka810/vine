@@ -7,6 +7,9 @@ use super::{
     RuntimeTimerClockState, RuntimeWaitState, RuntimeWaitableTimer,
 };
 
+pub const RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION: u32 = 1;
+pub const RUNTIME_WAITABLE_TIMER_PACING_SERVICE: &str = "runtime.timer-delay.v1";
+
 const fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -26,6 +29,49 @@ pub struct RuntimeWaitRegistration {
     pub timeout_deadline_time_100ns: Option<u64>,
     #[serde(skip_serializing_if = "is_false")]
     pub alertable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waitable_timer_pacing: Option<RuntimeWaitableTimerPacing>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitableTimerPacing {
+    pub request_id: u64,
+    pub delay_milliseconds: u32,
+    pub target_time_100ns: u64,
+    pub timer_clock_before: RuntimeTimerClockState,
+    pub timer_before: RuntimeWaitableTimer,
+    pub outcome: RuntimeWaitForSingleObjectExOutcome,
+}
+
+impl RuntimeWaitableTimerPacing {
+    pub fn encode_host_payload(self, registration_id: RuntimeWaitRegistrationId) -> [u8; 52] {
+        let arm_generation = self.timer_before.arm.map_or(0, |arm| arm.generation);
+        let outcome = match self.outcome {
+            RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => 0,
+            RuntimeWaitForSingleObjectExOutcome::TimedOut => 1,
+        };
+        let words = [
+            RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION,
+            self.delay_milliseconds,
+            registration_id.0 as u32,
+            (registration_id.0 >> 32) as u32,
+            self.timer_before.id.0 as u32,
+            (self.timer_before.id.0 >> 32) as u32,
+            self.target_time_100ns as u32,
+            (self.target_time_100ns >> 32) as u32,
+            self.timer_clock_before.generation as u32,
+            (self.timer_clock_before.generation >> 32) as u32,
+            arm_generation as u32,
+            (arm_generation >> 32) as u32,
+            outcome,
+        ];
+        let mut payload = [0; 52];
+        for (index, word) in words.into_iter().enumerate() {
+            payload[index * 4..index * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        payload
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -71,6 +117,17 @@ pub struct RuntimeWaitForSingleObjectExResult {
     pub timer: RuntimeWaitableTimer,
     pub timer_clock_before: RuntimeTimerClockState,
     pub timer_clock_after: RuntimeTimerClockState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "disposition", rename_all = "kebab-case")]
+pub enum RuntimeWaitForSingleObjectExBegin {
+    Immediate {
+        result: RuntimeWaitForSingleObjectExResult,
+    },
+    Deferred {
+        registration: RuntimeWaitRegistration,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -134,7 +191,7 @@ impl RuntimeWaits {
         object_id: RuntimeObjectId,
         handle: RuntimeHandle,
     ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
-        self.plan_registration_with_options(thread_id, object_id, handle, None, false)
+        self.plan_registration_with_options(thread_id, object_id, handle, None, false, None)
     }
 
     pub(super) fn plan_registration_with_options(
@@ -144,6 +201,7 @@ impl RuntimeWaits {
         handle: RuntimeHandle,
         timeout_deadline_time_100ns: Option<u64>,
         alertable: bool,
+        waitable_timer_pacing: Option<RuntimeWaitableTimerPacing>,
     ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
         let id = RuntimeWaitRegistrationId(self.next_registration_id);
         let next_registration_id = self.next_registration_id.checked_add(1).ok_or_else(|| {
@@ -160,6 +218,7 @@ impl RuntimeWaits {
             handle,
             timeout_deadline_time_100ns,
             alertable,
+            waitable_timer_pacing,
         };
         if self.wait_registrations.contains_key(&registration.id) {
             return Err(RuntimeStateError::runtime_defect(
@@ -383,6 +442,7 @@ mod tests {
                 .unwrap(),
             timeout_deadline_time_100ns: None,
             alertable: false,
+            waitable_timer_pacing: None,
         }
     }
 

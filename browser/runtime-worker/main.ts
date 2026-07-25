@@ -1,5 +1,6 @@
 import { Cpu, createIcons, Database, Play, RotateCcw, Square, Volume2 } from "lucide";
 
+import { observePageLifecycle } from "./page-lifecycle.js";
 import {
   assertProtocolVersion,
   type HostRequestMessage,
@@ -80,6 +81,16 @@ let pixelRgba: string | null = null;
 let toneHz: number | null = null;
 let persistentByte: number | null = null;
 let hostServiceError: Error | null = null;
+const pageLifecycle = observePageLifecycle((lifecycle) => {
+  if (activeSessionId !== null) {
+    worker.postMessage({
+      type: "page-lifecycle",
+      protocolVersion,
+      sessionId: activeSessionId,
+      lifecycle,
+    } satisfies MainToWorkerMessage);
+  }
+});
 
 createIcons({
   icons: { Cpu, Database, Play, RotateCcw, Square, Volume2 },
@@ -149,6 +160,7 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
     instructionBudget: 8,
     watchdogInstructionLimit: 100_000,
     watchdogWallMilliseconds: mode === "watchdog" ? 100 : 10_000,
+    pageLifecycle: pageLifecycle.snapshot(),
   };
   const message: MainToWorkerMessage = {
     type: "start-session",

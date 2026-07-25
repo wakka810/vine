@@ -135,7 +135,10 @@ use super::scheduler::{
     RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
     RuntimeThreadExecutionSelection, SchedulerThreadState,
 };
-use super::scheduler::{RuntimeHostRequestCancellationPlan, RuntimeSchedulerLanePlan};
+use super::scheduler::{
+    RuntimeHostCompletionPlan, RuntimeHostRequestCancellationPlan, RuntimeHostRequestPlan,
+    RuntimeSchedulerLanePlan,
+};
 use super::synchronization::RuntimeSynchronization;
 use super::synchronization::{
     RuntimeCreateMutexAResult, RuntimeCriticalSection, RuntimeMutex, RuntimeMutexId,
@@ -154,11 +157,12 @@ use super::thread::{
     RuntimeTlsValue,
 };
 use super::timers::{
-    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockState,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockAdvancePlan, RuntimeTimerClockState,
     RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeTimers,
-    RuntimeTimersTeardownPlan, RuntimeWaitableTimer, RuntimeWaitableTimerId,
-    RuntimeWaitableTimerRetirementPlan, RuntimeWindowTimer, RuntimeWindowTimerId,
-    RuntimeWindowTimerRegistrationRequest, RuntimeWindowTimerRegistrationResult,
+    RuntimeTimersTeardownPlan, RuntimeWaitableTimer, RuntimeWaitableTimerExpiration,
+    RuntimeWaitableTimerExpirationPlan, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
+    RuntimeWindowTimer, RuntimeWindowTimerId, RuntimeWindowTimerRegistrationRequest,
+    RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
@@ -175,8 +179,10 @@ use super::user32::{
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{
-    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion, RuntimeWaitDisposition,
+    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration, RuntimeWaitRegistrationPlan,
+    RuntimeWaitableTimerPacing,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -254,6 +260,21 @@ pub(crate) struct RuntimeWritableCommitAggregateCompletionPlan {
     writable_commit: RuntimeWritableCommitCompletionPlan,
     object: Option<RuntimeCloseHandleObjectMutationPlan>,
     retirement: Option<RuntimeSourceFileRetirementPlan>,
+}
+
+pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
+    scheduler: RuntimeHostCompletionPlan,
+    registration: RuntimeWaitRegistration,
+    clock: RuntimeTimerClockAdvancePlan,
+    expiration: Option<RuntimeWaitableTimerExpirationPlan>,
+    wait_updates: Option<Vec<(RuntimeObjectId, RuntimeObjectRecord)>>,
+    result: RuntimeWaitForSingleObjectExResult,
+}
+
+impl RuntimeWaitableTimerPacingCompletionPlan {
+    pub(crate) const fn result(&self) -> RuntimeWaitForSingleObjectExResult {
+        self.result
+    }
 }
 
 impl RuntimeWritableCommitAggregateCompletionPlan {
@@ -2337,6 +2358,18 @@ impl RuntimeKernel {
                     .objects
                     .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
                     .clone();
+                if self
+                    .scheduler
+                    .object_waiters()
+                    .get(&record.id)
+                    .is_some_and(|waiters| !waiters.is_empty())
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-waitable-timer",
+                        "waitable-timer-close-with-pending-wait-unsupported",
+                        "bounded waitable timer pacing does not close a timer with a pending wait",
+                    ));
+                }
                 let RuntimeObjectKey::WaitableTimer { timer_id } = record.key.clone() else {
                     return Err(RuntimeStateError::runtime_defect(
                         "runtime-waitable-timer",
@@ -4119,6 +4152,18 @@ impl RuntimeKernel {
             ));
         };
         let timer_id = RuntimeWaitableTimerId(timer_id);
+        if self
+            .scheduler
+            .object_waiters()
+            .get(&record.id)
+            .is_some_and(|waiters| !waiters.is_empty())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-rearm-with-pending-wait-unsupported",
+                "bounded waitable timer pacing does not rearm a timer with a pending wait",
+            ));
+        }
         let timer_plan = self
             .timers
             .plan_waitable_timer_one_shot_arm(timer_id, relative_due_time_100ns)?;
@@ -4131,6 +4176,153 @@ impl RuntimeKernel {
         self.timers.preflight_waitable_timer_arm(&timer_plan)?;
         self.objects.commit_wait_state_updates(wait_updates);
         Ok(self.timers.commit_waitable_timer_arm(timer_plan))
+    }
+
+    pub fn begin_wait_for_single_object_ex(
+        &mut self,
+        handle: RuntimeHandle,
+        timeout_milliseconds: u32,
+        alertable: bool,
+    ) -> Result<RuntimeWaitForSingleObjectExBegin, RuntimeStateError> {
+        self.require_waitable_timer_operation_state()?;
+        let timer_clock_before = self.timers.timer_clock_state();
+        let object = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+            .clone();
+        let RuntimeObjectKey::WaitableTimer { timer_id } = object.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-key-invalid",
+                "waitable timer handle resolved to a different object identity",
+            ));
+        };
+        if self
+            .scheduler
+            .object_waiters()
+            .get(&object.id)
+            .is_some_and(|waiters| !waiters.is_empty())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "waitable-timer-existing-waiters-unsupported",
+                "bounded waitable timer pacing does not interleave existing object waiters",
+            ));
+        }
+        let timer_id = RuntimeWaitableTimerId(timer_id);
+        let timer = *self.timers.waitable_timer(timer_id)?;
+        let object_wait_state = object.wait_state.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-not-waitable",
+                "waitable timer object has no wait state",
+            )
+        })?;
+        if matches!(object_wait_state, RuntimeWaitState::Signaled { .. }) {
+            return self
+                .wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
+                .map(|result| RuntimeWaitForSingleObjectExBegin::Immediate { result });
+        }
+
+        let timeout_100ns = u64::from(timeout_milliseconds)
+            .checked_mul(10_000)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-wait",
+                    "wait-timeout-conversion-overflow",
+                    "wait timeout exceeds the logical timer clock unit range",
+                )
+            })?;
+        let timeout_deadline_time_100ns = timer_clock_before
+            .current_time_100ns
+            .checked_add(timeout_100ns)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-wait",
+                    "wait-timeout-deadline-overflow",
+                    "wait timeout deadline exceeds the logical timer clock",
+                )
+            })?;
+        let expiration_arm = timer
+            .arm
+            .filter(|arm| arm.deadline_time_100ns <= timeout_deadline_time_100ns);
+        let target_time_100ns = expiration_arm.map_or(timeout_deadline_time_100ns, |arm| {
+            arm.deadline_time_100ns
+                .max(timer_clock_before.current_time_100ns)
+        });
+        if target_time_100ns == timer_clock_before.current_time_100ns {
+            return self
+                .wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
+                .map(|result| RuntimeWaitForSingleObjectExBegin::Immediate { result });
+        }
+
+        let delay_100ns = target_time_100ns - timer_clock_before.current_time_100ns;
+        let delay_milliseconds = u32::try_from(delay_100ns.div_ceil(10_000)).map_err(|_| {
+            RuntimeStateError::resource_limit(
+                "runtime-wait",
+                "wait-pacing-delay-not-representable",
+                "waitable timer pacing delay exceeds the bounded browser transport",
+            )
+        })?;
+        let host_plan: RuntimeHostRequestPlan = self
+            .scheduler
+            .plan_host_request(RUNTIME_WAITABLE_TIMER_PACING_SERVICE.to_owned())?;
+        let pacing = RuntimeWaitableTimerPacing {
+            request_id: host_plan.request().request_id,
+            delay_milliseconds,
+            target_time_100ns,
+            timer_clock_before,
+            timer_before: timer,
+            outcome: if expiration_arm.is_some() {
+                RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+            } else {
+                RuntimeWaitForSingleObjectExOutcome::TimedOut
+            },
+        };
+        let wait_plan: RuntimeWaitRegistrationPlan = self.scheduler.plan_host_wait_registration(
+            self.current_thread_id(),
+            object.id,
+            handle,
+            timeout_deadline_time_100ns,
+            alertable,
+            pacing,
+        )?;
+
+        self.scheduler.preflight_host_request(&host_plan)?;
+        self.scheduler.preflight_wait_registration(&wait_plan)?;
+        if self.timers.timer_clock_state() != timer_clock_before
+            || self.timers.waitable_timer(timer_id)? != &timer
+            || self
+                .objects
+                .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+                != &object
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-pacing-begin-plan-stale",
+                "timer, object, or logical clock changed after pacing request planning",
+            ));
+        }
+
+        self.scheduler.commit_wait_registration(wait_plan);
+        let host_request = self.scheduler.commit_host_request(host_plan);
+        let registration = self
+            .scheduler
+            .wait_registration_for_thread(host_request.thread_id)?
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-wait",
+                    "waitable-timer-pacing-registration-missing",
+                    "committed timer pacing host request has no wait registration",
+                )
+            })?;
+        debug_assert_eq!(
+            registration
+                .waitable_timer_pacing
+                .map(|pending| pending.request_id),
+            Some(host_request.request_id)
+        );
+        Ok(RuntimeWaitForSingleObjectExBegin::Deferred { registration })
     }
 
     pub fn wait_for_single_object_ex(
@@ -4309,6 +4501,241 @@ impl RuntimeKernel {
             timer_clock_before,
             timer_clock_after,
         })
+    }
+
+    pub(crate) fn plan_waitable_timer_pacing_completion(
+        &self,
+        request_id: u64,
+    ) -> Result<RuntimeWaitableTimerPacingCompletionPlan, RuntimeStateError> {
+        let scheduler = self.scheduler.plan_host_completion(request_id)?;
+        if scheduler.request().service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-wait",
+                "waitable-timer-pacing-host-service-mismatch",
+                "waitable timer pacing completion belongs to another host service",
+            ));
+        }
+        let registration = self
+            .scheduler
+            .wait_registration_for_thread(scheduler.request().thread_id)?
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-wait",
+                    "waitable-timer-pacing-registration-missing",
+                    "timer pacing host request has no wait registration",
+                )
+            })?;
+        let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-wait",
+                "waitable-timer-pacing-contract-missing",
+                "timer pacing wait registration has no pacing contract",
+            )
+        })?;
+        if pacing.request_id != request_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "waitable-timer-pacing-request-mismatch",
+                "timer pacing wait registration belongs to another host request",
+            ));
+        }
+        if pacing.target_time_100ns <= pacing.timer_clock_before.current_time_100ns
+            || pacing.delay_milliseconds == 0
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-wait",
+                "waitable-timer-pacing-delay-invalid",
+                "pending timer pacing wait must advance logical time by a positive delay",
+            ));
+        }
+        let object = self
+            .objects
+            .object_for_handle(registration.handle, RuntimeObjectKind::WaitableTimer)?
+            .clone();
+        if object.id != registration.object_id
+            || object.wait_state != Some(RuntimeWaitState::Nonsignaled)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "waitable-timer-pacing-object-stale",
+                "timer pacing object identity or wait state changed before completion",
+            ));
+        }
+        let RuntimeObjectKey::WaitableTimer { timer_id } = object.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-key-invalid",
+                "waitable timer pacing handle resolved to another object identity",
+            ));
+        };
+        let timer_id = RuntimeWaitableTimerId(timer_id);
+        if timer_id != pacing.timer_before.id
+            || self.timers.waitable_timer(timer_id)? != &pacing.timer_before
+            || self.timers.timer_clock_state() != pacing.timer_clock_before
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "waitable-timer-pacing-generation-stale",
+                "timer arm or logical clock changed before pacing completion",
+            ));
+        }
+
+        let timeout_deadline_time_100ns =
+            registration.timeout_deadline_time_100ns.ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-wait",
+                    "waitable-timer-pacing-timeout-missing",
+                    "timer pacing wait registration has no timeout deadline",
+                )
+            })?;
+        let expiration_arm = match pacing.outcome {
+            RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => {
+                let arm = pacing.timer_before.arm.ok_or_else(|| {
+                    RuntimeStateError::conflict(
+                        "runtime-wait",
+                        "waitable-timer-pacing-arm-missing",
+                        "signaled timer pacing completion has no matching live arm",
+                    )
+                })?;
+                if arm.deadline_time_100ns != pacing.target_time_100ns
+                    || arm.deadline_time_100ns > timeout_deadline_time_100ns
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-wait",
+                        "waitable-timer-pacing-arm-deadline-mismatch",
+                        "timer arm deadline does not match the pending pacing target",
+                    ));
+                }
+                Some(arm)
+            }
+            RuntimeWaitForSingleObjectExOutcome::TimedOut => {
+                if pacing.target_time_100ns != timeout_deadline_time_100ns
+                    || pacing
+                        .timer_before
+                        .arm
+                        .is_some_and(|arm| arm.deadline_time_100ns <= timeout_deadline_time_100ns)
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-wait",
+                        "waitable-timer-pacing-timeout-mismatch",
+                        "timer pacing timeout no longer precedes the live arm deadline",
+                    ));
+                }
+                None
+            }
+        };
+        let clock = self
+            .timers
+            .plan_timer_clock_advance(pacing.target_time_100ns)?;
+        let expiration = expiration_arm
+            .map(|arm| {
+                self.timers
+                    .plan_waitable_timer_expiration(timer_id, arm.generation)
+            })
+            .transpose()?;
+        let object_wait_state = if expiration_arm.is_some() && pacing.timer_before.manual_reset {
+            RuntimeWaitState::Signaled { exit_code: 0 }
+        } else {
+            RuntimeWaitState::Nonsignaled
+        };
+        let wait_updates = expiration_arm
+            .map(|_| {
+                self.objects.plan_wait_state_updates(&[(
+                    RuntimeObjectKey::WaitableTimer {
+                        timer_id: timer_id.0,
+                    },
+                    object_wait_state,
+                )])
+            })
+            .transpose()?;
+        self.timers.preflight_timer_clock_advance(&clock)?;
+        if let Some(plan) = expiration.as_ref() {
+            self.timers.preflight_waitable_timer_expiration(plan)?;
+        }
+
+        let mut timer_after = pacing.timer_before;
+        if let Some(arm) = expiration_arm {
+            timer_after.arm = None;
+            timer_after.last_expiration = Some(RuntimeWaitableTimerExpiration {
+                arm_generation: arm.generation,
+                deadline_time_100ns: arm.deadline_time_100ns,
+            });
+        }
+        let result = RuntimeWaitForSingleObjectExResult {
+            outcome: pacing.outcome,
+            registration: Some(registration),
+            object_id: registration.object_id,
+            object_wait_state,
+            timer: timer_after,
+            timer_clock_before: pacing.timer_clock_before,
+            timer_clock_after: RuntimeTimerClockState {
+                current_time_100ns: pacing.target_time_100ns,
+                generation: pacing
+                    .timer_clock_before
+                    .generation
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-timer-clock",
+                            "timer-clock-generation-exhausted",
+                            "logical timer clock generation is exhausted",
+                        )
+                    })?,
+            },
+        };
+        Ok(RuntimeWaitableTimerPacingCompletionPlan {
+            scheduler,
+            registration,
+            clock,
+            expiration,
+            wait_updates,
+            result,
+        })
+    }
+
+    pub(crate) fn commit_waitable_timer_pacing_completion(
+        &mut self,
+        plan: RuntimeWaitableTimerPacingCompletionPlan,
+    ) -> RuntimeWaitForSingleObjectExResult {
+        debug_assert_eq!(
+            self.scheduler
+                .wait_registration_for_thread(plan.registration.thread_id),
+            Ok(Some(plan.registration))
+        );
+        debug_assert!(
+            self.timers
+                .preflight_timer_clock_advance(&plan.clock)
+                .is_ok()
+        );
+        if let Some(expiration) = plan.expiration.as_ref() {
+            debug_assert!(
+                self.timers
+                    .preflight_waitable_timer_expiration(expiration)
+                    .is_ok()
+            );
+        }
+        self.scheduler
+            .commit_remove_wait_registration(plan.registration);
+        let clock = self.timers.commit_timer_clock_advance(plan.clock);
+        debug_assert_eq!(clock, plan.result.timer_clock_after);
+        if let Some(expiration) = plan.expiration {
+            let timer = *self.timers.commit_waitable_timer_expiration(expiration);
+            debug_assert_eq!(timer, plan.result.timer);
+        }
+        if let Some(wait_updates) = plan.wait_updates {
+            self.objects.commit_wait_state_updates(wait_updates);
+        }
+        let completion = self.scheduler.commit_host_completion(plan.scheduler);
+        debug_assert_eq!(
+            completion.request_id,
+            plan.result
+                .registration
+                .unwrap()
+                .waitable_timer_pacing
+                .unwrap()
+                .request_id
+        );
+        plan.result
     }
 
     pub fn load_shared_icon(
@@ -6899,7 +7326,15 @@ impl RuntimeKernel {
         &mut self,
         service: impl Into<String>,
     ) -> Result<RuntimeHostRequest, RuntimeStateError> {
-        let plan = self.scheduler.plan_host_request(service.into())?;
+        let service = service.into();
+        if service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-host-service",
+                "waitable-timer-pacing-service-reserved",
+                "timer pacing requests must be created with their authoritative wait registration",
+            ));
+        }
+        let plan = self.scheduler.plan_host_request(service)?;
         Ok(self.scheduler.commit_host_request(plan))
     }
 
@@ -6908,6 +7343,13 @@ impl RuntimeKernel {
         request_id: u64,
     ) -> Result<RuntimeHostCompletion, RuntimeStateError> {
         let plan = self.scheduler.plan_host_completion(request_id)?;
+        if plan.request().service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-host-service",
+                "waitable-timer-pacing-specialized-completion-required",
+                "timer pacing completion must atomically commit its clock, timer, object, wait, and scheduler state",
+            ));
+        }
         Ok(self.scheduler.commit_host_completion(plan))
     }
 
@@ -7318,6 +7760,61 @@ impl RuntimeKernel {
                         "runtime-wait",
                         "wait-object-queue-registration-mismatch",
                         "wait registration must occur exactly once in its object queue",
+                    ));
+                }
+                Ok(Some(registration))
+            }
+            SchedulerThreadState::WaitingHost { request_id } if registration.is_some() => {
+                let registration = registration.expect("checked timer pacing registration");
+                let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "runtime-wait",
+                        "waiting-host-registration-pacing-missing",
+                        "host-waiting thread registration has no timer pacing contract",
+                    )
+                })?;
+                let request = self
+                    .scheduler
+                    .host_requests()
+                    .get(&request_id)
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-wait",
+                            "waiting-host-request-missing",
+                            "host-waiting timer registration has no scheduler request",
+                        )
+                    })?;
+                if pacing.request_id != request_id
+                    || request.thread_id != thread_id
+                    || request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-wait",
+                        "waiting-host-registration-request-mismatch",
+                        "timer pacing wait registration does not match its scheduler request",
+                    ));
+                }
+                let queue = self
+                    .scheduler
+                    .object_waiters()
+                    .get(&registration.object_id)
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-wait",
+                            "wait-object-queue-missing",
+                            "timer pacing wait registration has no object queue",
+                        )
+                    })?;
+                if queue
+                    .iter()
+                    .filter(|&&queued_id| queued_id == registration.id)
+                    .count()
+                    != 1
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-wait",
+                        "wait-object-queue-registration-mismatch",
+                        "timer pacing wait registration must occur exactly once in its object queue",
                     ));
                 }
                 Ok(Some(registration))

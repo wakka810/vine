@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, VecDeque};
 
 use serde::Serialize;
 
-use super::waits::{RuntimeWaitRegistrationPlan, RuntimeWaitWakeCandidate, RuntimeWaits};
+use super::waits::{
+    RuntimeWaitRegistrationPlan, RuntimeWaitWakeCandidate, RuntimeWaitableTimerPacing, RuntimeWaits,
+};
 use super::{
     RuntimeHandle, RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
     RuntimeWaitCompletion, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
@@ -582,6 +584,10 @@ impl RuntimeScheduler {
         &mut self,
         plan: RuntimeHostRequestPlan,
     ) -> RuntimeHostRequest {
+        debug_assert!(
+            self.preflight_host_request(&plan).is_ok(),
+            "host request plan became stale"
+        );
         debug_assert_eq!(self.next_host_request_id, plan.previous_next_request_id);
         debug_assert!(!self.host_requests.contains_key(&plan.request.request_id));
         self.next_host_request_id = plan.next_request_id;
@@ -592,6 +598,23 @@ impl RuntimeScheduler {
         debug_assert!(previous.is_none());
         self.commit_lane(plan.scheduler);
         request
+    }
+
+    pub(super) fn preflight_host_request(
+        &self,
+        plan: &RuntimeHostRequestPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.next_host_request_id != plan.previous_next_request_id
+            || plan.previous_next_request_id.checked_add(1) != Some(plan.next_request_id)
+            || self.host_requests.contains_key(&plan.request.request_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-host-request",
+                "host-request-plan-stale",
+                "host request allocator or pending request state changed after planning",
+            ));
+        }
+        self.preflight_lane_commit(&plan.scheduler)
     }
 
     pub(super) fn plan_host_completion(
@@ -689,6 +712,32 @@ impl RuntimeScheduler {
         self.waits.plan_registration(thread_id, object_id, handle)
     }
 
+    pub(super) fn plan_host_wait_registration(
+        &self,
+        thread_id: RuntimeThreadId,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
+        timeout_deadline_time_100ns: u64,
+        alertable: bool,
+        pacing: RuntimeWaitableTimerPacing,
+    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
+        self.waits.plan_registration_with_options(
+            thread_id,
+            object_id,
+            handle,
+            Some(timeout_deadline_time_100ns),
+            alertable,
+            Some(pacing),
+        )
+    }
+
+    pub(super) fn preflight_wait_registration(
+        &self,
+        plan: &RuntimeWaitRegistrationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.waits.preflight_registration(plan)
+    }
+
     pub(super) fn plan_immediate_wait(
         &self,
         thread_id: RuntimeThreadId,
@@ -718,6 +767,7 @@ impl RuntimeScheduler {
             handle,
             Some(timeout_deadline_time_100ns),
             alertable,
+            None,
         )?;
         Ok(RuntimeSchedulerImmediateWaitPlan {
             registration,

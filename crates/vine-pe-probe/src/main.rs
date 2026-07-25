@@ -26,14 +26,14 @@ use vine_core::{
     MemoryReflection, MemoryRegionSnapshot, MemoryStats, ModuleIdentity, ModuleSnapshot,
     Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RESUME_THREAD_IMPLEMENTATION, RUNTIME_WRITABLE_COMMIT_SERVICE, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState,
-    RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
-    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor, RuntimeModule,
-    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode,
-    RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RESUME_THREAD_IMPLEMENTATION, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
+    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
+    RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor,
+    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
+    RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
@@ -48,18 +48,19 @@ use vine_core::{
     TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL, UnsupportedPoint,
     User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION, WinmmCompatibilityPolicy,
     bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    complete_kernel32_source_read, complete_kernel32_writable_commit, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
-    dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
-    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    dsound_contract_for_endpoint, encode_pointer_contract, gdi32_contract_for_endpoint,
-    gdiplus_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
-    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
-    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
-    heap_set_information_contract, imm32_contract_for_endpoint, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
+    complete_kernel32_writable_commit, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
+    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
+    dispatch_gdiplus_api_with_policy, dispatch_imm32_api_with_policy, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, imm32_contract_for_endpoint,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -5629,11 +5630,17 @@ fn run_v86_generic_runtime_session(
                         )?;
                         let response_frame = read_runtime_frame(input)?;
                         require_runtime_frame_kind(&response_frame, RUNTIME_FRAME_HOST_COMPLETION)?;
-                        if response_frame.control.len() != 40 {
+                        let timer_pacing =
+                            call.request.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE;
+                        let expected_control_bytes = if timer_pacing { 12 } else { 40 };
+                        if response_frame.control.len() != expected_control_bytes {
                             return Err(LoaderError::invalid_input(
                                 "runtime-reentry",
-                                "storage-completion-control-size-invalid",
-                                "storage completion requires an eight-byte request identity and 32-byte response control",
+                                "host-completion-control-size-invalid",
+                                format!(
+                                    "host completion for {} requires {expected_control_bytes} control bytes",
+                                    call.request.service
+                                ),
                             ));
                         }
                         let response_request_id = u64::from_le_bytes(
@@ -5648,8 +5655,28 @@ fn run_v86_generic_runtime_session(
                                 "storage completion identifies a different pending request",
                             ));
                         }
-                        let (outcome, source_read, writable_commit) =
-                            if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
+                        let (outcome, source_read, writable_commit, waitable_timer_pacing) =
+                            if timer_pacing {
+                                if !response_frame.payload.is_empty() {
+                                    return Err(LoaderError::invalid_input(
+                                        "runtime-reentry",
+                                        "timer-pacing-completion-payload-invalid",
+                                        "timer pacing completion must not contain a payload",
+                                    ));
+                                }
+                                let acknowledgement = u32::from_le_bytes(
+                                    response_frame.control[8..12]
+                                        .try_into()
+                                        .expect("checked timer pacing acknowledgement"),
+                                );
+                                let (outcome, completion) = complete_kernel32_waitable_timer_pacing(
+                                    &dispatcher,
+                                    call,
+                                    acknowledgement,
+                                    &mut session,
+                                );
+                                (outcome, None, None, completion)
+                            } else if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
                                 if !response_frame.payload.is_empty() {
                                     return Err(LoaderError::invalid_input(
                                         "runtime-reentry",
@@ -5668,7 +5695,7 @@ fn run_v86_generic_runtime_session(
                                     response,
                                     &mut session,
                                 );
-                                (outcome, None, completion)
+                                (outcome, None, completion, None)
                             } else {
                                 let response = RuntimeSourceReadHostResponse::decode_binary(
                                     request_id,
@@ -5682,7 +5709,7 @@ fn run_v86_generic_runtime_session(
                                     response,
                                     &mut session,
                                 );
-                                (outcome, completion, None)
+                                (outcome, completion, None, None)
                             };
                         let completion = match outcome {
                             DispatchOutcome::Immediate(completion) => completion,
@@ -5702,11 +5729,20 @@ fn run_v86_generic_runtime_session(
                                 ));
                             }
                         };
-                        if source_read.is_none() == writable_commit.is_none() {
+                        if [
+                            source_read.is_some(),
+                            writable_commit.is_some(),
+                            waitable_timer_pacing.is_some(),
+                        ]
+                        .into_iter()
+                        .filter(|present| *present)
+                        .count()
+                            != 1
+                        {
                             return Err(LoaderError::runtime_defect(
                                 "runtime-reentry",
-                                "storage-completion-state-missing",
-                                "storage API completion did not commit exactly one owner state",
+                                "host-completion-state-missing",
+                                "host API completion did not commit exactly one owner state",
                             ));
                         }
                         if source_read
@@ -5715,11 +5751,17 @@ fn run_v86_generic_runtime_session(
                             || writable_commit.as_ref().is_some_and(|completion| {
                                 completion.request.request_id != request_id
                             })
+                            || waitable_timer_pacing.as_ref().is_some_and(|completion| {
+                                completion
+                                    .registration
+                                    .and_then(|registration| registration.waitable_timer_pacing)
+                                    .is_none_or(|pacing| pacing.request_id != request_id)
+                            })
                         {
                             return Err(LoaderError::runtime_defect(
                                 "runtime-reentry",
-                                "storage-completion-identity-mismatch",
-                                "storage completion owner state identifies another request",
+                                "host-completion-identity-mismatch",
+                                "host completion owner state identifies another request",
                             ));
                         }
                         match session.runtime_mut().pop_scheduler_event() {
@@ -5729,11 +5771,40 @@ fn run_v86_generic_runtime_session(
                             _ => {
                                 return Err(LoaderError::runtime_defect(
                                     "runtime-reentry",
-                                    "storage-scheduler-event-mismatch",
-                                    "storage completion emitted a mismatched scheduler event",
+                                    "host-scheduler-event-mismatch",
+                                    "host completion emitted a mismatched scheduler event",
                                 ));
                             }
                         }
+                        let waitable_timer = if waitable_timer_pacing.is_some() {
+                            let handle = RuntimeHandle(
+                                completion.frame.argument_u32(0).ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "wait-for-single-object-ex-handle-argument-missing",
+                                        "paced WaitForSingleObjectEx completion has no timer handle",
+                                    )
+                                })?,
+                            );
+                            Some(GenericRuntimeWaitableTimer {
+                                handle,
+                                timer: *session
+                                    .runtime()
+                                    .waitable_timer_for_handle(handle)
+                                    .map_err(runtime_state_error)?,
+                                object_record: session
+                                    .runtime()
+                                    .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                                timer_clock: Some(session.runtime().timer_clock_state()),
+                                next_wait_registration_id: Some(
+                                    session.runtime().next_wait_registration_id(),
+                                ),
+                            })
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -5750,7 +5821,7 @@ fn run_v86_generic_runtime_session(
                                 file_type: None,
                                 current_directory: None,
                                 mutex: None,
-                                waitable_timer: None,
+                                waitable_timer,
                                 icon: None,
                                 cursor: None,
                                 window_class: None,

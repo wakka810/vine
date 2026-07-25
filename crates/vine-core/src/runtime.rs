@@ -241,8 +241,10 @@ pub use virtual_memory::{
     RuntimeVirtualMemoryReserveRequest,
 };
 pub use waits::{
-    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration, RuntimeWaitRegistrationId,
+    RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
+    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitableTimerPacing,
 };
 
 pub type RuntimeState = RuntimeKernel;

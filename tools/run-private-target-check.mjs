@@ -286,6 +286,71 @@ function assertReportSemantics({
     nodeReport.threadExecution.contextSwitches,
     expectedBrowser.contextSwitches,
   );
+  assert.equal(
+    nodeReport.waitableTimerWait.pacingService,
+    expectedBrowser.waitForSingleObjectExPacingService,
+  );
+  assert.equal(
+    nodeReport.waitableTimerWait.pacingPayloadVersion,
+    expectedBrowser.waitForSingleObjectExPacingPayloadVersion,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.requestId),
+    expectedBrowser.waitForSingleObjectExPacingRequestIds,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map(
+      (request) => request.registrationId,
+    ),
+    expectedBrowser.waitForSingleObjectExPacingRegistrationIds,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map(
+      (request) => request.delayMilliseconds,
+    ),
+    expectedBrowser.waitForSingleObjectExPacingDelayMilliseconds,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.timerId),
+    expectedBrowser.waitForSingleObjectExPacingTimerIds,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map(
+      (request) => request.targetTime100ns,
+    ),
+    expectedBrowser.waitForSingleObjectExPacingTargetTimes100ns,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map(
+      (request) => request.timerClockGeneration,
+    ),
+    expectedBrowser.waitForSingleObjectExPacingClockGenerations,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map(
+      (request) => request.armGeneration,
+    ),
+    expectedBrowser.waitForSingleObjectExPacingArmGenerations,
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.outcome),
+    Array(3).fill(expectedBrowser.waitForSingleObjectExPacingOutcome),
+  );
+  assert.deepEqual(
+    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.pacing),
+    Array(3).fill(expectedBrowser.waitForSingleObjectExNodePacingMode),
+  );
+  assert.equal(
+    nodeReport.waitableTimerWait.logicalCompletionAuthority,
+    expectedBrowser.waitForSingleObjectExLogicalCompletionAuthority,
+  );
+  assert.equal(
+    nodeReport.waitableTimerWait.pageLifecyclePolicy,
+    expectedBrowser.waitForSingleObjectExPageLifecyclePolicy,
+  );
+  assert.equal(nodeReport.waitableTimerWait.nodeTimerCreated, false);
+  assert.equal(nodeReport.waitableTimerWait.browserTimerRequired, true);
+  assert.equal(nodeReport.waitableTimerWait.hostClockImported, false);
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
   if (expectedNext.kind === "capability-checkpoint") {
     assert.equal(nodeReport.firstUnsupported, null);
@@ -467,6 +532,16 @@ function assertReportSemantics({
     browserReport.success.report.contextSwitches,
     expectedBrowser.contextSwitches,
   );
+  assert.deepEqual(browserReport.success.report.timerPacing, {
+    requests: expectedBrowser.waitForSingleObjectExBrowserPacingRequests,
+    completions: expectedBrowser.waitForSingleObjectExBrowserPacingCompletions,
+    cancellations: expectedBrowser.waitForSingleObjectExBrowserPacingCancellations,
+    freezes: 0,
+    resumes: 0,
+    staleCallbacks: expectedBrowser.waitForSingleObjectExBrowserPacingStaleCallbacks,
+    boundedCatchUps: 0,
+    pending: expectedBrowser.waitForSingleObjectExBrowserPacingPending,
+  });
   assert.equal(browserReport.cancellation.report.pendingHostCalls, 0);
   assert.equal(browserReport.cancellation.report.pendingCallbacks, 0);
   assert.equal(browserReport.watchdog.report.pendingHostCalls, 0);

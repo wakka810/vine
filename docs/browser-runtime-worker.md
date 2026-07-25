@@ -141,6 +141,16 @@ captures it only after the required completions and the final CPU writeback, the
 uses the common clean stop path. It is distinct from `firstUnsupported`; neither
 field may be populated as a substitute for the other.
 
+Protocol version 14 adds `runtime.timer-delay.v1` pacing and page lifecycle
+messages. Rust supplies the versioned request, registration, timer, logical
+target, clock generation, arm generation, and outcome snapshot; the Worker owns
+only a cancellable delay resource and returns ack `1`. Freeze preserves the
+remaining delay, resume rearms it, lifecycle/request generations reject stale
+callbacks, and catch-up is bounded to one completion per task. During this
+service only, the Worker holds guest CPU execution until completion and consumes
+the Rust-authorized owner lane once, so browser timing cannot select a different
+guest order. Other host services retain their existing multi-lane behavior.
+
 ## Execution engine contract
 
 Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86
@@ -351,7 +361,7 @@ stress command adds the 30-minute repeated lifecycle run.
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - long-idle heap-capacity plateau and full-play growth slope
 - isolated rerun of any active private-workload performance blocker
-- async pacing for the reached recurring wait and the next title output path
+- general wait fairness and the next title output path
 
 The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,
 and active steady-memory measurement passed their version 1 thresholds. See

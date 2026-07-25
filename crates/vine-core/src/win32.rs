@@ -18,11 +18,13 @@ use crate::runtime::{
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
     RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE, RuntimeCreateThreadRequest,
-    RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
-    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExOutcome,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
+    RUNTIME_WRITABLE_READ_SERVICE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
+    RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA,
+    RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
+    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExBegin,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
     RuntimeWritableCommitHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
@@ -189,6 +191,9 @@ pub fn dispatch_kernel32_api_with_policy(
     if contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION {
         return handle_close_handle(policy, contract, frame, session);
     }
+    if contract.implementation_id == WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION {
+        return handle_wait_for_single_object_ex(policy, contract, frame, session);
+    }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
             handle_get_system_time_as_file_time(contract, frame, session)
@@ -258,9 +263,6 @@ pub fn dispatch_kernel32_api_with_policy(
         }
         SET_WAITABLE_TIMER_IMPLEMENTATION => {
             handle_set_waitable_timer(policy, contract, frame, session)
-        }
-        WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => {
-            handle_wait_for_single_object_ex(policy, contract, frame, session)
         }
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
@@ -2409,6 +2411,82 @@ pub fn complete_kernel32_source_read(
     }
 }
 
+pub fn complete_kernel32_waitable_timer_pacing(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    acknowledgement: u32,
+    session: &mut ExecutionSession<'_>,
+) -> (DispatchOutcome, Option<RuntimeWaitForSingleObjectExResult>) {
+    if call.contract.implementation_id != WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION
+        || call.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+        || acknowledgement != 1
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-wait",
+                "waitable-timer-pacing-suspended-call-mismatch",
+                "timer pacing host completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let plan = match session
+        .runtime()
+        .plan_waitable_timer_pacing_completion(call.request.request_id)
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let result = plan.result();
+    let registration = result
+        .registration
+        .expect("timer pacing completion plan has a wait registration");
+    let pacing = registration
+        .waitable_timer_pacing
+        .expect("timer pacing completion plan has a pacing contract");
+    if call.request.payload != pacing.encode_host_payload(registration.id) {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-wait",
+                "waitable-timer-pacing-payload-mismatch",
+                "timer pacing host payload differs from the Rust wait authority",
+            )),
+            None,
+        );
+    }
+    let preserved_last_error = match session.last_error() {
+        Ok(last_error) => last_error,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: wait_result_immediate(result, preserved_last_error),
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let result = session
+            .runtime_mut()
+            .commit_waitable_timer_pacing_completion(plan);
+        (outcome, Some(result))
+    } else {
+        (outcome, None)
+    }
+}
+
 pub fn complete_kernel32_writable_commit(
     dispatcher: &ApiDispatcher,
     call: ApiDeferredCall,
@@ -2797,69 +2875,102 @@ fn handle_wait_for_single_object_ex(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let wait_policy = policy.wait_for_single_object_ex().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-wait",
-            "wait-for-single-object-ex-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable WaitForSingleObjectEx",
-                policy.id
-            ),
-        )
-    })?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
-    let timeout_milliseconds = required_argument(contract, frame, 1, "timeout")?;
-    let alertable = required_argument(contract, frame, 2, "alertable")? != 0;
-    if timeout_milliseconds > wait_policy.maximum_timeout_milliseconds {
-        return Err(ApiFault::unsupported(
-            "win32-wait",
-            "wait-for-single-object-ex-timeout-unsupported",
-            format!(
-                "compatibility policy {} enables finite timeouts through {} milliseconds, not {}",
-                policy.id, wait_policy.maximum_timeout_milliseconds, timeout_milliseconds
-            ),
-        ));
-    }
-    if (alertable && !wait_policy.allow_alertable)
-        || (!alertable && !wait_policy.allow_nonalertable)
-    {
-        return Err(ApiFault::unsupported(
-            "win32-wait",
-            "wait-for-single-object-ex-alertable-mode-unsupported",
-            format!(
-                "compatibility policy {} does not enable the requested alertable mode",
-                policy.id
-            ),
-        ));
-    }
-    if !wait_policy.waitable_timer_only {
-        return Err(ApiFault::runtime_defect(
-            "win32-wait",
-            "wait-for-single-object-ex-policy-object-band-invalid",
-            "validated WaitForSingleObjectEx policy lost its timer-only object scope",
-        ));
-    }
-    match session.runtime().waitable_timer_for_handle(handle) {
-        Ok(_) => {}
-        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
-            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-                .with_last_error(ERROR_INVALID_HANDLE));
+) -> ApiHandlerResult {
+    let result = (|| {
+        let wait_policy = policy.wait_for_single_object_ex().ok_or_else(|| {
+            ApiFault::unsupported(
+                "win32-wait",
+                "wait-for-single-object-ex-policy-disabled",
+                format!(
+                    "compatibility policy {} does not enable WaitForSingleObjectEx",
+                    policy.id
+                ),
+            )
+        })?;
+        let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
+        let timeout_milliseconds = required_argument(contract, frame, 1, "timeout")?;
+        let alertable = required_argument(contract, frame, 2, "alertable")? != 0;
+        if timeout_milliseconds > wait_policy.maximum_timeout_milliseconds {
+            return Err(ApiFault::unsupported(
+                "win32-wait",
+                "wait-for-single-object-ex-timeout-unsupported",
+                format!(
+                    "compatibility policy {} enables finite timeouts through {} milliseconds, not {}",
+                    policy.id, wait_policy.maximum_timeout_milliseconds, timeout_milliseconds
+                ),
+            ));
         }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        if (alertable && !wait_policy.allow_alertable)
+            || (!alertable && !wait_policy.allow_nonalertable)
+        {
+            return Err(ApiFault::unsupported(
+                "win32-wait",
+                "wait-for-single-object-ex-alertable-mode-unsupported",
+                format!(
+                    "compatibility policy {} does not enable the requested alertable mode",
+                    policy.id
+                ),
+            ));
+        }
+        if !wait_policy.waitable_timer_only {
+            return Err(ApiFault::runtime_defect(
+                "win32-wait",
+                "wait-for-single-object-ex-policy-object-band-invalid",
+                "validated WaitForSingleObjectEx policy lost its timer-only object scope",
+            ));
+        }
+        match session.runtime().waitable_timer_for_handle(handle) {
+            Ok(_) => {}
+            Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+                        .with_last_error(ERROR_INVALID_HANDLE),
+                ));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        }
+        let preserved_last_error = session
+            .last_error()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let begin = session
+            .runtime_mut()
+            .begin_wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        match begin {
+            RuntimeWaitForSingleObjectExBegin::Immediate { result } => Ok(
+                ApiHandlerResult::Immediate(wait_result_immediate(result, preserved_last_error)),
+            ),
+            RuntimeWaitForSingleObjectExBegin::Deferred { registration } => {
+                let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "win32-wait",
+                        "waitable-timer-pacing-contract-missing",
+                        "deferred WaitForSingleObjectEx registration has no pacing contract",
+                    )
+                })?;
+                Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+                    request_id: pacing.request_id,
+                    service: RUNTIME_WAITABLE_TIMER_PACING_SERVICE.to_owned(),
+                    payload: pacing.encode_host_payload(registration.id).to_vec(),
+                }))
+            }
+        }
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
     }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let result = session
-        .runtime_mut()
-        .wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+}
+
+fn wait_result_immediate(
+    result: RuntimeWaitForSingleObjectExResult,
+    preserved_last_error: u32,
+) -> ApiImmediate {
     let value = match result.outcome {
         RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => WAIT_OBJECT_0,
         RuntimeWaitForSingleObjectExOutcome::TimedOut => WAIT_TIMEOUT,
     };
-    Ok(ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error))
+    ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error)
 }
 
 fn handle_get_string_type_w(
@@ -4776,6 +4887,7 @@ pub fn wait_for_single_object_ex_contract(
         ApiReturnSchema::U32,
         WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
     )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
 }

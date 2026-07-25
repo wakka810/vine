@@ -29,12 +29,19 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
-assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
+assert.equal(manifest.browserCheckpoint.bgiBenchmark, "environment-blocked");
+assert.equal(
+  manifest.browserCheckpoint.bgiBenchmarkBlocker.kind,
+  "performance-environment-blocker",
+);
+assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.id));
 assert.equal(manifest.schemaVersion, 4);
 assert.equal(manifest.activeBlocker, null);
-assert.ok(!rendered.includes("| Active blocker |"));
-assert.equal(manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus, "valid");
+assert.ok(rendered.includes("| Active blocker |"));
+assert.equal(
+  manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
+  "invalid-environment",
+);
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
   assert.ok(rendered.includes(`\`${milestone.status}\``));
@@ -170,7 +177,7 @@ const unexpectedStructuredBenchmarkBlocker = structuredClone(manifest);
 unexpectedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker = {};
 assert.ok(
   validateCurrentCheckpoint(unexpectedStructuredBenchmarkBlocker).some((error) =>
-    error.includes("structured performance blocker"),
+    error.includes("performance-environment blocker"),
   ),
 );
 
@@ -185,7 +192,11 @@ assert.ok(
 const clearedActiveBlocker = structuredClone(manifest);
 clearedActiveBlocker.activeBlocker = null;
 assert.deepEqual(validateCurrentCheckpoint(clearedActiveBlocker), []);
-assert.ok(!renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"));
+assert.ok(
+  renderReadmeStatus(clearedActiveBlocker).includes(
+    clearedActiveBlocker.browserCheckpoint.bgiBenchmarkBlocker.id,
+  ),
+);
 
 const mismatchedBenchmarkProfile = structuredClone(manifest);
 mismatchedBenchmarkProfile.browserCheckpoint.bgiBenchmarkEvidence.runtimeProfile =

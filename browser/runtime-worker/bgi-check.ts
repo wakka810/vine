@@ -1,3 +1,4 @@
+import { observePageLifecycle } from "./page-lifecycle.js";
 import {
   assertProtocolVersion,
   type MainToWorkerMessage,
@@ -33,6 +34,14 @@ const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
 const evidenceLevel = searchParams.get("evidence") === "full" ? "full" : "summary";
 const sessionId = 1;
+const pageLifecycle = observePageLifecycle((lifecycle) => {
+  worker.postMessage({
+    type: "page-lifecycle",
+    protocolVersion,
+    sessionId,
+    lifecycle,
+  } satisfies MainToWorkerMessage);
+});
 const statuses: Array<{ phase: string; detail: string }> = [];
 const usedJsHeapBytesBefore = performance.memory?.usedJSHeapSize ?? null;
 let heartbeatSamples = 0;
@@ -92,6 +101,7 @@ worker.postMessage({
     instructionBudget: scenario === "watchdog" ? 4 : 16_384,
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
     watchdogWallMilliseconds: 20_000,
+    pageLifecycle: pageLifecycle.snapshot(),
   },
 } satisfies MainToWorkerMessage);
 

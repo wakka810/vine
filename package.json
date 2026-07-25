@@ -23,7 +23,7 @@
     "check:checkpoint-manifest": "node tools/test-runtime-checkpoint-manifest.mjs",
     "check:bgi-command-contract": "node tools/test-bgi-checkpoint-command.mjs",
     "check:semantic-call-digest": "node tools/test-semantic-call-digest.mjs",
-    "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs && node tools/test-runtime-worker-evidence-level.mjs && node tools/test-runtime-worker-storage.mjs",
+    "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs && node tools/test-runtime-worker-timer-pacing.mjs && node tools/test-runtime-worker-evidence-level.mjs && node tools/test-runtime-worker-storage.mjs",
     "check:browser-performance-environment": "node tools/test-browser-performance-environment.mjs",
     "check:com-foundation": "cargo test -p vine-core --test com_iunknown_foundation --locked && cargo test -p vine-core --test ole32_dispatcher --locked && cargo test -p vine-core --lib runtime::thread::tests::com_apartment --locked && npm run typecheck:runtime:browser-worker && node tools/test-browser-resource-identity.mjs",
     "check:execution-engine-contract:prepared": "node tools/test-execution-engine-contract.mjs",

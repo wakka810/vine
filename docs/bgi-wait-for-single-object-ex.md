@@ -6,13 +6,15 @@
 - Date: 2026-07-26
 - Runtime-kernel checkpoint: `kernel32-wait-for-single-object-ex`
 - Previous capability checkpoint: `kernel32-set-waitable-timer`
-- Next subsystem gateway: `runtime-waitable-timer-pacing`
+- Completed subsystem gateway: `runtime-waitable-timer-pacing`
+- Next capability checkpoint: `kernel32-enter-critical-section`
 
 This checkpoint implements the reached finite alertable wait over a relative
 one-shot waitable timer. Rust owns the logical timer clock, timer expiration,
 typed-object signal state, wait registration, and scheduler lane transition.
-TypeScript transports immutable completion metadata and does not create a
-browser timer or own Windows wait state.
+For a positive logical delay, TypeScript owns only a cancellable browser timer
+resource. It does not own Windows wait state, decide the wait result, or import
+browser elapsed time into the Rust clock.
 
 ## Native evidence
 
@@ -71,14 +73,26 @@ deadline and timeout deadline. Expiration consumes only the exact live arm
 generation and records the last expiration. Manual-reset expiration leaves the
 typed object signaled; a later `SetWaitableTimer` resets it to nonsignaled.
 
-`RuntimeScheduler` and `RuntimeWaits` plan an immediate bounded registration
-with thread ID, object ID, logical handle, timeout deadline, and alertable flag.
-The current lane round-trips from `Runnable` or `InCallback` through
-`WaitingObject` back to its exact prior state. Registration, clock advance,
-timer expiration, and object signal updates are all preflighted before targeted
-commit. Stale clock, stale arm, duplicate registration, wrong lane, wrong
+`RuntimeScheduler` and `RuntimeWaits` plan a bounded registration with thread
+ID, object ID, logical handle, timeout deadline, and alertable flag. Positive
+delay also reserves a host request and emits `runtime.timer-delay.v1` payload
+version 1 with full-width request, registration, timer, clock, and arm
+generations. The browser completion carries only ack `1`.
+
+Completion revalidates request, thread, lane, registration, object, timer,
+clock, and arm identity before committing clock advance, expiration, object
+signal, registration retirement, and exact owner-lane resume. Stale clock,
+stale arm, duplicate completion, wrong ack, rearm, close, cancellation, wrong
 object, existing cross-thread waiters, and injected preflight failures preserve
 all owners and allocators.
+
+The Worker freezes a pending delay on page suspension, preserves its remaining
+duration, and rearms it on resume. Lifecycle and request generations reject
+late callbacks, cancellation retires the browser resource, and catch-up is
+bounded to one completion per task. During this service only, guest CPU
+execution is held until the delay completes and the Rust-authorized owner lane
+is consumed once. This prevents wall timing from choosing a different guest
+instruction order. Other host services retain ordinary multi-lane scheduling.
 
 Representative tests:
 
@@ -90,6 +104,7 @@ cargo test -p vine-core --test runtime_waitable_timer --locked
 cargo test -p vine-core --test api_dispatcher wait_for_single_object_ex --locked
 cargo test -p vine-core --test win32_compatibility_policy --locked
 node tools/test-kernel32-compatibility-policy.mjs
+node tools/test-runtime-worker-timer-pacing.mjs
 ```
 
 ## Node and Chrome evidence
@@ -112,9 +127,10 @@ owned endpoint ID 144, `KERNEL32.dll!EnterCriticalSection`, at `0x7F0008F0`.
 This is a capability checkpoint, not an unsupported API fault.
 
 Node records 18,754 writeback batches, 37,732 dirty pages, 2,932,699 changed
-bytes, 17,353 host deltas, and final generation 36,680. The 408,570-byte Node
-report has SHA-256
-`ee88f67fb63e49921804022133c0a1f72c974e021be28673890a9d616bc55273`.
+bytes, 17,353 host deltas, and final generation 36,680. Its three pacing
+requests use request IDs `3/4/5`, registration IDs `1/2/3`, one-millisecond
+delays, clock generations `0/1/2`, and arm generations `1/2/3`. Node completes
+them with deterministic acknowledgements and creates no timer.
 Ordered-call semantics have SHA-256
 `31b7d2d7d3d14452f93d45fa9a00c962dfaaf8b9516186855d6f4e4208080332`;
 checkpoint memory has SHA-256
@@ -123,13 +139,21 @@ checkpoint memory has SHA-256
 Chrome 150.0.7871.187 reproduces the same calls, clock and expiration
 snapshots, ordered semantics, memory, and terminal endpoint. It records 19,453
 slices, 19,451 writeback batches over 39,346 pages, 17,353 mapping deltas,
-generation 37,379, and 55,877 Wasm crossings. Cancel and watchdog cleanup leave
-no pending host call or callback. The 44,043-byte browser report has SHA-256
-`4ab890821402ef2584a9d1d8df9fb004f71ae57c2dc566e817bfe4a7c187372c`.
+generation 37,379, and 55,880 Wasm crossings. It creates and completes exactly
+three pacing resources with zero pending, cancellation, or stale callback in
+the success run. Cancel and watchdog cleanup leave no pending host call or
+callback. Current report sizes, hashes, Wasm identity, and browser version are
+recorded only in [current-checkpoint.json](current-checkpoint.json).
 
-The existing versioned browser performance observation is retained. This
-bounded semantic checkpoint adds no host crossing and deliberately does not
-claim real-time pacing of the recurring loop.
+Because this gateway changes browser scheduling and host crossings, the
+versioned repeated-session browser performance observation was rerun after the
+semantic contract completed. Both full runs passed all 17 workload thresholds
+with zero semantic failures, and the copy-free final memory summary closed the
+initial observer-only Rust linear-memory excess without changing guest
+semantics. Both observations were independently invalidated by the same
+policy-defined sustained external-CPU condition, so neither is accepted
+performance evidence. Exact reports, protected invariants, and the isolated-host
+resume condition are recorded only in the current manifest.
 
 ## Non-claims
 
@@ -137,18 +161,18 @@ claim real-time pacing of the recurring loop.
   implemented.
 - General process, thread, mutex, event, semaphore, wait-any, wait-all, and
   cross-thread waiter interleaving are outside this contract.
-- `INFINITE`, host-elapsed timeout behavior, cancellation during a pending
-  wait, background throttling, freeze/resume, and bounded catch-up are not
-  implemented.
-- The current handler advances deterministic logical time and completes the
-  bounded wait synchronously. It is not browser wall-clock pacing.
+- `INFINITE`, general host-elapsed timeout behavior, multi-waiter fairness, and
+  timer behavior outside the bounded 0..10 ms policy are not implemented.
+- Browser delay paces the reached loop, but it is not a Windows clock
+  authority and does not determine guest thread order or the wait result.
+- Lifecycle freeze/resume and bounded catch-up have deterministic service-model
+  coverage; this is not a claim for every browser throttling mode or long-idle
+  timer workload.
 - Auto-reset expiration is covered by Rust model tests but remains outside the
   active primary creation policy.
 
-## Next subsystem gateway
+## Next checkpoint
 
-`runtime-waitable-timer-pacing` must decide how the existing Rust-owned timer,
-wait, scheduler, request, and generation identities cross an asynchronous
-Worker/browser delay without importing browser time as Windows authority.
-Acceptance must cover cancellation, stale completion, page lifecycle, and
-bounded catch-up before the recurring loop is allowed to run continuously.
+The pacing gateway is complete. The next owned endpoint is ID 144,
+`KERNEL32.dll!EnterCriticalSection` at `0x7F0008F0`. Exact current stop metadata
+remains in the current checkpoint manifest.

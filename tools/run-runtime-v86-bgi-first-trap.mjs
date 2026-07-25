@@ -34,6 +34,7 @@ import {
 } from "./writable-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const timerPacingService = "runtime.timer-delay.v1";
 const commandArguments = process.argv.slice(2);
 const defaultManifestPath = path.join(
   root,
@@ -5456,6 +5457,7 @@ async function runGenericRuntimeReentry({
   const hostDeltas = [];
   const sourceReads = [];
   const writableCommits = [];
+  const timerPacing = [];
   assert.equal(writableProfileLease === null, writableProfile === null);
   const stackGrowths = [];
   const heapPageMaterializations = [];
@@ -5614,6 +5616,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -6068,6 +6071,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -6137,6 +6141,7 @@ async function runGenericRuntimeReentry({
         writableProfileLease,
         sourceReads,
         writableCommits,
+        timerPacing,
         sequence,
       });
     }
@@ -6241,6 +6246,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -6401,12 +6407,9 @@ async function completeStorageHostRequest({
   writableProfileLease,
   sourceReads,
   writableCommits,
+  timerPacing,
   sequence,
 }) {
-  assert(
-    sourceRegistration !== null || writableProfile !== null,
-    "runtime emitted storage I/O without a registered backing",
-  );
   const metadata = JSON.parse(response.control.toString("utf8"));
   assert.equal(metadata.schema, "vine.v86-generic-runtime-host-request");
   assert.equal(metadata.schemaVersion, 1);
@@ -6421,6 +6424,66 @@ async function completeStorageHostRequest({
     state: "waiting-host",
     requestId: metadata.requestId,
   });
+  if (metadata.service === timerPacingService) {
+    assert.equal(response.payload.length, 0);
+    assert.equal(metadata.endpoint.endpoint.symbol.name, "WaitForSingleObjectEx");
+    assert.equal(metadata.arguments.length, 13);
+    const [
+      version,
+      delayMilliseconds,
+      registrationLow,
+      registrationHigh,
+      timerLow,
+      timerHigh,
+      targetLow,
+      targetHigh,
+      clockGenerationLow,
+      clockGenerationHigh,
+      armGenerationLow,
+      armGenerationHigh,
+      outcome,
+    ] = metadata.arguments;
+    assert.equal(version, 1);
+    assert(Number.isInteger(delayMilliseconds) && delayMilliseconds > 0 && delayMilliseconds <= 10);
+    assert(outcome === 0 || outcome === 1);
+    const requestIdentity = Buffer.alloc(8);
+    requestIdentity.writeBigUInt64LE(BigInt(metadata.requestId));
+    const acknowledgement = Buffer.alloc(4);
+    acknowledgement.writeUInt32LE(1);
+    await writeRuntimeFrame(
+      child.stdin,
+      runtimeFrame.hostCompletion,
+      Buffer.concat([requestIdentity, acknowledgement]),
+      Buffer.alloc(0),
+    );
+    timerPacing.push({
+      sequence,
+      requestId: String(metadata.requestId),
+      delayMilliseconds,
+      registrationId: (
+        BigInt(registrationLow) |
+        (BigInt(registrationHigh) << 32n)
+      ).toString(),
+      timerId: (BigInt(timerLow) | (BigInt(timerHigh) << 32n)).toString(),
+      targetTime100ns: (BigInt(targetLow) | (BigInt(targetHigh) << 32n)).toString(),
+      timerClockGeneration: (
+        BigInt(clockGenerationLow) |
+        (BigInt(clockGenerationHigh) << 32n)
+      ).toString(),
+      armGeneration: (
+        BigInt(armGenerationLow) |
+        (BigInt(armGenerationHigh) << 32n)
+      ).toString(),
+      outcome: outcome === 0 ? "object-signaled" : "timed-out",
+      pacing: "deterministic-node-ack",
+    });
+    return readRuntimeFrame(protocolReader, null, "generic timer pacing completion");
+  }
+
+  assert(
+    sourceRegistration !== null || writableProfile !== null,
+    "runtime emitted storage I/O without a registered backing",
+  );
   if (metadata.service === writableProfileCommitService) {
     assert.notEqual(writableProfile, null, "writable commit has no profile database");
     assert.notEqual(writableProfileLease, null, "writable commit has no profile session lease");
@@ -19958,6 +20021,27 @@ function buildGenericRuntimeReentryReport({
       3,
       "WaitForSingleObjectEx report summary requires three recurring completions",
     );
+    assert.equal(
+      genericResult.timerPacing.length,
+      waitForSingleObjectExCalls.length,
+      "WaitForSingleObjectEx pacing request count differs from its API completions",
+    );
+    for (const [index, pacing] of genericResult.timerPacing.entries()) {
+      assert.equal(pacing.sequence, waitForSingleObjectExCalls[index].sequence);
+      assert.equal(pacing.delayMilliseconds, 1);
+      assert.equal(pacing.registrationId, String(index + 1));
+      assert.equal(pacing.timerId, "2");
+      assert.equal(pacing.targetTime100ns, String((index + 1) * 5_000));
+      assert.equal(pacing.timerClockGeneration, String(index));
+      assert.equal(pacing.armGeneration, String(index + 1));
+      assert.equal(pacing.outcome, "object-signaled");
+      assert.equal(pacing.pacing, "deterministic-node-ack");
+    }
+    assert.equal(
+      new Set(genericResult.timerPacing.map(({ requestId }) => requestId)).size,
+      genericResult.timerPacing.length,
+      "WaitForSingleObjectEx pacing request identities are not unique",
+    );
   }
   return {
     schema:
@@ -20388,7 +20472,13 @@ function buildGenericRuntimeReentryReport({
             timeoutMode: "finite-zero-through-ten-milliseconds",
             alertableAccepted: true,
             apcDeliveryImplemented: false,
-            browserTimerCreated: false,
+            pacingService: timerPacingService,
+            pacingPayloadVersion: 1,
+            pacingRequests: genericResult.timerPacing,
+            logicalCompletionAuthority: "rust-runtime",
+            nodeTimerCreated: false,
+            browserTimerRequired: true,
+            pageLifecyclePolicy: "freeze-resume-preserve-remaining-bounded-catch-up",
             hostClockImported: false,
           },
         }

@@ -1,3 +1,4 @@
+import { observePageLifecycle } from "./page-lifecycle.js";
 import {
   assertProtocolVersion,
   type MainToWorkerMessage,
@@ -28,6 +29,14 @@ const status = requiredElement<HTMLOutputElement>("#status");
 const scenario = parseScenario(new URL(location.href).searchParams.get("scenario"));
 const mode: SessionMode = scenario === "wrong-origin" ? "success" : scenario;
 const sessionId = 1;
+const pageLifecycle = observePageLifecycle((lifecycle) => {
+  worker.postMessage({
+    type: "page-lifecycle",
+    protocolVersion,
+    sessionId,
+    lifecycle,
+  } satisfies MainToWorkerMessage);
+});
 const statuses: Array<{ phase: string; detail: string }> = [];
 let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
@@ -93,6 +102,7 @@ worker.postMessage({
     instructionBudget: 8,
     watchdogInstructionLimit: 100_000,
     watchdogWallMilliseconds: scenario === "watchdog" ? 100 : 10_000,
+    pageLifecycle: pageLifecycle.snapshot(),
   },
 } satisfies MainToWorkerMessage);
 

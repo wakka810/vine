@@ -1,11 +1,12 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeBootstrap, RuntimeClockState,
-    RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
-    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
-    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeHandle,
+    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
+    RuntimeState, RuntimeThreadId, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, RuntimeWaitableTimerArm,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, SchedulerThreadState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -323,6 +324,121 @@ fn finite_alertable_waits_advance_the_logical_timer_clock_and_consume_exact_arms
     assert_eq!(consumed.registration, None);
     assert_eq!(runtime.next_wait_registration_id(), 5);
     assert_eq!(consumed.timer_clock_after, automatic_wait.timer_clock_after);
+}
+
+#[test]
+fn paced_timer_waits_bind_host_wait_identity_and_cancel_without_partial_time() {
+    let mut runtime = runtime(true);
+    let before_reserved_request = runtime.clone();
+    assert_eq!(
+        runtime
+            .begin_host_request(RUNTIME_WAITABLE_TIMER_PACING_SERVICE)
+            .expect_err("timer pacing service is reserved for authoritative waits")
+            .code,
+        "waitable-timer-pacing-service-reserved"
+    );
+    assert_eq!(runtime, before_reserved_request);
+
+    let timer = runtime
+        .create_waitable_timer_a(true)
+        .expect("create paced wait timer");
+    runtime
+        .set_waitable_timer(timer.handle, 5_000)
+        .expect("arm paced wait timer");
+
+    let begin = runtime
+        .begin_wait_for_single_object_ex(timer.handle, 10, true)
+        .expect("begin paced timer wait");
+    let RuntimeWaitForSingleObjectExBegin::Deferred { registration } = begin else {
+        panic!("positive timer delay must defer");
+    };
+    let pacing = registration
+        .waitable_timer_pacing
+        .expect("deferred wait carries pacing identity");
+    assert_eq!(registration.id.0, 1);
+    assert_eq!(pacing.request_id, 1);
+    assert_eq!(pacing.delay_milliseconds, 1);
+    assert_eq!(pacing.target_time_100ns, 5_000);
+    let mut wide_arm_generation = pacing;
+    wide_arm_generation
+        .timer_before
+        .arm
+        .as_mut()
+        .expect("paced signal has an arm")
+        .generation = 0x0000_0001_0000_0007;
+    let payload = wide_arm_generation.encode_host_payload(registration.id);
+    assert_eq!(payload.len(), 52);
+    assert_eq!(u32::from_le_bytes(payload[40..44].try_into().unwrap()), 7);
+    assert_eq!(u32::from_le_bytes(payload[44..48].try_into().unwrap()), 1);
+    assert_eq!(
+        pacing.outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost { request_id: 1 }
+    );
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    assert_eq!(
+        runtime
+            .scheduler()
+            .wait_registrations()
+            .get(&registration.id),
+        Some(&registration)
+    );
+
+    let before_generic_completion = runtime.clone();
+    assert_eq!(
+        runtime
+            .complete_host_request(pacing.request_id)
+            .expect_err("timer pacing requires its atomic completion path")
+            .code,
+        "waitable-timer-pacing-specialized-completion-required"
+    );
+    assert_eq!(runtime, before_generic_completion);
+
+    let before_rearm = runtime.clone();
+    assert_eq!(
+        runtime
+            .set_waitable_timer(timer.handle, 10_000)
+            .expect_err("rearm while paced wait is pending")
+            .code,
+        "waitable-timer-operation-state-invalid"
+    );
+    assert_eq!(runtime, before_rearm);
+    let before_close = runtime.clone();
+    assert_eq!(
+        runtime
+            .close_handle(timer.handle)
+            .expect_err("close while paced wait is pending")
+            .code,
+        "waitable-timer-close-with-pending-wait-unsupported"
+    );
+    assert_eq!(runtime, before_close);
+
+    let cancellation = runtime
+        .request_current_thread_exit(7)
+        .expect("cancel paced host wait");
+    assert_eq!(cancellation.host_requests_cancelled, 1);
+    assert_eq!(cancellation.wait_registrations_cancelled, 1);
+    assert!(runtime.scheduler().host_requests().is_empty());
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().object_waiters().is_empty());
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    assert_eq!(
+        runtime
+            .waitable_timer_for_handle(timer.handle)
+            .expect("cancellation leaves timer authority live")
+            .arm,
+        pacing.timer_before.arm
+    );
+    assert_eq!(
+        runtime
+            .complete_host_request(pacing.request_id)
+            .expect_err("late pacing acknowledgement is stale")
+            .code,
+        "host-request-id-unknown"
+    );
 }
 
 fn runtime(started: bool) -> RuntimeState {

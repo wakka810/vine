@@ -3178,6 +3178,29 @@ impl GuestMemory {
         )
     }
 
+    pub fn current_content_sha256(&self) -> Result<String, GuestMemoryError> {
+        let mut hasher = Sha256::new();
+        for (&virtual_page, page) in &self.pages {
+            let address = virtual_page_address(virtual_page, "memory-reflection")?;
+            let owner = self.require_owner(page.owner)?;
+            if page.protection.execute && !owner.sealed {
+                return Err(GuestMemoryError::conflict(
+                    "memory-reflection",
+                    "executable-owner-unsealed",
+                    "executable pages cannot be reflected before their owner is sealed",
+                ));
+            }
+            let protection_bits = u8::from(page.protection.read)
+                | u8::from(page.protection.write) << 1
+                | u8::from(page.protection.execute) << 2;
+            hasher.update(address.0.to_le_bytes());
+            hasher.update(page.owner.0.to_le_bytes());
+            hasher.update([protection_bits, u8::from(owner.sealed), 1]);
+            hasher.update(self.frames.bytes(page.frame)?);
+        }
+        Ok(hex_digest(&hasher.finalize()))
+    }
+
     fn build_reflection(
         &self,
         invalidation: MemoryInvalidation,

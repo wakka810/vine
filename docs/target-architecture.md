@@ -344,11 +344,15 @@ browser deadlineではない。詳細は[bgi-set-waitable-timer.md](bgi-set-wait
 
 Reached `WaitForSingleObjectEx` profileでは`RuntimeTimers`のlogical clock／exact arm expiration、
 `RuntimeObjectTable`のmanual-reset signal、`RuntimeWaits`のdeadline／alertable registration、
-`RuntimeScheduler`のexact lane roundtripをaggregateが全件preflightする。0..10 msのtimer-only finite waitは
-deadlineまでdeterministically fast-forwardし、success／timeoutはLastErrorを保持する。Alertable flagは
-contract inputだがAPC deliveryを意味しない。TypeScriptはcompletion snapshotだけを運び、host／browser clockを
-Windows authorityへimportしない。Continuous executionで必要なreal-time pacing、cancel、stale completion、
-background freeze／resume、bounded catch-upは`runtime-waitable-timer-pacing` gatewayで別contractにする。詳細は
+`RuntimeScheduler`のrequest／lane transitionをaggregateが全件preflightする。0..10 msのtimer-only finite
+waitは、zero／already-signaledなら同期完了し、positive delayならversioned
+`runtime.timer-delay.v1` requestを発行する。TypeScriptはcancellable delay resourceとpage lifecycle generation
+だけを所有し、completionはack以外のWindows valueを返さない。Rustがrequest／thread／registration／timer／clock／
+arm identityを再検証してlogical clock、expiration、object signal、wait result、owner laneを一括commitする。
+Freezeはremaining delayを保持し、resumeは再arm、late callbackはstale、catch-upは一task一件へboundする。
+このservice中だけsingle emulated CPUをholdしてwall timingによるguest lane orderの変化を防ぐ。
+Success／timeoutはLastErrorを保持し、browser clockをWindows authorityへimportしない。Alertable flagは
+contract inputだがAPC deliveryを意味しない。詳細は
 [bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
 
 Guest-visible OS version is compatibility data, not browser capability

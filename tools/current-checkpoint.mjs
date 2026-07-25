@@ -447,11 +447,17 @@ export function validateCurrentCheckpoint(manifest) {
   if (browser.bgiSession !== "semantic-equivalence-passed") {
     errors.push("browserCheckpoint.bgiSession must identify passed semantic equivalence");
   }
-  if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
+  if (
+    !new Set([
+      "threshold-passed",
+      "threshold-blocked",
+      "environment-blocked",
+    ]).has(browser.bgiBenchmark)
+  ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v13") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v13");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v14") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v14");
   }
   if (
     browser.executionEngineProfile !==
@@ -1126,6 +1132,12 @@ export function validateCurrentCheckpoint(manifest) {
     "setWaitableTimerOpenHandles",
     "waitForSingleObjectExCompletions",
     "waitForSingleObjectExGuestWriteBytes",
+    "waitForSingleObjectExPacingPayloadVersion",
+    "waitForSingleObjectExBrowserPacingRequests",
+    "waitForSingleObjectExBrowserPacingCompletions",
+    "waitForSingleObjectExBrowserPacingCancellations",
+    "waitForSingleObjectExBrowserPacingStaleCallbacks",
+    "waitForSingleObjectExBrowserPacingPending",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -1199,7 +1211,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_325 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_334 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
@@ -1974,8 +1986,43 @@ export function validateCurrentCheckpoint(manifest) {
       "finite-zero-through-ten-milliseconds" ||
     bgiBrowserEvidence.waitForSingleObjectExAlertableAccepted !== true ||
     bgiBrowserEvidence.waitForSingleObjectExApcDeliveryImplemented !== false ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingService !==
+      "runtime.timer-delay.v1" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingPayloadVersion !== 1 ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingRequestIds?.join(",") !==
+      "3,4,5" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingRegistrationIds?.join(",") !==
+      "1,2,3" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingDelayMilliseconds?.join(",") !==
+      "1,1,1" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingTimerIds?.join(",") !==
+      "2,2,2" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingTargetTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingClockGenerations?.join(",") !==
+      "0,1,2" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingArmGenerations?.join(",") !==
+      "1,2,3" ||
+    bgiBrowserEvidence.waitForSingleObjectExPacingOutcome !==
+      "object-signaled" ||
+    bgiBrowserEvidence.waitForSingleObjectExNodePacingMode !==
+      "deterministic-node-ack" ||
+    bgiBrowserEvidence.waitForSingleObjectExLogicalCompletionAuthority !==
+      "rust-runtime" ||
+    bgiBrowserEvidence.waitForSingleObjectExPageLifecyclePolicy !==
+      "freeze-resume-preserve-remaining-bounded-catch-up" ||
+    bgiBrowserEvidence.waitForSingleObjectExRuntimeWidePacingBarrier !== true ||
+    bgiBrowserEvidence.waitForSingleObjectExOwnerResumeAuthority !==
+      "rust-host-completion" ||
+    bgiBrowserEvidence.waitForSingleObjectExOtherGuestLaneExecutionDuringPacing !==
+      false ||
     bgiBrowserEvidence.waitForSingleObjectExHostClockImported !== false ||
-    bgiBrowserEvidence.waitForSingleObjectExBrowserTimerCreated !== false ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserTimerCreated !== true ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingRequests !== 3 ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCompletions !== 3 ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExFailureAtomicity !== true ||
     bgiBrowserEvidence.waitForSingleObjectExNodeChromeOrderedSemanticsMatched !==
       true
@@ -2618,22 +2665,30 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint.bgiBenchmarkEvidence.environmentReasonIds",
     errors,
   );
+  const benchmarkEnvironmentBlocked =
+    browser.bgiBenchmark === "environment-blocked";
   if (
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-dsound-root-and-cooperative-level-v1.json" ||
-    bgiBenchmarkEvidence.runtimeProfile !== "dsound-root-and-cooperative-level" ||
+      "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json" ||
+    bgiBenchmarkEvidence.runtimeProfile !==
+      "kernel32-wait-for-single-object-ex" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "previous-dsound-root-observation-not-buffer-content" ||
+      "current-waitable-timer-pacing-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
       "fixtures/benchmarks/browser-performance-environment-windows-v1.json" ||
-    bgiBenchmarkEvidence.environmentStatus !== "valid" ||
-    benchmarkEnvironmentReasonIds.length !== 0 ||
+    (benchmarkEnvironmentBlocked
+      ? bgiBenchmarkEvidence.environmentStatus !== "invalid-environment" ||
+        benchmarkEnvironmentReasonIds.length === 0
+      : bgiBenchmarkEvidence.environmentStatus !== "valid" ||
+        benchmarkEnvironmentReasonIds.length !== 0) ||
     bgiBenchmarkEvidence.updaterEvents !== 0 ||
-    bgiBenchmarkEvidence.sustainedEnvironmentExcursions !== 0 ||
+    (benchmarkEnvironmentBlocked
+      ? bgiBenchmarkEvidence.sustainedEnvironmentExcursions < 1
+      : bgiBenchmarkEvidence.sustainedEnvironmentExcursions !== 0) ||
     bgiBenchmarkEvidence.qosChangesAfterWarmup !== 0 ||
     bgiBenchmarkEvidence.decisionStatus !==
       (benchmarkFailureIds.length === 0 ? "passed" : "failed") ||
@@ -2649,15 +2704,234 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.thresholdFailures !== benchmarkFailureIds.length ||
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
-    bgiBenchmarkEvidence.runtimeCoreWasmBytes !== 3_747_514 ||
+    (benchmarkEnvironmentBlocked && benchmarkFailureIds.length !== 0) ||
+    bgiBenchmarkEvidence.runtimeCoreWasmBytes !== 4_565_781 ||
     bgiBenchmarkEvidence.runtimeCoreWasmSha256 !==
-      "2344b211d78a450e2db7d3a9f47646e48df2e9818b3bb5e91fc5161914840403" ||
+      "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5" ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
       bgiBrowserEvidence.executionEngineLinearMemoryBytes
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
-  if (
+  if (benchmarkEnvironmentBlocked) {
+    const benchmarkBlocker = requireRecord(
+      browser.bgiBenchmarkBlocker,
+      "browserCheckpoint.bgiBenchmarkBlocker",
+      errors,
+    );
+    for (const field of [
+      "schema",
+      "id",
+      "kind",
+      "reason",
+      "status",
+      "blockedWork",
+      "exactReproduction",
+      "requiredAuthority",
+      "resumeCondition",
+    ]) {
+      requireString(
+        benchmarkBlocker[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.${field}`,
+        errors,
+      );
+    }
+    requireInteger(
+      benchmarkBlocker.schemaVersion,
+      "browserCheckpoint.bgiBenchmarkBlocker.schemaVersion",
+      errors,
+    );
+    const firstEnvironmentFailure = requireRecord(
+      benchmarkBlocker.firstFailure,
+      "browserCheckpoint.bgiBenchmarkBlocker.firstFailure",
+      errors,
+    );
+    const confirmationEnvironmentFailure = requireRecord(
+      benchmarkBlocker.confirmationFailure,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure",
+      errors,
+    );
+    for (const [label, failure] of [
+      ["firstFailure", firstEnvironmentFailure],
+      ["confirmationFailure", confirmationEnvironmentFailure],
+    ]) {
+      requireString(
+        failure.reasonId,
+        `browserCheckpoint.bgiBenchmarkBlocker.${label}.reasonId`,
+        errors,
+      );
+      for (const field of [
+        "observedConsecutiveSamples",
+        "requiredConsecutiveSamples",
+      ]) {
+        requireInteger(
+          failure[field],
+          `browserCheckpoint.bgiBenchmarkBlocker.${label}.${field}`,
+          errors,
+        );
+      }
+      for (const field of ["thresholdPercent", "maximumObservedPercent"]) {
+        requireFiniteNumber(
+          failure[field],
+          `browserCheckpoint.bgiBenchmarkBlocker.${label}.${field}`,
+          errors,
+        );
+      }
+    }
+    const benchmarkBlockerEvidence = requireRecord(
+      benchmarkBlocker.evidence,
+      "browserCheckpoint.bgiBenchmarkBlocker.evidence",
+      errors,
+    );
+    for (const field of [
+      "firstBenchmarkReport",
+      "confirmationBenchmarkReport",
+      "firstEnvironmentStatus",
+      "confirmationEnvironmentStatus",
+      "host",
+      "cpu",
+      "chromeVersion",
+      "nodeVersion",
+    ]) {
+      requireString(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "firstBenchmarkReportBytes",
+      "firstEnvironmentSamples",
+      "firstCompletedSessions",
+      "firstFailedSessions",
+      "firstThresholdEvaluations",
+      "firstThresholdFailures",
+      "firstRuntimeCoreLinearMemoryBytes",
+      "confirmationBenchmarkReportBytes",
+      "confirmationEnvironmentSamples",
+      "confirmationCompletedSessions",
+      "confirmationFailedSessions",
+      "confirmationThresholdEvaluations",
+      "confirmationThresholdFailures",
+      "confirmationRuntimeCoreLinearMemoryBytes",
+      "environmentUpdaterEvents",
+      "environmentSustainedExcursions",
+      "environmentQosChangesAfterWarmup",
+      "logicalCpus",
+    ]) {
+      requireInteger(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "firstTotalCpuMeanPercent",
+      "firstTotalCpuMaximumPercent",
+      "firstExternalCpuMeanPercent",
+      "firstExternalCpuMaximumPercent",
+      "confirmationTotalCpuMeanPercent",
+      "confirmationTotalCpuMaximumPercent",
+      "confirmationExternalCpuMeanPercent",
+      "confirmationExternalCpuMaximumPercent",
+    ]) {
+      requireFiniteNumber(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "firstBenchmarkReportSha256",
+      "confirmationBenchmarkReportSha256",
+    ]) {
+      requireSha256(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    const attemptedOptions = requireStringArray(
+      benchmarkBlocker.attemptedOptions,
+      "browserCheckpoint.bgiBenchmarkBlocker.attemptedOptions",
+      errors,
+    );
+    const protectedInvariants = requireStringArray(
+      benchmarkBlocker.protectedInvariants,
+      "browserCheckpoint.bgiBenchmarkBlocker.protectedInvariants",
+      errors,
+    );
+    if (
+      benchmarkBlocker.schema !== "vine.structured-blocker" ||
+      benchmarkBlocker.schemaVersion !== 4 ||
+      benchmarkBlocker.kind !== "performance-environment-blocker" ||
+      benchmarkBlocker.status !== "blocked" ||
+      benchmarkBlocker.exactReproduction !==
+        "npm run check:runtime:bgi-browser-benchmark:prepared" ||
+      firstEnvironmentFailure.reasonId !==
+        benchmarkEnvironmentReasonIds[0] ||
+      confirmationEnvironmentFailure.reasonId !==
+        benchmarkEnvironmentReasonIds[0] ||
+      firstEnvironmentFailure.observedConsecutiveSamples <
+        firstEnvironmentFailure.requiredConsecutiveSamples ||
+      confirmationEnvironmentFailure.observedConsecutiveSamples <
+        confirmationEnvironmentFailure.requiredConsecutiveSamples ||
+      firstEnvironmentFailure.requiredConsecutiveSamples !== 3 ||
+      confirmationEnvironmentFailure.requiredConsecutiveSamples !== 3 ||
+      firstEnvironmentFailure.thresholdPercent !== 12.5 ||
+      confirmationEnvironmentFailure.thresholdPercent !== 12.5 ||
+      firstEnvironmentFailure.maximumObservedPercent <=
+        firstEnvironmentFailure.thresholdPercent ||
+      confirmationEnvironmentFailure.maximumObservedPercent <=
+        confirmationEnvironmentFailure.thresholdPercent ||
+      !benchmarkBlockerEvidence.firstBenchmarkReport.startsWith(
+        ".work/browser-runtime/",
+      ) ||
+      !benchmarkBlockerEvidence.confirmationBenchmarkReport.startsWith(
+        ".work/browser-runtime/",
+      ) ||
+      benchmarkBlockerEvidence.firstEnvironmentStatus !==
+        "invalid-environment" ||
+      benchmarkBlockerEvidence.confirmationEnvironmentStatus !==
+        bgiBenchmarkEvidence.environmentStatus ||
+      benchmarkBlockerEvidence.confirmationBenchmarkReportBytes !==
+        bgiBenchmarkEvidence.reportBytes ||
+      benchmarkBlockerEvidence.confirmationBenchmarkReportSha256 !==
+        bgiBenchmarkEvidence.reportSha256 ||
+      benchmarkBlockerEvidence.confirmationEnvironmentSamples !==
+        bgiBenchmarkEvidence.environmentSamples ||
+      benchmarkBlockerEvidence.confirmationCompletedSessions !==
+        bgiBenchmarkEvidence.completedSessions ||
+      benchmarkBlockerEvidence.confirmationFailedSessions !==
+        bgiBenchmarkEvidence.failedSessions ||
+      benchmarkBlockerEvidence.confirmationThresholdEvaluations !==
+        bgiBenchmarkEvidence.thresholdEvaluationCount ||
+      benchmarkBlockerEvidence.confirmationThresholdFailures !==
+        bgiBenchmarkEvidence.thresholdFailures ||
+      benchmarkBlockerEvidence.confirmationRuntimeCoreLinearMemoryBytes !==
+        bgiBenchmarkEvidence.runtimeCoreLinearMemoryBytes ||
+      benchmarkBlockerEvidence.environmentUpdaterEvents !==
+        bgiBenchmarkEvidence.updaterEvents ||
+      benchmarkBlockerEvidence.environmentSustainedExcursions !==
+        bgiBenchmarkEvidence.sustainedEnvironmentExcursions ||
+      benchmarkBlockerEvidence.environmentQosChangesAfterWarmup !==
+        bgiBenchmarkEvidence.qosChangesAfterWarmup ||
+      benchmarkBlockerEvidence.chromeVersion !==
+        bgiBenchmarkEvidence.chromeVersion ||
+      attemptedOptions.length < 5 ||
+      protectedInvariants.length < 5 ||
+      !benchmarkBlocker.resumeCondition.includes(
+        "unchanged 180-second gate",
+      ) ||
+      !benchmarkBlocker.resumeCondition.includes(
+        root.nextStructuredStop?.nextCheckpoint ?? "",
+      )
+    ) {
+      errors.push(
+        "browser BGI performance-environment blocker is invalid or incomplete",
+      );
+    }
+  } else if (
     browser.bgiBenchmark === "threshold-blocked" ||
     browser.bgiBenchmarkBlocker !== undefined
   ) {
@@ -7441,8 +7715,40 @@ export function validateCurrentCheckpoint(manifest) {
       "cross-owner-preflight-targeted-commit" ||
     latestEvidence.waitForSingleObjectExFailureAtomicity !== true ||
     latestEvidence.waitForSingleObjectExApcDeliveryImplemented !== false ||
+    latestEvidence.waitForSingleObjectExPacingService !==
+      "runtime.timer-delay.v1" ||
+    latestEvidence.waitForSingleObjectExPacingPayloadVersion !== 1 ||
+    latestEvidence.waitForSingleObjectExPacingRequestIds?.join(",") !==
+      "3,4,5" ||
+    latestEvidence.waitForSingleObjectExPacingRegistrationIds?.join(",") !==
+      "1,2,3" ||
+    latestEvidence.waitForSingleObjectExPacingDelayMilliseconds?.join(",") !==
+      "1,1,1" ||
+    latestEvidence.waitForSingleObjectExPacingTargetTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    latestEvidence.waitForSingleObjectExPacingClockGenerations?.join(",") !==
+      "0,1,2" ||
+    latestEvidence.waitForSingleObjectExPacingArmGenerations?.join(",") !==
+      "1,2,3" ||
+    latestEvidence.waitForSingleObjectExPacingOutcome !== "object-signaled" ||
+    latestEvidence.waitForSingleObjectExNodePacingMode !==
+      "deterministic-node-ack" ||
+    latestEvidence.waitForSingleObjectExLogicalCompletionAuthority !==
+      "rust-runtime" ||
+    latestEvidence.waitForSingleObjectExPageLifecyclePolicy !==
+      "freeze-resume-preserve-remaining-bounded-catch-up" ||
+    latestEvidence.waitForSingleObjectExRuntimeWidePacingBarrier !== true ||
+    latestEvidence.waitForSingleObjectExOwnerResumeAuthority !==
+      "rust-host-completion" ||
+    latestEvidence.waitForSingleObjectExOtherGuestLaneExecutionDuringPacing !==
+      false ||
     latestEvidence.waitForSingleObjectExHostClockImported !== false ||
     latestEvidence.waitForSingleObjectExBrowserTimerImported !== false ||
+    latestEvidence.waitForSingleObjectExBrowserPacingRequests !== 3 ||
+    latestEvidence.waitForSingleObjectExBrowserPacingCompletions !== 3 ||
+    latestEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
+    latestEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
+    latestEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
     latestEvidence.waitForSingleObjectExNodeCompletions !== 3 ||
     latestEvidence.waitForSingleObjectExChromeCompletions !== 3 ||
     latestEvidence.waitForSingleObjectExNodeChromeOrderedSemanticsMatched !== true
@@ -12361,7 +12667,7 @@ export function renderReadmeStatus(manifest) {
   const blockerSummary = manifest.activeBlocker
     ? `| Active blocker | \`${manifest.activeBlocker.id}\`: \`${manifest.activeBlocker.firstFailure.code}\`; ${manifest.activeBlocker.resumeCondition} |\n`
     : browser.bgiBenchmarkBlocker
-      ? `| Active blocker | \`${browser.bgiBenchmarkBlocker.id}\`: \`${browser.bgiBenchmarkBlocker.firstFailure.thresholdId}\`; ${browser.bgiBenchmarkBlocker.resumeCondition} |\n`
+      ? `| Active blocker | \`${browser.bgiBenchmarkBlocker.id}\`: \`${browser.bgiBenchmarkBlocker.firstFailure.thresholdId ?? browser.bgiBenchmarkBlocker.firstFailure.reasonId}\`; ${browser.bgiBenchmarkBlocker.resumeCondition} |\n`
       : "";
 
   return `${README_STATUS_START}

@@ -190,9 +190,10 @@ bounded compatibility clock, not a claim about browser timer precision.
 
 The later waitable-timer checkpoint adds a separate `RuntimeTimers` logical
 100 ns clock for bounded finite waits. It is not derived from tick count,
-performance counter, browser elapsed time, or audio time. Its immediate
-lane roundtrip does not broaden this lifecycle checkpoint into pending browser
-wait or cancellation semantics. See
+performance counter, browser elapsed time, or audio time. Positive waits now
+cross a versioned browser-delay request with generation-checked cancellation,
+freeze／resume, stale callback rejection, and Rust-authorized owner resume.
+This does not turn the browser delay into lifecycle or clock authority. See
 [bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md).
 
 The controlled multi-thread registry dependency is now implemented in

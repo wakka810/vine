@@ -168,6 +168,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_fast_writeback_changed_pages_v1(): number;
   vine_bridge_advance_mapping_fixture(stage: number): number;
   vine_bridge_current_reflection(): number;
+  vine_bridge_current_memory_summary(): number;
   vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
@@ -332,6 +333,10 @@ export class RuntimeBridge {
 
   currentReflection<T = Record<string, unknown>>(): BridgeOutput<T> {
     return this.#invoke(() => this.#exports.vine_bridge_current_reflection());
+  }
+
+  currentMemorySummary<T = Record<string, unknown>>(): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_current_memory_summary());
   }
 
   growInitialThreadStack<T = Record<string, unknown>>(

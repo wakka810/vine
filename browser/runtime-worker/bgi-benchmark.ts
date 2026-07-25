@@ -6,6 +6,7 @@ import {
   type WorkerToMainMessage,
 } from "./protocol.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
+import { observePageLifecycle } from "./page-lifecycle.js";
 
 interface MemorySample {
   elapsedMilliseconds: number;
@@ -89,6 +90,16 @@ let lastHeartbeat = performance.now();
 let finalResult: BgiBenchmarkResult | null = null;
 let finalError: string | null = null;
 let executionEngineIdentity: ExecutionEngineIdentity | null = null;
+const pageLifecycle = observePageLifecycle((lifecycle) => {
+  if (activeSession !== null) {
+    worker.postMessage({
+      type: "page-lifecycle",
+      protocolVersion,
+      sessionId: activeSession.id,
+      lifecycle,
+    } satisfies MainToWorkerMessage);
+  }
+});
 
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
@@ -227,6 +238,7 @@ function runSession(sessionId: number): Promise<SessionReport> {
       instructionBudget: 16_384,
       watchdogInstructionLimit: 20_000_000,
       watchdogWallMilliseconds: 20_000,
+      pageLifecycle: pageLifecycle.snapshot(),
     },
   } satisfies MainToWorkerMessage);
   return new Promise((resolve, reject) => {

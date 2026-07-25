@@ -36,12 +36,14 @@ use vine_core::{
     RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
     RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleLoadState,
     RuntimeModuleReferenceOwner, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, RuntimeWaitState,
-    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, RuntimeWaitableTimerArm,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
     SET_WAITABLE_TIMER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
-    TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION, dispatch_kernel32_api,
+    TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
+    complete_kernel32_waitable_timer_pacing, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
 
@@ -1312,6 +1314,7 @@ fn set_thread_affinity_mask_tracks_the_virtual_current_thread_and_fails_atomical
     assert_eq!(contract.abi.arguments.len(), 2);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.behavior, ApiBehavior::Immediate);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     memory.seal_owner(owner).expect("seal runtime owner");
     let reflection = memory.pending_reflection().expect("initial reflection");
@@ -5030,6 +5033,7 @@ fn get_module_file_name_a_uses_process_path_and_bounds_every_output_before_mutat
     assert_eq!(contract.abi.arguments.len(), 3);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.behavior, ApiBehavior::Immediate);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     memory.seal_owner(owner).expect("seal runtime owner");
     let reflection = memory.pending_reflection().expect("initial reflection");
@@ -6851,6 +6855,7 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     assert_eq!(contract.abi.arguments.len(), 3);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.behavior, ApiBehavior::ImmediateOrDeferred);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
     let frames = [
@@ -6922,9 +6927,51 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
 
     let memory_before_success = memory.stats();
     let satisfied = dispatch(0, &mut memory, &mut runtime, &policy);
-    let DispatchOutcome::Immediate(satisfied) = satisfied else {
-        panic!("expected signaled wait completion, got {satisfied:?}");
+    let DispatchOutcome::Deferred(satisfied_call) = satisfied else {
+        panic!("expected paced signaled wait, got {satisfied:?}");
     };
+    assert_eq!(satisfied_call.request.service, "runtime.timer-delay.v1");
+    assert_eq!(satisfied_call.request.payload.len(), 52);
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost {
+            request_id: satisfied_call.request.request_id
+        }
+    );
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    let runtime_before_bad_ack = runtime.clone();
+    let memory_before_bad_ack = memory.stats();
+    let (bad_ack, bad_ack_wait) = complete_kernel32_waitable_timer_pacing(
+        &dispatcher,
+        satisfied_call.clone(),
+        0,
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    assert!(matches!(
+        bad_ack,
+        DispatchOutcome::Fault(ref fault)
+            if fault.code == "waitable-timer-pacing-suspended-call-mismatch"
+    ));
+    assert_eq!(bad_ack_wait, None);
+    assert_eq!(runtime, runtime_before_bad_ack);
+    assert_eq!(memory.stats(), memory_before_bad_ack);
+    let (satisfied, satisfied_wait) = complete_kernel32_waitable_timer_pacing(
+        &dispatcher,
+        satisfied_call,
+        1,
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let DispatchOutcome::Immediate(satisfied) = satisfied else {
+        panic!("expected paced signaled completion, got {satisfied:?}");
+    };
+    assert_eq!(
+        satisfied_wait.unwrap().outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
     assert_eq!(satisfied.eax, RegisterUpdate::Set(0));
     assert_eq!(satisfied.stack_pointer, GuestAddress(STACK_BASE + 16));
     assert_eq!(satisfied.last_error, INITIAL_LAST_ERROR);
@@ -6972,11 +7019,29 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     assert_eq!(runtime.next_wait_registration_id(), 2);
 
     let finite_timeout = dispatch(3, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Deferred(finite_timeout_call) = finite_timeout else {
+        panic!("expected paced timeout, got {finite_timeout:?}");
+    };
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    let (finite_timeout, timed_out_wait) = complete_kernel32_waitable_timer_pacing(
+        &dispatcher,
+        finite_timeout_call,
+        1,
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
     assert!(matches!(
         finite_timeout,
         DispatchOutcome::Immediate(ref completion)
             if completion.eax == RegisterUpdate::Set(258)
                 && completion.last_error == INITIAL_LAST_ERROR
+    ));
+    assert_eq!(
+        timed_out_wait.unwrap().outcome,
+        RuntimeWaitForSingleObjectExOutcome::TimedOut
+    );
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
     ));
     assert_eq!(runtime.timer_clock_state().current_time_100ns, 105_000);
     assert_eq!(runtime.timer_clock_state().generation, 2);
