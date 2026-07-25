@@ -240,6 +240,10 @@ assert.equal(
   bgiProfileOutputDirectory("imm32-default-ime-context"),
   "v86-bgi-default-ime-context",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-set-waitable-timer"),
+  "v86-bgi-set-waitable-timer",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

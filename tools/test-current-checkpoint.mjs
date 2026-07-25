@@ -763,7 +763,7 @@ browserOwnedWaitableTimer.activeRuntimeCheckpoint.latestEvidence.createWaitableT
   true;
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWaitableTimer).some((error) =>
-    error.includes("waitable-timer identity and lifetime evidence"),
+    error.includes("waitable-timer identity, arm, and lifetime evidence"),
   ),
 );
 
@@ -772,7 +772,43 @@ partialWaitableTimerTeardown.activeRuntimeCheckpoint.latestEvidence.createWaitab
   false;
 assert.ok(
   validateCurrentCheckpoint(partialWaitableTimerTeardown).some((error) =>
-    error.includes("waitable-timer identity and lifetime evidence"),
+    error.includes("waitable-timer identity, arm, and lifetime evidence"),
+  ),
+);
+
+const enabledWaitableTimerCompletionRoutine = structuredClone(manifest);
+enabledWaitableTimerCompletionRoutine.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.setWaitableTimerAllowCompletionRoutine =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(enabledWaitableTimerCompletionRoutine).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const enabledWaitableTimerResume = structuredClone(manifest);
+enabledWaitableTimerResume.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.setWaitableTimerAllowResume =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(enabledWaitableTimerResume).some((error) =>
+    error.includes("Kernel32 compatibility policy boundary"),
+  ),
+);
+
+const browserOwnedWaitableTimerArm = structuredClone(manifest);
+browserOwnedWaitableTimerArm.activeRuntimeCheckpoint.latestEvidence.setWaitableTimerBrowserTimerImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedWaitableTimerArm).some((error) =>
+    error.includes("waitable-timer identity, arm, and lifetime evidence"),
+  ),
+);
+
+const partialWaitableTimerArmCommit = structuredClone(manifest);
+partialWaitableTimerArmCommit.activeRuntimeCheckpoint.latestEvidence.setWaitableTimerFailureAtomicity =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(partialWaitableTimerArmCommit).some((error) =>
+    error.includes("waitable-timer identity, arm, and lifetime evidence"),
   ),
 );
 

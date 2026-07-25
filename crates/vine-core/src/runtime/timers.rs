@@ -20,6 +20,16 @@ pub struct RuntimeWaitableTimerId(pub u64);
 pub struct RuntimeWaitableTimer {
     pub id: RuntimeWaitableTimerId,
     pub manual_reset: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<RuntimeWaitableTimerArm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitableTimerArm {
+    pub relative_due_time_100ns: u64,
+    pub period_milliseconds: u32,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -142,6 +152,12 @@ pub(super) struct RuntimeWaitableTimerRetirementPlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeWaitableTimerArmPlan {
+    previous: RuntimeWaitableTimer,
+    next: RuntimeWaitableTimer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeWindowTimerRegistrationPlan {
     expected_generation: u64,
     next_generation: u64,
@@ -222,7 +238,11 @@ impl RuntimeTimers {
             })?;
         Ok(RuntimeWaitableTimerCreatePlan {
             expected_next_id: self.next_waitable_timer_id,
-            next_timer: RuntimeWaitableTimer { id, manual_reset },
+            next_timer: RuntimeWaitableTimer {
+                id,
+                manual_reset,
+                arm: None,
+            },
             next_waitable_timer_id,
         })
     }
@@ -287,6 +307,63 @@ impl RuntimeTimers {
                 format!("waitable timer {} is not live", id.0),
             )
         })
+    }
+
+    pub(super) fn plan_waitable_timer_one_shot_arm(
+        &self,
+        id: RuntimeWaitableTimerId,
+        relative_due_time_100ns: u64,
+    ) -> Result<RuntimeWaitableTimerArmPlan, RuntimeStateError> {
+        if relative_due_time_100ns == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-waitable-timer",
+                "waitable-timer-relative-due-time-zero",
+                "relative waitable timer due time must be nonzero",
+            ));
+        }
+        let previous = *self.waitable_timer(id)?;
+        let generation = previous.arm.map_or(Ok(1), |arm| {
+            arm.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-waitable-timer",
+                    "waitable-timer-arm-generation-exhausted",
+                    "waitable timer arm generation is exhausted",
+                )
+            })
+        })?;
+        let mut next = previous;
+        next.arm = Some(RuntimeWaitableTimerArm {
+            relative_due_time_100ns,
+            period_milliseconds: 0,
+            generation,
+        });
+        Ok(RuntimeWaitableTimerArmPlan { previous, next })
+    }
+
+    pub(super) fn preflight_waitable_timer_arm(
+        &self,
+        plan: &RuntimeWaitableTimerArmPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.waitable_timers.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-arm-plan-stale",
+                "waitable timer state changed after arm planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_waitable_timer_arm(
+        &mut self,
+        plan: RuntimeWaitableTimerArmPlan,
+    ) -> &RuntimeWaitableTimer {
+        debug_assert!(self.preflight_waitable_timer_arm(&plan).is_ok());
+        let previous = self.waitable_timers.insert(plan.next.id, plan.next);
+        debug_assert_eq!(previous, Some(plan.previous));
+        self.waitable_timers
+            .get(&plan.next.id)
+            .expect("armed waitable timer is missing")
     }
 
     pub(super) fn waitable_timer_ids(&self) -> Vec<RuntimeWaitableTimerId> {
@@ -918,6 +995,47 @@ mod tests {
         assert_eq!(first.id(), RuntimeWaitableTimerId(1));
         let timer = *timers.commit_waitable_timer_creation(first);
         assert!(timer.manual_reset);
+        assert_eq!(timer.arm, None);
+        let first_arm = timers
+            .plan_waitable_timer_one_shot_arm(timer.id, 5_000)
+            .unwrap();
+        let stale_arm = first_arm;
+        assert_eq!(timers.waitable_timer(timer.id).unwrap().arm, None);
+        assert_eq!(
+            timers.commit_waitable_timer_arm(first_arm).arm,
+            Some(RuntimeWaitableTimerArm {
+                relative_due_time_100ns: 5_000,
+                period_milliseconds: 0,
+                generation: 1,
+            })
+        );
+        assert_eq!(
+            timers
+                .preflight_waitable_timer_arm(&stale_arm)
+                .unwrap_err()
+                .code,
+            "waitable-timer-arm-plan-stale"
+        );
+        let rearm = timers
+            .plan_waitable_timer_one_shot_arm(timer.id, 20_000)
+            .unwrap();
+        assert_eq!(
+            timers.commit_waitable_timer_arm(rearm).arm,
+            Some(RuntimeWaitableTimerArm {
+                relative_due_time_100ns: 20_000,
+                period_milliseconds: 0,
+                generation: 2,
+            })
+        );
+        let before_zero = timers.clone();
+        assert_eq!(
+            timers
+                .plan_waitable_timer_one_shot_arm(timer.id, 0)
+                .unwrap_err()
+                .code,
+            "waitable-timer-relative-due-time-zero"
+        );
+        assert_eq!(timers, before_zero);
         assert_eq!(
             timers
                 .preflight_waitable_timer_creation(&stale)
@@ -925,8 +1043,9 @@ mod tests {
                 .code,
             "waitable-timer-creation-plan-stale"
         );
+        let armed_timer = *timers.waitable_timer(timer.id).unwrap();
         let retirement = timers.plan_waitable_timer_retirement(timer.id).unwrap();
-        assert_eq!(timers.waitable_timer(timer.id).unwrap(), &timer);
+        assert_eq!(timers.waitable_timer(timer.id).unwrap(), &armed_timer);
         timers.commit_waitable_timer_retirement(retirement);
         assert_eq!(
             timers.waitable_timer(timer.id).unwrap_err().code,

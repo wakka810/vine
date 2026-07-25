@@ -232,6 +232,7 @@ enum GenericRuntimeCapability {
     GdiplusStartup,
     VirtualAlloc,
     Imm32Context,
+    SetWaitableTimer,
 }
 
 struct GenericRuntimeProcess {
@@ -2615,6 +2616,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GdiplusStartup
                     | GenericRuntimeCapability::VirtualAlloc
                     | GenericRuntimeCapability::Imm32Context
+                    | GenericRuntimeCapability::SetWaitableTimer
             )
         ) {
             let loader = kernel32_policy
@@ -3275,6 +3277,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let set_waitable_timer_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::SetWaitableTimer)
+    );
+    let enabled_capability = if set_waitable_timer_enabled {
+        Some(GenericRuntimeCapability::Imm32Context)
+    } else {
+        enabled_capability
+    };
     let imm32_context_enabled = matches!(
         enabled_capability,
         Some(GenericRuntimeCapability::Imm32Context)
@@ -4094,6 +4105,13 @@ fn run_v86_generic_runtime_session(
             gdiplus_startup_enabled
         } else if endpoint.module.eq_ignore_ascii_case("imm32.dll") {
             imm32_context_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "SetWaitableTimer".to_owned(),
+            },
+        ) {
+            set_waitable_timer_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -4980,17 +4998,42 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let waitable_timer = if completion.implementation_id
-                            == "kernel32.create-waitable-timer-a.v1"
-                        {
-                            let RegisterUpdate::Set(handle) = completion.eax else {
-                                return Err(LoaderError::runtime_defect(
-                                    "runtime-reentry",
-                                    "create-waitable-timer-handle-result-invalid",
-                                    "CreateWaitableTimerA completion did not set a logical handle",
-                                ));
-                            };
-                            let handle = RuntimeHandle(handle);
+                        let waitable_timer_handle = match completion.implementation_id.as_str() {
+                            "kernel32.create-waitable-timer-a.v1" => {
+                                let RegisterUpdate::Set(handle) = completion.eax else {
+                                    return Err(LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "create-waitable-timer-handle-result-invalid",
+                                        "CreateWaitableTimerA completion did not set a logical handle",
+                                    ));
+                                };
+                                (handle != 0).then_some(RuntimeHandle(handle))
+                            }
+                            vine_core::SET_WAITABLE_TIMER_IMPLEMENTATION => {
+                                let RegisterUpdate::Set(result) = completion.eax else {
+                                    return Err(LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "set-waitable-timer-result-invalid",
+                                        "SetWaitableTimer completion did not set BOOL in EAX",
+                                    ));
+                                };
+                                if result == 0 {
+                                    None
+                                } else {
+                                    Some(RuntimeHandle(
+                                        completion.frame.argument_u32(0).ok_or_else(|| {
+                                            LoaderError::runtime_defect(
+                                                "runtime-reentry",
+                                                "set-waitable-timer-handle-argument-missing",
+                                                "SetWaitableTimer completion has no timer handle argument",
+                                            )
+                                        })?,
+                                    ))
+                                }
+                            }
+                            _ => None,
+                        };
+                        let waitable_timer = if let Some(handle) = waitable_timer_handle {
                             Some(GenericRuntimeWaitableTimer {
                                 handle,
                                 timer: *session
@@ -13442,6 +13485,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdiplus-startup" => GenericRuntimeCapability::GdiplusStartup,
                 "kernel32-virtual-alloc" => GenericRuntimeCapability::VirtualAlloc,
                 "imm32-default-ime-context" => GenericRuntimeCapability::Imm32Context,
+                "kernel32-set-waitable-timer" => GenericRuntimeCapability::SetWaitableTimer,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

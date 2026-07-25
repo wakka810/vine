@@ -184,6 +184,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdiplus-startup",
         "kernel32-virtual-alloc",
         "imm32-default-ime-context",
+        "kernel32-set-waitable-timer",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -277,6 +278,7 @@ assert(
       "gdiplus-startup",
       "kernel32-virtual-alloc",
       "imm32-default-ime-context",
+      "kernel32-set-waitable-timer",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -284,7 +286,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-virtual-alloc" ||
+    genericRuntimeCapability === "kernel32-set-waitable-timer"
+      ? "kernel32-set-waitable-timer-v1.json"
+      : genericRuntimeCapability === "kernel32-virtual-alloc" ||
     genericRuntimeCapability === "imm32-default-ime-context"
       ? "kernel32-virtual-alloc-reserve-v1.json"
       : [
@@ -460,7 +464,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const setWaitableTimerEnabled =
+  genericRuntimeCapability === "kernel32-set-waitable-timer";
 const imm32ContextEnabled =
+  setWaitableTimerEnabled ||
   genericRuntimeCapability === "imm32-default-ime-context";
 const virtualAllocEnabled =
   imm32ContextEnabled || genericRuntimeCapability === "kernel32-virtual-alloc";
@@ -741,7 +748,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? imm32ContextEnabled
+      ? setWaitableTimerEnabled
+      ? "v86-bgi-set-waitable-timer"
+      : imm32ContextEnabled
       ? "v86-bgi-default-ime-context"
       : virtualAllocEnabled
       ? "v86-bgi-virtual-alloc"
@@ -4807,6 +4816,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (setWaitableTimerEnabled) {
+        validateSetWaitableTimerResult(genericResult);
       } else if (imm32ContextEnabled) {
         validateImm32ContextResult(genericResult);
       } else if (virtualAllocEnabled) {
@@ -5026,6 +5037,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setWaitableTimerEnabled
+          ? "bgi relative one-shot waitable timer arm"
           : imm32ContextEnabled
           ? "bgi logical default IME window and context"
           : virtualAllocEnabled
@@ -6572,6 +6585,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : setWaitableTimerEnabled
+          ? 96
         : imm32ContextEnabled
           ? 95
         : virtualAllocEnabled
@@ -15844,6 +15859,80 @@ function validateImm32ContextResult(result) {
   assert(result.fault !== null, "IMM32 checkpoint did not reach a structured stop");
 }
 
+function validateSetWaitableTimerResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_681);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.set-waitable-timer.relative-one-shot.v1",
+  );
+  assert.equal(calls.length, 1, "SetWaitableTimer checkpoint requires one completion");
+  const call = calls[0];
+  assert.equal(call.sequence, 18_681);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 11_973_553);
+  assert.deepEqual(call.arguments, [
+    0x5701_0002,
+    0x500f_ff98,
+    0,
+    0,
+    0,
+    0,
+  ]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.returnAddress, 0x1005_0607);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 28);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.waitableTimer, {
+    handle: 0x5701_0002,
+    timer: {
+      id: 2,
+      manualReset: true,
+      arm: {
+        relativeDueTime100ns: 5_000,
+        periodMilliseconds: 0,
+        generation: 1,
+      },
+    },
+    objectRecord: {
+      id: 24,
+      key: { kind: "waitable-timer", timer_id: 2 },
+      kind: "waitable-timer",
+      namespace: "vine.runtime-waitable-timer-object.v1",
+      closePolicy: "close-handle",
+      waitState: { state: "nonsignaled" },
+      openHandles: 1,
+    },
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 122);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0790);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "WaitForSingleObjectEx",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1290);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "ec8092d7bcc78d42a2b8ad6cbbe8571cc1443350f21133cfaaef6ad173ad9bfa",
+  );
+  assert.equal(result.terminal.instructionCount, 11_973_559);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 122);
+  assert.equal(result.terminal.terminal.thunk.name, "WaitForSingleObjectEx");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_0615);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 4),
+    [0x5701_0002, 10, 1],
+  );
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -19576,10 +19665,25 @@ function buildGenericRuntimeReentryReport({
   if (imm32ContextEnabled) {
     assert(imm32Calls.length > 0, "IMM32 report summary has no IME calls");
   }
+  const setWaitableTimerCall = setWaitableTimerEnabled
+    ? genericResult.supportedCalls.find(
+        (call) =>
+          call.implementationId ===
+          "kernel32.set-waitable-timer.relative-one-shot.v1",
+      )
+    : null;
+  if (setWaitableTimerEnabled) {
+    assert(
+      setWaitableTimerCall,
+      "SetWaitableTimer report summary has no arm completion",
+    );
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setWaitableTimerEnabled
+        ? "vine.v86-bgi-kernel32-set-waitable-timer"
         : imm32ContextEnabled
         ? "vine.v86-bgi-imm32-default-ime-context"
         : virtualAllocEnabled
@@ -19977,6 +20081,17 @@ function buildGenericRuntimeReentryReport({
             nativeHandleImported: false,
             nativeMessageForwarded: false,
             browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(setWaitableTimerEnabled
+      ? {
+          waitableTimerArm: {
+            call: setWaitableTimerCall,
+            stateAuthority: "runtime-timers-and-typed-object-table",
+            clockAuthorityUsed: false,
+            browserTimerCreated: false,
+            expirationImplemented: false,
           },
         }
       : {}),

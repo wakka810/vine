@@ -4902,3 +4902,39 @@ Chromeは19,435 slices／19,433 writebacks／39,321 pages、generation 37,349を
 次stopはinstruction 11,973,553、endpoint ID 118／address `0x7F000750`／IAT `0x100D1280`／return
 `0x10050607`の`kernel32.dll!SetWaitableTimer(0x57010002, 0x500FFF98, 0, 0, 0, 0)`である。
 Current acceptanceとartifact identityは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+
+## 144. BGI relative one-shot waitable-timer arm
+
+Focused `set-waitable-timer` observationを独立に2回取得した。Primary raw traceは1,615,252 bytes／5,015
+records／SHA-256 `aa172689c3033568807fb57635248f9dfb9b3f0a0bd33797e214fad947162174`、
+confirmationは1,615,361 bytes／5,015 records／SHA-256
+`9342206813c8a06d09a49934d7e2ff33fb1ada00885b0db4436021a76ded5d47`である。各traceは2,469 API
+pairsがbalanced、diagnostics／hook errorsは0である。Raw traceは`.work/`に保持しGitへ追加しない。Source
+executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGI callerはRVA `0x00050607`へ戻るcallで、objectに保存されたtimer handle、signed due time
+`-5,000` 100 ns、period 0、NULL completion routine／context、resume FALSEを渡す。ResultはTRUE、
+LastErrorは0で、直後のconsumerは`WaitForSingleObjectEx(handle,10,TRUE)`である。Controlled x86 oracleは
+relative `-10,000` 100 nsでmanual／auto timerをarmし、manualの二回waitが
+`WAIT_OBJECT_0, WAIT_OBJECT_0`、autoが`WAIT_OBJECT_0, WAIT_TIMEOUT`となること、invalid handleが
+FALSE／`ERROR_INVALID_HANDLE` 6となることをdirect system callとの一致で固定する。
+
+Runtimeは`RuntimeTimers`にtimer ID 2、relative magnitude 5,000、period 0、arm generation 1を、
+`RuntimeObjectTable`にobject ID 24、logical handle `0x57010002`、`nonsignaled` wait stateを所有させる。
+Kernelは両ownerのplanをjoint preflightしてからtargeted commitする。Absolute／zero due time、periodic arm、
+APC completion、resume、out-of-range、wrong kind、stale handle／plan、unreadable inputは両stateとguest bytesを
+変更せず拒否する。Host／browser timer、wall clock、expiry、signal transitionは作らない。
+
+Nodeは18,681 supported calls、18,737 writebacks／37,708 dirty pages／2,932,457 changed bytes、17,341
+host deltas、generation 36,651を通した。Chromeは19,436 slices／19,434 writebacks／39,322 pages、
+generation 37,350、55,831 Wasm crossingsを通し、same timer／object snapshot、semantic SHA-256
+`63de9f17f94d715615e80ba13801adb3fb7db47dce4b069bfd22726e8fe15859`、terminal memory SHA-256
+`ec8092d7bcc78d42a2b8ad6cbbe8571cc1443350f21133cfaaef6ad173ad9bfa`を再現した。Performance gateは
+host crossing／browser clock／hot pathを変えないsemantic leafのため再実行せず、直前のversioned observationを
+保持する。
+
+次stopはinstruction 11,973,559、endpoint ID 122／address `0x7F000790`／IAT `0x100D1290`／return
+`0x10050615`の`kernel32.dll!WaitForSingleObjectEx(0x57010002,10,TRUE)`である。Alertable wait、timeout、
+timer expiry／signalはこのcheckpointで実装済みとしない。詳細は
+[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。

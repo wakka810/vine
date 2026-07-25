@@ -562,6 +562,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "gdiplus-startup",
         "kernel32-virtual-alloc",
         "imm32-default-ime-context",
+        "kernel32-set-waitable-timer",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -569,13 +570,21 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     );
     assert.deepEqual(
       evidence.report.executedThreadIds,
-      bgiProfile === "imm32-default-ime-context" && scenario === "success"
+      [
+        "imm32-default-ime-context",
+        "kernel32-set-waitable-timer",
+      ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
     );
     assert.equal(
       evidence.report.contextSwitches,
-      bgiProfile === "imm32-default-ime-context" && scenario === "success" ? 1 : 0,
+      [
+        "imm32-default-ime-context",
+        "kernel32-set-waitable-timer",
+      ].includes(bgiProfile) && scenario === "success"
+        ? 1
+        : 0,
     );
     assert.deepEqual(evidence.report.initialCurrentDirectory, {
       directory: {

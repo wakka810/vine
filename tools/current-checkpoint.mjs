@@ -1112,6 +1112,18 @@ export function validateCurrentCheckpoint(manifest) {
     "deleteDcSequence",
     "deleteDcInstructionCount",
     "deleteDcResult",
+    "setWaitableTimerCompletions",
+    "setWaitableTimerSequence",
+    "setWaitableTimerInstructionCount",
+    "setWaitableTimerResult",
+    "setWaitableTimerLastError",
+    "setWaitableTimerGuestWriteBytes",
+    "setWaitableTimerTimerId",
+    "setWaitableTimerRelativeDueTime100ns",
+    "setWaitableTimerPeriodMilliseconds",
+    "setWaitableTimerArmGeneration",
+    "setWaitableTimerObjectId",
+    "setWaitableTimerOpenHandles",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -1185,7 +1197,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_271 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_274 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
@@ -1887,6 +1899,39 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.graphicsSurfacePixelStorageCreatedBySurfaceDcSlice !== false
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.setWaitableTimerCompletions !== 1 ||
+    bgiBrowserEvidence.setWaitableTimerSequence !== 18_681 ||
+    bgiBrowserEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
+    bgiBrowserEvidence.setWaitableTimerArguments?.join(",") !==
+      "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
+    bgiBrowserEvidence.setWaitableTimerResult !== 1 ||
+    bgiBrowserEvidence.setWaitableTimerReturnAddress !== "0x10050607" ||
+    bgiBrowserEvidence.setWaitableTimerLastError !== 0 ||
+    bgiBrowserEvidence.setWaitableTimerGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.setWaitableTimerImplementationId !==
+      "kernel32.set-waitable-timer.relative-one-shot.v1" ||
+    bgiBrowserEvidence.setWaitableTimerHandle !== "0x57010002" ||
+    bgiBrowserEvidence.setWaitableTimerTimerId !== 2 ||
+    bgiBrowserEvidence.setWaitableTimerManualReset !== true ||
+    bgiBrowserEvidence.setWaitableTimerRelativeDueTime100ns !== 5_000 ||
+    bgiBrowserEvidence.setWaitableTimerPeriodMilliseconds !== 0 ||
+    bgiBrowserEvidence.setWaitableTimerArmGeneration !== 1 ||
+    bgiBrowserEvidence.setWaitableTimerObjectId !== 24 ||
+    bgiBrowserEvidence.setWaitableTimerObjectNamespace !==
+      "vine.runtime-waitable-timer-object.v1" ||
+    bgiBrowserEvidence.setWaitableTimerWaitState !== "nonsignaled" ||
+    bgiBrowserEvidence.setWaitableTimerOpenHandles !== 1 ||
+    bgiBrowserEvidence.setWaitableTimerStateAuthority !==
+      "runtime-timers-and-typed-object-table" ||
+    bgiBrowserEvidence.setWaitableTimerFailureAtomicity !== true ||
+    bgiBrowserEvidence.setWaitableTimerClockAuthorityUsed !== false ||
+    bgiBrowserEvidence.setWaitableTimerBrowserTimerCreated !== false ||
+    bgiBrowserEvidence.setWaitableTimerExpirationImplemented !== false ||
+    bgiBrowserEvidence.setWaitableTimerNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("browser BGI waitable-timer arm evidence is invalid");
   }
   requireSha256(
     bgiBrowserEvidence.createThreadCreationDeltaPayloadSha256,
@@ -6005,9 +6050,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-virtual-alloc-reserve-v1" ||
+    kernel32Policy.id !== "kernel32-set-waitable-timer-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json" ||
+      "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -6029,6 +6074,11 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.createWaitableTimerAllowManualReset !== true ||
     kernel32Policy.createWaitableTimerAllowAutoReset !== false ||
     kernel32Policy.createWaitableTimerAllowUnnamed !== true ||
+    kernel32Policy.setWaitableTimerMinimumRelativeDueTime100ns !== 1 ||
+    kernel32Policy.setWaitableTimerMaximumRelativeDueTime100ns !== 100_000 ||
+    kernel32Policy.setWaitableTimerAllowOneShot !== true ||
+    kernel32Policy.setWaitableTimerAllowCompletionRoutine !== false ||
+    kernel32Policy.setWaitableTimerAllowResume !== false ||
     sourceFiles.authority !== "runtime/files.rs::RuntimeFiles" ||
     sourceFiles.sourceManifestAuthority !== "rust-runtime-files" ||
     sourceFiles.browserRole !== "same-origin-byte-service" ||
@@ -6905,6 +6955,8 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeGetVersionExAConfirmationTraceSha256",
     "nativeCreateWaitableTimerAPrimaryTraceSha256",
     "nativeCreateWaitableTimerAConfirmationTraceSha256",
+    "nativeSetWaitableTimerPrimaryTraceSha256",
+    "nativeSetWaitableTimerConfirmationTraceSha256",
     "nativeLoadIconAPrimaryTraceSha256",
     "nativeLoadIconAConfirmationTraceSha256",
     "nativeLoadCursorAPrimaryTraceSha256",
@@ -7149,7 +7201,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-imm32-default-ime-context.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-kernel32-set-waitable-timer.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7193,9 +7245,76 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.createWaitableTimerALastCloseRetiresPayloadAndObject !== true ||
     latestEvidence.createWaitableTimerAProcessExitRetiresPayloadAndObject !== true ||
     latestEvidence.createWaitableTimerAHostTimerImported !== false ||
-    latestEvidence.createWaitableTimerABrowserTimerImported !== false
+    latestEvidence.createWaitableTimerABrowserTimerImported !== false ||
+    latestEvidence.nativeSetWaitableTimerPrimaryTraceBytes !== 1_615_252 ||
+    latestEvidence.nativeSetWaitableTimerPrimaryTraceLines !== 5_015 ||
+    latestEvidence.nativeSetWaitableTimerPrimaryTraceSha256 !==
+      "aa172689c3033568807fb57635248f9dfb9b3f0a0bd33797e214fad947162174" ||
+    latestEvidence.nativeSetWaitableTimerPrimaryBalancedApiPairs !== 2_469 ||
+    latestEvidence.nativeSetWaitableTimerConfirmationTraceBytes !== 1_615_361 ||
+    latestEvidence.nativeSetWaitableTimerConfirmationTraceLines !== 5_015 ||
+    latestEvidence.nativeSetWaitableTimerConfirmationTraceSha256 !==
+      "9342206813c8a06d09a49934d7e2ff33fb1ada00885b0db4436021a76ded5d47" ||
+    latestEvidence.nativeSetWaitableTimerConfirmationBalancedApiPairs !== 2_469 ||
+    latestEvidence.nativeSetWaitableTimerTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSetWaitableTimerBgiCallerReturnRva !== "0x00050607" ||
+    latestEvidence.nativeSetWaitableTimerBgiDueTime100ns !== -5_000 ||
+    latestEvidence.nativeSetWaitableTimerBgiPeriodMilliseconds !== 0 ||
+    latestEvidence.nativeSetWaitableTimerBgiCompletionRoutineAddress !==
+      "0x00000000" ||
+    latestEvidence.nativeSetWaitableTimerBgiCompletionContextAddress !==
+      "0x00000000" ||
+    latestEvidence.nativeSetWaitableTimerBgiResume !== false ||
+    latestEvidence.nativeSetWaitableTimerBgiResult !== 1 ||
+    latestEvidence.nativeSetWaitableTimerBgiLastError !== 0 ||
+    latestEvidence.nativeSetWaitableTimerBgiConsumer !==
+      "wait-for-single-object-ex-timeout-10-alertable-true" ||
+    latestEvidence.nativeSetWaitableTimerOracleProfile !==
+      "x86-set-waitable-timer-relative-one-shot-v1" ||
+    latestEvidence.nativeSetWaitableTimerOracleRelativeDueTime100ns !== 10_000 ||
+    latestEvidence.nativeSetWaitableTimerOracleManualWaitResults?.join(",") !==
+      "0,0" ||
+    latestEvidence.nativeSetWaitableTimerOracleAutoWaitResults?.join(",") !==
+      "0,258" ||
+    latestEvidence.nativeSetWaitableTimerOracleInvalidHandleResult !== 0 ||
+    latestEvidence.nativeSetWaitableTimerOracleInvalidHandleLastError !== 6 ||
+    latestEvidence.nativeSetWaitableTimerOracleAllHookSystemResultsMatched !== true ||
+    latestEvidence.setWaitableTimerImplemented !== true ||
+    latestEvidence.setWaitableTimerSequence !== 18_681 ||
+    latestEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
+    latestEvidence.setWaitableTimerArguments?.join(",") !==
+      "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
+    latestEvidence.setWaitableTimerReturnAddress !== "0x10050607" ||
+    latestEvidence.setWaitableTimerResult !== 1 ||
+    latestEvidence.setWaitableTimerLastError !== 0 ||
+    latestEvidence.setWaitableTimerGuestWrites !== 0 ||
+    latestEvidence.setWaitableTimerImplementationId !==
+      "kernel32.set-waitable-timer.relative-one-shot.v1" ||
+    latestEvidence.setWaitableTimerStateAuthority !==
+      "runtime-timers-and-typed-object-table" ||
+    latestEvidence.setWaitableTimerHandle !== "0x57010002" ||
+    latestEvidence.setWaitableTimerTimerId !== 2 ||
+    latestEvidence.setWaitableTimerManualReset !== true ||
+    latestEvidence.setWaitableTimerRelativeDueTime100ns !== 5_000 ||
+    latestEvidence.setWaitableTimerPeriodMilliseconds !== 0 ||
+    latestEvidence.setWaitableTimerArmGeneration !== 1 ||
+    latestEvidence.setWaitableTimerObjectTableId !== 24 ||
+    latestEvidence.setWaitableTimerObjectNamespace !==
+      "vine.runtime-waitable-timer-object.v1" ||
+    latestEvidence.setWaitableTimerWaitState !== "nonsignaled" ||
+    latestEvidence.setWaitableTimerOpenHandles !== 1 ||
+    latestEvidence.setWaitableTimerMutation !==
+      "cross-owner-preflight-targeted-commit" ||
+    latestEvidence.setWaitableTimerFailureAtomicity !== true ||
+    latestEvidence.setWaitableTimerClockAuthorityUsed !== false ||
+    latestEvidence.setWaitableTimerHostTimerImported !== false ||
+    latestEvidence.setWaitableTimerBrowserTimerImported !== false ||
+    latestEvidence.setWaitableTimerExpirationImplemented !== false ||
+    latestEvidence.setWaitableTimerNodeCompletions !== 1 ||
+    latestEvidence.setWaitableTimerChromeCompletions !== 1 ||
+    latestEvidence.setWaitableTimerNodeChromeOrderedSemanticsMatched !== true
   ) {
-    errors.push("latest waitable-timer identity and lifetime evidence is invalid");
+    errors.push("latest waitable-timer identity, arm, and lifetime evidence is invalid");
   }
   if (
     latestEvidence.nativeLoadIconAPrimaryTraceBytes !== 285_147 ||
@@ -7611,11 +7730,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_736 ||
-    latestEvidence.writebackDirtyPages !== 37_707 ||
-    latestEvidence.writebackChangedBytes !== 2_932_448 ||
+    latestEvidence.writebackBatches !== 18_737 ||
+    latestEvidence.writebackDirtyPages !== 37_708 ||
+    latestEvidence.writebackChangedBytes !== 2_932_457 ||
     latestEvidence.hostDeltaBatches !== 17_341 ||
-    latestEvidence.finalMemoryGeneration !== 36_650
+    latestEvidence.finalMemoryGeneration !== 36_651
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9538,10 +9657,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "6e0d7795057f9ed45a7e380e49758fdc7bf603a777353f74139dc759e0f65dcc" ||
+      "63de9f17f94d715615e80ba13801adb3fb7db47dce4b069bfd22726e8fe15859" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5" ||
+      "ec8092d7bcc78d42a2b8ad6cbbe8571cc1443350f21133cfaaef6ad173ad9bfa" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==

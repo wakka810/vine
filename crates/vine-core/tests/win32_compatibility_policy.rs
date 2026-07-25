@@ -58,6 +58,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-d3dx-runtime-module-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-thread-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-thread-priority-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -357,6 +358,27 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         unsupported_timer_profile.validate().unwrap_err().code,
         "kernel32-policy-create-waitable-timer-invalid"
+    );
+
+    let set_waitable_timer: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies.last().unwrap()).unwrap();
+    let set_timer_profile = set_waitable_timer
+        .set_waitable_timer()
+        .expect("set waitable timer profile");
+    assert_eq!(set_timer_profile.minimum_relative_due_time_100ns, 1);
+    assert_eq!(set_timer_profile.maximum_relative_due_time_100ns, 100_000);
+    assert!(set_timer_profile.allow_one_shot);
+    assert!(!set_timer_profile.allow_completion_routine);
+    assert!(!set_timer_profile.allow_resume);
+    let mut unsupported_set_timer_profile = set_waitable_timer;
+    unsupported_set_timer_profile
+        .set_waitable_timer
+        .as_mut()
+        .unwrap()
+        .allow_completion_routine = true;
+    assert_eq!(
+        unsupported_set_timer_profile.validate().unwrap_err().code,
+        "kernel32-policy-set-waitable-timer-invalid"
     );
 
     let mut unsupported_os_version = os_version.clone();

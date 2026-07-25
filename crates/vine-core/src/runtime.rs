@@ -206,8 +206,9 @@ pub use timers::{
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WAITABLE_TIMER_LIMIT,
     RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
     RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
-    RuntimeTimerResolutionState, RuntimeWaitableTimer, RuntimeWaitableTimerId, RuntimeWindowTimer,
-    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult,
+    RuntimeTimerResolutionState, RuntimeWaitableTimer, RuntimeWaitableTimerArm,
+    RuntimeWaitableTimerId, RuntimeWindowTimer, RuntimeWindowTimerId,
+    RuntimeWindowTimerRegistrationResult,
 };
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,

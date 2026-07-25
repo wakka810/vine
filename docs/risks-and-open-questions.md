@@ -90,8 +90,14 @@ new SQLite profileだけへseedし、以後のread／writeを配布directoryか�
 runnable childが選択されないscheduler progress不足と分類し、競合中だけ数える64 API-boundary quantumでNode／Chromeの
 両thread実行と一回のswitchを一致させた。残るthread riskはCPU-bound laneのpreemption、wait／timerによるwake ordering、
 child exit／cleanupをprimary flowで固定できていないことである。Storage riskはprimary guest write、browser／server restart後
-load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、次の
-`SetWaitableTimer`とstorage vertical sliceをそれぞれのowner境界で進める。
+load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、
+`WaitForSingleObjectEx`とstorage vertical sliceをそれぞれのowner境界で進める。
+
+Primary `SetWaitableTimer`のrelative one-shot armはtimer payloadとtyped-object wait stateのjoint preflightで成立し、
+host／browser clockをauthorityへimportせずgeneration 1のlogical armを保存した。残るriskはarm registrationではなく、
+`WaitForSingleObjectEx(handle,10,TRUE)`で期限到来、timeout、alertable flag、manual-reset signalをどのlogical clock／
+scheduler orderingで消費するかである。Native wall clockやbrowser task timingを直接wait resultへ流入させず、thread
+wait queue、timer generation、cancel／teardownを一つのbounded transactionとして固定してからexpiryを有効化する。
 
 ## 5. Scope reduction／no-go trigger
 

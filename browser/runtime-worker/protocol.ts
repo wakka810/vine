@@ -47,6 +47,11 @@ export interface RuntimeWaitableTimerSnapshot {
   timer: {
     id: number;
     manualReset: boolean;
+    arm?: {
+      relativeDueTime100ns: number;
+      periodMilliseconds: number;
+      generation: number;
+    };
   };
   objectRecord: {
     id: number;

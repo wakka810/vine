@@ -3884,6 +3884,13 @@ createWaitableTimerSelection.find(
 ).selectedObservations = ["create-waitable-timer-a"];
 assert.doesNotThrow(() => summarizeTrace(encode(createWaitableTimerSelection)));
 
+const setWaitableTimerSelection = structuredClone(events);
+setWaitableTimerSelection[0].arguments.observations = ["set-waitable-timer"];
+setWaitableTimerSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-waitable-timer"];
+assert.doesNotThrow(() => summarizeTrace(encode(setWaitableTimerSelection)));
+
 const loadIconSelection = structuredClone(events);
 loadIconSelection[0].arguments.observations = ["load-icon-a"];
 loadIconSelection.find(

@@ -982,6 +982,22 @@ Chrome same timer snapshot／memory／`LoadIconA` stop、clean cancel／watchdog
 process teardown boundaryを変更するため3分benchmarkを再実行し、17 thresholds全通過を要求する。
 詳細は[bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
 
+Reached `SetWaitableTimer`のrepresentative contractはsix-argument x86 stdcall、readable signed
+`LARGE_INTEGER` input、relative due-time magnitude 1..100,000、period 0、NULL completion routine／context、
+resume FALSE、BOOL 1、LastError 0、zero guest writeを固定する。Native oracleはmanual timerの二回waitが
+`WAIT_OBJECT_0`、auto timerが`WAIT_OBJECT_0`後に`WAIT_TIMEOUT`、invalid handleがFALSE／
+`ERROR_INVALID_HANDLE` 6となることをhook／direct system callの一致で確認する。
+
+Owner testはarm generation、rearm、zero／unknown timer／stale planのmutation-free rejectionを検査する。
+Cross-subsystem testはtimer payloadとtyped-object wait stateをjoint preflightし、wrong kind、stale handle、
+object preflight failure、policy rejection、unreadable due-timeで両ownerとguest bytesを保持することを要求する。
+Dispatcher fixtureはhandle `0x57010002`、timer ID 2、object ID 24、due magnitude 5,000、generation 1、
+`nonsignaled` resetを固定する。Node／Chromeはsame ordered call、timer／object snapshot、terminal memory、
+`WaitForSingleObjectEx(0x57010002,10,TRUE)` stop、clean cancel／watchdogを一致させる。Host crossing、
+browser clock、expiry scan、hot pathを変更しないsemantic leafなので、新しいperformance baselineは要求せず
+直前のversioned observationを保持する。詳細は
+[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
+
 Reached `LoadIconA`のrepresentative loader contractはSHA-256固定のpublic PE32 fixtureから
 type／name／language resource treeとsix icon/cursor leavesをbounded parseし、UTF-16 name、malformed offset／
 directory band／duplicate identity／count limitを検査する。Mapped-module contractはload-base lookup、

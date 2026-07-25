@@ -1936,10 +1936,15 @@ class BrowserRuntimeSession {
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
-    const isCreateWaitableTimer =
-      completion.implementationId === "kernel32.create-waitable-timer-a.v1";
+    const isWaitableTimerMutation =
+      completion.implementationId === "kernel32.create-waitable-timer-a.v1" ||
+      completion.implementationId === "kernel32.set-waitable-timer.relative-one-shot.v1";
+    const waitableTimerMutationSucceeded =
+      isWaitableTimerMutation &&
+      completion.eax.action === "set" &&
+      completion.eax.value !== 0;
     invariant(
-      isCreateWaitableTimer === (metadata.waitableTimer !== undefined),
+      waitableTimerMutationSucceeded === (metadata.waitableTimer !== undefined),
       "BGI waitable timer completion metadata mismatch",
     );
     const isCreateThread = completion.implementationId === "kernel32.create-thread.v1";

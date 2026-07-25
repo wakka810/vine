@@ -39,6 +39,7 @@ SUPPORTED_OBSERVATIONS = (
     "source-file-read",
     "create-mutex-a",
     "create-waitable-timer-a",
+    "set-waitable-timer",
     "load-icon-a",
     "load-image-a",
     "send-message-a",

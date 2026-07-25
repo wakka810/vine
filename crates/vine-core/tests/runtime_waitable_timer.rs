@@ -3,7 +3,7 @@ use vine_core::{
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeBootstrap, RuntimeClockState,
     RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeWaitDisposition, RuntimeWaitState, RuntimeWaitableTimerId,
+    RuntimeWaitDisposition, RuntimeWaitState, RuntimeWaitableTimerArm, RuntimeWaitableTimerId,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
@@ -48,9 +48,54 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
             .expect("timer initial wait state"),
         RuntimeWaitState::Nonsignaled
     );
+    assert_eq!(
+        runtime
+            .set_waitable_timer(first.handle, 5_000)
+            .expect("arm reached relative one-shot timer")
+            .arm,
+        Some(RuntimeWaitableTimerArm {
+            relative_due_time_100ns: 5_000,
+            period_milliseconds: 0,
+            generation: 1,
+        })
+    );
+    assert_eq!(
+        runtime
+            .set_waitable_timer(first.handle, 20_000)
+            .expect("rearm one-shot timer")
+            .arm,
+        Some(RuntimeWaitableTimerArm {
+            relative_due_time_100ns: 20_000,
+            period_milliseconds: 0,
+            generation: 2,
+        })
+    );
+    assert_eq!(
+        runtime
+            .object_wait_state(first.handle, RuntimeObjectKind::WaitableTimer)
+            .expect("rearmed timer wait state"),
+        RuntimeWaitState::Nonsignaled
+    );
+    let before_zero_due_time = runtime.clone();
+    assert_eq!(
+        runtime
+            .set_waitable_timer(first.handle, 0)
+            .expect_err("zero relative due time is rejected")
+            .code,
+        "waitable-timer-relative-due-time-zero"
+    );
+    assert_eq!(runtime, before_zero_due_time);
 
     let process_json = serde_json::to_value(runtime.process()).expect("serialize process view");
     assert_eq!(process_json["waitableTimers"]["1"]["manualReset"], true);
+    assert_eq!(
+        process_json["waitableTimers"]["1"]["arm"],
+        serde_json::json!({
+            "relativeDueTime100ns": 20_000,
+            "periodMilliseconds": 0,
+            "generation": 2,
+        })
+    );
 
     runtime
         .close_handle(first.handle)
@@ -69,6 +114,15 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
             .values()
             .all(|record| record.kind != RuntimeObjectKind::WaitableTimer)
     );
+    let before_stale_arm = runtime.clone();
+    assert_eq!(
+        runtime
+            .set_waitable_timer(first.handle, 5_000)
+            .expect_err("stale timer handle cannot be armed")
+            .code,
+        "runtime-handle-stale"
+    );
+    assert_eq!(runtime, before_stale_arm);
 
     let second = runtime
         .create_waitable_timer_a(false)

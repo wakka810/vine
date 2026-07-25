@@ -260,6 +260,14 @@ let createWaitableTimerAOracleEvidence = null;
 let createWaitableTimerACompletionRecorded = false;
 let createWaitableTimerADrainCheckScheduled = false;
 const createWaitableTimerAMainModuleCalls = [];
+let setWaitableTimerOracleScheduled = false;
+let setWaitableTimerOracleCall = null;
+let setWaitableTimerOracleComplete = false;
+let setWaitableTimerOracleEvidence = null;
+let setWaitableTimerCompletionRecorded = false;
+let setWaitableTimerDrainCheckScheduled = false;
+let setWaitableTimerMainCallClaimed = false;
+const setWaitableTimerMainModuleCalls = [];
 let setTimerCompletionRecorded = false;
 let setTimerDrainCheckScheduled = false;
 const setTimerMainModuleCalls = [];
@@ -2908,6 +2916,23 @@ function snapshotUnsignedLargeInteger(pointer) {
   } catch (error) {
     return { pointer: pointer.toString(), size, error: error.message };
   }
+}
+
+function snapshotSignedLargeInteger(pointer) {
+  const snapshot = snapshotUnsignedLargeInteger(pointer);
+  if (snapshot.error !== undefined) {
+    return snapshot;
+  }
+  const unsigned = BigInt(snapshot.value);
+  const signed =
+    unsigned >= 0x8000000000000000n
+      ? unsigned - 0x10000000000000000n
+      : unsigned;
+  return {
+    ...snapshot,
+    signedValue: signed.toString(),
+    interpretation: signed < 0n ? "relative-100ns" : "absolute-file-time",
+  };
 }
 
 function snapshotPointerSlot(pointer) {
@@ -5858,6 +5883,137 @@ function attachCreateWaitableTimerAHook(module) {
           immediateConsumer: this.immediateConsumer,
         });
         setImmediate(maybeCompleteCreateWaitableTimerAObservation);
+      }
+    },
+  });
+}
+
+function attachSetWaitableTimerHook(module) {
+  const name = "SetWaitableTimer";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        setWaitableTimerOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (isMainModuleCaller) {
+        if (setWaitableTimerMainCallClaimed) {
+          this.traceFrame = null;
+          return;
+        }
+        setWaitableTimerMainCallClaimed = true;
+      }
+      this.handle = args[0];
+      this.dueTimeAddress = args[1];
+      this.periodMilliseconds = args[2].toInt32();
+      this.completionRoutine = args[3];
+      this.completionContext = args[4];
+      this.resume = args[5].toUInt32();
+      this.dueTime = snapshotSignedLargeInteger(this.dueTimeAddress);
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = setWaitableTimerOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              48,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              24,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.handle.toString(),
+            this.dueTimeAddress.toString(),
+            this.periodMilliseconds,
+            this.completionRoutine.toString(),
+            this.completionContext.toString(),
+            this.resume,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          setWaitableTimer: {
+            handle: this.handle.toString(),
+            dueTime: this.dueTime,
+            periodMilliseconds: this.periodMilliseconds,
+            completionRoutine: this.completionRoutine.toString(),
+            completionContext: this.completionContext.toString(),
+            resume: this.resume,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const rawResult = result.toUInt32();
+      if (this.oracleCaller) {
+        setWaitableTimerOracleCall.hookResult = rawResult;
+        setWaitableTimerOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          setWaitableTimer: {
+            result: rawResult,
+          },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        setWaitableTimerMainModuleCalls.length === 0
+      ) {
+        setWaitableTimerMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          handle: this.handle.toString(),
+          dueTimeAddress: this.dueTimeAddress.toString(),
+          dueTime: this.dueTime,
+          periodMilliseconds: this.periodMilliseconds,
+          completionRoutine: this.completionRoutine.toString(),
+          completionContext: this.completionContext.toString(),
+          resume: this.resume,
+          result: rawResult,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteSetWaitableTimerObservation);
       }
     },
   });
@@ -17588,6 +17744,209 @@ function scheduleCreateWaitableTimerAOracle(module) {
   });
 }
 
+function maybeCompleteSetWaitableTimerObservation() {
+  if (
+    setWaitableTimerCompletionRecorded ||
+    !setWaitableTimerOracleComplete ||
+    setWaitableTimerMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSetWaitableTimerObservation, 10);
+    return;
+  }
+  if (setWaitableTimerDrainCheckScheduled) {
+    return;
+  }
+  setWaitableTimerDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    setWaitableTimerDrainCheckScheduled = false;
+    if (setWaitableTimerCompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteSetWaitableTimerObservation();
+      return;
+    }
+    setWaitableTimerCompletionRecorded = true;
+    emit("set-waitable-timer-complete", {
+      profile: "x86-bgi-set-waitable-timer-v1",
+      oracleProfile: setWaitableTimerOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: setWaitableTimerMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "set-waitable-timer-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function writeSignedLargeInteger(pointer, value) {
+  let encoded = value;
+  if (encoded < 0n) {
+    encoded += 0x10000000000000000n;
+  }
+  const bytes = [];
+  for (let index = 0n; index < 8n; index += 1n) {
+    bytes.push(Number((encoded >> (index * 8n)) & 0xffn));
+  }
+  pointer.writeByteArray(bytes);
+}
+
+function scheduleSetWaitableTimerOracle(module) {
+  if (setWaitableTimerOracleScheduled) {
+    return;
+  }
+  setWaitableTimerOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const createAddress = findExport(module, "CreateWaitableTimerA");
+      const setAddress = findExport(module, "SetWaitableTimer");
+      const waitAddress = findExport(module, "WaitForSingleObject");
+      const closeAddress = findExport(module, "CloseHandle");
+      if (
+        createAddress === null ||
+        setAddress === null ||
+        waitAddress === null ||
+        closeAddress === null
+      ) {
+        throw new Error("set waitable timer oracle exports are unavailable");
+      }
+      const createWaitableTimerA = new SystemFunction(
+        createAddress,
+        "pointer",
+        ["pointer", "uint32", "pointer"],
+        "stdcall",
+      );
+      const setWaitableTimer = new SystemFunction(
+        setAddress,
+        "uint32",
+        ["pointer", "pointer", "int32", "pointer", "pointer", "uint32"],
+        "stdcall",
+      );
+      const waitForSingleObject = new SystemFunction(
+        waitAddress,
+        "uint32",
+        ["pointer", "uint32"],
+        "stdcall",
+      );
+      const closeHandle = new SystemFunction(
+        closeAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const relativeDueTime100ns = -10000n;
+      const dueTime = Memory.alloc(8);
+      writeSignedLargeInteger(dueTime, relativeDueTime100ns);
+      const invoke = ({ manualReset, sentinel }) => {
+        const createOutcome = createWaitableTimerA(
+          ptr(0),
+          manualReset ? 1 : 0,
+          ptr(0),
+        );
+        const handle = createOutcome.value;
+        if (handle.isNull()) {
+          throw new Error("set waitable timer oracle could not create a timer");
+        }
+        setWaitableTimerOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const setOutcome = setWaitableTimer(
+            handle,
+            dueTime,
+            0,
+            ptr(0),
+            ptr(0),
+            0,
+          );
+          const firstWait = waitForSingleObject(handle, 1000);
+          const secondWait = waitForSingleObject(handle, 0);
+          return {
+            manualReset,
+            sentinel,
+            relativeDueTime100ns: relativeDueTime100ns.toString(),
+            setResult: Number(setOutcome.value) >>> 0,
+            systemLastError: Number(setOutcome.lastError) >>> 0,
+            hookResult: setWaitableTimerOracleCall.hookResult,
+            hookLastErrorAfter:
+              setWaitableTimerOracleCall.hookLastErrorAfter,
+            firstWaitResult: Number(firstWait.value) >>> 0,
+            secondWaitResult: Number(secondWait.value) >>> 0,
+            closeResult: Number(closeHandle(handle).value) >>> 0,
+          };
+        } finally {
+          setWaitableTimerOracleCall = null;
+        }
+      };
+      const calls = [
+        { manualReset: true, sentinel: 0x11223344 },
+        { manualReset: false, sentinel: 0x55667788 },
+      ].map(invoke);
+
+      setWaitableTimerOracleCall = {
+        sentinel: 0x778899aa,
+        hookResult: null,
+        hookLastErrorAfter: null,
+      };
+      const invalidOutcome = setWaitableTimer(
+        ptr(0x1234),
+        dueTime,
+        0,
+        ptr(0),
+        ptr(0),
+        0,
+      );
+      const invalidCall = {
+        sentinel: setWaitableTimerOracleCall.sentinel,
+        result: Number(invalidOutcome.value) >>> 0,
+        systemLastError: Number(invalidOutcome.lastError) >>> 0,
+        hookResult: setWaitableTimerOracleCall.hookResult,
+        hookLastErrorAfter: setWaitableTimerOracleCall.hookLastErrorAfter,
+      };
+      setWaitableTimerOracleCall = null;
+
+      setWaitableTimerOracleEvidence = {
+        profile: "x86-set-waitable-timer-relative-one-shot-v1",
+        relativeDueTime100ns: relativeDueTime100ns.toString(),
+        waitObject0: 0,
+        waitTimeout: 258,
+        calls,
+        invalidCall,
+        allSetSucceeded: calls.every((call) => call.setResult !== 0),
+        manualResetRemainsSignaled:
+          calls[0].firstWaitResult === 0 && calls[0].secondWaitResult === 0,
+        autoResetConsumesSignal:
+          calls[1].firstWaitResult === 0 && calls[1].secondWaitResult === 258,
+        allResultsMatchHooks: calls.every(
+          (call) => call.hookResult === call.setResult,
+        ),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookLastErrorAfter === call.systemLastError,
+        ),
+        invalidHandleRejected:
+          invalidCall.result === 0 && invalidCall.systemLastError === 6,
+        invalidResultMatchesHook:
+          invalidCall.hookResult === invalidCall.result &&
+          invalidCall.hookLastErrorAfter === invalidCall.systemLastError,
+      };
+      setWaitableTimerOracleComplete = true;
+      emit("set-waitable-timer-oracle", setWaitableTimerOracleEvidence);
+      maybeCompleteSetWaitableTimerObservation();
+    } catch (error) {
+      setWaitableTimerOracleCall = null;
+      emit("set-waitable-timer-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function maybeCompleteSetTimerObservation() {
   if (
     setTimerCompletionRecorded ||
@@ -20732,6 +21091,21 @@ Process.attachModuleObserver({
             error: error.message,
           });
         }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("set-waitable-timer")
+    ) {
+      try {
+        attachSetWaitableTimerHook(module);
+        scheduleSetWaitableTimerOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "SetWaitableTimer",
+          error: error.message,
+        });
       }
     }
     if (

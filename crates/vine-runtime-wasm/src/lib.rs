@@ -1454,10 +1454,37 @@ impl BrowserRuntime {
                                 "alreadyExists": completion.last_error == 183,
                             });
                         }
-                        if completion.implementation_id == "kernel32.create-waitable-timer-a.v1"
-                            && let RegisterUpdate::Set(handle) = completion.eax
-                        {
-                            let handle = RuntimeHandle(handle);
+                        let waitable_timer_handle = match completion.implementation_id.as_str() {
+                            "kernel32.create-waitable-timer-a.v1" => {
+                                let RegisterUpdate::Set(handle) = completion.eax else {
+                                    return Err(
+                                        "CreateWaitableTimerA completion did not set a handle"
+                                            .to_owned(),
+                                    );
+                                };
+                                (handle != 0).then_some(RuntimeHandle(handle))
+                            }
+                            vine_core::SET_WAITABLE_TIMER_IMPLEMENTATION => {
+                                let RegisterUpdate::Set(result) = completion.eax else {
+                                    return Err(
+                                        "SetWaitableTimer completion did not set BOOL in EAX"
+                                            .to_owned(),
+                                    );
+                                };
+                                if result == 0 {
+                                    None
+                                } else {
+                                    Some(RuntimeHandle(
+                                        completion.frame.argument_u32(0).ok_or_else(|| {
+                                            "SetWaitableTimer completion has no timer handle"
+                                                .to_owned()
+                                        })?,
+                                    ))
+                                }
+                            }
+                            _ => None,
+                        };
+                        if let Some(handle) = waitable_timer_handle {
                             metadata["waitableTimer"] = json!({
                                 "handle": handle,
                                 "timer": self

@@ -38,9 +38,9 @@ pub use policy::{
     Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
     Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
-    Kernel32SourceFilePolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
-    Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy, Kernel32TickCountPolicy,
-    Kernel32VirtualAllocPolicy, Kernel32WideCharToMultiBytePolicy,
+    Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
+    Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
+    Kernel32TickCountPolicy, Kernel32VirtualAllocPolicy, Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -87,6 +87,8 @@ pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.sou
 pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.v2";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
+pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
+    "kernel32.set-waitable-timer.relative-one-shot.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
@@ -247,6 +249,9 @@ pub fn dispatch_kernel32_api_with_policy(
         CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
             handle_create_waitable_timer_a(policy, contract, frame, session)
         }
+        SET_WAITABLE_TIMER_IMPLEMENTATION => {
+            handle_set_waitable_timer(policy, contract, frame, session)
+        }
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -355,6 +360,7 @@ pub fn kernel32_contract_for_endpoint(
         "CloseHandle" => close_handle_contract(endpoint)?,
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
+        "SetWaitableTimer" => set_waitable_timer_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceFrequency" => query_performance_frequency_contract(endpoint)?,
@@ -2679,6 +2685,102 @@ fn handle_create_waitable_timer_a(
     .with_last_error(ERROR_SUCCESS))
 }
 
+fn handle_set_waitable_timer(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let timer_policy = policy.set_waitable_timer().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable SetWaitableTimer",
+                policy.id
+            ),
+        )
+    })?;
+    let handle = RuntimeHandle(required_argument(
+        contract,
+        frame,
+        0,
+        "waitable timer handle",
+    )?);
+    let due_time_address = GuestAddress(required_argument(contract, frame, 1, "due time")?);
+    let period_milliseconds =
+        i32::from_le_bytes(required_argument(contract, frame, 2, "period")?.to_le_bytes());
+    let completion_routine = required_argument(contract, frame, 3, "completion routine")?;
+    let completion_context = required_argument(contract, frame, 4, "completion context")?;
+    let resume = required_argument(contract, frame, 5, "resume")? != 0;
+    if period_milliseconds != 0 || !timer_policy.allow_one_shot {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-periodic-unsupported",
+            "the selected SetWaitableTimer policy enables only one-shot timers",
+        ));
+    }
+    if completion_routine != 0 || completion_context != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-completion-routine-unsupported",
+            "the selected SetWaitableTimer policy enables no completion routine or context",
+        ));
+    }
+    if resume {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-resume-unsupported",
+            "the selected SetWaitableTimer policy enables no resume request",
+        ));
+    }
+    if session.runtime().waitable_timer_for_handle(handle).is_err() {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
+        );
+    }
+    let bytes = session
+        .memory()
+        .read(due_time_address, size_of::<i64>())
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let due_time_100ns = i64::from_le_bytes(bytes.try_into().map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-waitable-timer",
+            "set-waitable-timer-due-time-read-size-invalid",
+            "checked waitable timer due-time input did not contain one LARGE_INTEGER",
+        )
+    })?);
+    if due_time_100ns >= 0 {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-absolute-due-time-unsupported",
+            "the selected SetWaitableTimer policy enables only negative relative due times",
+        ));
+    }
+    let relative_due_time_100ns = due_time_100ns.unsigned_abs();
+    if !(timer_policy.minimum_relative_due_time_100ns
+        ..=timer_policy.maximum_relative_due_time_100ns)
+        .contains(&relative_due_time_100ns)
+    {
+        return Err(ApiFault::unsupported(
+            "win32-waitable-timer",
+            "set-waitable-timer-relative-due-time-unsupported",
+            format!(
+                "compatibility policy {} enables relative due times from {} through {} 100ns units, not {}",
+                policy.id,
+                timer_policy.minimum_relative_due_time_100ns,
+                timer_policy.maximum_relative_due_time_100ns,
+                relative_due_time_100ns,
+            ),
+        ));
+    }
+    session
+        .runtime_mut()
+        .set_waitable_timer(handle, relative_due_time_100ns)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(ERROR_SUCCESS))
+}
+
 fn handle_get_string_type_w(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -4552,6 +4654,29 @@ pub fn create_waitable_timer_a_contract(
     Ok(contract)
 }
 
+pub fn set_waitable_timer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetWaitableTimer",
+        vec![
+            logical_handle(
+                "waitableTimer",
+                RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+                false,
+            ),
+            in_struct("dueTime", "LARGE_INTEGER", 8, 4),
+            u32_argument("periodMilliseconds"),
+            opaque_pointer("completionRoutine", true, 4),
+            opaque_pointer("completionContext", true, 4),
+            u32_argument("resume"),
+        ],
+        ApiReturnSchema::Bool32,
+        SET_WAITABLE_TIMER_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     let mut contract = kernel32_contract(
         endpoint,
@@ -5082,6 +5207,24 @@ fn out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema 
                     type_id: type_id.to_owned(),
                 },
                 write_requirement: ApiWriteRequirement::Required,
+            },
+        },
+    }
+}
+
+fn in_struct(name: &str, type_id: &str, byte_length: u32, alignment: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::None,
             },
         },
     }

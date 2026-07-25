@@ -4087,6 +4087,38 @@ impl RuntimeKernel {
             .waitable_timer(RuntimeWaitableTimerId(*timer_id))
     }
 
+    pub fn set_waitable_timer(
+        &mut self,
+        handle: RuntimeHandle,
+        relative_due_time_100ns: u64,
+    ) -> Result<&RuntimeWaitableTimer, RuntimeStateError> {
+        self.require_waitable_timer_operation_state()?;
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+            .clone();
+        let RuntimeObjectKey::WaitableTimer { timer_id } = record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-key-invalid",
+                "waitable timer handle resolved to a different object identity",
+            ));
+        };
+        let timer_id = RuntimeWaitableTimerId(timer_id);
+        let timer_plan = self
+            .timers
+            .plan_waitable_timer_one_shot_arm(timer_id, relative_due_time_100ns)?;
+        let wait_updates = self.objects.plan_wait_state_updates(&[(
+            RuntimeObjectKey::WaitableTimer {
+                timer_id: timer_id.0,
+            },
+            RuntimeWaitState::Nonsignaled,
+        )])?;
+        self.timers.preflight_waitable_timer_arm(&timer_plan)?;
+        self.objects.commit_wait_state_updates(wait_updates);
+        Ok(self.timers.commit_waitable_timer_arm(timer_plan))
+    }
+
     pub fn load_shared_icon(
         &mut self,
         resource: RuntimeIconResource,

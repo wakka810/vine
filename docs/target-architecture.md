@@ -335,6 +335,14 @@ tableもwaitable-timer identityも所有せず、WorkerはRust completionのimmu
 [winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
 
+Reached `SetWaitableTimer` profileでは`RuntimeTimers`がrelative due-time magnitude、one-shot period 0、arm
+generationをtimer payloadへ保存し、`RuntimeObjectTable`が同じlogical timer objectのwait stateを
+`nonsignaled`へresetする。Kernelはtimer arm planとtyped-object wait-state planをjoint preflightし、両ownerの
+stale／wrong-kind／capacity／lifetime validationが成功した後だけtargeted commitする。Absolute due time、zero、
+periodic arm、APC completion、resumeはpolicyでmutation前に拒否する。Stored intervalはlogical stateであり、
+browser deadlineではない。Expiry／signal transitionとalertable waitはscheduler／wait gatewayで別contractとして
+扱う。詳細は[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
+
 Guest-visible OS version is compatibility data, not browser capability
 detection. `Kernel32CompatibilityPolicy` owns one bounded ANSI profile while
 the generic dispatcher owns the size-versioned pointer contract. Accepted

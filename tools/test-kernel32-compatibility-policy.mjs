@@ -47,6 +47,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-create-thread-v1.json",
   "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json",
   "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json",
+  "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -233,6 +234,18 @@ for (const relative of policyFiles) {
     assert.equal(typeof waitableTimer.allowAutoReset, "boolean");
     assert.equal(waitableTimer.allowUnnamed, true);
     assert(waitableTimer.allowManualReset || waitableTimer.allowAutoReset);
+  }
+  const setWaitableTimer = policy.setWaitableTimer ?? null;
+  if (setWaitableTimer !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(waitableTimer !== null);
+    assert.deepEqual(setWaitableTimer, {
+      minimumRelativeDueTime100ns: 1,
+      maximumRelativeDueTime100ns: 100_000,
+      allowOneShot: true,
+      allowCompletionRoutine: false,
+      allowResume: false,
+    });
   }
   const loadLibraryA = policy.loadLibraryA ?? null;
   if (loadLibraryA !== null) {

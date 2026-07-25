@@ -52,6 +52,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_waitable_timer_a: Option<Kernel32CreateWaitableTimerAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_waitable_timer: Option<Kernel32SetWaitableTimerPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -191,6 +193,16 @@ pub struct Kernel32CreateWaitableTimerAPolicy {
     pub allow_manual_reset: bool,
     pub allow_auto_reset: bool,
     pub allow_unnamed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32SetWaitableTimerPolicy {
+    pub minimum_relative_due_time_100ns: u64,
+    pub maximum_relative_due_time_100ns: u64,
+    pub allow_one_shot: bool,
+    pub allow_completion_routine: bool,
+    pub allow_resume: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -335,6 +347,7 @@ impl Kernel32CompatibilityPolicy {
             get_drive_type_a: None,
             create_mutex_a: None,
             create_waitable_timer_a: None,
+            set_waitable_timer: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -593,6 +606,21 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-create-waitable-timer-invalid",
                 "CreateWaitableTimerA requires schema v2, unnamed-object support, and at least one reset mode",
+            ));
+        }
+        if let Some(timer) = self.set_waitable_timer
+            && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || self.create_waitable_timer_a.is_none()
+                || timer.minimum_relative_due_time_100ns == 0
+                || timer.maximum_relative_due_time_100ns < timer.minimum_relative_due_time_100ns
+                || timer.maximum_relative_due_time_100ns > 100_000_000
+                || !timer.allow_one_shot
+                || timer.allow_completion_routine
+                || timer.allow_resume)
+        {
+            return Err(policy_error(
+                "kernel32-policy-set-waitable-timer-invalid",
+                "SetWaitableTimer requires the creation layer, a bounded relative interval, one-shot mode, and no completion routine or resume request",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -942,6 +970,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn create_waitable_timer_a(&self) -> Option<Kernel32CreateWaitableTimerAPolicy> {
         self.create_waitable_timer_a
+    }
+
+    pub fn set_waitable_timer(&self) -> Option<Kernel32SetWaitableTimerPolicy> {
+        self.set_waitable_timer
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {
