@@ -143,10 +143,18 @@ assert.ok(
 );
 
 const incompleteEndpointIdentity = structuredClone(manifest);
-delete incompleteEndpointIdentity.nextStructuredStop.endpointKind;
+const endpointIdentity =
+  incompleteEndpointIdentity.nextStructuredStop.kind === "capability-checkpoint"
+    ? incompleteEndpointIdentity.nextStructuredStop.nextEndpoint
+    : incompleteEndpointIdentity.nextStructuredStop;
+delete endpointIdentity.endpointKind;
 assert.ok(
   validateCurrentCheckpoint(incompleteEndpointIdentity).some((error) =>
-    error.includes("nextStructuredStop.endpointKind"),
+    error.includes(
+      manifest.nextStructuredStop.kind === "capability-checkpoint"
+        ? "nextStructuredStop.nextEndpoint.endpointKind"
+        : "nextStructuredStop.endpointKind",
+    ),
   ),
 );
 

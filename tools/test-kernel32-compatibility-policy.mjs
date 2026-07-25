@@ -48,6 +48,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-set-thread-priority-v1.json",
   "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json",
   "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json",
+  "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
 ];
 
 for (const relative of policyFiles) {

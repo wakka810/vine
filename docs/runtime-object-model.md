@@ -92,11 +92,13 @@ host-wait stateとは別に、object tableがwaitable lifetimeを所有する。
 - `terminate_current_process(exit)`はinitial threadとprocess objectを同じexit codeでsignalする。
 - open済みの全handleと、termination後にopenしたhandleが同じsignal stateを観測する。
 - mutex waitはunowned／same-threadならacquireし、other-thread ownershipはstructured unsupportedで止める。
-- waitable timerはinitial stateだけをqueryでき、due-time／period／signal transitionは未実装である。
+- waitable timerはrelative one-shot arm、logical deadline expiration、manual-reset signal、
+  bounded finite wait、rearmによるnonsignaled resetをquery／transitionできる。
 - module／heapはwaitableでなく、queryを`runtime-object-not-waitable`で拒否する。
 
-Process／thread waiter registrationはseparate wait-queue foundationへ接続済みである。Mutexの
-cross-thread registration、wait-any／wait-all、wake ordering、timeout、alertable waitは未実装である。
+Process／thread waiter registrationはseparate wait-queue foundationへ接続済みである。Waitable timerの
+bounded immediate registrationも同じfoundationを使う。Mutex／timerのcross-thread registration、
+wait-any／wait-all、general wake ordering、APC delivery、host-elapsed pacingは未実装である。
 
 ## Existing state integration
 
@@ -122,6 +124,13 @@ manual-reset payloadを作り、object tableへseparate object ID／handle／non
 Last closeとprocess teardownはpayload、object、全handleを同じpreflight boundaryでretireする。
 TypeScriptはcompletion snapshotだけを受け取り、timer identityやlifetimeを所有しない。詳細は
 [bgi-create-waitable-timer-a.md](bgi-create-waitable-timer-a.md)を正とする。
+
+Reached `SetWaitableTimer`と`WaitForSingleObjectEx`はtimer payloadのarm／expiration、
+object wait state、logical clock、wait registration、scheduler laneをjoint preflightする。
+Manual-reset expirationはobjectをsignaledに保ち、次のarmがnonsignaledへ戻す。TypeScriptは
+browser timerや第二のsignal stateを作らない。詳細は
+[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)と
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
 
 ## Contract test and regression
 
@@ -161,8 +170,9 @@ This checkpoint does not implement access masks, duplicate-handle inheritance, g
 cross-process handle tables, general object destruction/refcount, thread creation, mutex blocking,
 wait-any／wait-all, or guest wait／close API coverage. Later checkpoints have added one-object wait
 registration, message queues, heap backing, exports／forwarders, DLL callbacks, and named-mutex
-lifetime plus initial waitable-timer creation over this foundation. Timer due-time／period／signal／
-cancel behavior and auto-reset／named variants remain outside the active band. It remains partial evidence
+lifetime plus bounded waitable-timer creation, relative one-shot arm, logical expiration, and finite
+wait over this foundation. Periodic／absolute arm, cancel behavior, async pacing, APC, and
+auto-reset／named primary variants remain outside the active band. It remains partial evidence
 for `REQ-API-02`／`REQ-API-03` and `P3-WIN-01`, not their completion.
 
 The process-owned module graph and controlled process／initial-thread lifecycle dependencies are

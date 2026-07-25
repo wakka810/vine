@@ -340,8 +340,16 @@ generationをtimer payloadへ保存し、`RuntimeObjectTable`が同じlogical ti
 `nonsignaled`へresetする。Kernelはtimer arm planとtyped-object wait-state planをjoint preflightし、両ownerの
 stale／wrong-kind／capacity／lifetime validationが成功した後だけtargeted commitする。Absolute due time、zero、
 periodic arm、APC completion、resumeはpolicyでmutation前に拒否する。Stored intervalはlogical stateであり、
-browser deadlineではない。Expiry／signal transitionとalertable waitはscheduler／wait gatewayで別contractとして
-扱う。詳細は[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
+browser deadlineではない。詳細は[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
+
+Reached `WaitForSingleObjectEx` profileでは`RuntimeTimers`のlogical clock／exact arm expiration、
+`RuntimeObjectTable`のmanual-reset signal、`RuntimeWaits`のdeadline／alertable registration、
+`RuntimeScheduler`のexact lane roundtripをaggregateが全件preflightする。0..10 msのtimer-only finite waitは
+deadlineまでdeterministically fast-forwardし、success／timeoutはLastErrorを保持する。Alertable flagは
+contract inputだがAPC deliveryを意味しない。TypeScriptはcompletion snapshotだけを運び、host／browser clockを
+Windows authorityへimportしない。Continuous executionで必要なreal-time pacing、cancel、stale completion、
+background freeze／resume、bounded catch-upは`runtime-waitable-timer-pacing` gatewayで別contractにする。詳細は
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
 
 Guest-visible OS version is compatibility data, not browser capability
 detection. `Kernel32CompatibilityPolicy` owns one bounded ANSI profile while

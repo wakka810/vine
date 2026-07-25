@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-set-waitable-timer`: 18681 calls across 111 endpoint contracts / 109 APIs, memory generation 36651 |
+| Runtime diagnostics | `kernel32-wait-for-single-object-ex`: 18698 calls across 112 endpoint contracts / 110 APIs, memory generation 36680 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `kernel32.dll!WaitForSingleObjectEx(0x57010002, 0x0000000a, 0x00000001)` at instruction 11973559: `endpoint-contract-missing` |
+| Next structured stop | `kernel32-wait-for-single-object-ex` completed 3 recurring waits by instruction 11973853; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11973878 (`recurring-wait-checkpoint-complete`) |
 
-The active semantic report is 400,534 bytes with SHA-256
-`ecf7566fc075c042721a2f2780f6ddea7436deffa0005dd51abd1aa41defcb43`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 408,570 bytes with SHA-256
+`ee88f67fb63e49921804022133c0a1f72c974e021be28673890a9d616bc55273`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -148,6 +148,7 @@ The active semantic report is 400,534 bytes with SHA-256
 - `IMM32.dll!ImmGetDefaultIMEWnd`
 - `IMM32.dll!ImmAssociateContext`
 - `KERNEL32.dll!SetWaitableTimer`
+- `KERNEL32.dll!WaitForSingleObjectEx`
 
 ### Reproduce Current Checkpoint
 

@@ -3,8 +3,9 @@ use vine_core::{
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeBootstrap, RuntimeClockState,
     RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeWaitDisposition, RuntimeWaitState, RuntimeWaitableTimerArm, RuntimeWaitableTimerId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
+    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -55,6 +56,8 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
             .arm,
         Some(RuntimeWaitableTimerArm {
             relative_due_time_100ns: 5_000,
+            armed_at_time_100ns: 0,
+            deadline_time_100ns: 5_000,
             period_milliseconds: 0,
             generation: 1,
         })
@@ -66,6 +69,8 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
             .arm,
         Some(RuntimeWaitableTimerArm {
             relative_due_time_100ns: 20_000,
+            armed_at_time_100ns: 0,
+            deadline_time_100ns: 20_000,
             period_milliseconds: 0,
             generation: 2,
         })
@@ -92,6 +97,8 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
         process_json["waitableTimers"]["1"]["arm"],
         serde_json::json!({
             "relativeDueTime100ns": 20_000,
+            "armedAtTime100ns": 0,
+            "deadlineTime100ns": 20_000,
             "periodMilliseconds": 0,
             "generation": 2,
         })
@@ -167,6 +174,155 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
     );
     let process_json = serde_json::to_value(runtime.process()).expect("serialize terminal process");
     assert!(process_json.get("waitableTimers").is_none());
+}
+
+#[test]
+fn finite_alertable_waits_advance_the_logical_timer_clock_and_consume_exact_arms() {
+    let mut runtime = runtime(true);
+    let manual = runtime
+        .create_waitable_timer_a(true)
+        .expect("create manual-reset timer");
+    runtime
+        .set_waitable_timer(manual.handle, 5_000)
+        .expect("arm manual-reset timer");
+
+    let satisfied = runtime
+        .wait_for_single_object_ex(manual.handle, 10, true)
+        .expect("timer deadline precedes wait timeout");
+    assert_eq!(
+        satisfied.outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    let registration = satisfied
+        .registration
+        .expect("nonsignaled finite wait uses the wait queue");
+    assert_eq!(registration.id.0, 1);
+    assert_eq!(registration.thread_id, THREAD_ID);
+    assert_eq!(registration.handle, manual.handle);
+    assert_eq!(registration.timeout_deadline_time_100ns, Some(100_000));
+    assert!(registration.alertable);
+    assert_eq!(satisfied.timer_clock_before.current_time_100ns, 0);
+    assert_eq!(satisfied.timer_clock_after.current_time_100ns, 5_000);
+    assert_eq!(satisfied.timer_clock_after.generation, 1);
+    assert_eq!(satisfied.timer.arm, None);
+    assert_eq!(
+        satisfied.timer.last_expiration,
+        Some(RuntimeWaitableTimerExpiration {
+            arm_generation: 1,
+            deadline_time_100ns: 5_000,
+        })
+    );
+    assert_eq!(
+        satisfied.object_wait_state,
+        RuntimeWaitState::Signaled { exit_code: 0 }
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().object_waiters().is_empty());
+    assert_eq!(runtime.next_wait_registration_id(), 2);
+
+    let repeated = runtime
+        .wait_for_single_object_ex(manual.handle, 0, true)
+        .expect("manual-reset signal remains observable");
+    assert_eq!(
+        repeated.outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    assert_eq!(repeated.registration, None);
+    assert_eq!(
+        repeated.object_wait_state,
+        RuntimeWaitState::Signaled { exit_code: 0 }
+    );
+    assert_eq!(repeated.timer_clock_after, satisfied.timer_clock_after);
+
+    runtime
+        .set_waitable_timer(manual.handle, 200_000)
+        .expect("rearm manual timer beyond one wait timeout");
+    assert_eq!(
+        runtime
+            .waitable_timer_for_handle(manual.handle)
+            .unwrap()
+            .arm,
+        Some(RuntimeWaitableTimerArm {
+            relative_due_time_100ns: 200_000,
+            armed_at_time_100ns: 5_000,
+            deadline_time_100ns: 205_000,
+            period_milliseconds: 0,
+            generation: 2,
+        })
+    );
+    let timed_out = runtime
+        .wait_for_single_object_ex(manual.handle, 10, false)
+        .expect("timeout precedes the rearmed timer deadline");
+    assert_eq!(
+        timed_out.outcome,
+        RuntimeWaitForSingleObjectExOutcome::TimedOut
+    );
+    let timeout_registration = timed_out.registration.expect("finite timeout registration");
+    assert_eq!(timeout_registration.id.0, 2);
+    assert_eq!(
+        timeout_registration.timeout_deadline_time_100ns,
+        Some(105_000)
+    );
+    assert!(!timeout_registration.alertable);
+    assert_eq!(timed_out.timer_clock_after.current_time_100ns, 105_000);
+    assert!(timed_out.timer.arm.is_some());
+    assert_eq!(timed_out.object_wait_state, RuntimeWaitState::Nonsignaled);
+
+    let second_wait = runtime
+        .wait_for_single_object_ex(manual.handle, 10, true)
+        .expect("second finite wait reaches the arm deadline");
+    assert_eq!(
+        second_wait.outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    assert_eq!(second_wait.registration.unwrap().id.0, 3);
+    assert_eq!(second_wait.timer_clock_after.current_time_100ns, 205_000);
+    assert_eq!(
+        second_wait.timer.last_expiration,
+        Some(RuntimeWaitableTimerExpiration {
+            arm_generation: 2,
+            deadline_time_100ns: 205_000,
+        })
+    );
+    assert_eq!(
+        second_wait.object_wait_state,
+        RuntimeWaitState::Signaled { exit_code: 0 }
+    );
+
+    let automatic = runtime
+        .create_waitable_timer_a(false)
+        .expect("create controlled auto-reset timer");
+    runtime
+        .set_waitable_timer(automatic.handle, 5_000)
+        .expect("arm auto-reset timer");
+    let automatic_wait = runtime
+        .wait_for_single_object_ex(automatic.handle, 10, true)
+        .expect("auto-reset timer satisfies one waiter");
+    assert_eq!(
+        automatic_wait.outcome,
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    assert_eq!(automatic_wait.registration.unwrap().id.0, 4);
+    assert_eq!(
+        automatic_wait.object_wait_state,
+        RuntimeWaitState::Nonsignaled
+    );
+    assert_eq!(automatic_wait.timer_clock_after.current_time_100ns, 210_000);
+
+    let consumed = runtime
+        .wait_for_single_object_ex(automatic.handle, 0, true)
+        .expect("consumed auto-reset signal times out");
+    assert_eq!(
+        consumed.outcome,
+        RuntimeWaitForSingleObjectExOutcome::TimedOut
+    );
+    assert_eq!(consumed.registration, None);
+    assert_eq!(runtime.next_wait_registration_id(), 5);
+    assert_eq!(consumed.timer_clock_after, automatic_wait.timer_clock_after);
 }
 
 fn runtime(started: bool) -> RuntimeState {

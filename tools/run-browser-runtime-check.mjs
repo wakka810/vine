@@ -57,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v12";
+const runtimeProtocol = "vine.browser-runtime-worker.v13";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -563,6 +563,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-virtual-alloc",
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
+        "kernel32-wait-for-single-object-ex",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -573,6 +574,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       [
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
+        "kernel32-wait-for-single-object-ex",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -582,6 +584,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       [
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
+        "kernel32-wait-for-single-object-ex",
       ].includes(bgiProfile) && scenario === "success"
         ? 1
         : 0,
@@ -596,7 +599,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     });
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
-      assert.equal(evidence.report.outcome, "structured-stop");
+      const capabilityCheckpoint =
+        bgiProfile === "kernel32-wait-for-single-object-ex";
+      assert.equal(
+        evidence.report.outcome,
+        capabilityCheckpoint ? "checkpoint-complete" : "structured-stop",
+      );
       assert(evidence.report.supportedCallCount > 0);
       assert.equal(evidence.report.evidenceLevel, fullEvidence ? "full" : "summary");
       assert.equal(
@@ -608,7 +616,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         SEMANTIC_CALL_DIGEST_ALGORITHM,
       );
       assert.match(evidence.report.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
-      assert(evidence.report.firstUnsupported !== null);
+      assert.equal(
+        evidence.report.firstUnsupported === null,
+        capabilityCheckpoint,
+      );
+      assert.equal(
+        evidence.report.checkpointCompletion !== null,
+        capabilityCheckpoint,
+      );
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
       assert(evidence.heartbeatSamples > 0, "main heartbeat did not advance during BGI");
@@ -1133,11 +1148,61 @@ function validateBgiEquivalence(browser, oracle) {
   );
   const browserStop = browser.report.firstUnsupported;
   const oracleStop = oracle.firstUnsupported;
+  const browserCheckpoint = browser.report.checkpointCompletion;
+  const oracleCheckpoint = oracle.checkpointCompletion ?? null;
+  assert.equal(browser.report.initialGeneration, oracle.process.memory.generation);
+  assert(browser.report.finalGeneration >= browser.report.initialGeneration);
+  if (oracleCheckpoint !== null) {
+    assert.equal(browserStop, null);
+    assert(browserCheckpoint !== null, "Chrome Worker omitted its capability checkpoint");
+    assert.equal(browser.report.outcome, "checkpoint-complete");
+    assert.equal(browser.report.instructions, oracleCheckpoint.instructionCount);
+    assert.deepEqual(
+      {
+        capability: browserCheckpoint.capability,
+        implementationId: browserCheckpoint.implementationId,
+        requiredCompletions: browserCheckpoint.requiredCompletions,
+        completionCount: browserCheckpoint.completionCount,
+        lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+        lastCompletionInstructionCount:
+          browserCheckpoint.lastCompletionInstructionCount,
+        instructionCount: browserCheckpoint.instructionCount,
+        memoryContentSha256: browserCheckpoint.memoryContentSha256,
+      },
+      {
+        capability: oracleCheckpoint.capability,
+        implementationId: oracleCheckpoint.implementationId,
+        requiredCompletions: oracleCheckpoint.requiredCompletions,
+        completionCount: oracleCheckpoint.completionCount,
+        lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+        lastCompletionInstructionCount:
+          oracleCheckpoint.lastCompletionInstructionCount,
+        instructionCount: oracleCheckpoint.instructionCount,
+        memoryContentSha256: oracleCheckpoint.memoryContentSha256,
+      },
+    );
+    assert.equal(
+      browserCheckpoint.nextEndpoint.id,
+      oracleCheckpoint.nextEndpoint.id,
+    );
+    assert.equal(
+      browserCheckpoint.nextEndpoint.address,
+      oracleCheckpoint.nextEndpoint.address,
+    );
+    assert.equal(
+      browserCheckpoint.nextEndpoint.module?.toLowerCase(),
+      oracleCheckpoint.nextEndpoint.module?.toLowerCase(),
+    );
+    assert.deepEqual(
+      browserCheckpoint.nextEndpoint.symbol,
+      oracleCheckpoint.nextEndpoint.symbol,
+    );
+    return;
+  }
+  assert.equal(browserCheckpoint, null);
   assert(browserStop !== null, "Chrome Worker omitted its structured stop");
   assert.equal(browserStop.instructionCount, oracleStop.instructionCount);
   assert.equal(browser.report.instructions, oracleStop.instructionCount);
-  assert.equal(browser.report.initialGeneration, oracle.process.memory.generation);
-  assert(browser.report.finalGeneration >= browser.report.initialGeneration);
   assert.equal(browserStop.memoryContentSha256, oracleStop.memoryContentSha256);
   assert.equal(browserStop.capabilityCluster, oracleStop.capabilityCluster);
   if (oracleStop.endpoint === null) {

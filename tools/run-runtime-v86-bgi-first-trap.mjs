@@ -185,6 +185,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-virtual-alloc",
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
+        "kernel32-wait-for-single-object-ex",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -279,6 +280,7 @@ assert(
       "kernel32-virtual-alloc",
       "imm32-default-ime-context",
       "kernel32-set-waitable-timer",
+      "kernel32-wait-for-single-object-ex",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -286,7 +288,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-set-waitable-timer"
+    genericRuntimeCapability === "kernel32-wait-for-single-object-ex"
+      ? "kernel32-wait-for-single-object-ex-v1.json"
+      : genericRuntimeCapability === "kernel32-set-waitable-timer"
       ? "kernel32-set-waitable-timer-v1.json"
       : genericRuntimeCapability === "kernel32-virtual-alloc" ||
     genericRuntimeCapability === "imm32-default-ime-context"
@@ -464,7 +468,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
+const waitForSingleObjectExEnabled =
+  genericRuntimeCapability === "kernel32-wait-for-single-object-ex";
 const setWaitableTimerEnabled =
+  waitForSingleObjectExEnabled ||
   genericRuntimeCapability === "kernel32-set-waitable-timer";
 const imm32ContextEnabled =
   setWaitableTimerEnabled ||
@@ -748,7 +755,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setWaitableTimerEnabled
+      ? waitForSingleObjectExEnabled
+      ? "v86-bgi-wait-for-single-object-ex"
+      : setWaitableTimerEnabled
       ? "v86-bgi-set-waitable-timer"
       : imm32ContextEnabled
       ? "v86-bgi-default-ime-context"
@@ -4816,6 +4825,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (waitForSingleObjectExEnabled) {
+        validateWaitForSingleObjectExResult(genericResult);
       } else if (setWaitableTimerEnabled) {
         validateSetWaitableTimerResult(genericResult);
       } else if (imm32ContextEnabled) {
@@ -5037,6 +5048,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : waitForSingleObjectExEnabled
+          ? "bgi finite alertable waitable timer completion"
           : setWaitableTimerEnabled
           ? "bgi relative one-shot waitable timer arm"
           : imm32ContextEnabled
@@ -5256,7 +5269,9 @@ async function run() {
               : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
-          `first structured stop cluster ${genericResult.fault.capabilityCluster}`,
+          (genericResult.checkpointCompletion === undefined
+            ? `first structured stop cluster ${genericResult.fault.capabilityCluster}`
+            : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -5446,6 +5461,8 @@ async function runGenericRuntimeReentry({
   const heapPageMaterializations = [];
   const callbackEvents = [];
   const activeCallbacks = [];
+  let waitForSingleObjectExCompletionCount = 0;
+  let checkpointCompletion = null;
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
   let currentThreadId = runtimeReady.currentThreadId;
@@ -5572,6 +5589,42 @@ async function runGenericRuntimeReentry({
       payloadSha256: sha256(writeback.payload),
       receipt: writebackReceipt,
     });
+    if (checkpointCompletion !== null) {
+      assert(endpoint !== null, "capability checkpoint terminal is not an owned endpoint");
+      const stopped = await stopGenericRuntimeSession({
+        child,
+        protocolReader,
+        generation,
+        reason: "kernel32-wait-for-single-object-ex-checkpoint-complete",
+      });
+      checkpointCompletion.instructionCount = continuation.instructionCount;
+      checkpointCompletion.nextEndpoint = {
+        id: endpoint.id,
+        address: endpoint.address,
+        module: endpoint.module,
+        symbol: endpoint.symbol.startsWith("#")
+          ? { kind: "ordinal", ordinal: Number.parseInt(endpoint.symbol.slice(1), 10) }
+          : { kind: "name", name: endpoint.symbol },
+      };
+      checkpointCompletion.memoryContentSha256 = stopped.memoryContentSha256;
+      return {
+        frozenSemanticCalls,
+        supportedCalls,
+        writebacks,
+        hostDeltas,
+        sourceReads,
+        ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        stackGrowths,
+        heapPageMaterializations,
+        callbackEvents,
+        activeCallbackDepth: activeCallbacks.length,
+        threadExecution: threadExecutionSnapshot(),
+        finalGeneration: generation,
+        fault: null,
+        checkpointCompletion,
+        terminal: continuation,
+      };
+    }
 
     if (callbackReturnTerminal) {
       const active = activeCallbacks.at(-1);
@@ -6244,6 +6297,27 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      waitForSingleObjectExEnabled &&
+      call.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+    ) {
+      waitForSingleObjectExCompletionCount += 1;
+      if (waitForSingleObjectExCompletionCount === 3) {
+        checkpointCompletion = {
+          capability: "kernel32-wait-for-single-object-ex",
+          implementationId:
+            "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+          requiredCompletions: 3,
+          completionCount: 3,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: continuation.instructionCount,
+          instructionCount: 0,
+          nextEndpoint: null,
+          memoryContentSha256: "",
+        };
+      }
+    }
     if (completionFrame.createdThread !== undefined) {
       registerCreatedThread(completionFrame.createdThread);
     }
@@ -6286,6 +6360,34 @@ async function runGenericRuntimeReentry({
       `occurrence ${lastCall?.occurrence ?? 0} at instruction ` +
       `${lastCall?.trapInstructionCount ?? continuation.instructionCount}`,
   );
+}
+
+async function stopGenericRuntimeSession({
+  child,
+  protocolReader,
+  generation,
+  reason,
+}) {
+  await writeRuntimeJsonFrame(child.stdin, runtimeFrame.sessionStop, {
+    schema: "vine.v86-generic-runtime-session-stop",
+    schemaVersion: 1,
+    generation,
+    reason,
+  });
+  const stoppedFrame = await readRuntimeFrame(
+    protocolReader,
+    runtimeFrame.sessionStopped,
+    "generic runtime capability checkpoint stopped",
+  );
+  assert.equal(stoppedFrame.payload.length, 0);
+  const stopped = JSON.parse(stoppedFrame.control.toString("utf8"));
+  assert.equal(stopped.schema, "vine.v86-generic-runtime-session-stopped");
+  assert.equal(stopped.schemaVersion, 1);
+  assert.equal(stopped.reason, reason);
+  assert.equal(stopped.memory.generation, generation);
+  assert.equal(stopped.memory.acknowledgedGeneration, generation);
+  assert.match(stopped.memoryContentSha256, /^[0-9a-f]{64}$/u);
+  return stopped;
 }
 
 async function completeStorageHostRequest({
@@ -6585,6 +6687,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : waitForSingleObjectExEnabled
+          ? 97
         : setWaitableTimerEnabled
           ? 96
         : imm32ContextEnabled
@@ -15893,6 +15997,8 @@ function validateSetWaitableTimerResult(result) {
       manualReset: true,
       arm: {
         relativeDueTime100ns: 5_000,
+        armedAtTime100ns: 0,
+        deadlineTime100ns: 5_000,
         periodMilliseconds: 0,
         generation: 1,
       },
@@ -15931,6 +16037,161 @@ function validateSetWaitableTimerResult(result) {
     result.terminal.terminal.stackWords.slice(1, 4),
     [0x5701_0002, 10, 1],
   );
+}
+
+function validateWaitForSingleObjectExResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_698);
+  const armCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.set-waitable-timer.relative-one-shot.v1",
+  );
+  assert.equal(
+    armCalls.length,
+    3,
+    "WaitForSingleObjectEx checkpoint requires three recurring arms",
+  );
+  assert.deepEqual(
+    armCalls.map((call) => call.sequence),
+    [18_681, 18_689, 18_697],
+  );
+  assert.deepEqual(
+    armCalls.map((call) => call.trapInstructionCount),
+    [11_973_553, 11_973_700, 11_973_847],
+  );
+  for (const [index, call] of armCalls.entries()) {
+    const generation = index + 1;
+    assert.equal(call.occurrence, generation);
+    assert.deepEqual(call.arguments, [
+      0x5701_0002,
+      0x500f_ff98,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    assert.deepEqual(call.result, { action: "set", value: 1 });
+    assert.equal(call.returnAddress, 0x1005_0607);
+    assert.equal(call.stackPointerAfter - call.stackPointerBefore, 28);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.waitableTimer, {
+      handle: 0x5701_0002,
+      timer: {
+        id: 2,
+        manualReset: true,
+        arm: {
+          relativeDueTime100ns: 5_000,
+          armedAtTime100ns: (generation - 1) * 5_000,
+          deadlineTime100ns: generation * 5_000,
+          periodMilliseconds: 0,
+          generation,
+        },
+      },
+      objectRecord: {
+        id: 24,
+        key: { kind: "waitable-timer", timer_id: 2 },
+        kind: "waitable-timer",
+        namespace: "vine.runtime-waitable-timer-object.v1",
+        closePolicy: "close-handle",
+        waitState: { state: "nonsignaled" },
+        openHandles: 1,
+      },
+    });
+  }
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+  );
+  assert.equal(
+    calls.length,
+    3,
+    "WaitForSingleObjectEx checkpoint requires three recurring completions",
+  );
+  assert.deepEqual(
+    calls.map((call) => call.sequence),
+    [18_682, 18_690, 18_698],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.trapInstructionCount),
+    [11_973_559, 11_973_706, 11_973_853],
+  );
+  for (const [index, call] of calls.entries()) {
+    const generation = index + 1;
+    assert.equal(call.occurrence, generation);
+    assert.deepEqual(call.arguments, [0x5701_0002, 10, 1]);
+    assert.deepEqual(call.result, { action: "set", value: 0 });
+    assert.equal(
+      call.implementationId,
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+    );
+    assert.equal(call.returnAddress, 0x1005_0615);
+    assert.equal(call.stackPointerAfter - call.stackPointerBefore, 16);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.deepEqual(call.waitableTimer, {
+      handle: 0x5701_0002,
+      timer: {
+        id: 2,
+        manualReset: true,
+        lastExpiration: {
+          armGeneration: generation,
+          deadlineTime100ns: generation * 5_000,
+        },
+      },
+      objectRecord: {
+        id: 24,
+        key: { kind: "waitable-timer", timer_id: 2 },
+        kind: "waitable-timer",
+        namespace: "vine.runtime-waitable-timer-object.v1",
+        closePolicy: "close-handle",
+        waitState: { state: "signaled", exit_code: 0 },
+        openHandles: 1,
+      },
+      timerClock: {
+        currentTime100ns: generation * 5_000,
+        generation,
+      },
+      nextWaitRegistrationId: generation + 1,
+    });
+  }
+  assert.equal(result.fault, null);
+  assert.deepEqual(
+    {
+      capability: result.checkpointCompletion.capability,
+      implementationId: result.checkpointCompletion.implementationId,
+      requiredCompletions: result.checkpointCompletion.requiredCompletions,
+      completionCount: result.checkpointCompletion.completionCount,
+      lastCompletionSequence: result.checkpointCompletion.lastCompletionSequence,
+      lastCompletionInstructionCount:
+        result.checkpointCompletion.lastCompletionInstructionCount,
+    },
+    {
+      capability: "kernel32-wait-for-single-object-ex",
+      implementationId:
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      requiredCompletions: 3,
+      completionCount: 3,
+      lastCompletionSequence: 18_698,
+      lastCompletionInstructionCount: calls[2].trapInstructionCount,
+    },
+  );
+  assert.equal(result.checkpointCompletion.instructionCount, 11_973_878);
+  assert.equal(result.checkpointCompletion.instructionCount, result.terminal.instructionCount);
+  assert.deepEqual(result.checkpointCompletion.nextEndpoint, {
+    id: 144,
+    address: 0x7f00_08f0,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "EnterCriticalSection" },
+  });
+  assert.equal(
+    result.checkpointCompletion.memoryContentSha256,
+    "975002521bc7cc363fbc870a484d935b1cba9dc700b5afb8113b189c7929b828",
+  );
+  assert.equal(result.finalGeneration, 36_680);
 }
 
 function validateDibLifecycleResult(result) {
@@ -19665,23 +19926,45 @@ function buildGenericRuntimeReentryReport({
   if (imm32ContextEnabled) {
     assert(imm32Calls.length > 0, "IMM32 report summary has no IME calls");
   }
-  const setWaitableTimerCall = setWaitableTimerEnabled
-    ? genericResult.supportedCalls.find(
+  const setWaitableTimerCalls = setWaitableTimerEnabled
+    ? genericResult.supportedCalls.filter(
         (call) =>
           call.implementationId ===
           "kernel32.set-waitable-timer.relative-one-shot.v1",
       )
-    : null;
+    : [];
+  const setWaitableTimerCall = setWaitableTimerCalls[0] ?? null;
   if (setWaitableTimerEnabled) {
     assert(
       setWaitableTimerCall,
       "SetWaitableTimer report summary has no arm completion",
+    );
+    assert.equal(
+      setWaitableTimerCalls.length,
+      waitForSingleObjectExEnabled ? 3 : 1,
+      "SetWaitableTimer report summary has an unexpected arm count",
+    );
+  }
+  const waitForSingleObjectExCalls = waitForSingleObjectExEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      )
+    : [];
+  if (waitForSingleObjectExEnabled) {
+    assert.equal(
+      waitForSingleObjectExCalls.length,
+      3,
+      "WaitForSingleObjectEx report summary requires three recurring completions",
     );
   }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : waitForSingleObjectExEnabled
+        ? "vine.v86-bgi-kernel32-wait-for-single-object-ex"
         : setWaitableTimerEnabled
         ? "vine.v86-bgi-kernel32-set-waitable-timer"
         : imm32ContextEnabled
@@ -20088,10 +20371,25 @@ function buildGenericRuntimeReentryReport({
       ? {
           waitableTimerArm: {
             call: setWaitableTimerCall,
+            calls: setWaitableTimerCalls,
             stateAuthority: "runtime-timers-and-typed-object-table",
-            clockAuthorityUsed: false,
+            clockAuthorityUsed: waitForSingleObjectExEnabled,
             browserTimerCreated: false,
-            expirationImplemented: false,
+            expirationImplemented: waitForSingleObjectExEnabled,
+          },
+        }
+      : {}),
+    ...(waitForSingleObjectExEnabled
+      ? {
+          waitableTimerWait: {
+            calls: waitForSingleObjectExCalls,
+            stateAuthority: "runtime-timers-scheduler-and-typed-object-table",
+            clockAuthority: "runtime-timers-logical-clock",
+            timeoutMode: "finite-zero-through-ten-milliseconds",
+            alertableAccepted: true,
+            apcDeliveryImplemented: false,
+            browserTimerCreated: false,
+            hostClockImported: false,
           },
         }
       : {}),
@@ -20114,21 +20412,33 @@ function buildGenericRuntimeReentryReport({
     supportedCallSemanticsSha256,
     supportedContinuation:
       evidenceLevel === "full" ? genericResult.supportedCalls : [],
-    firstUnsupported: {
-      capabilityCluster: genericResult.fault.capabilityCluster,
-      endpoint: genericResult.fault.endpoint,
-      fault: genericResult.fault.fault,
-      memory: genericResult.fault.memory,
-      memoryContentSha256: genericResult.fault.memoryContentSha256,
-      instructionCount: genericResult.terminal.instructionCount,
-      terminal: genericResult.terminal.terminal,
-    },
-    stop: {
-      stage: "runtime-capability",
-      code: "first-unsupported-capability-cluster",
-      message:
-        "BGI resumed through the generic runtime until the first process-owned endpoint without a callable capability contract",
-    },
+    firstUnsupported:
+      genericResult.fault === null
+        ? null
+        : {
+            capabilityCluster: genericResult.fault.capabilityCluster,
+            endpoint: genericResult.fault.endpoint,
+            fault: genericResult.fault.fault,
+            memory: genericResult.fault.memory,
+            memoryContentSha256: genericResult.fault.memoryContentSha256,
+            instructionCount: genericResult.terminal.instructionCount,
+            terminal: genericResult.terminal.terminal,
+          },
+    checkpointCompletion: genericResult.checkpointCompletion ?? null,
+    stop:
+      genericResult.checkpointCompletion === undefined
+        ? {
+            stage: "runtime-capability",
+            code: "first-unsupported-capability-cluster",
+            message:
+              "BGI resumed through the generic runtime until the first process-owned endpoint without a callable capability contract",
+          }
+        : {
+            stage: "runtime-capability",
+            code: "capability-checkpoint-complete",
+            message:
+              "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
+          },
   };
 }
 

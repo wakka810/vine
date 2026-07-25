@@ -175,6 +175,28 @@ function optionalHex32(value) {
   return value === undefined ? undefined : hex32(value);
 }
 
+function assertCapabilityCheckpoint(actual, expected) {
+  assert(actual !== null, "capability checkpoint metadata is missing");
+  assert.equal(actual.capability, expected.completion.capability);
+  assert.equal(actual.implementationId, expected.completion.implementationId);
+  assert.equal(actual.requiredCompletions, expected.completion.requiredCompletions);
+  assert.equal(actual.completionCount, expected.completion.completionCount);
+  assert.equal(actual.lastCompletionSequence, expected.completion.lastCompletionSequence);
+  assert.equal(
+    actual.lastCompletionInstructionCount,
+    expected.completion.lastCompletionInstructionCount,
+  );
+  assert.equal(actual.instructionCount, expected.instructionCount);
+  assert.equal(actual.nextEndpoint.id, expected.nextEndpoint.endpointId);
+  assert.equal(hex32(actual.nextEndpoint.address), expected.nextEndpoint.endpointAddress);
+  assert.equal(
+    `${actual.nextEndpoint.module}!${formatRuntimeEndpointSymbol(
+      actual.nextEndpoint,
+    )}`.toLowerCase(),
+    expected.nextEndpoint.api.toLowerCase(),
+  );
+}
+
 function executionStateEvidence(report) {
   const context = report.watchdogContext;
   return {
@@ -264,15 +286,25 @@ function assertReportSemantics({
     nodeReport.threadExecution.contextSwitches,
     expectedBrowser.contextSwitches,
   );
-  assert.equal(nodeReport.firstUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
-  assert.equal(
-    nodeReport.firstUnsupported.memoryContentSha256,
-    expectedBrowser.memoryContentSha256,
-  );
+  if (expectedNext.kind === "capability-checkpoint") {
+    assert.equal(nodeReport.firstUnsupported, null);
+    assertCapabilityCheckpoint(nodeReport.checkpointCompletion, expectedNext);
+    assert.equal(
+      nodeReport.checkpointCompletion.memoryContentSha256,
+      expectedBrowser.memoryContentSha256,
+    );
+  } else {
+    assert.equal(nodeReport.checkpointCompletion ?? null, null);
+    assert.equal(nodeReport.firstUnsupported.instructionCount, expectedNext.instructionCount);
+    assert.equal(
+      nodeReport.firstUnsupported.memoryContentSha256,
+      expectedBrowser.memoryContentSha256,
+    );
+    assert.equal(nodeReport.firstUnsupported.capabilityCluster, expectedNext.capabilityCluster);
+    assert.equal(nodeReport.firstUnsupported.fault.code, expectedNext.reason);
+  }
 
-  assert.equal(nodeReport.firstUnsupported.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(nodeReport.firstUnsupported.fault.code, expectedNext.reason);
   if (expectedNext.kind === "execution-fault") {
     assert.equal(nodeReport.firstUnsupported.endpoint, null);
     assert.equal(
@@ -313,7 +345,7 @@ function assertReportSemantics({
       hex32(nodeReport.firstUnsupported.terminal.returnAddress),
       expectedNext.returnAddress,
     );
-  } else {
+  } else if (expectedNext.kind === "api-endpoint") {
     const nodeEndpoint = nodeReport.firstUnsupported.endpoint.endpoint;
     assert.equal(nodeReport.firstUnsupported.endpoint.kind, expectedNext.endpointKind);
     assert.equal(nodeEndpoint.id, expectedNext.endpointId);
@@ -334,7 +366,12 @@ function assertReportSemantics({
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
   assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
   assert.equal(browserReport.schemaVersion, 5);
-  assert.equal(browserReport.success.report.outcome, "structured-stop");
+  assert.equal(
+    browserReport.success.report.outcome,
+    expectedNext.kind === "capability-checkpoint"
+      ? "checkpoint-complete"
+      : "structured-stop",
+  );
   assert.equal(browserReport.success.report.evidenceLevel, "summary");
   assert.equal(
     browserReport.success.report.supportedCallCount,
@@ -352,13 +389,24 @@ function assertReportSemantics({
   );
   assert.equal(browserReport.success.report.instructions, expectedNext.instructionCount);
   assert.equal(browserReport.success.report.finalGeneration, expectedBrowser.finalGeneration);
-  assert.equal(
-    browserReport.success.report.firstUnsupported.memoryContentSha256,
-    expectedBrowser.memoryContentSha256,
-  );
   const browserUnsupported = browserReport.success.report.firstUnsupported;
-  assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(browserUnsupported.fault.code, expectedNext.reason);
+  const browserCheckpoint = browserReport.success.report.checkpointCompletion;
+  if (expectedNext.kind === "capability-checkpoint") {
+    assert.equal(browserUnsupported, null);
+    assertCapabilityCheckpoint(browserCheckpoint, expectedNext);
+    assert.equal(
+      browserCheckpoint.memoryContentSha256,
+      expectedBrowser.memoryContentSha256,
+    );
+  } else {
+    assert.equal(browserCheckpoint, null);
+    assert.equal(
+      browserUnsupported.memoryContentSha256,
+      expectedBrowser.memoryContentSha256,
+    );
+    assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
+    assert.equal(browserUnsupported.fault.code, expectedNext.reason);
+  }
   if (expectedNext.kind === "execution-fault") {
     assert.equal(browserUnsupported.endpoint, null);
     assert.equal(
@@ -391,7 +439,7 @@ function assertReportSemantics({
       expectedNext.endpointAddress,
     );
     assert.equal(hex32(browserUnsupported.fault.callSite), expectedNext.returnAddress);
-  } else {
+  } else if (expectedNext.kind === "api-endpoint") {
     assert.equal(browserUnsupported.endpoint.id, expectedNext.endpointId);
     assert.equal(hex32(browserUnsupported.endpoint.address), expectedNext.endpointAddress);
     assert.equal(
@@ -438,8 +486,12 @@ function assertReportSemantics({
     expectedBrowser.executionEngineLinearMemoryBytes,
   );
   assert.equal(
-    nodeReport.firstUnsupported.memoryContentSha256,
-    browserUnsupported.memoryContentSha256,
+    expectedNext.kind === "capability-checkpoint"
+      ? nodeReport.checkpointCompletion.memoryContentSha256
+      : nodeReport.firstUnsupported.memoryContentSha256,
+    expectedNext.kind === "capability-checkpoint"
+      ? browserCheckpoint.memoryContentSha256
+      : browserUnsupported.memoryContentSha256,
     "Node/browser final memory mismatch",
   );
 }
@@ -666,13 +718,25 @@ const evidence = finalizePrivateTargetEvidence({
   semantic: {
     outcome: "passed",
     node: {
-      outcome: "structured-stop",
+      outcome:
+        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+          ? "checkpoint-complete"
+          : "structured-stop",
       implementedApiContracts: nodeReport.process.implementedApiContracts,
       supportedCalls: nodeReport.supportedCallCount,
       callSemanticsSha256: nodeReport.supportedCallSemanticsSha256,
-      instructions: nodeReport.firstUnsupported.instructionCount,
+      instructions:
+        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+          ? nodeReport.checkpointCompletion.instructionCount
+          : nodeReport.firstUnsupported.instructionCount,
       finalGeneration: nodeReport.synchronization.finalGeneration,
-      memoryContentSha256: nodeReport.firstUnsupported.memoryContentSha256,
+      memoryContentSha256:
+        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+          ? nodeReport.checkpointCompletion.memoryContentSha256
+          : nodeReport.firstUnsupported.memoryContentSha256,
+      ...(checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+        ? { checkpointCompletion: structuredClone(nodeReport.checkpointCompletion) }
+        : {}),
       writebackBatches: nodeReport.synchronization.writebackBatches,
       dirtyPages: nodeReport.synchronization.dirtyPages,
       changedBytes: nodeReport.synchronization.changedBytes,
@@ -686,7 +750,16 @@ const evidence = finalizePrivateTargetEvidence({
       instructions: browserReport.success.report.instructions,
       finalGeneration: browserReport.success.report.finalGeneration,
       memoryContentSha256:
-        browserReport.success.report.firstUnsupported.memoryContentSha256,
+        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+          ? browserReport.success.report.checkpointCompletion.memoryContentSha256
+          : browserReport.success.report.firstUnsupported.memoryContentSha256,
+      ...(checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+        ? {
+            checkpointCompletion: structuredClone(
+              browserReport.success.report.checkpointCompletion,
+            ),
+          }
+        : {}),
       wasmBridgeCalls: browserReport.success.report.wasmBridgeCalls,
       executionStateMachine: {
         success: executionStateEvidence(browserReport.success.report),
@@ -735,11 +808,13 @@ fs.renameSync(temporary, options.output);
 console.log(
   `private target gate passed: ${evidence.semantic.node.supportedCalls} Node/Chrome calls, ` +
     `${
-      evidence.semantic.nextStructuredStop.kind === "execution-fault"
+      evidence.semantic.nextStructuredStop.kind === "capability-checkpoint"
+        ? evidence.semantic.nextStructuredStop.completion.capability
+        : evidence.semantic.nextStructuredStop.kind === "execution-fault"
         ? evidence.semantic.nextStructuredStop.capabilityCluster
         : evidence.semantic.nextStructuredStop.kind === "com-method"
           ? `${evidence.semantic.nextStructuredStop.interface}::${evidence.semantic.nextStructuredStop.method}`
           : evidence.semantic.nextStructuredStop.api
-    } structured stop; ` +
+    } terminal; ` +
     `${options.outputRelative} payload ${evidence.payloadSha256}`,
 );

@@ -99,7 +99,9 @@ function finish(report: SessionReport): void {
   window.clearInterval(heartbeat);
   const expectedOutcome =
     scenario === "success"
-      ? "structured-stop"
+      ? report.checkpointCompletion === null
+        ? "structured-stop"
+        : "checkpoint-complete"
       : scenario === "watchdog"
         ? "watchdog"
         : "cancelled";

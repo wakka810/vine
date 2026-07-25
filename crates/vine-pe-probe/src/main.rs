@@ -39,18 +39,19 @@ use vine_core::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
     RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
     RuntimeThreadExecutionSelection, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerResolutionState, RuntimeTlsValue,
-    RuntimeWaitableTimer, RuntimeWindowTimer, RuntimeWritableCommitCompletion,
-    RuntimeWritableCommitHostResponse, RuntimeWritableProfile, RuntimeWritableProfileManifest,
-    SEND_MESSAGE_A_IMPLEMENTATION, SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION,
-    SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
-    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL,
-    UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
-    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, complete_kernel32_writable_commit,
-    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerClockState,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
+    RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse, RuntimeWritableProfile,
+    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
+    SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
+    SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
+    TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL, UnsupportedPoint,
+    User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION, WinmmCompatibilityPolicy,
+    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
+    complete_kernel32_source_read, complete_kernel32_writable_commit, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
     dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
     dsound_contract_for_endpoint, encode_pointer_contract, gdi32_contract_for_endpoint,
@@ -233,6 +234,7 @@ enum GenericRuntimeCapability {
     VirtualAlloc,
     Imm32Context,
     SetWaitableTimer,
+    WaitForSingleObjectEx,
 }
 
 struct GenericRuntimeProcess {
@@ -692,6 +694,10 @@ struct GenericRuntimeWaitableTimer {
     handle: RuntimeHandle,
     timer: RuntimeWaitableTimer,
     object_record: RuntimeObjectRecord,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timer_clock: Option<RuntimeTimerClockState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_wait_registration_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2617,6 +2623,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::VirtualAlloc
                     | GenericRuntimeCapability::Imm32Context
                     | GenericRuntimeCapability::SetWaitableTimer
+                    | GenericRuntimeCapability::WaitForSingleObjectEx
             )
         ) {
             let loader = kernel32_policy
@@ -3277,10 +3284,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let set_waitable_timer_enabled = matches!(
+    let wait_for_single_object_ex_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::SetWaitableTimer)
+        Some(GenericRuntimeCapability::WaitForSingleObjectEx)
     );
+    let set_waitable_timer_enabled = wait_for_single_object_ex_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::SetWaitableTimer)
+        );
     let enabled_capability = if set_waitable_timer_enabled {
         Some(GenericRuntimeCapability::Imm32Context)
     } else {
@@ -4112,6 +4124,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             set_waitable_timer_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "WaitForSingleObjectEx".to_owned(),
+            },
+        ) {
+            wait_for_single_object_ex_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -5031,9 +5050,33 @@ fn run_v86_generic_runtime_session(
                                     ))
                                 }
                             }
+                            vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => {
+                                let RegisterUpdate::Set(result) = completion.eax else {
+                                    return Err(LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "wait-for-single-object-ex-result-invalid",
+                                        "WaitForSingleObjectEx completion did not set a wait result in EAX",
+                                    ));
+                                };
+                                if result == u32::MAX {
+                                    None
+                                } else {
+                                    Some(RuntimeHandle(
+                                        completion.frame.argument_u32(0).ok_or_else(|| {
+                                            LoaderError::runtime_defect(
+                                                "runtime-reentry",
+                                                "wait-for-single-object-ex-handle-argument-missing",
+                                                "WaitForSingleObjectEx completion has no timer handle argument",
+                                            )
+                                        })?,
+                                    ))
+                                }
+                            }
                             _ => None,
                         };
                         let waitable_timer = if let Some(handle) = waitable_timer_handle {
+                            let wait_completed = completion.implementation_id
+                                == vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION;
                             Some(GenericRuntimeWaitableTimer {
                                 handle,
                                 timer: *session
@@ -5045,6 +5088,10 @@ fn run_v86_generic_runtime_session(
                                     .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)
                                     .map_err(runtime_state_error)?
                                     .clone(),
+                                timer_clock: wait_completed
+                                    .then(|| session.runtime().timer_clock_state()),
+                                next_wait_registration_id: wait_completed
+                                    .then(|| session.runtime().next_wait_registration_id()),
                             })
                         } else {
                             None
@@ -13486,6 +13533,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-virtual-alloc" => GenericRuntimeCapability::VirtualAlloc,
                 "imm32-default-ime-context" => GenericRuntimeCapability::Imm32Context,
                 "kernel32-set-waitable-timer" => GenericRuntimeCapability::SetWaitableTimer,
+                "kernel32-wait-for-single-object-ex" => {
+                    GenericRuntimeCapability::WaitForSingleObjectEx
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

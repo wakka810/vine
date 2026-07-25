@@ -112,6 +112,18 @@ pub(super) struct RuntimeSchedulerLanePlan {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeSchedulerImmediateWaitPlan {
+    registration: RuntimeWaitRegistrationPlan,
+    previous_state: SchedulerThreadState,
+}
+
+impl RuntimeSchedulerImmediateWaitPlan {
+    pub(super) const fn registration(&self) -> RuntimeWaitRegistration {
+        self.registration.registration()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeSchedulerSelectionPlan {
     previous: RuntimeThreadId,
     next: RuntimeThreadId,
@@ -677,6 +689,110 @@ impl RuntimeScheduler {
         self.waits.plan_registration(thread_id, object_id, handle)
     }
 
+    pub(super) fn plan_immediate_wait(
+        &self,
+        thread_id: RuntimeThreadId,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
+        timeout_deadline_time_100ns: u64,
+        alertable: bool,
+    ) -> Result<RuntimeSchedulerImmediateWaitPlan, RuntimeStateError> {
+        if self.current_thread_id != thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "immediate-wait-thread-not-current",
+                "immediate wait requires the selected runtime thread",
+            ));
+        }
+        let previous_state = self.state(thread_id)?;
+        if !previous_state.is_executable() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "immediate-wait-thread-state-invalid",
+                "immediate wait requires an executable scheduler lane",
+            ));
+        }
+        let registration = self.waits.plan_registration_with_options(
+            thread_id,
+            object_id,
+            handle,
+            Some(timeout_deadline_time_100ns),
+            alertable,
+        )?;
+        Ok(RuntimeSchedulerImmediateWaitPlan {
+            registration,
+            previous_state,
+        })
+    }
+
+    pub(super) fn preflight_immediate_wait(
+        &self,
+        plan: &RuntimeSchedulerImmediateWaitPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let registration = plan.registration();
+        if self.current_thread_id != registration.thread_id
+            || self.state(registration.thread_id)? != plan.previous_state
+            || !plan.previous_state.is_executable()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "immediate-wait-plan-stale",
+                "scheduler selection or lane changed after immediate wait planning",
+            ));
+        }
+        self.waits.preflight_registration(&plan.registration)
+    }
+
+    pub(super) fn commit_immediate_wait_begin(
+        &mut self,
+        plan: RuntimeSchedulerImmediateWaitPlan,
+    ) -> RuntimeWaitRegistration {
+        debug_assert!(
+            self.preflight_immediate_wait(&plan).is_ok(),
+            "immediate wait plan became stale"
+        );
+        let registration = self.waits.commit_registration(plan.registration);
+        let previous = self.threads.insert(
+            registration.thread_id,
+            SchedulerThreadState::WaitingObject {
+                registration_id: registration.id,
+                object_id: registration.object_id,
+            },
+        );
+        debug_assert_eq!(previous, Some(plan.previous_state));
+        registration
+    }
+
+    pub(super) fn commit_immediate_wait_complete(
+        &mut self,
+        plan: RuntimeSchedulerImmediateWaitPlan,
+    ) -> RuntimeWaitRegistration {
+        let registration = plan.registration();
+        debug_assert_eq!(
+            self.threads.get(&registration.thread_id).copied(),
+            Some(SchedulerThreadState::WaitingObject {
+                registration_id: registration.id,
+                object_id: registration.object_id,
+            })
+        );
+        debug_assert_eq!(
+            self.waits.registration_for_thread(registration.thread_id),
+            Ok(Some(registration))
+        );
+        self.waits.commit_remove(registration);
+        let previous = self
+            .threads
+            .insert(registration.thread_id, plan.previous_state);
+        debug_assert_eq!(
+            previous,
+            Some(SchedulerThreadState::WaitingObject {
+                registration_id: registration.id,
+                object_id: registration.object_id,
+            })
+        );
+        registration
+    }
+
     pub(super) fn commit_wait_registration(&mut self, plan: RuntimeWaitRegistrationPlan) {
         self.waits.commit_registration(plan);
     }
@@ -888,6 +1004,67 @@ mod tests {
             scheduler.current_state(),
             Ok(SchedulerThreadState::Runnable)
         );
+    }
+
+    #[test]
+    fn immediate_wait_roundtrip_commits_one_registration_and_restores_the_lane() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        let running = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(running);
+        let handle =
+            RuntimeHandle::from_parts(super::super::RuntimeObjectKind::WaitableTimer, 1, 7)
+                .unwrap();
+        let before_plan = scheduler.clone();
+        let plan = scheduler
+            .plan_immediate_wait(INITIAL, RuntimeObjectId(7), handle, 100_000, true)
+            .unwrap();
+        let registration = plan.registration();
+        assert_eq!(scheduler, before_plan);
+        assert_eq!(registration.id, RuntimeWaitRegistrationId(1));
+        assert_eq!(registration.thread_id, INITIAL);
+        assert_eq!(registration.object_id, RuntimeObjectId(7));
+        assert_eq!(registration.handle, handle);
+        assert_eq!(registration.timeout_deadline_time_100ns, Some(100_000));
+        assert!(registration.alertable);
+        scheduler.preflight_immediate_wait(&plan).unwrap();
+
+        assert_eq!(scheduler.commit_immediate_wait_begin(plan), registration);
+        assert_eq!(
+            scheduler.state(INITIAL),
+            Ok(SchedulerThreadState::WaitingObject {
+                registration_id: RuntimeWaitRegistrationId(1),
+                object_id: RuntimeObjectId(7),
+            })
+        );
+        assert_eq!(
+            scheduler.wait_registrations().get(&registration.id),
+            Some(&registration)
+        );
+        assert_eq!(
+            serde_json::to_value(&scheduler).unwrap()["waitRegistrations"]["1"],
+            serde_json::json!({
+                "id": 1,
+                "threadId": 8192,
+                "objectId": 7,
+                "handle": handle.0,
+                "timeoutDeadlineTime100ns": 100_000,
+                "alertable": true,
+            })
+        );
+
+        assert_eq!(scheduler.commit_immediate_wait_complete(plan), registration);
+        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
+        assert!(scheduler.wait_registrations().is_empty());
+        assert!(scheduler.object_waiters().is_empty());
+        assert_eq!(scheduler.next_wait_registration_id(), 2);
+        let before_stale = scheduler.clone();
+        assert_eq!(
+            scheduler.preflight_immediate_wait(&plan).unwrap_err().code,
+            "wait-registration-plan-stale"
+        );
+        assert_eq!(scheduler, before_stale);
     }
 
     #[test]

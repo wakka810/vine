@@ -188,6 +188,13 @@ The deterministic tick and performance-counter increments do not implement
 or audio-clock synchronization. The reached frequency／counter relation is a
 bounded compatibility clock, not a claim about browser timer precision.
 
+The later waitable-timer checkpoint adds a separate `RuntimeTimers` logical
+100 ns clock for bounded finite waits. It is not derived from tick count,
+performance counter, browser elapsed time, or audio time. Its immediate
+lane roundtrip does not broaden this lifecycle checkpoint into pending browser
+wait or cancellation semantics. See
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md).
+
 The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
 per-thread state and typed object lifetime, and all lanes terminate deterministically. The controlled

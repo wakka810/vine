@@ -73,6 +73,7 @@ export interface PreparedMetadata {
     threadId: number;
     currentDirectoryA: RuntimeCurrentDirectoryA;
     currentDirectoryGeneration: number;
+    kernel32Policy?: string;
   };
   sourceSnapshot?: {
     titleFingerprint: string;

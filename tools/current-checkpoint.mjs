@@ -450,8 +450,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v12") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v12");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v13") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v13");
   }
   if (
     browser.executionEngineProfile !==
@@ -1124,6 +1124,8 @@ export function validateCurrentCheckpoint(manifest) {
     "setWaitableTimerArmGeneration",
     "setWaitableTimerObjectId",
     "setWaitableTimerOpenHandles",
+    "waitForSingleObjectExCompletions",
+    "waitForSingleObjectExGuestWriteBytes",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -1192,12 +1194,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_341 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_848 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_353 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_860 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_274 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_325 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
@@ -1901,8 +1903,12 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
   if (
-    bgiBrowserEvidence.setWaitableTimerCompletions !== 1 ||
+    bgiBrowserEvidence.setWaitableTimerCompletions !== 3 ||
     bgiBrowserEvidence.setWaitableTimerSequence !== 18_681 ||
+    bgiBrowserEvidence.setWaitableTimerSequences?.join(",") !==
+      "18681,18689,18697" ||
+    bgiBrowserEvidence.setWaitableTimerInstructionCounts?.join(",") !==
+      "11973553,11973700,11973847" ||
     bgiBrowserEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
     bgiBrowserEvidence.setWaitableTimerArguments?.join(",") !==
       "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
@@ -1926,12 +1932,55 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.setWaitableTimerStateAuthority !==
       "runtime-timers-and-typed-object-table" ||
     bgiBrowserEvidence.setWaitableTimerFailureAtomicity !== true ||
-    bgiBrowserEvidence.setWaitableTimerClockAuthorityUsed !== false ||
+    bgiBrowserEvidence.setWaitableTimerClockAuthorityUsed !== true ||
     bgiBrowserEvidence.setWaitableTimerBrowserTimerCreated !== false ||
-    bgiBrowserEvidence.setWaitableTimerExpirationImplemented !== false ||
+    bgiBrowserEvidence.setWaitableTimerExpirationImplemented !== true ||
     bgiBrowserEvidence.setWaitableTimerNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("browser BGI waitable-timer arm evidence is invalid");
+  }
+  if (
+    bgiBrowserEvidence.waitForSingleObjectExCompletions !== 3 ||
+    bgiBrowserEvidence.waitForSingleObjectExSequences?.join(",") !==
+      "18682,18690,18698" ||
+    bgiBrowserEvidence.waitForSingleObjectExInstructionCounts?.join(",") !==
+      "11973559,11973706,11973853" ||
+    bgiBrowserEvidence.waitForSingleObjectExArguments?.join(",") !==
+      "0x57010002,0x0000000a,0x00000001" ||
+    bgiBrowserEvidence.waitForSingleObjectExResults?.join(",") !== "0,0,0" ||
+    bgiBrowserEvidence.waitForSingleObjectExReturnAddress !== "0x10050615" ||
+    bgiBrowserEvidence.waitForSingleObjectExLastErrors?.join(",") !== "0,0,0" ||
+    bgiBrowserEvidence.waitForSingleObjectExGuestWriteBytes !== 0 ||
+    bgiBrowserEvidence.waitForSingleObjectExImplementationId !==
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+    bgiBrowserEvidence.waitForSingleObjectExTimerId !== 2 ||
+    bgiBrowserEvidence.waitForSingleObjectExManualReset !== true ||
+    bgiBrowserEvidence.waitForSingleObjectExArmGenerations?.join(",") !==
+      "1,2,3" ||
+    bgiBrowserEvidence.waitForSingleObjectExDeadlineTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    bgiBrowserEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    bgiBrowserEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
+      "1,2,3" ||
+    bgiBrowserEvidence.waitForSingleObjectExWaitState !== "signaled" ||
+    bgiBrowserEvidence.waitForSingleObjectExNextRegistrationIds?.join(",") !==
+      "2,3,4" ||
+    bgiBrowserEvidence.waitForSingleObjectExStateAuthority !==
+      "runtime-timers-scheduler-and-typed-object-table" ||
+    bgiBrowserEvidence.waitForSingleObjectExClockAuthority !==
+      "runtime-timers-logical-clock" ||
+    bgiBrowserEvidence.waitForSingleObjectExTimeoutMode !==
+      "finite-zero-through-ten-milliseconds" ||
+    bgiBrowserEvidence.waitForSingleObjectExAlertableAccepted !== true ||
+    bgiBrowserEvidence.waitForSingleObjectExApcDeliveryImplemented !== false ||
+    bgiBrowserEvidence.waitForSingleObjectExHostClockImported !== false ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserTimerCreated !== false ||
+    bgiBrowserEvidence.waitForSingleObjectExFailureAtomicity !== true ||
+    bgiBrowserEvidence.waitForSingleObjectExNodeChromeOrderedSemanticsMatched !==
+      true
+  ) {
+    errors.push("browser BGI waitable-timer wait evidence is invalid");
   }
   requireSha256(
     bgiBrowserEvidence.createThreadCreationDeltaPayloadSha256,
@@ -2941,8 +2990,12 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   requireString(active.profile, "activeRuntimeCheckpoint.profile", errors);
-  if (active.status !== "structured-stop") {
-    errors.push("activeRuntimeCheckpoint.status must be structured-stop");
+  const expectedActiveStatus =
+    root.nextStructuredStop?.kind === "capability-checkpoint"
+      ? "checkpoint-complete"
+      : "structured-stop";
+  if (active.status !== expectedActiveStatus) {
+    errors.push(`activeRuntimeCheckpoint.status must be ${expectedActiveStatus}`);
   }
   if (active.runtimeStateAuthority !== "rust") {
     errors.push("activeRuntimeCheckpoint.runtimeStateAuthority must be rust");
@@ -6050,9 +6103,9 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-set-waitable-timer-v1" ||
+    kernel32Policy.id !== "kernel32-wait-for-single-object-ex-v1" ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json" ||
+      "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json" ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -6079,6 +6132,10 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.setWaitableTimerAllowOneShot !== true ||
     kernel32Policy.setWaitableTimerAllowCompletionRoutine !== false ||
     kernel32Policy.setWaitableTimerAllowResume !== false ||
+    kernel32Policy.waitForSingleObjectExMaximumTimeoutMilliseconds !== 10 ||
+    kernel32Policy.waitForSingleObjectExAllowAlertable !== true ||
+    kernel32Policy.waitForSingleObjectExAllowNonalertable !== false ||
+    kernel32Policy.waitForSingleObjectExWaitableTimerOnly !== true ||
     sourceFiles.authority !== "runtime/files.rs::RuntimeFiles" ||
     sourceFiles.sourceManifestAuthority !== "rust-runtime-files" ||
     sourceFiles.browserRole !== "same-origin-byte-service" ||
@@ -7201,7 +7258,8 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-kernel32-set-waitable-timer.v1" ||
+    latestEvidence.schema !==
+      "vine.v86-bgi-kernel32-wait-for-single-object-ex.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7306,15 +7364,90 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWaitableTimerMutation !==
       "cross-owner-preflight-targeted-commit" ||
     latestEvidence.setWaitableTimerFailureAtomicity !== true ||
-    latestEvidence.setWaitableTimerClockAuthorityUsed !== false ||
+    latestEvidence.setWaitableTimerClockAuthorityUsed !== true ||
     latestEvidence.setWaitableTimerHostTimerImported !== false ||
     latestEvidence.setWaitableTimerBrowserTimerImported !== false ||
-    latestEvidence.setWaitableTimerExpirationImplemented !== false ||
-    latestEvidence.setWaitableTimerNodeCompletions !== 1 ||
-    latestEvidence.setWaitableTimerChromeCompletions !== 1 ||
+    latestEvidence.setWaitableTimerExpirationImplemented !== true ||
+    latestEvidence.setWaitableTimerNodeCompletions !== 3 ||
+    latestEvidence.setWaitableTimerChromeCompletions !== 3 ||
     latestEvidence.setWaitableTimerNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest waitable-timer identity, arm, and lifetime evidence is invalid");
+  }
+  if (
+    latestEvidence.nativeWaitForSingleObjectExPrimaryTraceBytes !== 1_615_447 ||
+    latestEvidence.nativeWaitForSingleObjectExPrimaryTraceLines !== 5_018 ||
+    latestEvidence.nativeWaitForSingleObjectExPrimaryTraceSha256 !==
+      "1ad73149838b453939c1e5c638775f645ddd42d032358bbd6ff0aceee2a0a1eb" ||
+    latestEvidence.nativeWaitForSingleObjectExPrimaryBalancedApiPairs !== 2_471 ||
+    latestEvidence.nativeWaitForSingleObjectExConfirmationTraceBytes !==
+      1_610_933 ||
+    latestEvidence.nativeWaitForSingleObjectExConfirmationTraceLines !== 5_019 ||
+    latestEvidence.nativeWaitForSingleObjectExConfirmationTraceSha256 !==
+      "e851ed15088768643823fbbb14d3d0a87372b19ee770ff936c41bf0a4fa7c0c0" ||
+    latestEvidence.nativeWaitForSingleObjectExConfirmationBalancedApiPairs !==
+      2_471 ||
+    latestEvidence.nativeWaitForSingleObjectExTraceDiagnostics !== 0 ||
+    latestEvidence.nativeWaitForSingleObjectExBgiProfile !==
+      "x86-bgi-waitable-timer-wait-v1" ||
+    latestEvidence.nativeWaitForSingleObjectExBgiCallerReturnRva !==
+      "0x00050615" ||
+    latestEvidence.nativeWaitForSingleObjectExBgiTimeoutMilliseconds !== 10 ||
+    latestEvidence.nativeWaitForSingleObjectExBgiAlertable !== true ||
+    latestEvidence.nativeWaitForSingleObjectExBgiResult !== 0 ||
+    latestEvidence.nativeWaitForSingleObjectExBgiLastError !== 0 ||
+    latestEvidence.nativeWaitForSingleObjectExBgiResultPreservedInEax !== true ||
+    latestEvidence.nativeWaitForSingleObjectExOracleProfile !==
+      "x86-wait-for-single-object-ex-timer-v1" ||
+    latestEvidence.nativeWaitForSingleObjectExOracleRelativeDueTime100ns !==
+      -5_000 ||
+    latestEvidence.nativeWaitForSingleObjectExOracleManualWaitResults?.join(
+      ",",
+    ) !== "0,0" ||
+    latestEvidence.nativeWaitForSingleObjectExOracleTimeoutResult !== 258 ||
+    latestEvidence.nativeWaitForSingleObjectExOracleInvalidHandleResult !==
+      0xffff_ffff ||
+    latestEvidence.nativeWaitForSingleObjectExOracleInvalidHandleLastError !== 6 ||
+    latestEvidence.nativeWaitForSingleObjectExOracleSuccessAndTimeoutPreserveLastError !==
+      true ||
+    latestEvidence.nativeWaitForSingleObjectExOracleAllHookSystemResultsMatched !==
+      true ||
+    latestEvidence.nativeWaitForSingleObjectExExecutableHashUnchanged !== true ||
+    latestEvidence.waitForSingleObjectExImplemented !== true ||
+    latestEvidence.waitForSingleObjectExSequences?.join(",") !==
+      "18682,18690,18698" ||
+    latestEvidence.waitForSingleObjectExInstructionCounts?.join(",") !==
+      "11973559,11973706,11973853" ||
+    latestEvidence.waitForSingleObjectExArguments?.join(",") !==
+      "0x57010002,0x0000000a,0x00000001" ||
+    latestEvidence.waitForSingleObjectExResults?.join(",") !== "0,0,0" ||
+    latestEvidence.waitForSingleObjectExReturnAddress !== "0x10050615" ||
+    latestEvidence.waitForSingleObjectExLastErrors?.join(",") !== "0,0,0" ||
+    latestEvidence.waitForSingleObjectExGuestWrites !== 0 ||
+    latestEvidence.waitForSingleObjectExImplementationId !==
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+    latestEvidence.waitForSingleObjectExArmGenerations?.join(",") !== "1,2,3" ||
+    latestEvidence.waitForSingleObjectExDeadlineTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    latestEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
+      "5000,10000,15000" ||
+    latestEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
+      "1,2,3" ||
+    latestEvidence.waitForSingleObjectExStateAuthority !==
+      "runtime-timers-scheduler-and-typed-object-table" ||
+    latestEvidence.waitForSingleObjectExClockAuthority !==
+      "runtime-timers-logical-clock" ||
+    latestEvidence.waitForSingleObjectExMutation !==
+      "cross-owner-preflight-targeted-commit" ||
+    latestEvidence.waitForSingleObjectExFailureAtomicity !== true ||
+    latestEvidence.waitForSingleObjectExApcDeliveryImplemented !== false ||
+    latestEvidence.waitForSingleObjectExHostClockImported !== false ||
+    latestEvidence.waitForSingleObjectExBrowserTimerImported !== false ||
+    latestEvidence.waitForSingleObjectExNodeCompletions !== 3 ||
+    latestEvidence.waitForSingleObjectExChromeCompletions !== 3 ||
+    latestEvidence.waitForSingleObjectExNodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest waitable-timer wait evidence is invalid");
   }
   if (
     latestEvidence.nativeLoadIconAPrimaryTraceBytes !== 285_147 ||
@@ -7730,11 +7863,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_737 ||
-    latestEvidence.writebackDirtyPages !== 37_708 ||
-    latestEvidence.writebackChangedBytes !== 2_932_457 ||
-    latestEvidence.hostDeltaBatches !== 17_341 ||
-    latestEvidence.finalMemoryGeneration !== 36_651
+    latestEvidence.writebackBatches !== 18_754 ||
+    latestEvidence.writebackDirtyPages !== 37_732 ||
+    latestEvidence.writebackChangedBytes !== 2_932_699 ||
+    latestEvidence.hostDeltaBatches !== 17_353 ||
+    latestEvidence.finalMemoryGeneration !== 36_680
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9633,7 +9766,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   for (const field of [
     "semanticCallDigestSha256",
-    "firstUnsupportedMemoryContentSha256",
+    "memoryContentSha256",
+    "nativeWaitForSingleObjectExPrimaryTraceSha256",
+    "nativeWaitForSingleObjectExConfirmationTraceSha256",
     "nativeDirectSoundInitialBuffersPrimaryTraceSha256",
     "nativeDirectSoundInitialBuffersConfirmationTraceSha256",
     "directSoundBufferOracleSourceSha256",
@@ -9657,10 +9792,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "63de9f17f94d715615e80ba13801adb3fb7db47dce4b069bfd22726e8fe15859" ||
+      "31b7d2d7d3d14452f93d45fa9a00c962dfaaf8b9516186855d6f4e4208080332" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
-    latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "ec8092d7bcc78d42a2b8ad6cbbe8571cc1443350f21133cfaaef6ad173ad9bfa" ||
+    latestEvidence.memoryContentSha256 !==
+      "975002521bc7cc363fbc870a484d935b1cba9dc700b5afb8113b189c7929b828" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -11862,7 +11997,7 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned policy-bounded top-down reserve-only VirtualAlloc with process address and guest memory authority" ||
+      "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority" ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
@@ -11949,7 +12084,9 @@ export function validateCurrentCheckpoint(manifest) {
   );
   const currentStop = root.nextStructuredStop ?? {};
   const currentStopEndpoint =
-    currentStop.kind === "com-method"
+    currentStop.kind === "capability-checkpoint"
+      ? currentStop.nextEndpoint?.api
+      : currentStop.kind === "com-method"
       ? `${currentStop.interface}::${currentStop.method}`
       : currentStop.api;
   if (
@@ -11960,27 +12097,57 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.memoryContentSha256 !== latestEvidence.memoryContentSha256 ||
     bgiBrowserEvidence.nodeOracleReportBytes !== latestEvidence.reportBytes ||
     bgiBrowserEvidence.nodeOracleReportSha256 !== latestEvidence.reportSha256 ||
-    bgiBrowserEvidence.nextCapabilityCluster !== currentStop.capabilityCluster ||
-    bgiBrowserEvidence.nextEndpoint?.toLowerCase() !== currentStopEndpoint?.toLowerCase() ||
-    bgiBrowserEvidence.nextFaultCode !== currentStop.reason ||
-    bgiBrowserEvidence.nextEndpointAddress !== currentStop.endpointAddress ||
-    bgiBrowserEvidence.nextArguments?.join(",") !==
-      currentStop.arguments?.join(",") ||
-    latestEvidence.firstStructuredStopInstructionCount !==
-      currentStop.instructionCount ||
-    latestEvidence.firstStructuredStopCapabilityCluster !==
-      currentStop.capabilityCluster ||
-    latestEvidence.firstStructuredStopEndpoint?.toLowerCase() !==
-      currentStopEndpoint?.toLowerCase() ||
-    latestEvidence.firstStructuredStopEndpointKind !== currentStop.endpointKind ||
-    latestEvidence.firstStructuredStopEndpointAddress !==
-      currentStop.endpointAddress ||
-    latestEvidence.firstStructuredStopArguments?.join(",") !==
-      currentStop.arguments?.join(",") ||
-    latestEvidence.firstStructuredStopReturnAddress !== currentStop.returnAddress ||
-    latestEvidence.firstStructuredStopFault !== currentStop.reason
+    (currentStop.kind === "capability-checkpoint"
+      ? bgiBrowserEvidence.checkpointCompletion?.memoryContentSha256 !==
+          latestEvidence.memoryContentSha256 ||
+        latestEvidence.capabilityCheckpointCompletion?.memoryContentSha256 !==
+          latestEvidence.memoryContentSha256
+      : bgiBrowserEvidence.nextCapabilityCluster !== currentStop.capabilityCluster ||
+        bgiBrowserEvidence.nextEndpoint?.toLowerCase() !==
+          currentStopEndpoint?.toLowerCase() ||
+        bgiBrowserEvidence.nextFaultCode !== currentStop.reason ||
+        bgiBrowserEvidence.nextEndpointAddress !== currentStop.endpointAddress ||
+        bgiBrowserEvidence.nextArguments?.join(",") !==
+          currentStop.arguments?.join(",") ||
+        latestEvidence.firstStructuredStopInstructionCount !==
+          currentStop.instructionCount ||
+        latestEvidence.firstStructuredStopCapabilityCluster !==
+          currentStop.capabilityCluster ||
+        latestEvidence.firstStructuredStopEndpoint?.toLowerCase() !==
+          currentStopEndpoint?.toLowerCase() ||
+        latestEvidence.firstStructuredStopEndpointKind !== currentStop.endpointKind ||
+        latestEvidence.firstStructuredStopEndpointAddress !==
+          currentStop.endpointAddress ||
+        latestEvidence.firstStructuredStopArguments?.join(",") !==
+          currentStop.arguments?.join(",") ||
+        latestEvidence.firstStructuredStopReturnAddress !== currentStop.returnAddress ||
+        latestEvidence.firstStructuredStopFault !== currentStop.reason)
   ) {
     errors.push("browser BGI evidence must match the active runtime checkpoint");
+  }
+  if (currentStop.kind === "capability-checkpoint") {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    for (const [label, actual] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        actual.capability !== expectedCompletion.capability ||
+        actual.implementationId !== expectedCompletion.implementationId ||
+        actual.requiredCompletions !== expectedCompletion.requiredCompletions ||
+        actual.completionCount !== expectedCompletion.completionCount ||
+        actual.lastCompletionSequence !== expectedCompletion.lastCompletionSequence ||
+        actual.lastCompletionInstructionCount !==
+          expectedCompletion.lastCompletionInstructionCount ||
+        actual.instructionCount !== currentStop.instructionCount ||
+        actual.nextEndpoint?.endpointId !== expectedEndpoint.endpointId ||
+        actual.nextEndpoint?.endpointAddress !== expectedEndpoint.endpointAddress ||
+        actual.nextEndpoint?.api?.toLowerCase() !== expectedEndpoint.api?.toLowerCase()
+      ) {
+        errors.push(`${label} capability checkpoint must match nextStructuredStop`);
+      }
+    }
   }
   if (
     currentStop.kind === "api-endpoint" &&
@@ -12004,7 +12171,67 @@ export function validateCurrentCheckpoint(manifest) {
   requireInteger(next.instructionCount, "nextStructuredStop.instructionCount", errors);
   requireString(next.capabilityCluster, "nextStructuredStop.capabilityCluster", errors);
   requireString(next.reason, "nextStructuredStop.reason", errors);
-  if (next.kind === "api-endpoint") {
+  if (next.kind === "capability-checkpoint") {
+    const completion = requireRecord(
+      next.completion,
+      "nextStructuredStop.completion",
+      errors,
+    );
+    requireString(
+      completion.capability,
+      "nextStructuredStop.completion.capability",
+      errors,
+    );
+    requireString(
+      completion.implementationId,
+      "nextStructuredStop.completion.implementationId",
+      errors,
+    );
+    for (const field of [
+      "requiredCompletions",
+      "completionCount",
+      "lastCompletionSequence",
+      "lastCompletionInstructionCount",
+    ]) {
+      requireInteger(
+        completion[field],
+        `nextStructuredStop.completion.${field}`,
+        errors,
+        1,
+      );
+    }
+    const endpoint = requireRecord(
+      next.nextEndpoint,
+      "nextStructuredStop.nextEndpoint",
+      errors,
+    );
+    requireString(
+      endpoint.endpointKind,
+      "nextStructuredStop.nextEndpoint.endpointKind",
+      errors,
+    );
+    requireInteger(
+      endpoint.endpointId,
+      "nextStructuredStop.nextEndpoint.endpointId",
+      errors,
+      1,
+    );
+    requireString(endpoint.api, "nextStructuredStop.nextEndpoint.api", errors);
+    if (
+      typeof endpoint.endpointAddress !== "string" ||
+      !HEX32.test(endpoint.endpointAddress)
+    ) {
+      errors.push(
+        "nextStructuredStop.nextEndpoint.endpointAddress must be a 32-bit hex string",
+      );
+    }
+    if (
+      completion.completionCount !== completion.requiredCompletions ||
+      completion.lastCompletionInstructionCount >= next.instructionCount
+    ) {
+      errors.push("nextStructuredStop capability completion identity is inconsistent");
+    }
+  } else if (next.kind === "api-endpoint") {
     requireString(next.endpointKind, "nextStructuredStop.endpointKind", errors);
     requireInteger(next.endpointId, "nextStructuredStop.endpointId", errors);
     requireString(next.api, "nextStructuredStop.api", errors);
@@ -12063,13 +12290,15 @@ export function validateCurrentCheckpoint(manifest) {
     }
   } else {
     errors.push(
-      "nextStructuredStop.kind must be api-endpoint, com-method, or execution-fault",
+      "nextStructuredStop.kind must be capability-checkpoint, api-endpoint, com-method, or execution-fault",
     );
   }
 
   if (
+    next.kind !== "capability-checkpoint" &&
     bgiBrowserEvidence.nextCapabilityCluster !== next.capabilityCluster ||
-    bgiBrowserEvidence.nextFaultCode !== next.reason
+    next.kind !== "capability-checkpoint" &&
+      bgiBrowserEvidence.nextFaultCode !== next.reason
   ) {
     errors.push("browser BGI structured-stop summary must match nextStructuredStop");
   }
@@ -12116,7 +12345,12 @@ export function renderReadmeStatus(manifest) {
     )
     .join("\n");
   const nextSummary =
-    next.kind === "execution-fault"
+    next.kind === "capability-checkpoint"
+      ? `\`${next.completion.capability}\` completed ${next.completion.completionCount} recurring waits ` +
+        `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
+        `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+        `(\`${next.reason}\`)`
+      : next.kind === "execution-fault"
       ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
         `\`${next.reason}\` at \`${next.fault.faultAddress}\``
       : next.kind === "com-method"

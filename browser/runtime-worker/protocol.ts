@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 12 as const;
+export const protocolVersion = 13 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -49,8 +49,14 @@ export interface RuntimeWaitableTimerSnapshot {
     manualReset: boolean;
     arm?: {
       relativeDueTime100ns: number;
+      armedAtTime100ns: number;
+      deadlineTime100ns: number;
       periodMilliseconds: number;
       generation: number;
+    };
+    lastExpiration?: {
+      armGeneration: number;
+      deadlineTime100ns: number;
     };
   };
   objectRecord: {
@@ -59,9 +65,14 @@ export interface RuntimeWaitableTimerSnapshot {
     kind: "waitable-timer";
     namespace: string;
     closePolicy: "close-handle";
-    waitState: { state: "nonsignaled" };
+    waitState: { state: "nonsignaled" } | { state: "signaled"; exit_code: number };
     openHandles: number;
   };
+  timerClock?: {
+    currentTime100ns: number;
+    generation: number;
+  };
+  nextWaitRegistrationId?: number;
 }
 
 export interface RuntimeIconSnapshot {
@@ -227,7 +238,13 @@ export interface HostRequestMessage {
 
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
-  outcome: "completed" | "structured-stop" | "cancelled" | "watchdog" | "fault";
+  outcome:
+    | "completed"
+    | "checkpoint-complete"
+    | "structured-stop"
+    | "cancelled"
+    | "watchdog"
+    | "fault";
   exitCode: number | null;
   elapsedMilliseconds: number;
   instructions: number;
@@ -365,6 +382,22 @@ export interface SessionReport {
     endpoint: unknown;
     fault: unknown;
     instructionCount: number;
+    memoryContentSha256: string;
+  } | null;
+  checkpointCompletion: {
+    capability: "kernel32-wait-for-single-object-ex";
+    implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+    requiredCompletions: number;
+    completionCount: number;
+    lastCompletionSequence: number;
+    lastCompletionInstructionCount: number;
+    instructionCount: number;
+    nextEndpoint: {
+      id: number;
+      address: number;
+      module?: string;
+      symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+    };
     memoryContentSha256: string;
   } | null;
   error: string | null;

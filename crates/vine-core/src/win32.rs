@@ -22,8 +22,9 @@ use crate::runtime::{
     RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE, RuntimeCreateThreadRequest,
     RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
     RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
-    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWritableCommitHostResponse,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWritableCommitHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -40,7 +41,8 @@ pub use policy::{
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
     Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
-    Kernel32TickCountPolicy, Kernel32VirtualAllocPolicy, Kernel32WideCharToMultiBytePolicy,
+    Kernel32TickCountPolicy, Kernel32VirtualAllocPolicy, Kernel32WaitForSingleObjectExPolicy,
+    Kernel32WideCharToMultiBytePolicy,
 };
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
@@ -89,6 +91,8 @@ pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
     "kernel32.set-waitable-timer.relative-one-shot.v1";
+pub const WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION: &str =
+    "kernel32.wait-for-single-object-ex.waitable-timer.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
@@ -141,6 +145,9 @@ const ERROR_MOD_NOT_FOUND: u32 = 126;
 const ERROR_ALREADY_EXISTS: u32 = 183;
 const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
+const WAIT_OBJECT_0: u32 = 0;
+const WAIT_TIMEOUT: u32 = 258;
+const WAIT_FAILED: u32 = u32::MAX;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
 pub const MEM_RESERVE: u32 = 0x0000_2000;
@@ -252,6 +259,9 @@ pub fn dispatch_kernel32_api_with_policy(
         SET_WAITABLE_TIMER_IMPLEMENTATION => {
             handle_set_waitable_timer(policy, contract, frame, session)
         }
+        WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => {
+            handle_wait_for_single_object_ex(policy, contract, frame, session)
+        }
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -361,6 +371,7 @@ pub fn kernel32_contract_for_endpoint(
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "SetWaitableTimer" => set_waitable_timer_contract(endpoint)?,
+        "WaitForSingleObjectEx" => wait_for_single_object_ex_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceFrequency" => query_performance_frequency_contract(endpoint)?,
@@ -2781,6 +2792,76 @@ fn handle_set_waitable_timer(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(ERROR_SUCCESS))
 }
 
+fn handle_wait_for_single_object_ex(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let wait_policy = policy.wait_for_single_object_ex().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-wait",
+            "wait-for-single-object-ex-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable WaitForSingleObjectEx",
+                policy.id
+            ),
+        )
+    })?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
+    let timeout_milliseconds = required_argument(contract, frame, 1, "timeout")?;
+    let alertable = required_argument(contract, frame, 2, "alertable")? != 0;
+    if timeout_milliseconds > wait_policy.maximum_timeout_milliseconds {
+        return Err(ApiFault::unsupported(
+            "win32-wait",
+            "wait-for-single-object-ex-timeout-unsupported",
+            format!(
+                "compatibility policy {} enables finite timeouts through {} milliseconds, not {}",
+                policy.id, wait_policy.maximum_timeout_milliseconds, timeout_milliseconds
+            ),
+        ));
+    }
+    if (alertable && !wait_policy.allow_alertable)
+        || (!alertable && !wait_policy.allow_nonalertable)
+    {
+        return Err(ApiFault::unsupported(
+            "win32-wait",
+            "wait-for-single-object-ex-alertable-mode-unsupported",
+            format!(
+                "compatibility policy {} does not enable the requested alertable mode",
+                policy.id
+            ),
+        ));
+    }
+    if !wait_policy.waitable_timer_only {
+        return Err(ApiFault::runtime_defect(
+            "win32-wait",
+            "wait-for-single-object-ex-policy-object-band-invalid",
+            "validated WaitForSingleObjectEx policy lost its timer-only object scope",
+        ));
+    }
+    match session.runtime().waitable_timer_for_handle(handle) {
+        Ok(_) => {}
+        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let result = session
+        .runtime_mut()
+        .wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let value = match result.outcome {
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => WAIT_OBJECT_0,
+        RuntimeWaitForSingleObjectExOutcome::TimedOut => WAIT_TIMEOUT,
+    };
+    Ok(ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error))
+}
+
 fn handle_get_string_type_w(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -4672,6 +4753,28 @@ pub fn set_waitable_timer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         ],
         ApiReturnSchema::Bool32,
         SET_WAITABLE_TIMER_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn wait_for_single_object_ex_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "WaitForSingleObjectEx",
+        vec![
+            logical_handle(
+                "waitableObject",
+                RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+                false,
+            ),
+            u32_argument("timeoutMilliseconds"),
+            u32_argument("alertable"),
+        ],
+        ApiReturnSchema::U32,
+        WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

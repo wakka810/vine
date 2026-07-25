@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
-export const PRIVATE_TARGET_EVIDENCE_VERSION = 5;
+export const PRIVATE_TARGET_EVIDENCE_VERSION = 6;
 export const PRIVATE_TARGET_EVIDENCE_DESCENDANT_PATHS = Object.freeze([
   "docs/private-target-evidence.json",
 ]);
@@ -392,10 +392,14 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   checkEqual(semantic.outcome, "passed", "evidence.semantic.outcome", errors);
   const node = requireRecord(semantic.node, "evidence.semantic.node", errors);
   const browser = requireRecord(semantic.browser, "evidence.semantic.browser", errors);
-  checkEqual(node.outcome, "structured-stop", "evidence.semantic.node.outcome", errors);
+  const expectedOutcome =
+    checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+      ? "checkpoint-complete"
+      : "structured-stop";
+  checkEqual(node.outcome, expectedOutcome, "evidence.semantic.node.outcome", errors);
   checkEqual(
     browser.outcome,
-    "structured-stop",
+    expectedOutcome,
     "evidence.semantic.browser.outcome",
     errors,
   );
@@ -426,6 +430,64 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       `evidence.semantic.${label}.callSemanticsSha256`,
       errors,
     );
+  }
+  if (checkpoint.nextStructuredStop.kind === "capability-checkpoint") {
+    const expectedCompletion = checkpoint.nextStructuredStop.completion;
+    const expectedEndpoint = checkpoint.nextStructuredStop.nextEndpoint;
+    for (const [label, result] of [
+      ["node", node],
+      ["browser", browser],
+    ]) {
+      const completion = requireRecord(
+        result.checkpointCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+      );
+      for (const field of [
+        "capability",
+        "implementationId",
+        "requiredCompletions",
+        "completionCount",
+        "lastCompletionSequence",
+        "lastCompletionInstructionCount",
+      ]) {
+        checkEqual(
+          completion[field],
+          expectedCompletion[field],
+          `evidence.semantic.${label}.checkpointCompletion.${field}`,
+          errors,
+        );
+      }
+      checkEqual(
+        completion.instructionCount,
+        checkpoint.nextStructuredStop.instructionCount,
+        `evidence.semantic.${label}.checkpointCompletion.instructionCount`,
+        errors,
+      );
+      checkEqual(
+        completion.memoryContentSha256,
+        expectedBrowser.memoryContentSha256,
+        `evidence.semantic.${label}.checkpointCompletion.memoryContentSha256`,
+        errors,
+      );
+      const endpoint = requireRecord(
+        completion.nextEndpoint,
+        `evidence.semantic.${label}.checkpointCompletion.nextEndpoint`,
+        errors,
+      );
+      checkEqual(
+        endpoint.id,
+        expectedEndpoint.endpointId,
+        `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.id`,
+        errors,
+      );
+      checkEqual(
+        endpoint.address,
+        Number.parseInt(expectedEndpoint.endpointAddress, 16),
+        `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
+        errors,
+      );
+    }
   }
   checkEqual(
     node.callSemanticsSha256,
@@ -547,7 +609,47 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       errors,
     );
   }
-  if (checkpoint.nextStructuredStop.kind === "api-endpoint") {
+  if (checkpoint.nextStructuredStop.kind === "capability-checkpoint") {
+    const completion = requireRecord(
+      next.completion,
+      "evidence.semantic.nextStructuredStop.completion",
+      errors,
+    );
+    const expectedCompletion = checkpoint.nextStructuredStop.completion;
+    for (const field of [
+      "capability",
+      "implementationId",
+      "requiredCompletions",
+      "completionCount",
+      "lastCompletionSequence",
+      "lastCompletionInstructionCount",
+    ]) {
+      checkEqual(
+        completion[field],
+        expectedCompletion[field],
+        `evidence.semantic.nextStructuredStop.completion.${field}`,
+        errors,
+      );
+    }
+    const endpoint = requireRecord(
+      next.nextEndpoint,
+      "evidence.semantic.nextStructuredStop.nextEndpoint",
+      errors,
+    );
+    for (const field of [
+      "endpointKind",
+      "endpointId",
+      "api",
+      "endpointAddress",
+    ]) {
+      checkEqual(
+        endpoint[field],
+        checkpoint.nextStructuredStop.nextEndpoint[field],
+        `evidence.semantic.nextStructuredStop.nextEndpoint.${field}`,
+        errors,
+      );
+    }
+  } else if (checkpoint.nextStructuredStop.kind === "api-endpoint") {
     for (const field of [
       "api",
       "endpointKind",

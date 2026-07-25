@@ -4,8 +4,12 @@ use serde::Serialize;
 
 use super::{
     RuntimeHandle, RuntimeMutexId, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
-    RuntimeWaitState,
+    RuntimeTimerClockState, RuntimeWaitState, RuntimeWaitableTimer,
 };
+
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -18,6 +22,10 @@ pub struct RuntimeWaitRegistration {
     pub thread_id: RuntimeThreadId,
     pub object_id: RuntimeObjectId,
     pub handle: RuntimeHandle,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_deadline_time_100ns: Option<u64>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub alertable: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -43,6 +51,26 @@ pub enum RuntimeWaitDisposition {
         recursion_count: u32,
         abandoned: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeWaitForSingleObjectExOutcome {
+    ObjectSignaled,
+    TimedOut,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitForSingleObjectExResult {
+    pub outcome: RuntimeWaitForSingleObjectExOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration: Option<RuntimeWaitRegistration>,
+    pub object_id: RuntimeObjectId,
+    pub object_wait_state: RuntimeWaitState,
+    pub timer: RuntimeWaitableTimer,
+    pub timer_clock_before: RuntimeTimerClockState,
+    pub timer_clock_after: RuntimeTimerClockState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -106,6 +134,17 @@ impl RuntimeWaits {
         object_id: RuntimeObjectId,
         handle: RuntimeHandle,
     ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
+        self.plan_registration_with_options(thread_id, object_id, handle, None, false)
+    }
+
+    pub(super) fn plan_registration_with_options(
+        &self,
+        thread_id: RuntimeThreadId,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
+        timeout_deadline_time_100ns: Option<u64>,
+        alertable: bool,
+    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
         let id = RuntimeWaitRegistrationId(self.next_registration_id);
         let next_registration_id = self.next_registration_id.checked_add(1).ok_or_else(|| {
             RuntimeStateError::resource_limit(
@@ -119,6 +158,8 @@ impl RuntimeWaits {
             thread_id,
             object_id,
             handle,
+            timeout_deadline_time_100ns,
+            alertable,
         };
         if self.wait_registrations.contains_key(&registration.id) {
             return Err(RuntimeStateError::runtime_defect(
@@ -156,10 +197,40 @@ impl RuntimeWaits {
         })
     }
 
+    pub(super) fn preflight_registration(
+        &self,
+        plan: &RuntimeWaitRegistrationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let registration = plan.registration;
+        if self.next_registration_id != plan.previous_next_registration_id
+            || plan.previous_next_registration_id.checked_add(1) != Some(plan.next_registration_id)
+            || self.wait_registrations.contains_key(&registration.id)
+            || self
+                .wait_registrations
+                .values()
+                .any(|existing| existing.thread_id == registration.thread_id)
+            || self
+                .object_waiters
+                .values()
+                .any(|queue| queue.contains(&registration.id))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "wait-registration-plan-stale",
+                "wait registration state changed after planning",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn commit_registration(
         &mut self,
         plan: RuntimeWaitRegistrationPlan,
     ) -> RuntimeWaitRegistration {
+        debug_assert!(
+            self.preflight_registration(&plan).is_ok(),
+            "wait registration plan became stale"
+        );
         debug_assert_eq!(
             self.next_registration_id,
             plan.previous_next_registration_id
@@ -310,6 +381,8 @@ mod tests {
             object_id: RuntimeObjectId(object_id),
             handle: RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, object_id as u16)
                 .unwrap(),
+            timeout_deadline_time_100ns: None,
+            alertable: false,
         }
     }
 

@@ -54,6 +54,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_waitable_timer: Option<Kernel32SetWaitableTimerPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_for_single_object_ex: Option<Kernel32WaitForSingleObjectExPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -205,6 +207,15 @@ pub struct Kernel32SetWaitableTimerPolicy {
     pub allow_resume: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32WaitForSingleObjectExPolicy {
+    pub maximum_timeout_milliseconds: u32,
+    pub allow_alertable: bool,
+    pub allow_nonalertable: bool,
+    pub waitable_timer_only: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32GetStringTypeWPolicy {
@@ -348,6 +359,7 @@ impl Kernel32CompatibilityPolicy {
             create_mutex_a: None,
             create_waitable_timer_a: None,
             set_waitable_timer: None,
+            wait_for_single_object_ex: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -621,6 +633,17 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-set-waitable-timer-invalid",
                 "SetWaitableTimer requires the creation layer, a bounded relative interval, one-shot mode, and no completion routine or resume request",
+            ));
+        }
+        if let Some(wait) = self.wait_for_single_object_ex
+            && (self.set_waitable_timer.is_none()
+                || wait.maximum_timeout_milliseconds > 60_000
+                || (!wait.allow_alertable && !wait.allow_nonalertable)
+                || !wait.waitable_timer_only)
+        {
+            return Err(policy_error(
+                "kernel32-policy-wait-for-single-object-ex-invalid",
+                "WaitForSingleObjectEx requires the timer arm layer, a bounded finite timeout, at least one alertable mode, and timer-only object scope",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -974,6 +997,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn set_waitable_timer(&self) -> Option<Kernel32SetWaitableTimerPolicy> {
         self.set_waitable_timer
+    }
+
+    pub fn wait_for_single_object_ex(&self) -> Option<Kernel32WaitForSingleObjectExPolicy> {
+        self.wait_for_single_object_ex
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {

@@ -237,8 +237,13 @@ function runSession(sessionId: number): Promise<SessionReport> {
 function validateSession(report: SessionReport, expected: any): void {
   const endpoint = report.firstUnsupported?.endpoint;
   const fault = report.firstUnsupported?.fault;
-  invariant(isRecord(fault), "BGI next fault is malformed");
-  invariant(report.outcome === "structured-stop", report.error ?? "BGI session did not stop cleanly");
+  const checkpoint = report.checkpointCompletion;
+  const expectedCheckpoint = expected.checkpointCompletion ?? null;
+  invariant(
+    report.outcome ===
+      (expectedCheckpoint === null ? "structured-stop" : "checkpoint-complete"),
+    report.error ?? "BGI session did not stop cleanly",
+  );
   invariant(report.pendingHostCalls === 0 && report.pendingCallbacks === 0, "BGI retained work");
   invariant(
     report.executionState === "stopped" &&
@@ -267,6 +272,25 @@ function validateSession(report: SessionReport, expected: any): void {
   );
   invariant(report.instructions === expected.guestInstructions, "BGI instruction count changed");
   invariant(report.wasmBridgeCalls === expected.wasmBridgeCalls, "BGI Wasm crossing count changed");
+  if (expectedCheckpoint !== null) {
+    invariant(report.firstUnsupported === null, "BGI checkpoint retained an unsupported fault");
+    invariant(isRecord(checkpoint), "BGI capability checkpoint is malformed");
+    invariant(
+      checkpoint.capability === expectedCheckpoint.capability &&
+        checkpoint.implementationId === expectedCheckpoint.implementationId &&
+        checkpoint.requiredCompletions === expectedCheckpoint.requiredCompletions &&
+        checkpoint.completionCount === expectedCheckpoint.completionCount &&
+        checkpoint.lastCompletionSequence === expectedCheckpoint.lastCompletionSequence &&
+        checkpoint.lastCompletionInstructionCount ===
+          expectedCheckpoint.lastCompletionInstructionCount &&
+        checkpoint.instructionCount === expectedCheckpoint.instructionCount &&
+        checkpoint.memoryContentSha256 === expectedCheckpoint.memoryContentSha256,
+      "BGI capability checkpoint changed",
+    );
+    return;
+  }
+  invariant(isRecord(fault), "BGI next fault is malformed");
+  invariant(checkpoint === null, "BGI structured stop retained a capability checkpoint");
   if (expected.nextEndpoint === null) {
     invariant(endpoint === null, "BGI execution fault unexpectedly retained an endpoint");
     invariant(

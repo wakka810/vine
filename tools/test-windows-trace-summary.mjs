@@ -3891,6 +3891,17 @@ setWaitableTimerSelection.find(
 ).selectedObservations = ["set-waitable-timer"];
 assert.doesNotThrow(() => summarizeTrace(encode(setWaitableTimerSelection)));
 
+const waitForSingleObjectExSelection = structuredClone(events);
+waitForSingleObjectExSelection[0].arguments.observations = [
+  "wait-for-single-object-ex",
+];
+waitForSingleObjectExSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["wait-for-single-object-ex"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(waitForSingleObjectExSelection)),
+);
+
 const loadIconSelection = structuredClone(events);
 loadIconSelection[0].arguments.observations = ["load-icon-a"];
 loadIconSelection.find(

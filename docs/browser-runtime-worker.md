@@ -134,6 +134,13 @@ metadata. The current private checkpoint reads the profile but does not reach a
 guest write. A controlled Chrome write/restart/load fixture and the primary title
 save scenario remain separate acceptance work.
 
+Protocol version 13 adds a normal `checkpoint-complete` terminal with immutable
+capability identity, required and observed completion counts, last completion
+sequence/instruction, next owned endpoint, and final memory digest. The Worker
+captures it only after the required completions and the final CPU writeback, then
+uses the common clean stop path. It is distinct from `firstUnsupported`; neither
+field may be populated as a substitute for the other.
+
 ## Execution engine contract
 
 Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86
@@ -218,7 +225,7 @@ with a second guest EIP／ESP that writes a marker and exits while the initial
 thread remains in `WaitingHost`.
 
 Cancellation retires every active delivery record before final reporting.
-Success, cancellation, structured stop, watchdog, and fault all pass through
+Success, capability checkpoint, cancellation, structured stop, watchdog, and fault all pass through
 `stopping -> stopped`; terminal reports require zero pending request records.
 Only a watchdog report may contain diagnostic context, which records the cause
 thread, current request when one exists, and the last transition observed
@@ -232,7 +239,7 @@ second completed-sequence collection. Canonical top-level fields stream directly
 into reusable SHA-256 state; ASCII fragments bypass `TextEncoder`, while
 non-ASCII uses the bounded UTF-8 fallback. Normal semantic gates and repeated
 benchmarks select summary evidence: they retain the exact call count, algorithm,
-digest, source completions, memory digest, structured stop, and teardown checks
+digest, source completions, memory digest, exact terminal evidence, and teardown checks
 without publishing detailed call objects. Full evidence remains an explicit
 diagnostic mode. Summary evidence is rejected for other workloads.
 
@@ -284,7 +291,7 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. Protocol v12 carries immutable snapshots for the Rust-owned NULL-source
+same structured fault or capability completion. Protocol v12 carries immutable snapshots for the Rust-owned NULL-source
 memory DC, selected font and DIB, DIB content generation, bounded `TextOutA` raster completion,
 restore selections, and deletion notifications for `DeleteObject`／`DeleteDC`. The Worker validates
 these as GDI metadata while the changed pixel pages still cross the generic GuestMemory transport.
@@ -344,7 +351,7 @@ stress command adds the 30-minute repeated lifecycle run.
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - long-idle heap-capacity plateau and full-play growth slope
 - isolated rerun of any active private-workload performance blocker
-- the next unsupported BGI capability and title output path
+- async pacing for the reached recurring wait and the next title output path
 
 The Step 8 synthetic matrix, background-tab probe, AudioWorklet deadline probe,
 and active steady-memory measurement passed their version 1 thresholds. See

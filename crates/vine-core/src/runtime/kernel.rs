@@ -154,11 +154,11 @@ use super::thread::{
     RuntimeTlsValue,
 };
 use super::timers::{
-    RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
-    RuntimeTimerResolutionState, RuntimeTimers, RuntimeTimersTeardownPlan, RuntimeWaitableTimer,
-    RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan, RuntimeWindowTimer,
-    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationRequest,
-    RuntimeWindowTimerRegistrationResult,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockState,
+    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeTimers,
+    RuntimeTimersTeardownPlan, RuntimeWaitableTimer, RuntimeWaitableTimerId,
+    RuntimeWaitableTimerRetirementPlan, RuntimeWindowTimer, RuntimeWindowTimerId,
+    RuntimeWindowTimerRegistrationRequest, RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
@@ -174,7 +174,10 @@ use super::user32::{
     RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
-use super::waits::{RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration};
+use super::waits::{
+    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -526,6 +529,7 @@ struct RuntimeProcessStateSnapshot<'a> {
     fls_slots: &'a BTreeMap<u32, RuntimeFlsSlot>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     waitable_timers: &'a BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
+    timer_clock: RuntimeTimerClockState,
     #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -564,6 +568,7 @@ impl Serialize for RuntimeProcessView<'_> {
             allocated_tls_indices: self.allocated_tls_indices,
             fls_slots: self.fls_slots,
             waitable_timers: self.timers.waitable_timers(),
+            timer_clock: self.timers.timer_clock_state(),
             timer_resolution: self.timers.state(),
             window_timers: self.timers.window_timers(),
         }
@@ -626,6 +631,7 @@ impl Serialize for RuntimeKernel {
                 allocated_tls_indices: self.threads.allocated_tls_indices(),
                 fls_slots: self.threads.fls_slots(),
                 waitable_timers: self.timers.waitable_timers(),
+                timer_clock: self.timers.timer_clock_state(),
                 timer_resolution: self.timers.state(),
                 window_timers: self.timers.window_timers(),
             },
@@ -842,6 +848,10 @@ impl RuntimeKernel {
 
     pub fn timer_resolution_state(&self) -> Option<RuntimeTimerResolutionState> {
         self.timers.state()
+    }
+
+    pub fn timer_clock_state(&self) -> RuntimeTimerClockState {
+        self.timers.timer_clock_state()
     }
 
     fn require_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -2123,6 +2133,10 @@ impl RuntimeKernel {
 
     pub fn scheduler(&self) -> &RuntimeScheduler {
         &self.scheduler
+    }
+
+    pub fn next_wait_registration_id(&self) -> u64 {
+        self.scheduler.next_wait_registration_id()
     }
 
     pub fn objects(&self) -> &RuntimeObjectTable {
@@ -4117,6 +4131,184 @@ impl RuntimeKernel {
         self.timers.preflight_waitable_timer_arm(&timer_plan)?;
         self.objects.commit_wait_state_updates(wait_updates);
         Ok(self.timers.commit_waitable_timer_arm(timer_plan))
+    }
+
+    pub fn wait_for_single_object_ex(
+        &mut self,
+        handle: RuntimeHandle,
+        timeout_milliseconds: u32,
+        alertable: bool,
+    ) -> Result<RuntimeWaitForSingleObjectExResult, RuntimeStateError> {
+        self.require_waitable_timer_operation_state()?;
+        let timer_clock_before = self.timers.timer_clock_state();
+        let object = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+            .clone();
+        let RuntimeObjectKey::WaitableTimer { timer_id } = object.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-key-invalid",
+                "waitable timer handle resolved to a different object identity",
+            ));
+        };
+        if self
+            .scheduler
+            .object_waiters()
+            .get(&object.id)
+            .is_some_and(|waiters| !waiters.is_empty())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-wait",
+                "waitable-timer-existing-waiters-unsupported",
+                "bounded waitable timer completion does not interleave existing object waiters",
+            ));
+        }
+        let timer_id = RuntimeWaitableTimerId(timer_id);
+        let timer = *self.timers.waitable_timer(timer_id)?;
+        let object_wait_state = object.wait_state.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-waitable-timer",
+                "waitable-timer-object-not-waitable",
+                "waitable timer object has no wait state",
+            )
+        })?;
+        if matches!(object_wait_state, RuntimeWaitState::Signaled { .. }) {
+            if timer.arm.is_some() {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-waitable-timer",
+                    "waitable-timer-signaled-with-live-arm",
+                    "signaled waitable timer retains a live one-shot arm",
+                ));
+            }
+            let final_wait_state = if timer.manual_reset {
+                object_wait_state
+            } else {
+                let wait_updates = self.objects.plan_wait_state_updates(&[(
+                    RuntimeObjectKey::WaitableTimer {
+                        timer_id: timer_id.0,
+                    },
+                    RuntimeWaitState::Nonsignaled,
+                )])?;
+                self.objects.commit_wait_state_updates(wait_updates);
+                RuntimeWaitState::Nonsignaled
+            };
+            return Ok(RuntimeWaitForSingleObjectExResult {
+                outcome: RuntimeWaitForSingleObjectExOutcome::ObjectSignaled,
+                registration: None,
+                object_id: object.id,
+                object_wait_state: final_wait_state,
+                timer,
+                timer_clock_before,
+                timer_clock_after: timer_clock_before,
+            });
+        }
+
+        let timeout_100ns = u64::from(timeout_milliseconds)
+            .checked_mul(10_000)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-wait",
+                    "wait-timeout-conversion-overflow",
+                    "wait timeout exceeds the logical timer clock unit range",
+                )
+            })?;
+        let timeout_deadline_time_100ns = timer_clock_before
+            .current_time_100ns
+            .checked_add(timeout_100ns)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-wait",
+                    "wait-timeout-deadline-overflow",
+                    "wait timeout deadline exceeds the logical timer clock",
+                )
+            })?;
+        let expiration_arm = timer
+            .arm
+            .filter(|arm| arm.deadline_time_100ns <= timeout_deadline_time_100ns);
+        let target_time_100ns = expiration_arm.map_or(timeout_deadline_time_100ns, |arm| {
+            arm.deadline_time_100ns
+                .max(timer_clock_before.current_time_100ns)
+        });
+        let clock_plan = self.timers.plan_timer_clock_advance(target_time_100ns)?;
+        let wait_plan = (target_time_100ns > timer_clock_before.current_time_100ns)
+            .then(|| {
+                self.scheduler.plan_immediate_wait(
+                    self.current_thread_id(),
+                    object.id,
+                    handle,
+                    timeout_deadline_time_100ns,
+                    alertable,
+                )
+            })
+            .transpose()?;
+        let expiration_plan = expiration_arm
+            .map(|arm| {
+                self.timers
+                    .plan_waitable_timer_expiration(timer_id, arm.generation)
+            })
+            .transpose()?;
+        let next_object_wait_state = if expiration_arm.is_some() && timer.manual_reset {
+            RuntimeWaitState::Signaled { exit_code: 0 }
+        } else {
+            RuntimeWaitState::Nonsignaled
+        };
+        let wait_updates = expiration_arm
+            .map(|_| {
+                self.objects.plan_wait_state_updates(&[(
+                    RuntimeObjectKey::WaitableTimer {
+                        timer_id: timer_id.0,
+                    },
+                    next_object_wait_state,
+                )])
+            })
+            .transpose()?;
+
+        self.timers.preflight_timer_clock_advance(&clock_plan)?;
+        if let Some(plan) = expiration_plan.as_ref() {
+            self.timers.preflight_waitable_timer_expiration(plan)?;
+        }
+        if let Some(plan) = wait_plan.as_ref() {
+            self.scheduler.preflight_immediate_wait(plan)?;
+        }
+        if self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
+            != &object
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-wait-object-plan-stale",
+                "waitable timer object changed after wait planning",
+            ));
+        }
+
+        let registration = wait_plan.map(|plan| self.scheduler.commit_immediate_wait_begin(plan));
+        let timer_clock_after = self.timers.commit_timer_clock_advance(clock_plan);
+        let timer_after = expiration_plan.map_or(timer, |plan| {
+            *self.timers.commit_waitable_timer_expiration(plan)
+        });
+        if let Some(updates) = wait_updates {
+            self.objects.commit_wait_state_updates(updates);
+        }
+        if let Some(plan) = wait_plan {
+            let completed = self.scheduler.commit_immediate_wait_complete(plan);
+            debug_assert_eq!(registration, Some(completed));
+        }
+
+        Ok(RuntimeWaitForSingleObjectExResult {
+            outcome: if expiration_arm.is_some() {
+                RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+            } else {
+                RuntimeWaitForSingleObjectExOutcome::TimedOut
+            },
+            registration,
+            object_id: object.id,
+            object_wait_state: next_object_wait_state,
+            timer: timer_after,
+            timer_clock_before,
+            timer_clock_after,
+        })
     }
 
     pub fn load_shared_icon(

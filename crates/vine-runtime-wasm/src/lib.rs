@@ -1482,6 +1482,24 @@ impl BrowserRuntime {
                                     ))
                                 }
                             }
+                            vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => {
+                                let RegisterUpdate::Set(result) = completion.eax else {
+                                    return Err(
+                                        "WaitForSingleObjectEx completion did not set a wait result in EAX"
+                                            .to_owned(),
+                                    );
+                                };
+                                if result == u32::MAX {
+                                    None
+                                } else {
+                                    Some(RuntimeHandle(
+                                        completion.frame.argument_u32(0).ok_or_else(|| {
+                                            "WaitForSingleObjectEx completion has no timer handle"
+                                                .to_owned()
+                                        })?,
+                                    ))
+                                }
+                            }
                             _ => None,
                         };
                         if let Some(handle) = waitable_timer_handle {
@@ -1496,6 +1514,14 @@ impl BrowserRuntime {
                                     RuntimeObjectKind::WaitableTimer,
                                 ).map_err(error_string)?,
                             });
+                            if completion.implementation_id
+                                == vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION
+                            {
+                                metadata["waitableTimer"]["timerClock"] =
+                                    json!(self.runtime.timer_clock_state());
+                                metadata["waitableTimer"]["nextWaitRegistrationId"] =
+                                    json!(self.runtime.next_wait_registration_id());
+                            }
                         }
                         if completion.implementation_id == vine_core::CREATE_THREAD_IMPLEMENTATION
                             && let RegisterUpdate::Set(handle) = completion.eax

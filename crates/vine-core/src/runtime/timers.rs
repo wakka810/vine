@@ -22,13 +22,31 @@ pub struct RuntimeWaitableTimer {
     pub manual_reset: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arm: Option<RuntimeWaitableTimerArm>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_expiration: Option<RuntimeWaitableTimerExpiration>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeWaitableTimerArm {
     pub relative_due_time_100ns: u64,
+    pub armed_at_time_100ns: u64,
+    pub deadline_time_100ns: u64,
     pub period_milliseconds: u32,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWaitableTimerExpiration {
+    pub arm_generation: u64,
+    pub deadline_time_100ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeTimerClockState {
+    pub current_time_100ns: u64,
     pub generation: u64,
 }
 
@@ -108,6 +126,7 @@ pub(super) struct RuntimeTimersTeardown {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeTimers {
+    timer_clock: RuntimeTimerClockState,
     resolution_request_counts: BTreeMap<u32, u32>,
     resolution_generation: u64,
     waitable_timers: BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
@@ -121,6 +140,10 @@ pub(super) struct RuntimeTimers {
 impl Default for RuntimeTimers {
     fn default() -> Self {
         Self {
+            timer_clock: RuntimeTimerClockState {
+                current_time_100ns: 0,
+                generation: 0,
+            },
             resolution_request_counts: BTreeMap::new(),
             resolution_generation: 0,
             waitable_timers: BTreeMap::new(),
@@ -155,6 +178,19 @@ pub(super) struct RuntimeWaitableTimerRetirementPlan {
 pub(super) struct RuntimeWaitableTimerArmPlan {
     previous: RuntimeWaitableTimer,
     next: RuntimeWaitableTimer,
+    previous_clock: RuntimeTimerClockState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeWaitableTimerExpirationPlan {
+    previous: RuntimeWaitableTimer,
+    next: RuntimeWaitableTimer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeTimerClockAdvancePlan {
+    previous: RuntimeTimerClockState,
+    next: RuntimeTimerClockState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,6 +278,7 @@ impl RuntimeTimers {
                 id,
                 manual_reset,
                 arm: None,
+                last_expiration: None,
             },
             next_waitable_timer_id,
         })
@@ -322,29 +359,56 @@ impl RuntimeTimers {
             ));
         }
         let previous = *self.waitable_timer(id)?;
-        let generation = previous.arm.map_or(Ok(1), |arm| {
-            arm.generation.checked_add(1).ok_or_else(|| {
+        let previous_generation = previous
+            .arm
+            .map(|arm| arm.generation)
+            .or_else(|| {
+                previous
+                    .last_expiration
+                    .map(|expiration| expiration.arm_generation)
+            })
+            .unwrap_or(0);
+        let generation = previous_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-waitable-timer",
+                "waitable-timer-arm-generation-exhausted",
+                "waitable timer arm generation is exhausted",
+            )
+        })?;
+        let deadline_time_100ns = self
+            .timer_clock
+            .current_time_100ns
+            .checked_add(relative_due_time_100ns)
+            .ok_or_else(|| {
                 RuntimeStateError::resource_limit(
                     "runtime-waitable-timer",
-                    "waitable-timer-arm-generation-exhausted",
-                    "waitable timer arm generation is exhausted",
+                    "waitable-timer-deadline-overflow",
+                    "relative waitable timer deadline exceeds the logical timer clock",
                 )
-            })
-        })?;
+            })?;
         let mut next = previous;
         next.arm = Some(RuntimeWaitableTimerArm {
             relative_due_time_100ns,
+            armed_at_time_100ns: self.timer_clock.current_time_100ns,
+            deadline_time_100ns,
             period_milliseconds: 0,
             generation,
         });
-        Ok(RuntimeWaitableTimerArmPlan { previous, next })
+        next.last_expiration = None;
+        Ok(RuntimeWaitableTimerArmPlan {
+            previous,
+            next,
+            previous_clock: self.timer_clock,
+        })
     }
 
     pub(super) fn preflight_waitable_timer_arm(
         &self,
         plan: &RuntimeWaitableTimerArmPlan,
     ) -> Result<(), RuntimeStateError> {
-        if self.waitable_timers.get(&plan.previous.id) != Some(&plan.previous) {
+        if self.waitable_timers.get(&plan.previous.id) != Some(&plan.previous)
+            || self.timer_clock != plan.previous_clock
+        {
             return Err(RuntimeStateError::conflict(
                 "runtime-waitable-timer",
                 "waitable-timer-arm-plan-stale",
@@ -364,6 +428,125 @@ impl RuntimeTimers {
         self.waitable_timers
             .get(&plan.next.id)
             .expect("armed waitable timer is missing")
+    }
+
+    pub(super) fn plan_waitable_timer_expiration(
+        &self,
+        id: RuntimeWaitableTimerId,
+        expected_arm_generation: u64,
+    ) -> Result<RuntimeWaitableTimerExpirationPlan, RuntimeStateError> {
+        let previous = *self.waitable_timer(id)?;
+        let arm = previous.arm.ok_or_else(|| {
+            RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-expiration-unarmed",
+                "waitable timer expiration requires a live arm",
+            )
+        })?;
+        if arm.generation != expected_arm_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-expiration-generation-mismatch",
+                "waitable timer expiration does not match the live arm generation",
+            ));
+        }
+        let mut next = previous;
+        next.arm = None;
+        next.last_expiration = Some(RuntimeWaitableTimerExpiration {
+            arm_generation: arm.generation,
+            deadline_time_100ns: arm.deadline_time_100ns,
+        });
+        Ok(RuntimeWaitableTimerExpirationPlan { previous, next })
+    }
+
+    pub(super) fn preflight_waitable_timer_expiration(
+        &self,
+        plan: &RuntimeWaitableTimerExpirationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.waitable_timers.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-waitable-timer",
+                "waitable-timer-expiration-plan-stale",
+                "waitable timer state changed after expiration planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_waitable_timer_expiration(
+        &mut self,
+        plan: RuntimeWaitableTimerExpirationPlan,
+    ) -> &RuntimeWaitableTimer {
+        debug_assert!(
+            self.preflight_waitable_timer_expiration(&plan).is_ok(),
+            "waitable timer expiration plan became stale"
+        );
+        let previous = self.waitable_timers.insert(plan.next.id, plan.next);
+        debug_assert_eq!(previous, Some(plan.previous));
+        self.waitable_timers
+            .get(&plan.next.id)
+            .expect("expired waitable timer is missing")
+    }
+
+    pub fn timer_clock_state(&self) -> RuntimeTimerClockState {
+        self.timer_clock
+    }
+
+    pub(super) fn plan_timer_clock_advance(
+        &self,
+        target_time_100ns: u64,
+    ) -> Result<RuntimeTimerClockAdvancePlan, RuntimeStateError> {
+        if target_time_100ns < self.timer_clock.current_time_100ns {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-timer-clock",
+                "timer-clock-target-regressed",
+                "logical timer clock cannot move backwards",
+            ));
+        }
+        let generation = if target_time_100ns == self.timer_clock.current_time_100ns {
+            self.timer_clock.generation
+        } else {
+            self.timer_clock.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-timer-clock",
+                    "timer-clock-generation-exhausted",
+                    "logical timer clock generation is exhausted",
+                )
+            })?
+        };
+        Ok(RuntimeTimerClockAdvancePlan {
+            previous: self.timer_clock,
+            next: RuntimeTimerClockState {
+                current_time_100ns: target_time_100ns,
+                generation,
+            },
+        })
+    }
+
+    pub(super) fn preflight_timer_clock_advance(
+        &self,
+        plan: &RuntimeTimerClockAdvancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.timer_clock != plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-timer-clock",
+                "timer-clock-advance-plan-stale",
+                "logical timer clock changed after advance planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_timer_clock_advance(
+        &mut self,
+        plan: RuntimeTimerClockAdvancePlan,
+    ) -> RuntimeTimerClockState {
+        debug_assert!(
+            self.preflight_timer_clock_advance(&plan).is_ok(),
+            "logical timer clock advance plan became stale"
+        );
+        self.timer_clock = plan.next;
+        self.timer_clock
     }
 
     pub(super) fn waitable_timer_ids(&self) -> Vec<RuntimeWaitableTimerId> {
@@ -987,6 +1170,109 @@ mod tests {
     }
 
     #[test]
+    fn logical_clock_expiration_and_rearm_plans_reject_stale_generations() {
+        let mut timers = RuntimeTimers::default();
+        let creation = timers.plan_waitable_timer_creation(true).unwrap();
+        let timer = *timers.commit_waitable_timer_creation(creation);
+
+        let stale_arm = timers
+            .plan_waitable_timer_one_shot_arm(timer.id, 5_000)
+            .unwrap();
+        let clock_advance = timers.plan_timer_clock_advance(1_000).unwrap();
+        assert_eq!(
+            timers.timer_clock_state(),
+            RuntimeTimerClockState {
+                current_time_100ns: 0,
+                generation: 0,
+            }
+        );
+        assert_eq!(
+            timers.commit_timer_clock_advance(clock_advance),
+            RuntimeTimerClockState {
+                current_time_100ns: 1_000,
+                generation: 1,
+            }
+        );
+        assert_eq!(
+            timers
+                .preflight_waitable_timer_arm(&stale_arm)
+                .unwrap_err()
+                .code,
+            "waitable-timer-arm-plan-stale"
+        );
+        assert_eq!(timers.waitable_timer(timer.id).unwrap().arm, None);
+
+        let arm = timers
+            .plan_waitable_timer_one_shot_arm(timer.id, 5_000)
+            .unwrap();
+        assert_eq!(
+            timers.commit_waitable_timer_arm(arm).arm,
+            Some(RuntimeWaitableTimerArm {
+                relative_due_time_100ns: 5_000,
+                armed_at_time_100ns: 1_000,
+                deadline_time_100ns: 6_000,
+                period_milliseconds: 0,
+                generation: 1,
+            })
+        );
+        let before_mismatched_expiration = timers.clone();
+        assert_eq!(
+            timers
+                .plan_waitable_timer_expiration(timer.id, 2)
+                .unwrap_err()
+                .code,
+            "waitable-timer-expiration-generation-mismatch"
+        );
+        assert_eq!(timers, before_mismatched_expiration);
+
+        let expiration = timers.plan_waitable_timer_expiration(timer.id, 1).unwrap();
+        let deadline = timers.plan_timer_clock_advance(6_000).unwrap();
+        timers.commit_timer_clock_advance(deadline);
+        timers
+            .preflight_waitable_timer_expiration(&expiration)
+            .unwrap();
+        let expired = *timers.commit_waitable_timer_expiration(expiration);
+        assert_eq!(expired.arm, None);
+        assert_eq!(
+            expired.last_expiration,
+            Some(RuntimeWaitableTimerExpiration {
+                arm_generation: 1,
+                deadline_time_100ns: 6_000,
+            })
+        );
+
+        let rearm = timers
+            .plan_waitable_timer_one_shot_arm(timer.id, 1_000)
+            .unwrap();
+        assert_eq!(
+            timers.commit_waitable_timer_arm(rearm).arm,
+            Some(RuntimeWaitableTimerArm {
+                relative_due_time_100ns: 1_000,
+                armed_at_time_100ns: 6_000,
+                deadline_time_100ns: 7_000,
+                period_milliseconds: 0,
+                generation: 2,
+            })
+        );
+        let stale_clock = timers.plan_timer_clock_advance(7_000).unwrap();
+        let competing_clock = timers.plan_timer_clock_advance(6_500).unwrap();
+        timers.commit_timer_clock_advance(competing_clock);
+        assert_eq!(
+            timers
+                .preflight_timer_clock_advance(&stale_clock)
+                .unwrap_err()
+                .code,
+            "timer-clock-advance-plan-stale"
+        );
+        let before_regression = timers.clone();
+        assert_eq!(
+            timers.plan_timer_clock_advance(6_000).unwrap_err().code,
+            "timer-clock-target-regressed"
+        );
+        assert_eq!(timers, before_regression);
+    }
+
+    #[test]
     fn waitable_timer_creation_retirement_and_capacity_are_planned() {
         let mut timers = RuntimeTimers::default();
         let first = timers.plan_waitable_timer_creation(true).unwrap();
@@ -1005,6 +1291,8 @@ mod tests {
             timers.commit_waitable_timer_arm(first_arm).arm,
             Some(RuntimeWaitableTimerArm {
                 relative_due_time_100ns: 5_000,
+                armed_at_time_100ns: 0,
+                deadline_time_100ns: 5_000,
                 period_milliseconds: 0,
                 generation: 1,
             })
@@ -1023,6 +1311,8 @@ mod tests {
             timers.commit_waitable_timer_arm(rearm).arm,
             Some(RuntimeWaitableTimerArm {
                 relative_due_time_100ns: 20_000,
+                armed_at_time_100ns: 0,
+                deadline_time_100ns: 20_000,
                 period_milliseconds: 0,
                 generation: 2,
             })

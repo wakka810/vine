@@ -4938,3 +4938,39 @@ host crossing／browser clock／hot pathを変えないsemantic leafのため再
 `0x10050615`の`kernel32.dll!WaitForSingleObjectEx(0x57010002,10,TRUE)`である。Alertable wait、timeout、
 timer expiry／signalはこのcheckpointで実装済みとしない。詳細は
 [bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
+
+## 145. BGI finite alertable waitable-timer wait
+
+Focused `wait-for-single-object-ex` observationを独立に2回取得した。Primary raw traceは
+1,615,447 bytes／5,018 records／SHA-256
+`1ad73149838b453939c1e5c638775f645ddd42d032358bbd6ff0aceee2a0a1eb`、confirmationは
+1,610,933 bytes／5,019 records／SHA-256
+`e851ed15088768643823fbbb14d3d0a87372b19ee770ff936c41bf0a4fa7c0c0`である。各traceは
+2,471 API pairsがbalanced、diagnostics／hook errorsは0である。Raw traceは`.work/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGI callerはRVA `0x00050615`へ戻るcallで、直前にrelative `-5,000` 100 nsでarmしたtimer handle、
+timeout 10 ms、alertable TRUEを渡す。Resultは`WAIT_OBJECT_0`、LastErrorは0で、EAXをそのままwrapper
+returnへ運ぶ。Controlled `x86-wait-for-single-object-ex-timer-v1` oracleはmanual-reset timerのarmed
+wait／repeat zero-time waitが`WAIT_OBJECT_0, WAIT_OBJECT_0`、nonsignaled zero-time waitが
+`WAIT_TIMEOUT`、invalid handleが`WAIT_FAILED`／`ERROR_INVALID_HANDLE` 6となることを固定する。
+Success／timeoutはsentinel LastErrorを保持し、hookとdirect system callのresult／LastErrorは一致する。
+
+Runtimeは0..10 ms、alertable TRUE、waitable-timer-only policyの下で、logical clockをtimer deadlineまたは
+timeout deadlineまで進める。Timer clock、exact arm expiration、typed-object signal、wait registration、
+scheduler laneを全件preflightしてからtargeted commitする。Primary loopではarm sequence
+18,681／18,689／18,697、wait sequence 18,682／18,690／18,698、clock
+5,000／10,000／15,000、arm generation 1／2／3をNode／Chromeで一致させた。
+
+Nodeは18,698 calls、18,754 writebacks／37,732 dirty pages／2,932,699 changed bytes、17,353 host
+deltas、generation 36,680を通した。Chromeは19,453 slices／19,451 writebacks／39,346 pages、
+generation 37,379、55,877 Wasm crossingsを通した。Semantic SHA-256は
+`31b7d2d7d3d14452f93d45fa9a00c962dfaaf8b9516186855d6f4e4208080332`、checkpoint memory
+SHA-256は`975002521bc7cc363fbc870a484d935b1cba9dc700b5afb8113b189c7929b828`で一致する。
+
+Verificationはinstruction 11,973,878、owned endpoint ID 144／address `0x7F0008F0`の
+`KERNEL32.dll!EnterCriticalSection` dispatch前にnormal capability checkpointとして停止する。
+これはunsupported faultではない。Current handlerはdeterministic logical fast-forwardであり、browser wall-clock
+pacing、APC、cross-thread waiter、pending cancelをclaimしない。詳細は
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。

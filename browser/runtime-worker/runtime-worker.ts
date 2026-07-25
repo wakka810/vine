@@ -542,6 +542,8 @@ class BrowserRuntimeSession {
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   readonly #semanticCallDigest = new SemanticCallDigest();
+  #waitForSingleObjectExCompletions = 0;
+  #bgiCheckpointPending = false;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -589,6 +591,7 @@ class BrowserRuntimeSession {
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
+    checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
 
   constructor(sessionId: number, configuration: SessionConfiguration) {
@@ -1760,6 +1763,10 @@ class BrowserRuntimeSession {
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
+    if (this.#bgiCheckpointPending) {
+      this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
+      return;
+    }
     const engine = this.#requireEngine();
     const returnAddress = engine.readGuestU32(stackPointer);
     const output = this.#requireBridge().dispatch<
@@ -1909,6 +1916,44 @@ class BrowserRuntimeSession {
     }
   }
 
+  #completeBgiCapabilityCheckpoint(endpointAddress: number, stackPointer: number): void {
+    const checkpoint = this.#report.checkpointCompletion;
+    invariant(
+      checkpoint !== null &&
+        this.#requirePrepared().runtime.kernel32Policy ===
+          "kernel32-wait-for-single-object-ex-v1",
+      "BGI capability checkpoint has no matching compatibility profile",
+    );
+    const endpoint = this.#requirePrepared().endpoints.find(
+      (candidate) => candidate.address === endpointAddress,
+    );
+    invariant(endpoint !== undefined, "BGI capability checkpoint endpoint is not owned");
+    const returnAddress = this.#requireEngine().readGuestU32(stackPointer);
+    invariant(
+      returnAddress > 0 && returnAddress <= 0xffff_ffff,
+      "BGI capability checkpoint return address is invalid",
+    );
+    const reflection = this.#requireBridge().currentReflection<CurrentReflectionMetadata>().metadata;
+    invariant(reflection.kind === "current-reflection", "invalid checkpoint reflection metadata");
+    invariant(
+      reflection.generation === Number(this.#generation) &&
+        reflection.acknowledgedGeneration === Number(this.#generation),
+      "checkpoint reflection generation mismatch",
+    );
+    invariant(
+      /^[0-9a-f]{64}$/u.test(reflection.contentSha256),
+      "checkpoint reflection digest is invalid",
+    );
+    checkpoint.instructionCount = this.#report.instructions;
+    checkpoint.nextEndpoint = endpoint;
+    checkpoint.memoryContentSha256 = reflection.contentSha256;
+    this.#cancelAndFinish(
+      "checkpoint-complete",
+      "WaitForSingleObjectEx recurring-wait checkpoint completed",
+      null,
+    );
+  }
+
   #recordBgiCompletion(
     metadata: CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
     reservedSequence?: number,
@@ -1938,15 +1983,30 @@ class BrowserRuntimeSession {
     );
     const isWaitableTimerMutation =
       completion.implementationId === "kernel32.create-waitable-timer-a.v1" ||
-      completion.implementationId === "kernel32.set-waitable-timer.relative-one-shot.v1";
+      completion.implementationId === "kernel32.set-waitable-timer.relative-one-shot.v1" ||
+      completion.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+    const isWaitForSingleObjectEx =
+      completion.implementationId ===
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1";
     const waitableTimerMutationSucceeded =
       isWaitableTimerMutation &&
       completion.eax.action === "set" &&
-      completion.eax.value !== 0;
+      (isWaitForSingleObjectEx
+        ? completion.eax.value !== 0xffff_ffff
+        : completion.eax.value !== 0);
     invariant(
       waitableTimerMutationSucceeded === (metadata.waitableTimer !== undefined),
       "BGI waitable timer completion metadata mismatch",
     );
+    if (metadata.waitableTimer !== undefined) {
+      invariant(
+        isWaitForSingleObjectEx ===
+          (metadata.waitableTimer.timerClock !== undefined &&
+            metadata.waitableTimer.nextWaitRegistrationId !== undefined),
+        "BGI waitable timer clock metadata mismatch",
+      );
+    }
     const isCreateThread = completion.implementationId === "kernel32.create-thread.v1";
     invariant(
       isCreateThread === (metadata.createdThread !== undefined),
@@ -2089,6 +2149,29 @@ class BrowserRuntimeSession {
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
+    }
+    if (
+      completion.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
+      this.#requirePrepared().runtime.kernel32Policy ===
+        "kernel32-wait-for-single-object-ex-v1"
+    ) {
+      this.#waitForSingleObjectExCompletions += 1;
+      if (this.#waitForSingleObjectExCompletions === 3) {
+        this.#report.checkpointCompletion = {
+          capability: "kernel32-wait-for-single-object-ex",
+          implementationId:
+            "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+          requiredCompletions: 3,
+          completionCount: 3,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          instructionCount: 0,
+          nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
+        this.#bgiCheckpointPending = true;
+      }
     }
   }
 
@@ -2951,7 +3034,12 @@ class BrowserRuntimeSession {
   }
 
   #cancelAndFinish(
-    outcome: "cancelled" | "watchdog" | "fault" | "structured-stop",
+    outcome:
+      | "cancelled"
+      | "watchdog"
+      | "fault"
+      | "structured-stop"
+      | "checkpoint-complete",
     detail: string,
     reportedError: string | null,
   ): void {
@@ -3276,6 +3364,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             sourceReads: [],
             writableCommits: [],
             firstUnsupported: null,
+            checkpointCompletion: null,
             error: "another runtime session is active",
           },
         });

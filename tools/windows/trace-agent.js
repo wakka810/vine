@@ -268,6 +268,14 @@ let setWaitableTimerCompletionRecorded = false;
 let setWaitableTimerDrainCheckScheduled = false;
 let setWaitableTimerMainCallClaimed = false;
 const setWaitableTimerMainModuleCalls = [];
+let waitForSingleObjectExOracleScheduled = false;
+let waitForSingleObjectExOracleCall = null;
+let waitForSingleObjectExOracleComplete = false;
+let waitForSingleObjectExOracleEvidence = null;
+let waitForSingleObjectExCompletionRecorded = false;
+let waitForSingleObjectExDrainCheckScheduled = false;
+let waitForSingleObjectExMainCallClaimed = false;
+const waitForSingleObjectExMainModuleCalls = [];
 let setTimerCompletionRecorded = false;
 let setTimerDrainCheckScheduled = false;
 const setTimerMainModuleCalls = [];
@@ -6014,6 +6022,123 @@ function attachSetWaitableTimerHook(module) {
           immediateConsumer: this.immediateConsumer,
         });
         setImmediate(maybeCompleteSetWaitableTimerObservation);
+      }
+    },
+  });
+}
+
+function attachWaitForSingleObjectExHook(module) {
+  const name = "WaitForSingleObjectEx";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        waitForSingleObjectExOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (isMainModuleCaller) {
+        if (waitForSingleObjectExMainCallClaimed) {
+          this.traceFrame = null;
+          return;
+        }
+        waitForSingleObjectExMainCallClaimed = true;
+      }
+      this.handle = args[0];
+      this.timeoutMilliseconds = args[1].toUInt32();
+      this.alertable = args[2].toUInt32();
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = waitForSingleObjectExOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = isMainModuleCaller
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              48,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              24,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.handle.toString(),
+            this.timeoutMilliseconds,
+            this.alertable,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          waitForSingleObjectEx: {
+            handle: this.handle.toString(),
+            timeoutMilliseconds: this.timeoutMilliseconds,
+            alertable: this.alertable,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const rawResult = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        waitForSingleObjectExOracleCall.hookResult = rawResult;
+        waitForSingleObjectExOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          waitForSingleObjectEx: {
+            result: rawResult,
+          },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        waitForSingleObjectExMainModuleCalls.length === 0
+      ) {
+        waitForSingleObjectExMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          handle: this.handle.toString(),
+          timeoutMilliseconds: this.timeoutMilliseconds,
+          alertable: this.alertable,
+          result: rawResult,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteWaitForSingleObjectExObservation);
       }
     },
   });
@@ -17947,6 +18072,209 @@ function scheduleSetWaitableTimerOracle(module) {
   });
 }
 
+function maybeCompleteWaitForSingleObjectExObservation() {
+  if (
+    waitForSingleObjectExCompletionRecorded ||
+    !waitForSingleObjectExOracleComplete ||
+    waitForSingleObjectExMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteWaitForSingleObjectExObservation, 10);
+    return;
+  }
+  if (waitForSingleObjectExDrainCheckScheduled) {
+    return;
+  }
+  waitForSingleObjectExDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    waitForSingleObjectExDrainCheckScheduled = false;
+    if (waitForSingleObjectExCompletionRecorded) {
+      return;
+    }
+    if (
+      activeCallsByThread.size !== 0 ||
+      nextCallId !== expectedNextCallId
+    ) {
+      maybeCompleteWaitForSingleObjectExObservation();
+      return;
+    }
+    waitForSingleObjectExCompletionRecorded = true;
+    emit("wait-for-single-object-ex-complete", {
+      profile: "x86-bgi-waitable-timer-wait-v1",
+      oracleProfile: waitForSingleObjectExOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: waitForSingleObjectExMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "wait-for-single-object-ex-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function scheduleWaitForSingleObjectExOracle(module) {
+  if (waitForSingleObjectExOracleScheduled) {
+    return;
+  }
+  waitForSingleObjectExOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const createAddress = findExport(module, "CreateWaitableTimerA");
+      const setAddress = findExport(module, "SetWaitableTimer");
+      const waitAddress = findExport(module, "WaitForSingleObjectEx");
+      const closeAddress = findExport(module, "CloseHandle");
+      if (
+        createAddress === null ||
+        setAddress === null ||
+        waitAddress === null ||
+        closeAddress === null
+      ) {
+        throw new Error(
+          "wait for single object ex oracle exports are unavailable",
+        );
+      }
+      const createWaitableTimerA = new SystemFunction(
+        createAddress,
+        "pointer",
+        ["pointer", "uint32", "pointer"],
+        "stdcall",
+      );
+      const setWaitableTimer = new SystemFunction(
+        setAddress,
+        "uint32",
+        ["pointer", "pointer", "int32", "pointer", "pointer", "uint32"],
+        "stdcall",
+      );
+      const waitForSingleObjectEx = new SystemFunction(
+        waitAddress,
+        "uint32",
+        ["pointer", "uint32", "uint32"],
+        "stdcall",
+      );
+      const closeHandle = new SystemFunction(
+        closeAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invokeWait = (handle, timeoutMilliseconds, alertable, sentinel) => {
+        waitForSingleObjectExOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = waitForSingleObjectEx(
+            handle,
+            timeoutMilliseconds,
+            alertable ? 1 : 0,
+          );
+          return {
+            handle: handle.toString(),
+            timeoutMilliseconds,
+            alertable,
+            sentinel,
+            result: Number(outcome.value) >>> 0,
+            systemLastError: Number(outcome.lastError) >>> 0,
+            hookResult: waitForSingleObjectExOracleCall.hookResult,
+            hookLastErrorAfter:
+              waitForSingleObjectExOracleCall.hookLastErrorAfter,
+          };
+        } finally {
+          waitForSingleObjectExOracleCall = null;
+        }
+      };
+
+      const relativeDueTime100ns = -5000n;
+      const dueTime = Memory.alloc(8);
+      writeSignedLargeInteger(dueTime, relativeDueTime100ns);
+      const armedTimer = createWaitableTimerA(ptr(0), 1, ptr(0)).value;
+      if (armedTimer.isNull()) {
+        throw new Error(
+          "wait for single object ex oracle could not create an armed timer",
+        );
+      }
+      const setOutcome = setWaitableTimer(
+        armedTimer,
+        dueTime,
+        0,
+        ptr(0),
+        ptr(0),
+        0,
+      );
+      const armedWait = invokeWait(armedTimer, 10, true, 0x11223344);
+      const repeatedWait = invokeWait(armedTimer, 0, true, 0x22334455);
+      const armedCloseResult = Number(closeHandle(armedTimer).value) >>> 0;
+
+      const nonsignaledTimer = createWaitableTimerA(ptr(0), 1, ptr(0)).value;
+      if (nonsignaledTimer.isNull()) {
+        throw new Error(
+          "wait for single object ex oracle could not create a timeout timer",
+        );
+      }
+      const timeoutWait = invokeWait(
+        nonsignaledTimer,
+        0,
+        true,
+        0x33445566,
+      );
+      const nonsignaledCloseResult =
+        Number(closeHandle(nonsignaledTimer).value) >>> 0;
+      const invalidWait = invokeWait(ptr(0x1234), 10, true, 0x44556677);
+
+      waitForSingleObjectExOracleEvidence = {
+        profile: "x86-wait-for-single-object-ex-timer-v1",
+        relativeDueTime100ns: relativeDueTime100ns.toString(),
+        setResult: Number(setOutcome.value) >>> 0,
+        setLastError: Number(setOutcome.lastError) >>> 0,
+        armedWait,
+        repeatedWait,
+        timeoutWait,
+        invalidWait,
+        armedCloseResult,
+        nonsignaledCloseResult,
+        waitObject0: 0,
+        waitTimeout: 258,
+        waitFailed: 0xffffffff,
+        errorInvalidHandle: 6,
+        armedTimerSatisfied:
+          armedWait.result === 0 && repeatedWait.result === 0,
+        zeroTimeoutObserved: timeoutWait.result === 258,
+        invalidHandleRejected:
+          invalidWait.result === 0xffffffff &&
+          invalidWait.systemLastError === 6,
+        successAndTimeoutPreserveLastError:
+          armedWait.systemLastError === armedWait.sentinel &&
+          repeatedWait.systemLastError === repeatedWait.sentinel &&
+          timeoutWait.systemLastError === timeoutWait.sentinel,
+        allResultsMatchHooks: [armedWait, repeatedWait, timeoutWait, invalidWait]
+          .every((call) => call.hookResult === call.result),
+        allLastErrorsMatchHooks: [
+          armedWait,
+          repeatedWait,
+          timeoutWait,
+          invalidWait,
+        ].every((call) => call.hookLastErrorAfter === call.systemLastError),
+      };
+      waitForSingleObjectExOracleComplete = true;
+      emit(
+        "wait-for-single-object-ex-oracle",
+        waitForSingleObjectExOracleEvidence,
+      );
+      maybeCompleteWaitForSingleObjectExObservation();
+    } catch (error) {
+      waitForSingleObjectExOracleCall = null;
+      emit("wait-for-single-object-ex-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
 function maybeCompleteSetTimerObservation() {
   if (
     setTimerCompletionRecorded ||
@@ -21104,6 +21432,21 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "SetWaitableTimer",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("wait-for-single-object-ex")
+    ) {
+      try {
+        attachWaitForSingleObjectExHook(module);
+        scheduleWaitForSingleObjectExOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "WaitForSingleObjectEx",
           error: error.message,
         });
       }

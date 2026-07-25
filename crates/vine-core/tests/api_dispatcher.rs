@@ -20,9 +20,9 @@ use vine_core::{
     Kernel32MultiByteToWideCharPolicy, Kernel32PerformanceCounterPolicy,
     Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SetWaitableTimerPolicy, Kernel32StandardHandleFileType, Kernel32SystemInfoPolicy,
-    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WideCharToMultiBytePolicy,
-    LC_MAP_STRING_W_IMPLEMENTATION, LOAD_LIBRARY_A_IMPLEMENTATION,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
+    Kernel32ThreadAffinityPolicy, Kernel32TickCountPolicy, Kernel32WaitForSingleObjectExPolicy,
+    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
+    LOAD_LIBRARY_A_IMPLEMENTATION, LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
@@ -37,10 +37,11 @@ use vine_core::{
     RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleLoadState,
     RuntimeModuleReferenceOwner, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue, RuntimeWaitState,
-    RuntimeWaitableTimerArm, RuntimeWaitableTimerId, Rva, SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
-    SET_LAST_ERROR_IMPLEMENTATION, SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
-    SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION, SET_WAITABLE_TIMER_IMPLEMENTATION,
-    SchedulerThreadState, StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, dispatch_kernel32_api,
+    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
+    SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
+    SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
+    SET_WAITABLE_TIMER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
+    TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
 
@@ -6728,6 +6729,8 @@ fn set_waitable_timer_arms_bounded_relative_one_shot_atomically() {
             .arm,
         Some(RuntimeWaitableTimerArm {
             relative_due_time_100ns: 5_000,
+            armed_at_time_100ns: 0,
+            deadline_time_100ns: 5_000,
             period_milliseconds: 0,
             generation: 1,
         })
@@ -6810,6 +6813,230 @@ fn set_waitable_timer_arms_bounded_relative_one_shot_atomically() {
             if fault.code == "set-waitable-timer-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before_disabled);
+}
+
+#[test]
+fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_error() {
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x118);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize WaitForSingleObjectEx IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "WaitForSingleObjectEx".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("WaitForSingleObjectEx contract");
+    assert_eq!(
+        contract.implementation_id,
+        WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let frames = [
+        vec![0x1000_1001, 0x5701_0001, 10, 1],
+        vec![0x1000_1002, 0x5701_0001, 0, 1],
+        vec![0x1000_1003, 0x5701_0002, 0, 1],
+        vec![0x1000_1004, 0x5701_0002, 10, 1],
+        vec![0x1000_1005, 0x5701_ffff, 10, 1],
+        vec![0x1000_1006, 0x5701_0001, 11, 1],
+        vec![0x1000_1007, 0x5701_0001, 10, 0],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let mut policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json"
+    ))
+    .expect("WaitForSingleObjectEx policy fixture");
+    policy.id = "public-wait-for-single-object-ex-v1".to_owned();
+    policy.wait_for_single_object_ex = Some(Kernel32WaitForSingleObjectExPolicy {
+        maximum_timeout_milliseconds: 10,
+        allow_alertable: true,
+        allow_nonalertable: false,
+        waitable_timer_only: true,
+    });
+    policy.validate().expect("valid bounded wait policy");
+
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let manual = runtime
+        .create_waitable_timer_a(true)
+        .expect("create manual-reset timer");
+    runtime
+        .set_waitable_timer(manual.handle, 5_000)
+        .expect("arm reached timer interval");
+    let unarmed = runtime
+        .create_waitable_timer_a(true)
+        .expect("create unarmed timeout timer");
+    assert_eq!(manual.handle.0, 0x5701_0001);
+    assert_eq!(unarmed.handle.0, 0x5701_0002);
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState,
+                    selected_policy: &Kernel32CompatibilityPolicy|
+     -> DispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &endpoint,
+                STACK_BASE + index as u32 * 0x20,
+                frames[index][0],
+            ),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        )
+    };
+
+    let memory_before_success = memory.stats();
+    let satisfied = dispatch(0, &mut memory, &mut runtime, &policy);
+    let DispatchOutcome::Immediate(satisfied) = satisfied else {
+        panic!("expected signaled wait completion, got {satisfied:?}");
+    };
+    assert_eq!(satisfied.eax, RegisterUpdate::Set(0));
+    assert_eq!(satisfied.stack_pointer, GuestAddress(STACK_BASE + 16));
+    assert_eq!(satisfied.last_error, INITIAL_LAST_ERROR);
+    assert!(satisfied.guest_writes.is_empty());
+    assert_eq!(memory.stats(), memory_before_success);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.timer_clock_state().generation, 1);
+    assert_eq!(runtime.next_wait_registration_id(), 2);
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().object_waiters().is_empty());
+    assert_eq!(
+        runtime
+            .object_wait_state(manual.handle, RuntimeObjectKind::WaitableTimer)
+            .unwrap(),
+        RuntimeWaitState::Signaled { exit_code: 0 }
+    );
+    let timer = runtime.waitable_timer_for_handle(manual.handle).unwrap();
+    assert_eq!(timer.arm, None);
+    assert_eq!(
+        timer.last_expiration,
+        Some(RuntimeWaitableTimerExpiration {
+            arm_generation: 1,
+            deadline_time_100ns: 5_000,
+        })
+    );
+
+    let repeated = dispatch(1, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        repeated,
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(0)
+                && completion.last_error == INITIAL_LAST_ERROR
+    ));
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.next_wait_registration_id(), 2);
+
+    let poll_timeout = dispatch(2, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        poll_timeout,
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(258)
+                && completion.last_error == INITIAL_LAST_ERROR
+    ));
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.next_wait_registration_id(), 2);
+
+    let finite_timeout = dispatch(3, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        finite_timeout,
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(258)
+                && completion.last_error == INITIAL_LAST_ERROR
+    ));
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 105_000);
+    assert_eq!(runtime.timer_clock_state().generation, 2);
+    assert_eq!(runtime.next_wait_registration_id(), 3);
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().object_waiters().is_empty());
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
+
+    let runtime_before_invalid_handle = runtime.clone();
+    let memory_before_invalid_handle = memory.stats();
+    let invalid_handle = dispatch(4, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        invalid_handle,
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(u32::MAX)
+                && completion.last_error == 6
+    ));
+    assert_eq!(
+        runtime.timer_clock_state(),
+        runtime_before_invalid_handle.timer_clock_state()
+    );
+    assert_eq!(
+        runtime.next_wait_registration_id(),
+        runtime_before_invalid_handle.next_wait_registration_id()
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 6);
+    assert_eq!(memory.stats(), memory_before_invalid_handle);
+
+    for (index, code) in [
+        (5_usize, "wait-for-single-object-ex-timeout-unsupported"),
+        (6, "wait-for-single-object-ex-alertable-mode-unsupported"),
+    ] {
+        let runtime_before = runtime.clone();
+        let memory_before = memory.stats();
+        let rejected = dispatch(index, &mut memory, &mut runtime, &policy);
+        assert!(matches!(
+            rejected,
+            DispatchOutcome::Fault(ref fault)
+                if fault.class == ApiFaultClass::Unsupported && fault.code == code
+        ));
+        assert_eq!(runtime, runtime_before);
+        assert_eq!(memory.stats(), memory_before);
+    }
+
+    let mut disabled_policy = policy;
+    disabled_policy.wait_for_single_object_ex = None;
+    disabled_policy.validate().expect("valid preceding policy");
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled = dispatch(0, &mut memory, &mut runtime, &disabled_policy);
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.code == "wait-for-single-object-ex-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
 }
 
 #[test]

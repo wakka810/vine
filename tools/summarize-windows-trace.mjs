@@ -35,6 +35,7 @@ const supportedObservations = new Set([
   "create-mutex-a",
   "create-waitable-timer-a",
   "set-waitable-timer",
+  "wait-for-single-object-ex",
   "load-icon-a",
   "load-image-a",
   "send-message-a",

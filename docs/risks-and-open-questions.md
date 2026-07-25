@@ -88,16 +88,19 @@ Rust ownerへ分離し、NULL detachとruntime-owned restoreをfailure-atomicに
 writable profile objectであり、そのcontent hash変化をsource corpus identity mismatchとして扱わない。既存objectは
 new SQLite profileだけへseedし、以後のread／writeを配布directoryから分離する。Canonical rerunはdetach後のpollingを
 runnable childが選択されないscheduler progress不足と分類し、競合中だけ数える64 API-boundary quantumでNode／Chromeの
-両thread実行と一回のswitchを一致させた。残るthread riskはCPU-bound laneのpreemption、wait／timerによるwake ordering、
+両thread実行と一回のswitchを一致させた。Reached timer waitはsingle current laneのbounded immediate roundtripまで
+成立した。残るthread riskはCPU-bound laneのpreemption、cross-thread wait／timer wake ordering、
 child exit／cleanupをprimary flowで固定できていないことである。Storage riskはprimary guest write、browser／server restart後
 load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、
-`WaitForSingleObjectEx`とstorage vertical sliceをそれぞれのowner境界で進める。
+wait pacingとstorage vertical sliceをそれぞれのowner境界で進める。
 
-Primary `SetWaitableTimer`のrelative one-shot armはtimer payloadとtyped-object wait stateのjoint preflightで成立し、
-host／browser clockをauthorityへimportせずgeneration 1のlogical armを保存した。残るriskはarm registrationではなく、
-`WaitForSingleObjectEx(handle,10,TRUE)`で期限到来、timeout、alertable flag、manual-reset signalをどのlogical clock／
-scheduler orderingで消費するかである。Native wall clockやbrowser task timingを直接wait resultへ流入させず、thread
-wait queue、timer generation、cancel／teardownを一つのbounded transactionとして固定してからexpiryを有効化する。
+Primary `SetWaitableTimer`のrelative one-shot armと
+`WaitForSingleObjectEx(handle,10,TRUE)`のlogical deadline、exact generation expiration、manual-reset signal、
+finite timeout、alertable-flag acceptanceはtimer／object／wait／schedulerのjoint preflightで成立した。
+Current semantic handlerはhost／browser clockをauthorityへimportせずdeadlineまでdeterministically fast-forwardする。
+残るriskはresult correctnessではなくcontinuous loopのreal-time pacingである。Async delay completionは
+thread／request／generation／lifetimeを再検証し、cancel／teardown、background freeze／resume、bounded catch-upを
+partial mutationなしで順序付ける必要がある。APC deliveryは別scopeである。
 
 ## 5. Scope reduction／no-go trigger
 

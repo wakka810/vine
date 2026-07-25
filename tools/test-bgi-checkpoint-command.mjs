@@ -244,6 +244,10 @@ assert.equal(
   bgiProfileOutputDirectory("kernel32-set-waitable-timer"),
   "v86-bgi-set-waitable-timer",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-wait-for-single-object-ex"),
+  "v86-bgi-wait-for-single-object-ex",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

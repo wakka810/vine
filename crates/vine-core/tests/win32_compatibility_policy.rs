@@ -59,6 +59,9 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-create-thread-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-thread-priority-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json"),
+        include_str!(
+            "../../../fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json"
+        ),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -361,7 +364,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     );
 
     let set_waitable_timer: Kernel32CompatibilityPolicy =
-        serde_json::from_str(policies.last().unwrap()).unwrap();
+        serde_json::from_str(policies[38]).unwrap();
     let set_timer_profile = set_waitable_timer
         .set_waitable_timer()
         .expect("set waitable timer profile");
@@ -379,6 +382,34 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         unsupported_set_timer_profile.validate().unwrap_err().code,
         "kernel32-policy-set-waitable-timer-invalid"
+    );
+
+    let wait_for_single_object_ex: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies.last().unwrap()).unwrap();
+    let wait_profile = wait_for_single_object_ex
+        .wait_for_single_object_ex()
+        .expect("finite waitable timer wait profile");
+    assert_eq!(wait_profile.maximum_timeout_milliseconds, 10);
+    assert!(wait_profile.allow_alertable);
+    assert!(!wait_profile.allow_nonalertable);
+    assert!(wait_profile.waitable_timer_only);
+
+    let mut unsupported_wait_mode = wait_for_single_object_ex.clone();
+    unsupported_wait_mode
+        .wait_for_single_object_ex
+        .as_mut()
+        .unwrap()
+        .allow_alertable = false;
+    assert_eq!(
+        unsupported_wait_mode.validate().unwrap_err().code,
+        "kernel32-policy-wait-for-single-object-ex-invalid"
+    );
+
+    let mut unsupported_wait_without_arm = wait_for_single_object_ex;
+    unsupported_wait_without_arm.set_waitable_timer = None;
+    assert_eq!(
+        unsupported_wait_without_arm.validate().unwrap_err().code,
+        "kernel32-policy-wait-for-single-object-ex-invalid"
     );
 
     let mut unsupported_os_version = os_version.clone();

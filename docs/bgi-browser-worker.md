@@ -4,7 +4,7 @@
 
 This document describes the stable execution contract for running the private BGI
 checkpoint in Chrome. Current protocol versions, artifact identities, measurements,
-and the exact structured stop are recorded only in
+and the exact structured fault or capability completion are recorded only in
 [current-checkpoint.json](current-checkpoint.json).
 
 The private executable is served from its fingerprinted installed path. It is not
@@ -55,7 +55,7 @@ the module graph, and leave no runnable Worker session behind.
 Chrome and the Node oracle are compared using guest-visible semantics: ordered API
 occurrences, decoded arguments, return and stack state, LastError, guest writes,
 directory and synchronization metadata, source request／cursor／payload identity,
-final memory content, and the structured fault. Memory generations and whole-report hashes are synchronization or artifact
+final memory content, and the exact terminal evidence. Memory generations and whole-report hashes are synchronization or artifact
 identity, not guest-visible equivalence.
 
 The browser gate also covers success, cancellation, watchdog, callback, Canvas, audio,
@@ -80,5 +80,6 @@ fingerprint before and after execution.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.
 - The versioned workload gate is not a full-play or long-idle soak.
-- Unsupported behavior remains an explicit structured stop; reaching a later API does
-  not by itself establish subsystem completeness.
+- Unsupported behavior remains an explicit structured stop. A normal capability
+  completion requires a versioned count and next-endpoint contract; reaching a
+  later API by itself does not establish subsystem completeness.

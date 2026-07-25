@@ -75,6 +75,28 @@ assert.throws(
 function validEvidence() {
   const browser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
   const policy = checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
+  const capabilityCheckpoint =
+    checkpoint.nextStructuredStop.kind === "capability-checkpoint";
+  const outcome = capabilityCheckpoint ? "checkpoint-complete" : "structured-stop";
+  const checkpointCompletion = capabilityCheckpoint
+    ? {
+        ...structuredClone(checkpoint.nextStructuredStop.completion),
+        instructionCount: checkpoint.nextStructuredStop.instructionCount,
+        nextEndpoint: {
+          id: checkpoint.nextStructuredStop.nextEndpoint.endpointId,
+          address: Number.parseInt(
+            checkpoint.nextStructuredStop.nextEndpoint.endpointAddress,
+            16,
+          ),
+          module: checkpoint.nextStructuredStop.nextEndpoint.api.split("!")[0],
+          symbol: {
+            kind: "name",
+            name: checkpoint.nextStructuredStop.nextEndpoint.api.split("!")[1],
+          },
+        },
+        memoryContentSha256: browser.memoryContentSha256,
+      }
+    : null;
   return finalizePrivateTargetEvidence({
     schema: PRIVATE_TARGET_EVIDENCE_SCHEMA,
     schemaVersion: PRIVATE_TARGET_EVIDENCE_VERSION,
@@ -139,7 +161,7 @@ function validEvidence() {
     semantic: {
       outcome: "passed",
       node: {
-        outcome: "structured-stop",
+        outcome,
         implementedApiContracts:
           checkpoint.activeRuntimeCheckpoint.genericDispatcherContractCount,
         supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
@@ -147,18 +169,24 @@ function validEvidence() {
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.nodeFinalGeneration,
         memoryContentSha256: browser.memoryContentSha256,
+        ...(checkpointCompletion === null
+          ? {}
+          : { checkpointCompletion: structuredClone(checkpointCompletion) }),
         writebackBatches: 1,
         dirtyPages: 1,
         changedBytes: 1,
         hostDeltaBatches: 1,
       },
       browser: {
-        outcome: "structured-stop",
+        outcome,
         supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
         callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.finalGeneration,
         memoryContentSha256: browser.memoryContentSha256,
+        ...(checkpointCompletion === null
+          ? {}
+          : { checkpointCompletion: structuredClone(checkpointCompletion) }),
         wasmBridgeCalls: 1,
         executionStateMachine: structuredClone(browser.executionStateMachine),
         executionEngine: structuredClone(executionEngineIdentity),

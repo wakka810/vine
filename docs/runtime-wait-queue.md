@@ -7,9 +7,10 @@ queueをprivate `runtime/scheduler.rs::RuntimeScheduler`へ、wait registration�
 `runtime/waits.rs::RuntimeWaits`へ移した。Selected threadがnonsignaled objectへwaitを登録し、別threadの
 object signalでdeterministically runnableへ戻る既存contractとserialized scheduler shapeを維持する。
 
-このcheckpointはguest `WaitForSingleObject`／`WaitForMultipleObjects`を追加せず、timeout、
-wait-any／wait-all、alertable wait、APC、CPU context switchを実装しない。logical scheduler laneと
-object signalを接続するmetadata boundaryである。
+Foundation checkpoint自体はguest wait APIを追加しなかった。その後のbounded
+`WaitForSingleObjectEx` checkpointはwaitable timerだけを対象に、0..10 msのfinite timeout、
+alertable flag、logical deadline、immediate scheduler lane roundtripをこのboundaryへ追加した。
+General wait-any／wait-all、APC、cross-thread timer wake、host-elapsed pacingはまだ実装しない。
 
 ## Subsystem boundary
 
@@ -47,6 +48,23 @@ waited handle:       0x54010002
 wait registration:  1
 waited object:       second-thread object
 ```
+
+## Bounded waitable-timer completion
+
+Reached `WaitForSingleObjectEx(handle, 10, TRUE)`は、`RuntimeTimers`のlogical 100 ns clock、
+exact arm generation、`RuntimeObjectTable`のwait state、`RuntimeWaits`のregistration、
+`RuntimeScheduler`のlane transitionを一つのbounded transactionとして扱う。Registrationは従来の
+thread／object／handle identityにoptional timeout deadlineとalertable flagを加える。
+
+Already-signaled manual-reset timerはqueueを作らず`WAIT_OBJECT_0`を返す。Nonsignaled timerでは
+timer deadlineとtimeout deadlineの早い方までlogical clockを進める。時間が進む場合だけcurrent laneを
+`WaitingObject`へ移し、同じtransaction内でexact prior `Runnable`／`InCallback` stateへ戻す。
+Timer deadlineが先ならlive armをexpireしてmanual-reset objectをsignalし、timeoutが先ならarmと
+object stateを保持して`WAIT_TIMEOUT`を返す。Zero-time waitはclock／registration allocatorを進めない。
+
+このimmediate completionはRust semantic modelであり、browser wall clock待機ではない。Existing
+cross-thread waiterがある場合はinterleaveせずmutation前にstructured conflictとする。詳細は
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
 
 ## Signal and wake
 
@@ -95,10 +113,11 @@ next structured stopは[current checkpoint manifest](current-checkpoint.json)だ
 
 This checkpoint did not initially implement event／mutex／semaphore／timer objects. The reached
 `CreateMutexA` checkpoint now adds named mutex object identity and immediate unowned／recursive
-acquisition through this one-object boundary, but not cross-thread waiter registration. Event／
-semaphore／timer, manual／auto reset, mutex abandonment, waiter priority, multiple waiters contract evidence,
-timeout clock, wait-any／wait-all, alertable wait, APC, message wake, guest API dispatch, and CPU context
-switching remain unimplemented.
+acquisition through this one-object boundary, but not cross-thread waiter registration. Reached
+waitable-timer creation, arm, logical expiration, bounded finite timeout, manual-reset signal, and
+alertable-flag acceptance are now implemented. Event／semaphore, mutex abandonment, waiter priority,
+multiple waiters, wait-any／wait-all, APC delivery, message wake, `INFINITE`, async browser pacing, and
+general guest wait API coverage remain unimplemented.
 It is partial evidence for `P1-SCH-01`／`REQ-API-03`, not their completion.
 
 The controlled per-thread message queue dependency is now implemented in

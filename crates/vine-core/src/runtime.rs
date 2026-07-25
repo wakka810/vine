@@ -205,10 +205,10 @@ pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
 pub use timers::{
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WAITABLE_TIMER_LIMIT,
     RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
-    RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
-    RuntimeTimerResolutionState, RuntimeWaitableTimer, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerId, RuntimeWindowTimer, RuntimeWindowTimerId,
-    RuntimeWindowTimerRegistrationResult,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockState,
+    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeWaitableTimer,
+    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
+    RuntimeWindowTimer, RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult,
 };
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,
@@ -241,8 +241,8 @@ pub use virtual_memory::{
     RuntimeVirtualMemoryReserveRequest,
 };
 pub use waits::{
-    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitRegistration,
-    RuntimeWaitRegistrationId,
+    RuntimeWaitCompletion, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration, RuntimeWaitRegistrationId,
 };
 
 pub type RuntimeState = RuntimeKernel;
