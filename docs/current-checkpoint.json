@@ -190,8 +190,8 @@
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
     "imports": 0,
-    "bytes": 4442831,
-    "sha256": "333cc336158c3daad5d01c9a02071ac402cf00efda607c798e54ddcb815ee2e2"
+    "bytes": 4455869,
+    "sha256": "e40e127a2ba54841d76da51bd94640baa5fcdb51c334208dabd3d630a46215c3"
   },
   "browserRuntimeFixture": {
     "bytes": 3584,
@@ -3894,7 +3894,7 @@
   },
   "writableProfile": {
     "schema": "vine.writable-profile-snapshot",
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "titleFingerprint": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
     "profileId": "default",
     "storagePathTemplate": ".work/private-profiles/<title-fingerprint>/default.sqlite",
@@ -3907,6 +3907,12 @@
     "initialization": "distribution-seed-only-when-database-is-new",
     "stagedStateAuthority": "rust-runtime-vfs",
     "durableStateAuthority": "same-origin-sqlite",
+    "httpApi": "same-origin-profile-v2",
+    "bootstrap": "metadata-json-plus-bounded-binary-object-hydration",
+    "maximumObjectTransferBytes": 1048576,
+    "sessionLease": "sqlite-epoch-lease-transaction-revalidated",
+    "terminalCommitBarrier": "drain-then-revoke-before-terminal",
+    "recoverableFailureCompletion": "win32-binary-preserve-dirty-staging",
     "distributionFileWritable": false,
     "profileDatabaseGitCommitted": false
   },

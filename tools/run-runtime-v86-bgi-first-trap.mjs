@@ -24,9 +24,11 @@ import {
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
 import {
+  acquireWritableProfileLease,
   commitWritableProfile,
   openWritableProfile,
   readWritableProfile,
+  revokeWritableProfileLease,
   snapshotWritableProfile,
   writableProfileCommitService,
 } from "./writable-profile.mjs";
@@ -4704,6 +4706,7 @@ async function run() {
     child.once("exit", (code, signal) => resolve({ code, signal }));
   });
   let sessionCompleted = false;
+  let writableProfileLease = null;
 
   const nextMessage = async (label) => {
     const line = await protocolReader.readLine(protocol.maximumLineBytes, label);
@@ -4766,6 +4769,9 @@ async function run() {
         checkpointSessionSteps.length,
         "generic runtime re-entry starts from the frozen full manifest checkpoint",
       );
+      writableProfileLease = writableProfile === null
+        ? null
+        : acquireWritableProfileLease(writableProfile, crypto.randomUUID());
       const genericResult = await runGenericRuntimeReentry({
         child,
         context,
@@ -4775,6 +4781,7 @@ async function run() {
         runtimeReady,
         sourceRegistration,
         writableProfile,
+        writableProfileLease,
       });
       child.stdin.end();
       const processExit = await exit;
@@ -5361,6 +5368,9 @@ async function run() {
     if (!sessionCompleted && child.exitCode === null) {
       child.kill();
     }
+    if (writableProfile !== null && writableProfileLease !== null) {
+      revokeWritableProfileLease(writableProfile, writableProfileLease);
+    }
     writableProfile?.close();
     if (writableProfileManifestPath !== null) {
       fs.rmSync(writableProfileManifestPath, { force: true });
@@ -5383,6 +5393,7 @@ async function runGenericRuntimeReentry({
   runtimeReady,
   sourceRegistration,
   writableProfile,
+  writableProfileLease,
 }) {
   validateGenericRuntimeReady(runtimeReady, offer);
   if (sourceRegistration === null) {
@@ -5417,7 +5428,7 @@ async function runGenericRuntimeReentry({
   const hostDeltas = [];
   const sourceReads = [];
   const writableCommits = [];
-  const writableProfileSessionKey = crypto.randomUUID();
+  assert.equal(writableProfileLease === null, writableProfile === null);
   const stackGrowths = [];
   const heapPageMaterializations = [];
   const callbackEvents = [];
@@ -6057,7 +6068,7 @@ async function runGenericRuntimeReentry({
         generation,
         sourceRegistration,
         writableProfile,
-        writableProfileSessionKey,
+        writableProfileLease,
         sourceReads,
         writableCommits,
         sequence,
@@ -6272,7 +6283,7 @@ async function completeStorageHostRequest({
   generation,
   sourceRegistration,
   writableProfile,
-  writableProfileSessionKey,
+  writableProfileLease,
   sourceReads,
   writableCommits,
   sequence,
@@ -6297,6 +6308,7 @@ async function completeStorageHostRequest({
   });
   if (metadata.service === writableProfileCommitService) {
     assert.notEqual(writableProfile, null, "writable commit has no profile database");
+    assert.notEqual(writableProfileLease, null, "writable commit has no profile session lease");
     assert(
       metadata.endpoint.endpoint.symbol.name === "CloseHandle" ||
         metadata.endpoint.endpoint.symbol.name === "FlushFileBuffers",
@@ -6327,7 +6339,7 @@ async function completeStorageHostRequest({
     const result = commitWritableProfile(
       writableProfile,
       {
-        requestKey: `${writableProfileSessionKey}:${metadata.requestId}`,
+        requestKey: `${writableProfileLease.sessionKey}:${metadata.requestId}`,
         titleFingerprint: profile.titleFingerprint,
         profileId: profile.profileId,
         objectId,
@@ -6335,6 +6347,8 @@ async function completeStorageHostRequest({
         baseGeneration,
         byteLength,
         sha256: contentSha256,
+        sessionKey: writableProfileLease.sessionKey,
+        sessionEpoch: writableProfileLease.epoch,
       },
       response.payload,
     );

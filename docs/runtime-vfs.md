@@ -33,11 +33,15 @@ to source/object IDs, paths, byte lengths, and SHA-256 values. The source server
 validates and caches the configured host bytes and accepts no guest-supplied host
 path.
 
-A `vine.writable-profile-snapshot` version 1 binds a title fingerprint, profile ID,
-root, quota, and path allowlist to per-object existence, generation, length, hash,
-and committed bytes. Source ID zero is reserved for profile reads; object identity
-remains explicit. Rust imports a snapshot at process start, then owns all staged
-mutations until a durable commit succeeds.
+A `vine.writable-profile-snapshot` version 2 binds a title fingerprint, profile ID,
+root, quota, and path allowlist to per-object existence, generation, length, and
+hash. It is metadata-only: committed bytes are never expanded into JSON or
+concatenated with the executable and policy Wasm bootstrap. Before guest entry,
+the Worker reads each existing object through generation-bound binary ranges of at
+most 1 MiB, verifies the complete SHA-256, and hydrates that object into Rust in one
+plan/commit operation. Source ID zero is reserved for profile reads; object identity
+remains explicit. Rust owns the hydrated committed bytes and all staged mutations
+until a durable commit succeeds.
 
 `BGI.gdb` is a writable profile object, not an immutable asset. On creation of a
 new profile database, an existing distribution copy may be read once as migration
@@ -96,9 +100,12 @@ and guest output unchanged.
 A dirty flush or close creates a versioned commit request containing object ID, base
 generation, length, hash, and close intent. The payload remains Rust-owned. The
 adapter adds a session/request idempotency key and sends it to the same-origin
-profile endpoint. SQLite uses strict identity tables, `BEGIN IMMEDIATE`, generation
-compare-and-swap, hash/length verification, and whole-profile quota accounting.
-`WAL` and `synchronous=FULL` are enabled.
+profile-v2 endpoint. Session startup first acquires a SQLite-backed monotonic epoch
+lease. Every snapshot, object read, and commit carries the opaque session key and
+epoch. A commit revalidates that lease inside the same `BEGIN IMMEDIATE`
+transaction that performs generation compare-and-swap, hash/length verification,
+whole-profile quota accounting, and publication. `WAL` and `synchronous=FULL` are
+enabled.
 
 Rust advances committed generation, clears dirty state, and closes a requested
 handle only after a valid successful response. A storage failure removes the pending
@@ -107,6 +114,18 @@ retried with the same idempotency key; the SQLite commit ledger returns the orig
 generation without applying the bytes twice. Stale generations, duplicate keys with
 different content, malformed responses, and quota failures do not partially update
 either authority.
+
+Quota exhaustion, generation conflict, a revoked lease, SQLite busy/locked, and
+other ordinary SQLite write failures return a validated 32-byte commit failure
+completion with a concrete Win32 error. They do not fault the Worker session.
+Malformed controls, identity mismatches, and impossible protocol responses remain
+session-fatal. A transport failure with no definitive response is also fatal because
+the Worker cannot distinguish a request that never arrived from a committed
+transaction whose response was lost. Cancellation, watchdog, fault, structured stop, and clean completion
+all stop new work, drain every in-flight commit into Rust, revoke the lease, and only
+then publish the terminal session report. A later session acquisition therefore
+serializes after any old transaction and invalidates every old epoch before loading
+its snapshot.
 
 Process/thread cancellation retires matching scheduler and VFS requests before file
 retirement. Process exit deliberately discards uncommitted staged bytes and leaves
@@ -117,10 +136,12 @@ state during teardown.
 
 Rust model and integration tests cover path separation, create/truncate/open
 semantics, sharing, sparse writes, quota, guest-memory atomicity, successful durable
-close, malformed completion, failed-close retry, stale/duplicate completion, and
-process-exit discard. The SQLite tests cover first creation, restart, idempotent
-duplicate, stale generation, identity/hash rejection, transaction rollback,
-post-commit response loss, quota, and the same-origin HTTP range/commit protocol.
+close, malformed completion, failed-close retry, stale/duplicate completion,
+metadata-only atomic hydration, and process-exit discard. The SQLite tests cover
+first creation, restart, idempotent duplicate, stale generation, identity/hash
+rejection, transaction rollback, post-commit response loss, quota, a held SQLite
+write lock, lease revoke and replacement, rejected late commits, a 4 MiB
+high-expansion profile, and the same-origin HTTP-v2 range/commit protocol.
 The public immutable fixture continues to cover open/size/read/seek/close and browser
 read cancellation/watchdog cleanup.
 

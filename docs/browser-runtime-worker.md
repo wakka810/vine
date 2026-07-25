@@ -105,19 +105,29 @@ delta and resume the existing structured-stop path.
 The private BGI path obtains a `vine.writable-profile-snapshot` from the same
 origin instead of registering `BGI.gdb` as immutable source. The Worker compares
 title fingerprint, profile ID, root, quota, object path, generation, length, hash,
-and bytes with Rust prepared metadata. Clean reads carry reserved source ID zero
-and fetch a generation-bound object range. Dirty reads never cross this adapter;
-Rust serves its staged bytes directly.
+with Rust prepared metadata. Version 2 omits object bytes from this JSON bootstrap.
+The Worker acquires a server epoch lease, fetches existing content in bounded binary
+ranges, verifies its complete hash, and hydrates one Rust-owned object at a time
+before guest entry. Clean reads carry reserved source ID zero and fetch a
+generation-bound object range. Dirty reads never cross this adapter; Rust serves its
+staged bytes directly.
 
 For a flush or dirty close, Rust emits `storage.profile-commit.v1` metadata while
 retaining payload and Win32 state authority. The Worker obtains the payload through
 the Wasm bridge, verifies its length and SHA-256, and posts it to the same-origin
-SQLite endpoint with a session/request idempotency key. One transport/5xx retry uses
-the same key. The Worker updates its read-only profile snapshot only after SQLite
-and Rust both accept the completion; it does not decide generation, dirty state, or
-handle lifetime. The local runner seeds a new database from an existing distribution
-`BGI.gdb` only once and asserts the distribution file is unchanged after Node and
-Chrome execution.
+SQLite profile-v2 endpoint with an epoch lease and session/request idempotency key.
+The server revalidates the lease inside the publication transaction. One
+transport/5xx retry uses the same key. Recoverable quota, conflict, lock, and storage
+failures become binary Win32 failure completions so Rust retains the dirty handle
+and staged bytes for guest retry; malformed identity or control data remains fatal.
+An exhausted transport without a definitive response is fatal as an unknown commit
+outcome; it is not reported to Rust as a known failed publication.
+Every terminal path drains commit tasks and revokes the lease before reporting the
+session finished. The Worker updates its read-only profile metadata only after
+SQLite and Rust both accept the completion; it does not decide generation, dirty
+state, or handle lifetime. The local runner seeds a new database from an existing
+distribution `BGI.gdb` only once and asserts the distribution file is unchanged
+after Node and Chrome execution.
 
 Protocol version 12 adds writable profile configuration and commit completion
 metadata. The current private checkpoint reads the profile but does not reach a

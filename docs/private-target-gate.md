@@ -29,7 +29,10 @@ implementation commit
 ```
 
 The offline evidence validator confirms that the referenced implementation
-commit exists, is an ancestor, and has the recorded tree ID.
+commit exists, is an ancestor, and has the recorded tree ID. Every descendant
+change through the current HEAD must be limited to
+`docs/private-target-evidence.json`; any later runtime, tool, dependency,
+fixture, or checkpoint change makes the evidence stale.
 
 The linked evidence file is the current result authority. Human-readable docs
 do not duplicate its commit, call, timing, or artifact values.

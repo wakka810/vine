@@ -154,7 +154,9 @@ It requires the private source, runs the current Node oracle and Chrome Runtime
 Worker path, and writes the small versioned
 [`private-target-evidence.json`](private-target-evidence.json). The result binds
 the semantic outcome and artifact identities to the exact implementation
-commit and tree. Protected runtime inputs must be clean. Explicitly admitted
+commit and tree. The offline gate permits only the evidence file itself to
+change after that implementation commit; any other descendant change expires
+the evidence. Protected runtime inputs must be clean. Explicitly admitted
 unrelated dirty paths remain visible in the result. The three-minute benchmark
 is recorded as a separate observation and is not rerun by this semantic gate.
 The two-commit local workflow and failure policy are defined in

@@ -6141,7 +6141,7 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     writableProfile.schema !== "vine.writable-profile-snapshot" ||
-    writableProfile.schemaVersion !== 1 ||
+    writableProfile.schemaVersion !== 2 ||
     writableProfile.titleFingerprint !==
       "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
     writableProfile.profileId !== "default" ||
@@ -6157,6 +6157,16 @@ export function validateCurrentCheckpoint(manifest) {
       "distribution-seed-only-when-database-is-new" ||
     writableProfile.stagedStateAuthority !== "rust-runtime-vfs" ||
     writableProfile.durableStateAuthority !== "same-origin-sqlite" ||
+    writableProfile.httpApi !== "same-origin-profile-v2" ||
+    writableProfile.bootstrap !==
+      "metadata-json-plus-bounded-binary-object-hydration" ||
+    writableProfile.maximumObjectTransferBytes !== 1024 * 1024 ||
+    writableProfile.sessionLease !==
+      "sqlite-epoch-lease-transaction-revalidated" ||
+    writableProfile.terminalCommitBarrier !==
+      "drain-then-revoke-before-terminal" ||
+    writableProfile.recoverableFailureCompletion !==
+      "win32-binary-preserve-dirty-staging" ||
     writableProfile.distributionFileWritable !== false ||
     writableProfile.profileDatabaseGitCommitted !== false
   ) {

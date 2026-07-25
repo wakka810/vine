@@ -18,7 +18,7 @@ pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 32;
 pub const RUNTIME_SOURCE_FILE_LIMIT: usize = 4096;
 pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 1024 * 1024;
 pub const RUNTIME_WRITABLE_PROFILE_SCHEMA: &str = "vine.writable-profile-snapshot";
-pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 1;
+pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 2;
 pub const RUNTIME_WRITABLE_PROFILE_FILE_LIMIT: usize = 64;
 pub const RUNTIME_WRITABLE_PROFILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 pub const RUNTIME_WRITABLE_FILE_MAX_IO_BYTES: u32 = 1024 * 1024;
@@ -99,7 +99,6 @@ pub struct RuntimeWritableFileManifest {
     pub generation: u64,
     pub byte_length: u64,
     pub sha256: Option<String>,
-    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -126,6 +125,8 @@ pub struct RuntimeWritableFile {
     pub byte_length: u64,
     pub sha256: Option<String>,
     pub dirty: bool,
+    #[serde(skip)]
+    content_loaded: bool,
     #[serde(skip)]
     committed_bytes: Vec<u8>,
     #[serde(skip)]
@@ -414,6 +415,12 @@ pub(super) struct RuntimeSourceSnapshotRegistrationPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWritableProfileRegistrationPlan {
     next: RuntimeWritableProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableProfileHydrationPlan {
+    previous: RuntimeWritableFile,
+    next: RuntimeWritableFile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -751,24 +758,12 @@ impl RuntimeFiles {
         for file in manifest.files {
             let relative = normalize_relative_path(&file.relative_path_a)?;
             let identity = windows_932_ascii_fold(&relative);
-            let content_length = u64::try_from(file.bytes.len()).map_err(|_| {
-                vfs_invalid(
-                    "writable-file-manifest-invalid",
-                    "writable file content length is not representable",
-                )
-            })?;
             let valid_content = if file.exists {
                 file.generation > 0
-                    && file.byte_length == content_length
                     && file.byte_length <= manifest.quota_bytes
-                    && file.sha256.as_ref().is_some_and(|hash| {
-                        is_sha256(hash) && hash.eq_ignore_ascii_case(&hex_sha256(&file.bytes))
-                    })
+                    && file.sha256.as_ref().is_some_and(|hash| is_sha256(hash))
             } else {
-                file.generation == 0
-                    && file.byte_length == 0
-                    && file.sha256.is_none()
-                    && file.bytes.is_empty()
+                file.generation == 0 && file.byte_length == 0 && file.sha256.is_none()
             };
             if file.object_id == 0 || !valid_content {
                 return Err(vfs_invalid(
@@ -800,8 +795,9 @@ impl RuntimeFiles {
                     byte_length: file.byte_length,
                     sha256,
                     dirty: false,
-                    committed_bytes: file.bytes.clone(),
-                    working_bytes: file.bytes,
+                    content_loaded: !file.exists,
+                    committed_bytes: Vec::new(),
+                    working_bytes: Vec::new(),
                     dirty_base_generation: None,
                     revision: 0,
                 },
@@ -845,6 +841,74 @@ impl RuntimeFiles {
         validate_source_profile_separation_opt(self.snapshot.as_ref(), &plan.next)?;
         self.writable_profile = Some(plan.next);
         Ok(())
+    }
+
+    pub(super) fn plan_writable_profile_hydration(
+        &self,
+        object_id: u32,
+        generation: u64,
+        bytes: &[u8],
+    ) -> Result<RuntimeWritableProfileHydrationPlan, RuntimeStateError> {
+        if !self.open_files.is_empty()
+            || !self.pending_reads.is_empty()
+            || !self.pending_commits.is_empty()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-profile-hydration-after-use",
+                "writable profile bytes must hydrate before file use",
+            ));
+        }
+        let previous = self.writable_file(object_id)?.clone();
+        if !previous.exists
+            || previous.content_loaded
+            || previous.generation != generation
+            || u64::try_from(bytes.len()) != Ok(previous.byte_length)
+            || previous
+                .sha256
+                .as_deref()
+                .is_none_or(|expected| !expected.eq_ignore_ascii_case(&hex_sha256(bytes)))
+        {
+            return Err(vfs_invalid(
+                "writable-profile-hydration-invalid",
+                "writable profile hydration bytes do not match unloaded object metadata",
+            ));
+        }
+        let committed_bytes = copy_writable_content(bytes)?;
+        let working_bytes = copy_writable_content(bytes)?;
+        let mut next = previous.clone();
+        next.content_loaded = true;
+        next.committed_bytes = committed_bytes;
+        next.working_bytes = working_bytes;
+        Ok(RuntimeWritableProfileHydrationPlan { previous, next })
+    }
+
+    pub(super) fn commit_writable_profile_hydration(
+        &mut self,
+        plan: RuntimeWritableProfileHydrationPlan,
+    ) -> Result<&RuntimeWritableFile, RuntimeStateError> {
+        if !self.open_files.is_empty()
+            || !self.pending_reads.is_empty()
+            || !self.pending_commits.is_empty()
+            || self
+                .writable_profile
+                .as_ref()
+                .and_then(|profile| profile.files.get(&plan.previous.object_id))
+                != Some(&plan.previous)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-profile-hydration-plan-stale",
+                "writable profile state changed after hydration planning",
+            ));
+        }
+        let object_id = plan.next.object_id;
+        self.writable_profile
+            .as_mut()
+            .expect("validated writable hydration profile")
+            .files
+            .insert(object_id, plan.next);
+        self.writable_file(object_id)
     }
 
     #[cfg(test)]
@@ -1350,6 +1414,13 @@ impl RuntimeFiles {
         }
         self.require_no_pending_file_operation(id, object_id)?;
         let writable = self.writable_file(object_id)?;
+        if !writable.content_loaded {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-profile-content-not-loaded",
+                "staged writable reads require hydrated profile bytes",
+            ));
+        }
         let start = usize::try_from(previous_file.cursor).map_err(|_| {
             vfs_invalid(
                 "writable-read-cursor-invalid",
@@ -1445,6 +1516,13 @@ impl RuntimeFiles {
             )
         })?;
         let previous_writable = self.writable_file(object_id)?.clone();
+        if !previous_writable.content_loaded {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-profile-content-not-loaded",
+                "writable file mutation requires hydrated or replaced profile bytes",
+            ));
+        }
         let write_end = previous_file
             .cursor
             .checked_add(bytes.len() as u64)
@@ -1930,7 +2008,9 @@ impl RuntimeFiles {
                 )
             })?;
             let end = start + response.bytes.len();
-            if writable.working_bytes.get(start..end) != Some(response.bytes.as_slice()) {
+            if writable.content_loaded
+                && writable.working_bytes.get(start..end) != Some(response.bytes.as_slice())
+            {
                 return Err(RuntimeStateError::conflict(
                     "runtime-vfs",
                     "writable-read-completion-content-mismatch",
@@ -2200,6 +2280,7 @@ fn file_access_conflicts(
 }
 
 fn stage_writable_replacement(file: &mut RuntimeWritableFile) -> Result<(), RuntimeStateError> {
+    file.content_loaded = true;
     file.working_bytes.clear();
     mark_writable_dirty(file)
 }
@@ -2230,6 +2311,19 @@ fn discard_writable_staging(file: &mut RuntimeWritableFile) {
     file.dirty = false;
     file.dirty_base_generation = None;
     file.revision = file.revision.saturating_add(1);
+}
+
+fn copy_writable_content(bytes: &[u8]) -> Result<Vec<u8>, RuntimeStateError> {
+    let mut copied = Vec::new();
+    copied.try_reserve_exact(bytes.len()).map_err(|_| {
+        RuntimeStateError::resource_limit(
+            "runtime-vfs",
+            "writable-profile-hydration-capacity-exhausted",
+            "writable profile hydration could not reserve bounded content storage",
+        )
+    })?;
+    copied.extend_from_slice(bytes);
+    Ok(copied)
 }
 
 #[derive(Debug)]
@@ -2524,7 +2618,6 @@ mod tests {
                 generation: u64::from(exists),
                 byte_length: if exists { bytes.len() as u64 } else { 0 },
                 sha256: exists.then(|| hex_sha256(bytes)),
-                bytes: if exists { bytes.to_vec() } else { Vec::new() },
             }],
         }
     }
@@ -2793,6 +2886,57 @@ mod tests {
     }
 
     #[test]
+    fn writable_profile_metadata_bootstrap_hydrates_large_content_atomically() {
+        let content = vec![0xff; 4 * 1024 * 1024];
+        let manifest = RuntimeWritableProfileManifest {
+            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
+            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
+            title_fingerprint: "sha256:test-title".to_owned(),
+            profile_id: "default".to_owned(),
+            root_path_a: b"C:\\Vine\0".to_vec(),
+            quota_bytes: RUNTIME_WRITABLE_PROFILE_MAX_BYTES,
+            files: vec![RuntimeWritableFileManifest {
+                object_id: 21,
+                relative_path_a: b"BGI.gdb".to_vec(),
+                exists: true,
+                generation: 7,
+                byte_length: content.len() as u64,
+                sha256: Some(hex_sha256(&content)),
+            }],
+        };
+        let bootstrap = serde_json::to_vec(&manifest).unwrap();
+        assert!(bootstrap.len() < 4096);
+        assert!(
+            !bootstrap
+                .windows(b"\"bytes\"".len())
+                .any(|part| part == b"\"bytes\"")
+        );
+
+        let mut files = RuntimeFiles::default();
+        let registration = files.plan_writable_profile_registration(manifest).unwrap();
+        files
+            .commit_writable_profile_registration(registration)
+            .unwrap();
+        assert!(!files.writable_profile().unwrap().files[&21].content_loaded);
+
+        let before_invalid = files.clone();
+        let invalid = files
+            .plan_writable_profile_hydration(21, 7, b"wrong")
+            .unwrap_err();
+        assert_eq!(invalid.code, "writable-profile-hydration-invalid");
+        assert_eq!(files, before_invalid);
+
+        let hydration = files
+            .plan_writable_profile_hydration(21, 7, &content)
+            .unwrap();
+        files.commit_writable_profile_hydration(hydration).unwrap();
+        let hydrated = &files.writable_profile().unwrap().files[&21];
+        assert!(hydrated.content_loaded);
+        assert_eq!(hydrated.committed_bytes, content);
+        assert_eq!(hydrated.working_bytes, content);
+    }
+
+    #[test]
     fn writable_profile_rejects_shadow_quota_and_discards_uncommitted_exit_bytes() {
         let mut files = RuntimeFiles::default();
         let registration = files
@@ -2801,6 +2945,10 @@ mod tests {
         files
             .commit_writable_profile_registration(registration)
             .unwrap();
+        let hydration = files
+            .plan_writable_profile_hydration(21, 1, b"old")
+            .unwrap();
+        files.commit_writable_profile_hydration(hydration).unwrap();
         let overlapping = files.plan_snapshot_registration(RuntimeSourceSnapshotManifest {
             files: vec![RuntimeSourceFileManifest {
                 object_id: 11,

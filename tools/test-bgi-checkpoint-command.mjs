@@ -59,6 +59,19 @@ const browserRunner = fs.readFileSync(
   path.join(root, "tools", "run-browser-runtime-check.mjs"),
   "utf8",
 );
+const genericRunner = fs.readFileSync(
+  path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
+  "utf8",
+);
+assert.match(
+  genericRunner,
+  /acquireWritableProfileLease\(writableProfile, crypto\.randomUUID\(\)\)/u,
+);
+assert.match(
+  genericRunner,
+  /requestKey: `\$\{writableProfileLease\.sessionKey\}:\$\{metadata\.requestId\}`/u,
+);
+assert.match(genericRunner, /sessionEpoch: writableProfileLease\.epoch/u);
 for (const flag of [
   "--disable-background-timer-throttling",
   "--disable-backgrounding-occluded-windows",

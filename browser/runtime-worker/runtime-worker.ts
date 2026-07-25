@@ -53,6 +53,10 @@ import {
   SEMANTIC_CALL_DIGEST_ALGORITHM,
   SemanticCallDigest,
 } from "./semantic-call.mjs";
+import {
+  recoverableCommitHttpError,
+  writableCommitFailureControl,
+} from "./profile-storage.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
@@ -290,7 +294,7 @@ interface SourceManifest {
 
 interface WritableProfileManifest {
   schema: "vine.writable-profile-snapshot";
-  schemaVersion: 1;
+  schemaVersion: 2;
   titleFingerprint: string;
   profileId: string;
   rootPathA: number[];
@@ -302,8 +306,22 @@ interface WritableProfileManifest {
     generation: number;
     byteLength: number;
     sha256: string | null;
-    bytes: number[];
   }>;
+}
+
+interface WritableProfileLease {
+  sessionKey: string;
+  epoch: number;
+  titleFingerprint: string;
+  profileId: string;
+}
+
+interface WritableProfileHydratedMetadata {
+  kind: "writable-profile-hydrated";
+  objectId: number;
+  generation: number;
+  byteLength: number;
+  sha256: string;
 }
 
 interface CallbackCompletionMetadata {
@@ -500,6 +518,8 @@ class BrowserRuntimeSession {
   #prepared: PreparedMetadata | null = null;
   #generation = 0n;
   #terminal = false;
+  #stopping = false;
+  #terminalTask: Promise<void> | null = null;
   #runtimePrepared = false;
   #initialThreadId = 0;
   #currentThreadId = 0;
@@ -511,9 +531,14 @@ class BrowserRuntimeSession {
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
   readonly #sourceReadControllers = new Map<string, AbortController>();
+  readonly #profileTransportControllers = new Set<AbortController>();
+  readonly #profileTransportTasks = new Set<Promise<unknown>>();
+  readonly #writableCommitTasks = new Set<Promise<void>>();
   #sourceManifest: SourceManifest | null = null;
   #writableProfile: WritableProfileManifest | null = null;
   readonly #profileSessionKey = crypto.randomUUID();
+  #profileLeaseAcquisitionTask: Promise<void> | null = null;
+  #profileLease: WritableProfileLease | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   readonly #semanticCallDigest = new SemanticCallDigest();
@@ -604,11 +629,26 @@ class BrowserRuntimeSession {
         executableResponse.ok,
         `executable fetch failed with ${executableResponse.status}`,
       );
-      if (this.#terminal) {
+      if (this.#terminal || this.#stopping) {
         return;
       }
       this.#bridge = bridge;
       const executable = new Uint8Array(await executableResponse.arrayBuffer());
+      if (this.#terminal || this.#stopping) {
+        return;
+      }
+      if (profileBackedWorkload) {
+        const acquisition = this.#acquireWritableProfileLease();
+        this.#profileLeaseAcquisitionTask = acquisition;
+        try {
+          await acquisition;
+        } finally {
+          if (this.#profileLeaseAcquisitionTask === acquisition) {
+            this.#profileLeaseAcquisitionTask = null;
+          }
+        }
+        this.#requireStorageSetupActive();
+      }
       const sourceManifestBytes =
         sourceBackedWorkload
           ? await this.#fetchBytes(
@@ -622,14 +662,7 @@ class BrowserRuntimeSession {
           : null;
       const writableProfileBytes =
         profileBackedWorkload
-          ? await this.#fetchBytes(
-              this.#sameOriginStorageUrl(
-                this.#configuration.writableProfileUrl,
-                "/api/profile/v1/snapshot",
-                "writable profile URL",
-              ),
-              "writable profile",
-            )
+          ? await this.#fetchWritableProfileSnapshot()
           : null;
       this.#sourceManifest =
         sourceManifestBytes === null ? null : this.#parseSourceManifest(sourceManifestBytes);
@@ -637,28 +670,37 @@ class BrowserRuntimeSession {
         writableProfileBytes === null
           ? null
           : this.#parseWritableProfile(writableProfileBytes);
+      const policy =
+        workload === "private-bgi"
+          ? await this.#fetchPolicy(
+              new URL(
+                this.#configuration.policyUrl ?? "./private/kernel32-policy.json",
+                import.meta.url,
+              ),
+            )
+          : workload === "controlled-source-read"
+            ? await this.#fetchPolicy(
+                new URL(
+                  this.#configuration.policyUrl ?? "./kernel32-source-file-read-v1.json",
+                  import.meta.url,
+                ),
+              )
+            : null;
+      if (this.#terminal || this.#stopping) {
+        return;
+      }
       const preparedOutput =
         workload === "private-bgi"
           ? bridge.prepareBgi(
               executable,
-              await this.#fetchPolicy(
-                new URL(
-                  this.#configuration.policyUrl ?? "./private/kernel32-policy.json",
-                  import.meta.url,
-                ),
-              ),
+              policy ?? failInvariant("BGI runtime policy is missing"),
               sourceManifestBytes,
               writableProfileBytes ?? failInvariant("BGI writable profile is missing"),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
                 executable,
-                await this.#fetchPolicy(
-                  new URL(
-                    this.#configuration.policyUrl ?? "./kernel32-source-file-read-v1.json",
-                    import.meta.url,
-                  ),
-                ),
+                policy ?? failInvariant("source runtime policy is missing"),
                 sourceManifestBytes ?? failInvariant("source fixture manifest is missing"),
               )
             : bridge.prepare(executable);
@@ -669,6 +711,10 @@ class BrowserRuntimeSession {
       this.#engine = engine;
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
+      if (profileBackedWorkload) {
+        this.#validatePreparedWritableProfile(preparedOutput.metadata);
+        await this.#hydrateWritableProfileObjects();
+      }
       invariant(
         Number.isInteger(preparedOutput.metadata.runtime.processId) &&
           preparedOutput.metadata.runtime.processId > 0,
@@ -705,9 +751,6 @@ class BrowserRuntimeSession {
       );
       if (sourceBackedWorkload) {
         this.#validatePreparedSourceSnapshot(preparedOutput.metadata);
-      }
-      if (profileBackedWorkload) {
-        this.#validatePreparedWritableProfile(preparedOutput.metadata);
       }
       if (workload === "private-bgi") {
         const stack = preparedOutput.metadata.initialThreadStack;
@@ -786,15 +829,208 @@ class BrowserRuntimeSession {
       this.#status("running", "Guest entry is running in bounded Worker slices");
       await this.#runGuest();
     } catch (error) {
-      if (error instanceof SessionStopped && this.#terminal) {
+      if (error instanceof SessionStopped && (this.#terminal || this.#stopping)) {
         return;
       }
       this.#fail(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      if (this.#terminalTask !== null) {
+        await this.#terminalTask;
+      }
     }
   }
 
   async #fetchPolicy(url: URL): Promise<Uint8Array> {
     return this.#fetchBytes(url, "runtime policy");
+  }
+
+  async #acquireWritableProfileLease(): Promise<void> {
+    invariant(this.#profileLease === null, "writable profile lease is already active");
+    const url = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v2/",
+      "writable profile API URL",
+    );
+    url.pathname = `${url.pathname.replace(/\/?$/u, "/")}sessions`;
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "X-Vine-Session-Key": this.#profileSessionKey },
+    });
+    invariant(response.status === 201, `writable profile lease failed with ${response.status}`);
+    const epochText = response.headers.get("x-vine-session-epoch");
+    const epoch = epochText === null ? Number.NaN : Number(epochText);
+    const titleFingerprint = response.headers.get("x-vine-title-fingerprint");
+    const profileId = response.headers.get("x-vine-profile-id");
+    invariant(
+      Number.isSafeInteger(epoch) &&
+        epoch > 0 &&
+        response.headers.get("x-vine-session-key") === this.#profileSessionKey &&
+        titleFingerprint !== null &&
+        /^[a-zA-Z0-9:._-]{1,128}$/u.test(titleFingerprint) &&
+        profileId !== null &&
+        /^[a-zA-Z0-9._-]{1,128}$/u.test(profileId),
+      "writable profile lease response identity is invalid",
+    );
+    this.#profileLease = {
+      sessionKey: this.#profileSessionKey,
+      epoch,
+      titleFingerprint,
+      profileId,
+    };
+  }
+
+  async #fetchWritableProfileSnapshot(): Promise<Uint8Array> {
+    const lease = this.#requireProfileLease();
+    const url = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileUrl,
+      "/api/profile/v2/snapshot",
+      "writable profile URL",
+    );
+    return this.#runProfileTransport(async (signal) => {
+      const response = await fetch(url, {
+        cache: "no-store",
+        headers: this.#profileLeaseHeaders(),
+        signal,
+      });
+      invariant(response.status === 200, `writable profile fetch failed with ${response.status}`);
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") === lease.titleFingerprint &&
+          response.headers.get("x-vine-profile-id") === lease.profileId &&
+          response.headers.get("x-vine-session-epoch") === String(lease.epoch),
+        "writable profile snapshot lease identity mismatch",
+      );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      this.#requireStorageSetupActive();
+      return bytes;
+    });
+  }
+
+  async #hydrateWritableProfileObjects(): Promise<void> {
+    const profile =
+      this.#writableProfile ?? failInvariant("writable profile hydration has no manifest");
+    const bridge = this.#requireBridge();
+    for (const file of profile.files) {
+      this.#requireStorageSetupActive();
+      if (!file.exists) {
+        continue;
+      }
+      const bytes = new Uint8Array(file.byteLength);
+      let offset = 0;
+      while (offset < file.byteLength) {
+        const requestedBytes = Math.min(1024 * 1024, file.byteLength - offset);
+        const url = this.#profileObjectUrl(file.objectId);
+        url.searchParams.set("generation", String(file.generation));
+        url.searchParams.set("offset", String(offset));
+        url.searchParams.set("length", String(requestedBytes));
+        const chunk = await this.#runProfileTransport(async (signal) => {
+          const response = await fetch(url, {
+            method: "GET",
+            cache: "no-store",
+            headers: this.#profileLeaseHeaders(),
+            signal,
+          });
+          invariant(
+            response.status === 206,
+            `writable profile hydration failed with ${response.status}`,
+          );
+          invariant(
+            response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+              response.headers.get("x-vine-profile-id") === profile.profileId &&
+              response.headers.get("x-vine-object-id") === String(file.objectId) &&
+              response.headers.get("x-vine-generation") === String(file.generation) &&
+              response.headers.get("x-vine-offset") === String(offset) &&
+              response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
+              response.headers.get("x-vine-transferred-bytes") === String(requestedBytes) &&
+              response.headers.get("x-vine-session-epoch") ===
+                String(this.#requireProfileLease().epoch),
+            "writable profile hydration response identity mismatch",
+          );
+          const payload = new Uint8Array(await response.arrayBuffer());
+          this.#requireStorageSetupActive();
+          return payload;
+        });
+        invariant(
+          chunk.byteLength === requestedBytes,
+          "writable profile hydration response length mismatch",
+        );
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      this.#requireStorageSetupActive();
+      const digest = await sha256Hex(bytes);
+      this.#requireStorageSetupActive();
+      invariant(digest === file.sha256, "writable profile hydration hash mismatch");
+      const output = bridge.hydrateWritableProfileObject<WritableProfileHydratedMetadata>(
+        file.objectId,
+        BigInt(file.generation),
+        bytes,
+      );
+      invariant(
+        output.metadata.kind === "writable-profile-hydrated" &&
+          output.metadata.objectId === file.objectId &&
+          output.metadata.generation === file.generation &&
+          output.metadata.byteLength === file.byteLength &&
+          output.metadata.sha256 === file.sha256 &&
+          output.control.byteLength === 0 &&
+          output.payload.byteLength === 0,
+        "Rust writable profile hydration metadata mismatch",
+      );
+    }
+  }
+
+  #profileObjectUrl(objectId: number): URL {
+    const profile =
+      this.#writableProfile ?? failInvariant("writable profile object URL has no manifest");
+    const base = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v2/",
+      "writable profile API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    return new URL(
+      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
+        `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}`,
+      base,
+    );
+  }
+
+  #profileLeaseHeaders(): Record<string, string> {
+    const lease = this.#requireProfileLease();
+    return {
+      "X-Vine-Session-Key": lease.sessionKey,
+      "X-Vine-Session-Epoch": String(lease.epoch),
+    };
+  }
+
+  #requireProfileLease(): WritableProfileLease {
+    return this.#profileLease ?? failInvariant("writable profile session lease is unavailable");
+  }
+
+  #requireStorageSetupActive(): void {
+    if (this.#terminal || this.#stopping) {
+      throw new SessionStopped("writable profile setup stopped with the runtime session");
+    }
+  }
+
+  #runProfileTransport<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    this.#profileTransportControllers.add(controller);
+    const task = (async () => {
+      try {
+        return await operation(controller.signal);
+      } finally {
+        this.#profileTransportControllers.delete(controller);
+      }
+    })();
+    this.#profileTransportTasks.add(task);
+    void task.then(
+      () => this.#profileTransportTasks.delete(task),
+      () => this.#profileTransportTasks.delete(task),
+    );
+    return task;
   }
 
   #sameOriginStorageUrl(configured: string | undefined, fallback: string, label: string): URL {
@@ -874,12 +1110,14 @@ class BrowserRuntimeSession {
   #parseWritableProfile(bytes: Uint8Array): WritableProfileManifest {
     const profile = JSON.parse(new TextDecoder().decode(bytes)) as WritableProfileManifest;
     invariant(
-      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 1,
+      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 2,
       "writable profile schema mismatch",
     );
     invariant(
       /^[a-zA-Z0-9:._-]{1,128}$/u.test(profile.titleFingerprint) &&
         /^[a-zA-Z0-9._-]{1,128}$/u.test(profile.profileId) &&
+        profile.titleFingerprint === this.#requireProfileLease().titleFingerprint &&
+        profile.profileId === this.#requireProfileLease().profileId &&
         validByteArray(profile.rootPathA, true) &&
         Number.isSafeInteger(profile.quotaBytes) &&
         profile.quotaBytes > 0 &&
@@ -909,12 +1147,8 @@ class BrowserRuntimeSession {
           Number.isSafeInteger(file.byteLength) &&
           file.byteLength >= 0 &&
           file.byteLength <= profile.quotaBytes &&
-          Array.isArray(file.bytes) &&
-          file.bytes.every(
-            (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
-          ) &&
-          file.bytes.length === file.byteLength &&
           (file.sha256 === null || /^[0-9a-f]{64}$/u.test(file.sha256)) &&
+          !Object.hasOwn(file, "bytes") &&
           (file.exists
             ? file.generation > 0 && file.sha256 !== null
             : file.generation === 0 && file.byteLength === 0 && file.sha256 === null),
@@ -960,6 +1194,9 @@ class BrowserRuntimeSession {
   }
 
   completeHost(message: HostCompletionMessage): void {
+    if (this.#stopping) {
+      return;
+    }
     if (this.#terminal) {
       throw new Error("host completion arrived after the runtime session stopped");
     }
@@ -1065,6 +1302,9 @@ class BrowserRuntimeSession {
       );
       const payload = new Uint8Array(await response.arrayBuffer());
       invariant(payload.byteLength === expectedBytes, "source read response length mismatch");
+      if (this.#stopping) {
+        throw new SessionStopped("source read stopped with the runtime session");
+      }
       const control = new Uint8Array(32);
       const view = new DataView(control.buffer);
       [
@@ -1102,19 +1342,7 @@ class BrowserRuntimeSession {
       "profile read length is outside the transport bound",
     );
     const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
-    const base = this.#sameOriginStorageUrl(
-      this.#configuration.writableProfileApiUrl,
-      "/api/profile/v1/",
-      "writable profile API URL",
-    );
-    if (!base.pathname.endsWith("/")) {
-      base.pathname += "/";
-    }
-    const url = new URL(
-      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
-        `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}`,
-      base,
-    );
+    const url = this.#profileObjectUrl(objectId ?? 0);
     url.searchParams.set("generation", String(file.generation));
     url.searchParams.set("offset", offset.toString());
     url.searchParams.set("length", String(requestedBytes));
@@ -1128,6 +1356,7 @@ class BrowserRuntimeSession {
       const response = await fetch(url, {
         method: "GET",
         cache: "no-store",
+        headers: this.#profileLeaseHeaders(),
         signal: controller.signal,
       });
       invariant(response.status === 206, `profile read failed with ${response.status}`);
@@ -1138,11 +1367,16 @@ class BrowserRuntimeSession {
           response.headers.get("x-vine-generation") === String(file.generation) &&
           response.headers.get("x-vine-offset") === offset.toString() &&
           response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
-          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes),
+          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes) &&
+          response.headers.get("x-vine-session-epoch") ===
+            String(this.#requireProfileLease().epoch),
         "profile read response identity mismatch",
       );
       const payload = new Uint8Array(await response.arrayBuffer());
       invariant(payload.byteLength === expectedBytes, "profile read response length mismatch");
+      if (this.#stopping) {
+        throw new SessionStopped("profile read stopped with the runtime session");
+      }
       const control = new Uint8Array(32);
       const view = new DataView(control.buffer);
       [
@@ -1214,22 +1448,10 @@ class BrowserRuntimeSession {
     );
     const contentSha256 = await sha256Hex(payloadOutput.payload);
     invariant(contentSha256 === request.contentSha256, "writable commit payload hash mismatch");
-    const base = this.#sameOriginStorageUrl(
-      this.#configuration.writableProfileApiUrl,
-      "/api/profile/v1/",
-      "writable profile API URL",
-    );
-    if (!base.pathname.endsWith("/")) {
-      base.pathname += "/";
-    }
-    const url = new URL(
-      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
-        `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}/commits`,
-      base,
-    );
+    const url = this.#profileObjectUrl(objectId ?? 0);
+    url.pathname += "/commits";
     const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
     let response: Response | null = null;
-    let lastError: unknown = null;
     for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
       try {
         const candidate = await fetch(url, {
@@ -1241,28 +1463,39 @@ class BrowserRuntimeSession {
             "X-Vine-Base-Generation": baseGeneration.toString(),
             "X-Vine-Byte-Length": byteLength.toString(),
             "X-Vine-Content-Sha256": contentSha256,
+            ...this.#profileLeaseHeaders(),
           },
           body: ownedArrayBuffer(payloadOutput.payload),
         });
         if (candidate.status >= 500 && attempt === 0) {
-          lastError = new Error(`writable commit failed with ${candidate.status}`);
           continue;
         }
         response = candidate;
-      } catch (error) {
-        lastError = error;
-      }
+      } catch {}
     }
     if (response === null) {
-      throw (lastError instanceof Error ? lastError : new Error(String(lastError)));
+      throw new Error("writable commit transport ended with an unknown publication outcome");
     }
-    invariant(response.status === 200, `writable commit failed with ${response.status}`);
+    if (response.status !== 200) {
+      const win32Error = recoverableCommitHttpError(
+        response.status,
+        response.headers.get("x-vine-error-code"),
+      );
+      invariant(win32Error !== null, `writable commit failed with ${response.status}`);
+      this.#completeWritableCommit(
+        metadata,
+        writableCommitFailureControl(objectId ?? 0, baseGeneration, win32Error),
+      );
+      return;
+    }
     invariant(
       response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
         response.headers.get("x-vine-profile-id") === profile.profileId &&
         response.headers.get("x-vine-object-id") === String(objectId) &&
         response.headers.get("x-vine-base-generation") === baseGeneration.toString() &&
-        response.headers.get("x-vine-content-sha256") === contentSha256,
+        response.headers.get("x-vine-content-sha256") === contentSha256 &&
+        response.headers.get("x-vine-session-epoch") ===
+          String(this.#requireProfileLease().epoch),
       "writable commit response identity mismatch",
     );
     const control = new Uint8Array(await response.arrayBuffer());
@@ -1273,7 +1506,6 @@ class BrowserRuntimeSession {
       file.generation = completion.committedGeneration;
       file.byteLength = payloadOutput.payload.byteLength;
       file.sha256 = contentSha256;
-      file.bytes = [...payloadOutput.payload];
     }
   }
 
@@ -1375,7 +1607,7 @@ class BrowserRuntimeSession {
     const engine = this.#requireEngine();
     const prepared = this.#requirePrepared();
     const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
-    while (!this.#terminal) {
+    while (!this.#terminal && !this.#stopping) {
       this.#checkWatchdog();
       invariant(
         this.#liveThreadId === this.#currentThreadId,
@@ -1421,7 +1653,7 @@ class BrowserRuntimeSession {
           );
         }
         await yieldToWorkerLoop();
-        if (this.#terminal) {
+        if (this.#terminal || this.#stopping) {
           throw new SessionStopped("session ended during a budget yield");
         }
         this.#execution.transition(resumeState, {
@@ -1876,19 +2108,11 @@ class BrowserRuntimeSession {
       instructionCount: this.#report.instructions,
       memoryContentSha256: metadata.memoryContentSha256,
     };
-    const cancellation = this.#requireBridge().cancel<CancellationMetadata>().metadata;
-    invariant(cancellation.kind === "cancelled", "structured-stop cleanup metadata is invalid");
-    invariant(cancellation.pendingHostCalls === 0, "structured-stop cleanup retained host work");
-    invariant(cancellation.pendingCallbacks === 0, "structured-stop cleanup retained callbacks");
-    invariant(cancellation.processLifecycle.state === "exited", "BGI process did not exit");
-    invariant(cancellation.dllLifecycle === "process-detached", "BGI modules did not detach");
-    this.#finish({
-      outcome: "structured-stop",
-      exitCode: null,
-      pendingHostCalls: cancellation.pendingHostCalls,
-      pendingCallbacks: cancellation.pendingCallbacks,
-      error: null,
-    });
+    this.#cancelAndFinish(
+      "structured-stop",
+      "Structured stop retired the private runtime",
+      null,
+    );
   }
 
   #servicePageFault(
@@ -2074,19 +2298,11 @@ class BrowserRuntimeSession {
       instructionCount: this.#report.instructions,
       memoryContentSha256: reflection.contentSha256,
     };
-    const cancellation = this.#requireBridge().cancel<CancellationMetadata>().metadata;
-    invariant(cancellation.kind === "cancelled", "execution-stop cleanup metadata is invalid");
-    invariant(cancellation.pendingHostCalls === 0, "execution stop retained host work");
-    invariant(cancellation.pendingCallbacks === 0, "execution stop retained callbacks");
-    invariant(cancellation.processLifecycle.state === "exited", "BGI process did not exit");
-    invariant(cancellation.dllLifecycle === "process-detached", "BGI modules did not detach");
-    this.#finish({
-      outcome: "structured-stop",
-      exitCode: null,
-      pendingHostCalls: cancellation.pendingHostCalls,
-      pendingCallbacks: cancellation.pendingCallbacks,
-      error: null,
-    });
+    this.#cancelAndFinish(
+      "structured-stop",
+      "Execution stop retired the private runtime",
+      null,
+    );
   }
 
   #completeCallback(result: number): void {
@@ -2517,7 +2733,7 @@ class BrowserRuntimeSession {
     if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {
         void this.#serviceSourceRead(metadata).catch((error: unknown) => {
-          if (!this.#terminal) {
+          if (!this.#terminal && !this.#stopping) {
             this.#fail(error instanceof Error ? error : new Error(String(error)));
           }
         });
@@ -2525,18 +2741,26 @@ class BrowserRuntimeSession {
     } else if (metadata.service === "storage.profile-read.v1") {
       if (this.#configuration.mode === "success") {
         void this.#serviceProfileRead(metadata).catch((error: unknown) => {
-          if (!this.#terminal) {
+          if (!this.#terminal && !this.#stopping) {
             this.#fail(error instanceof Error ? error : new Error(String(error)));
           }
         });
       }
     } else if (metadata.service === "storage.profile-commit.v1") {
       if (this.#configuration.mode === "success") {
-        void this.#serviceWritableCommit(metadata).catch((error: unknown) => {
-          if (!this.#terminal) {
-            this.#fail(error instanceof Error ? error : new Error(String(error)));
-          }
-        });
+        const task = this.#serviceWritableCommit(metadata);
+        this.#writableCommitTasks.add(task);
+        void task.then(
+          () => {
+            this.#writableCommitTasks.delete(task);
+          },
+          (error: unknown) => {
+            this.#writableCommitTasks.delete(task);
+            if (!this.#terminal && !this.#stopping) {
+              this.#fail(error instanceof Error ? error : new Error(String(error)));
+            }
+          },
+        );
       }
     } else {
       post(request);
@@ -2552,7 +2776,7 @@ class BrowserRuntimeSession {
 
   async #scheduleAfterBlock(blockedThreadId: number, requestId: string | null): Promise<void> {
     this.#saveLiveThreadContext();
-    while (!this.#terminal) {
+    while (!this.#terminal && !this.#stopping) {
       const metadata = this.#requireBridge().scheduleNextThread<
         ThreadScheduledMetadata | SchedulerIdleMetadata
       >().metadata;
@@ -2600,7 +2824,7 @@ class BrowserRuntimeSession {
         });
       }
       await this.#waitForRunnable();
-      if (this.#terminal) {
+      if (this.#terminal || this.#stopping) {
         throw new SessionStopped("session ended while the scheduler was idle");
       }
       invariant(
@@ -2693,7 +2917,7 @@ class BrowserRuntimeSession {
   }
 
   #triggerWatchdog(reason: "instruction limit" | "wall-clock limit"): void {
-    if (this.#terminal) {
+    if (this.#terminal || this.#stopping) {
       return;
     }
     const execution = this.#execution.snapshot();
@@ -2714,63 +2938,79 @@ class BrowserRuntimeSession {
   }
 
   #terminate(outcome: "cancelled" | "watchdog", detail: string): void {
-    if (this.#terminal) {
-      return;
-    }
-    let pendingHostCalls = this.#pendingHostRequests.size();
-    let pendingCallbacks = 0;
-    let error: string | null = detail;
-    this.#abortSourceReads();
-    if (this.#runtimePrepared && this.#bridge !== null) {
-      try {
-        const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
-        invariant(metadata.kind === "cancelled", "invalid cancellation metadata");
-        pendingHostCalls = metadata.pendingHostCalls;
-        pendingCallbacks = metadata.pendingCallbacks;
-        invariant(pendingHostCalls === 0, "cancellation retained a host request");
-        invariant(pendingCallbacks === 0, "cancellation retained a callback");
-        if (this.#prepared?.workload === "private-bgi") {
-          invariant(metadata.processLifecycle.state === "exited", "BGI cancellation did not exit");
-          invariant(metadata.dllLifecycle === "process-detached", "BGI cancellation did not detach");
-        }
-      } catch (cancelError) {
-        error = `${detail}; cleanup failed: ${String(cancelError)}`;
-      }
-    }
-    this.#pendingHostRequests.rejectAll(new SessionStopped(detail));
-    this.#finish({
-      outcome,
-      exitCode: null,
-      pendingHostCalls,
-      pendingCallbacks,
-      error,
-    });
+    this.#cancelAndFinish(outcome, detail, detail);
   }
 
   #fail(error: Error): void {
-    if (this.#terminal) {
+    this.#cancelAndFinish("fault", error.message, error.message);
+  }
+
+  #cancelAndFinish(
+    outcome: "cancelled" | "watchdog" | "fault" | "structured-stop",
+    detail: string,
+    reportedError: string | null,
+  ): void {
+    if (this.#terminal || this.#stopping) {
       return;
     }
-    let pendingHostCalls = this.#pendingHostRequests.size();
-    let pendingCallbacks = 0;
+    this.#stopping = true;
     this.#abortSourceReads();
-    if (this.#runtimePrepared && this.#bridge !== null) {
+    this.#abortProfileTransports();
+    this.#terminalTask = (async () => {
+      let pendingHostCalls = this.#pendingHostRequests.size();
+      let pendingCallbacks = 0;
+      const cleanupErrors: string[] = [];
       try {
-        const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
-        pendingHostCalls = metadata.pendingHostCalls;
-        pendingCallbacks = metadata.pendingCallbacks;
-      } catch (cancelError) {
-        error = new Error(`${error.message}; cleanup failed: ${String(cancelError)}`);
+        await this.#settleProfileLeaseAcquisition();
+      } catch (cleanupError) {
+        cleanupErrors.push(`profile lease acquisition: ${String(cleanupError)}`);
       }
-    }
-    this.#pendingHostRequests.rejectAll(new SessionStopped(error.message));
-    this.#finish({
-      outcome: "fault",
-      exitCode: null,
-      pendingHostCalls,
-      pendingCallbacks,
-      error: error.message,
-    });
+      try {
+        await this.#drainProfileTransports();
+      } catch (cleanupError) {
+        cleanupErrors.push(`profile read transport: ${String(cleanupError)}`);
+      }
+      try {
+        await this.#drainWritableCommits();
+      } catch (cleanupError) {
+        cleanupErrors.push(`writable commit transport: ${String(cleanupError)}`);
+      }
+      try {
+        await this.#revokeWritableProfileLease();
+      } catch (cleanupError) {
+        cleanupErrors.push(`profile lease revoke: ${String(cleanupError)}`);
+      }
+      if (this.#runtimePrepared && this.#bridge !== null) {
+        try {
+          const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
+          invariant(metadata.kind === "cancelled", "invalid cancellation metadata");
+          pendingHostCalls = metadata.pendingHostCalls;
+          pendingCallbacks = metadata.pendingCallbacks;
+          invariant(pendingHostCalls === 0, "cancellation retained a host request");
+          invariant(pendingCallbacks === 0, "cancellation retained a callback");
+          if (this.#prepared?.workload === "private-bgi") {
+            invariant(metadata.processLifecycle.state === "exited", "BGI cancellation did not exit");
+            invariant(
+              metadata.dllLifecycle === "process-detached",
+              "BGI cancellation did not detach",
+            );
+          }
+        } catch (cleanupError) {
+          cleanupErrors.push(`Rust cancellation: ${String(cleanupError)}`);
+        }
+      }
+      this.#pendingHostRequests.rejectAll(new SessionStopped(detail));
+      this.#finishNow({
+        outcome,
+        exitCode: null,
+        pendingHostCalls,
+        pendingCallbacks,
+        error:
+          cleanupErrors.length === 0
+            ? reportedError
+            : `${reportedError ?? detail}; cleanup failed: ${cleanupErrors.join("; ")}`,
+      });
+    })();
   }
 
   #abortSourceReads(): void {
@@ -2780,7 +3020,95 @@ class BrowserRuntimeSession {
     this.#sourceReadControllers.clear();
   }
 
+  #abortProfileTransports(): void {
+    for (const controller of this.#profileTransportControllers) {
+      controller.abort();
+    }
+  }
+
   #finish(
+    terminal: Pick<
+      SessionReport,
+      "outcome" | "exitCode" | "pendingHostCalls" | "pendingCallbacks" | "error"
+    >,
+  ): void {
+    if (this.#terminal || this.#stopping) {
+      return;
+    }
+    this.#stopping = true;
+    this.#abortSourceReads();
+    this.#abortProfileTransports();
+    this.#terminalTask = (async () => {
+      let final = terminal;
+      try {
+        await this.#settleProfileLeaseAcquisition();
+        await this.#drainProfileTransports();
+        await this.#drainWritableCommits();
+        await this.#revokeWritableProfileLease();
+      } catch (cleanupError) {
+        final = {
+          outcome: "fault",
+          exitCode: null,
+          pendingHostCalls: this.#pendingHostRequests.size(),
+          pendingCallbacks: terminal.pendingCallbacks,
+          error: `terminal storage barrier failed: ${String(cleanupError)}`,
+        };
+      }
+      this.#finishNow(final);
+    })();
+  }
+
+  async #settleProfileLeaseAcquisition(): Promise<void> {
+    const acquisition = this.#profileLeaseAcquisitionTask;
+    if (acquisition !== null) {
+      await acquisition;
+    }
+  }
+
+  async #drainProfileTransports(): Promise<void> {
+    if (this.#profileTransportTasks.size > 0) {
+      await Promise.allSettled([...this.#profileTransportTasks]);
+    }
+  }
+
+  async #drainWritableCommits(): Promise<void> {
+    if (this.#writableCommitTasks.size === 0) {
+      return;
+    }
+    await Promise.allSettled([...this.#writableCommitTasks]);
+  }
+
+  async #revokeWritableProfileLease(): Promise<void> {
+    const lease = this.#profileLease;
+    if (lease === null) {
+      return;
+    }
+    const base = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v2/",
+      "writable profile API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    const url = new URL(`sessions/${lease.epoch}`, base);
+    const response = await fetch(url, {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "X-Vine-Session-Key": lease.sessionKey },
+    });
+    invariant(response.status === 204, `writable profile revoke failed with ${response.status}`);
+    invariant(
+      response.headers.get("x-vine-title-fingerprint") === lease.titleFingerprint &&
+        response.headers.get("x-vine-profile-id") === lease.profileId &&
+        response.headers.get("x-vine-session-key") === lease.sessionKey &&
+        response.headers.get("x-vine-session-epoch") === String(lease.epoch),
+      "writable profile revoke response identity mismatch",
+    );
+    this.#profileLease = null;
+  }
+
+  #finishNow(
     terminal: Pick<
       SessionReport,
       "outcome" | "exitCode" | "pendingHostCalls" | "pendingCallbacks" | "error"
@@ -2845,7 +3173,7 @@ class BrowserRuntimeSession {
   }
 
   #status(phase: string, detail: string): void {
-    if (!this.#terminal) {
+    if (!this.#terminal && !this.#stopping) {
       post({
         type: "session-status",
         protocolVersion,

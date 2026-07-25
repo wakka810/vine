@@ -4,14 +4,18 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export const writableProfileSchema = "vine.writable-profile-snapshot";
-export const writableProfileSchemaVersion = 1;
+export const writableProfileSchemaVersion = 2;
 export const writableProfileReadService = "storage.profile-read.v1";
 export const writableProfileCommitService = "storage.profile-commit.v1";
 export const writableProfileMaximumBytes = 16 * 1024 * 1024;
 export const writableProfileMaximumIoBytes = 1024 * 1024;
 
-const databaseSchemaVersion = 1;
+const databaseSchemaVersion = 2;
 const maximumGeneration = Number.MAX_SAFE_INTEGER;
+const errorWriteFault = 29;
+const errorLockViolation = 33;
+const errorDiskFull = 112;
+const errorOperationAborted = 995;
 
 export function openWritableProfile({
   databasePath,
@@ -92,6 +96,18 @@ export function openWritableProfile({
         byte_length INTEGER NOT NULL,
         sha256 TEXT NOT NULL
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS profile_lease (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        epoch INTEGER NOT NULL CHECK (epoch >= 0),
+        session_key TEXT,
+        active INTEGER NOT NULL CHECK (active IN (0, 1)),
+        CHECK (
+          (active = 0 AND session_key IS NULL) OR
+          (active = 1 AND session_key IS NOT NULL)
+        )
+      ) STRICT;
+      INSERT OR IGNORE INTO profile_lease(singleton, epoch, session_key, active)
+      VALUES (1, 0, NULL, 0);
     `);
     initializeProfile(database, configuration);
   } catch (error) {
@@ -132,7 +148,6 @@ export function snapshotWritableProfile(profile) {
           generation: 0,
           byteLength: 0,
           sha256: null,
-          bytes: [],
         };
       }
       const content = Buffer.from(file.content);
@@ -144,10 +159,73 @@ export function snapshotWritableProfile(profile) {
         generation: file.generation,
         byteLength: file.byte_length,
         sha256: file.sha256,
-        bytes: [...content],
       };
     }),
   };
+}
+
+export function acquireWritableProfileLease(profile, sessionKey) {
+  assertSessionKey(sessionKey);
+  const database = profile.database;
+  database.exec("BEGIN IMMEDIATE");
+  let committed = false;
+  try {
+    const current = database
+      .prepare("SELECT epoch FROM profile_lease WHERE singleton = 1")
+      .get();
+    if (
+      current === undefined ||
+      !Number.isSafeInteger(current.epoch) ||
+      current.epoch < 0 ||
+      current.epoch >= maximumGeneration
+    ) {
+      throw profileError(
+        "writable-profile-lease-state-invalid",
+        "writable profile lease epoch is missing, invalid, or exhausted",
+      );
+    }
+    const epoch = current.epoch + 1;
+    database
+      .prepare(
+        "UPDATE profile_lease SET epoch = ?, session_key = ?, active = 1 WHERE singleton = 1",
+      )
+      .run(epoch, sessionKey);
+    database.exec("COMMIT");
+    committed = true;
+    return { sessionKey, epoch };
+  } finally {
+    if (!committed) {
+      database.exec("ROLLBACK");
+    }
+  }
+}
+
+export function revokeWritableProfileLease(profile, lease) {
+  const normalized = normalizeLease(lease);
+  const database = profile.database;
+  database.exec("BEGIN IMMEDIATE");
+  let committed = false;
+  try {
+    const active = activeWritableProfileLease(database);
+    const revoked =
+      active.active === 1 &&
+      active.epoch === normalized.epoch &&
+      active.session_key === normalized.sessionKey;
+    if (revoked) {
+      database
+        .prepare(
+          "UPDATE profile_lease SET session_key = NULL, active = 0 WHERE singleton = 1",
+        )
+        .run();
+    }
+    database.exec("COMMIT");
+    committed = true;
+    return { ...normalized, revoked };
+  } finally {
+    if (!committed) {
+      database.exec("ROLLBACK");
+    }
+  }
 }
 
 export function readWritableProfile(profile, request) {
@@ -203,6 +281,7 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
   database.exec("BEGIN IMMEDIATE");
   let committed = false;
   try {
+    assertActiveWritableProfileLease(database, normalized);
     const duplicate = database
       .prepare(
         "SELECT object_id, base_generation, committed_generation, byte_length, sha256 FROM commits WHERE request_key = ?",
@@ -302,26 +381,66 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
 
 export async function handleWritableProfileHttp(request, response, profile) {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
-  if (!url.pathname.startsWith("/api/profile/v1/")) {
+  if (!url.pathname.startsWith("/api/profile/v2/")) {
     return false;
   }
   try {
-    if (url.pathname === "/api/profile/v1/snapshot") {
+    if (url.pathname === "/api/profile/v2/sessions") {
+      if (request.method !== "POST") {
+        sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+        return true;
+      }
+      const sessionKey = requiredHeader(request, "x-vine-session-key", 256);
+      const lease = acquireWritableProfileLease(profile, sessionKey);
+      response.writeHead(201, profileHeaders(profile, {
+        "Content-Length": "0",
+        "X-Vine-Session-Epoch": String(lease.epoch),
+        "X-Vine-Session-Key": lease.sessionKey,
+      }));
+      response.end();
+      return true;
+    }
+    const sessionMatch = url.pathname.match(
+      /^\/api\/profile\/v2\/sessions\/([1-9][0-9]*)$/u,
+    );
+    if (sessionMatch !== null) {
+      if (request.method !== "DELETE") {
+        sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+        return true;
+      }
+      const lease = {
+        sessionKey: requiredHeader(request, "x-vine-session-key", 256),
+        epoch: parseSafeInteger(sessionMatch[1], "profile session epoch", 1),
+      };
+      const result = revokeWritableProfileLease(profile, lease);
+      response.writeHead(204, profileHeaders(profile, {
+        "X-Vine-Session-Epoch": String(result.epoch),
+        "X-Vine-Session-Key": result.sessionKey,
+        "X-Vine-Session-Revoked": String(result.revoked),
+      }));
+      response.end();
+      return true;
+    }
+
+    if (url.pathname === "/api/profile/v2/snapshot") {
       if (request.method !== "GET") {
         sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
         return true;
       }
+      const lease = requestLease(request);
+      assertActiveWritableProfileLease(profile.database, lease);
       const bytes = Buffer.from(`${JSON.stringify(snapshotWritableProfile(profile))}\n`);
       response.writeHead(200, profileHeaders(profile, {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Length": String(bytes.length),
+        "X-Vine-Session-Epoch": String(lease.sessionEpoch),
       }));
       response.end(bytes);
       return true;
     }
 
     const match = url.pathname.match(
-      /^\/api\/profile\/v1\/titles\/([^/]+)\/profiles\/([^/]+)\/objects\/([1-9][0-9]*)(\/commits)?$/u,
+      /^\/api\/profile\/v2\/titles\/([^/]+)\/profiles\/([^/]+)\/objects\/([1-9][0-9]*)(\/commits)?$/u,
     );
     if (match === null) {
       sendProfileError(response, 404, "writable-profile-route-unknown", "profile route not found");
@@ -340,6 +459,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
       sendProfileError(response, 404, "writable-profile-object-unknown", "profile object not found");
       return true;
     }
+    const lease = requestLease(request);
 
     if (commitSuffix === undefined) {
       if (request.method !== "GET") {
@@ -354,6 +474,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
         1,
         writableProfileMaximumIoBytes,
       );
+      assertActiveWritableProfileLease(profile.database, lease);
       const result = readWritableProfile(profile, {
         sourceId: 0,
         objectId,
@@ -374,6 +495,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
         "X-Vine-Offset": offset.toString(),
         "X-Vine-Requested-Bytes": String(requestedBytes),
         "X-Vine-Transferred-Bytes": String(result.transferredBytes),
+        "X-Vine-Session-Epoch": String(lease.sessionEpoch),
       }));
       response.end(result.bytes);
       return true;
@@ -411,20 +533,39 @@ export async function handleWritableProfileHttp(request, response, profile) {
       );
     }
     const configured = profile.files.find((file) => file.objectId === objectId);
-    const result = commitWritableProfile(
-      profile,
-      {
-        requestKey,
-        titleFingerprint,
-        profileId,
+    let storageErrorCode = null;
+    let result;
+    try {
+      result = commitWritableProfile(
+        profile,
+        {
+          requestKey,
+          titleFingerprint,
+          profileId,
+          objectId,
+          relativePathA: configured.relativePathA,
+          baseGeneration,
+          byteLength,
+          sha256: contentSha256,
+          ...lease,
+        },
+        content,
+      );
+    } catch (error) {
+      const win32Error = writableCommitWin32Error(error);
+      if (win32Error === null) {
+        throw error;
+      }
+      storageErrorCode =
+        typeof error?.code === "string" ? error.code : "writable-profile-storage-failure";
+      result = {
         objectId,
-        relativePathA: configured.relativePathA,
         baseGeneration,
-        byteLength,
-        sha256: contentSha256,
-      },
-      content,
-    );
+        committedGeneration: baseGeneration,
+        win32Error,
+        duplicate: false,
+      };
+    }
     const control = encodeCommitResponse(result);
     response.writeHead(200, profileHeaders(profile, {
       "Content-Type": "application/vnd.vine.profile-commit.v1",
@@ -434,6 +575,10 @@ export async function handleWritableProfileHttp(request, response, profile) {
       "X-Vine-Committed-Generation": String(result.committedGeneration),
       "X-Vine-Content-Sha256": contentSha256,
       "X-Vine-Duplicate": String(result.duplicate),
+      "X-Vine-Session-Epoch": String(lease.sessionEpoch),
+      ...(storageErrorCode === null
+        ? {}
+        : { "X-Vine-Storage-Error-Code": storageErrorCode }),
     }));
     response.end(control);
     return true;
@@ -488,6 +633,12 @@ function initializeProfile(database, configuration) {
         }
       }
     } else {
+      if (metadata.schema_version === 1) {
+        database
+          .prepare("UPDATE profile_metadata SET schema_version = ? WHERE singleton = 1")
+          .run(databaseSchemaVersion);
+        metadata.schema_version = databaseSchemaVersion;
+      }
       assertMetadata(metadata, configuration);
       const storedPaths = database
         .prepare("SELECT object_id, relative_path_a FROM writable_paths ORDER BY object_id")
@@ -552,6 +703,10 @@ function normalizeCommitRequest(profile, request, content) {
   assertInteger(request.objectId, "commit object ID", 1, 0xffff_ffff);
   assertInteger(request.baseGeneration, "commit base generation", 0, maximumGeneration - 1);
   assertInteger(request.byteLength, "commit byte length", 0, profile.quotaBytes);
+  const lease = normalizeLease({
+    sessionKey: request.sessionKey,
+    epoch: request.sessionEpoch,
+  });
   const configured = profile.files.find((file) => file.objectId === request.objectId);
   if (configured === undefined) {
     throw profileError(
@@ -577,7 +732,101 @@ function normalizeCommitRequest(profile, request, content) {
       "commit bytes do not match the declared length and SHA-256",
     );
   }
-  return { ...request, content: bytes };
+  return {
+    ...request,
+    sessionKey: lease.sessionKey,
+    sessionEpoch: lease.epoch,
+    content: bytes,
+  };
+}
+
+function requestLease(request) {
+  return {
+    sessionKey: requiredHeader(request, "x-vine-session-key", 256),
+    sessionEpoch: parseSafeInteger(
+      requiredHeader(request, "x-vine-session-epoch", 32),
+      "profile session epoch",
+      1,
+    ),
+  };
+}
+
+function normalizeLease(lease) {
+  assertSessionKey(lease?.sessionKey);
+  assertInteger(lease?.epoch, "profile session epoch", 1, maximumGeneration);
+  return { sessionKey: lease.sessionKey, epoch: lease.epoch };
+}
+
+function assertSessionKey(sessionKey) {
+  assertText(sessionKey, "profile session key", 256);
+  if (!/^[a-zA-Z0-9:._-]+$/u.test(sessionKey)) {
+    throw profileError(
+      "writable-profile-session-key-invalid",
+      "profile session key contains an unsupported character",
+    );
+  }
+}
+
+function activeWritableProfileLease(database) {
+  const active = database
+    .prepare("SELECT epoch, session_key, active FROM profile_lease WHERE singleton = 1")
+    .get();
+  if (
+    active === undefined ||
+    !Number.isSafeInteger(active.epoch) ||
+    active.epoch < 0 ||
+    (active.active !== 0 && active.active !== 1) ||
+    (active.active === 0 ? active.session_key !== null : typeof active.session_key !== "string")
+  ) {
+    throw profileError(
+      "writable-profile-lease-state-invalid",
+      "writable profile lease state is invalid",
+    );
+  }
+  return active;
+}
+
+function assertActiveWritableProfileLease(database, request) {
+  const lease = normalizeLease({
+    sessionKey: request.sessionKey,
+    epoch: request.sessionEpoch,
+  });
+  const active = activeWritableProfileLease(database);
+  if (
+    active.active !== 1 ||
+    active.epoch !== lease.epoch ||
+    active.session_key !== lease.sessionKey
+  ) {
+    throw profileError(
+      "writable-profile-lease-revoked",
+      "writable profile request does not own the active server lease",
+    );
+  }
+}
+
+function writableCommitWin32Error(error) {
+  const code = typeof error?.code === "string" ? error.code : "";
+  const message = error instanceof Error ? error.message : String(error);
+  if (code.includes("quota") || code.includes("disk-full")) {
+    return errorDiskFull;
+  }
+  if (code === "writable-profile-generation-stale") {
+    return errorWriteFault;
+  }
+  if (code === "writable-profile-lease-revoked") {
+    return errorOperationAborted;
+  }
+  if (
+    code.includes("SQLITE_BUSY") ||
+    code.includes("SQLITE_LOCKED") ||
+    /database is (?:busy|locked)/iu.test(message)
+  ) {
+    return errorLockViolation;
+  }
+  if (code.startsWith("ERR_SQLITE") || code.startsWith("SQLITE_")) {
+    return errorWriteFault;
+  }
+  return null;
 }
 
 function assertMetadata(metadata, configuration) {

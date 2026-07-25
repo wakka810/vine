@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
 export const PRIVATE_TARGET_EVIDENCE_VERSION = 5;
+export const PRIVATE_TARGET_EVIDENCE_DESCENDANT_PATHS = Object.freeze([
+  "docs/private-target-evidence.json",
+]);
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -146,6 +149,26 @@ function digestPayload(evidence) {
     .createHash("sha256")
     .update(`${JSON.stringify(payload, null, 2)}\n`)
     .digest("hex");
+}
+
+export function validatePrivateTargetEvidenceDescendantPaths(paths) {
+  if (!Array.isArray(paths)) {
+    return ["private target evidence descendant paths must be an array"];
+  }
+  const allowed = new Set(PRIVATE_TARGET_EVIDENCE_DESCENDANT_PATHS);
+  const errors = [];
+  for (const value of paths) {
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push("private target evidence descendant path must be a non-empty string");
+      continue;
+    }
+    if (!allowed.has(value)) {
+      errors.push(
+        `private target evidence is stale after descendant change ${JSON.stringify(value)}`,
+      );
+    }
+  }
+  return errors;
 }
 
 export function finalizePrivateTargetEvidence(payload) {

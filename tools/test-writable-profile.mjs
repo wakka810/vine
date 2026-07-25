@@ -4,15 +4,19 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import {
+  acquireWritableProfileLease,
   commitWritableProfile,
   handleWritableProfileHttp,
   openWritableProfile,
+  readWritableProfile,
   snapshotWritableProfile,
 } from "./writable-profile.mjs";
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vine-writable-profile-"));
+let testCompleted = false;
 const databasePath = path.join(temporaryDirectory, "profile.sqlite");
 const configuration = {
   databasePath,
@@ -25,6 +29,7 @@ const configuration = {
 
 try {
   let profile = openWritableProfile(configuration);
+  const directLease = acquireWritableProfileLease(profile, "session-a");
   assert.deepEqual(snapshotWritableProfile(profile).files[0], {
     objectId: 1,
     relativePathA: [...Buffer.from("BGI.gdb", "ascii")],
@@ -32,11 +37,10 @@ try {
     generation: 0,
     byteLength: 0,
     sha256: null,
-    bytes: [],
   });
 
   const firstBytes = Buffer.from("SDC FORMAT 1.00", "ascii");
-  const firstRequest = request("session-a:1", 0, firstBytes);
+  const firstRequest = request("session-a:1", 0, firstBytes, directLease);
   assert.deepEqual(commitWritableProfile(profile, firstRequest, firstBytes), {
     objectId: 1,
     baseGeneration: 0,
@@ -46,18 +50,26 @@ try {
   });
   assert.equal(commitWritableProfile(profile, firstRequest, firstBytes).duplicate, true);
   assert.throws(
-    () => commitWritableProfile(profile, request("session-a:1", 0, Buffer.from("other")), Buffer.from("other")),
+    () =>
+      commitWritableProfile(
+        profile,
+        request("session-a:1", 0, Buffer.from("other"), directLease),
+        Buffer.from("other"),
+      ),
     { code: "writable-profile-request-key-conflict" },
   );
   assert.throws(
-    () => commitWritableProfile(profile, request("session-a:2", 0, firstBytes), firstBytes),
+    () => commitWritableProfile(profile, request("session-a:2", 0, firstBytes, directLease), firstBytes),
     { code: "writable-profile-generation-stale" },
   );
   assert.throws(
     () =>
       commitWritableProfile(
         profile,
-        { ...request("session-a:3", 1, firstBytes), titleFingerprint: "0".repeat(64) },
+        {
+          ...request("session-a:3", 1, firstBytes, directLease),
+          titleFingerprint: "0".repeat(64),
+        },
         firstBytes,
       ),
     { code: "writable-profile-commit-profile-mismatch" },
@@ -66,7 +78,7 @@ try {
     () =>
       commitWritableProfile(
         profile,
-        { ...request("session-a:4", 1, firstBytes), sha256: "0".repeat(64) },
+        { ...request("session-a:4", 1, firstBytes, directLease), sha256: "0".repeat(64) },
         firstBytes,
       ),
     { code: "writable-profile-commit-content-mismatch" },
@@ -75,15 +87,20 @@ try {
   const rollbackBytes = Buffer.from("rollback", "ascii");
   assert.throws(
     () =>
-      commitWritableProfile(profile, request("session-a:5", 1, rollbackBytes), rollbackBytes, {
+      commitWritableProfile(
+        profile,
+        request("session-a:5", 1, rollbackBytes, directLease),
+        rollbackBytes,
+        {
         failpoint: "after-write-before-commit",
-      }),
+        },
+      ),
     { code: "writable-profile-failpoint" },
   );
   assert.equal(snapshotWritableProfile(profile).files[0].generation, 1);
 
   const finalBytes = Buffer.from("new durable state", "ascii");
-  const lostRequest = request("session-a:6", 1, finalBytes);
+  const lostRequest = request("session-a:6", 1, finalBytes, directLease);
   assert.throws(
     () =>
       commitWritableProfile(profile, lostRequest, finalBytes, {
@@ -93,6 +110,15 @@ try {
   );
   profile.close();
 
+  const legacyDatabase = new DatabaseSync(configuration.databasePath);
+  try {
+    legacyDatabase.exec(`
+      UPDATE profile_metadata SET schema_version = 1 WHERE singleton = 1;
+      DROP TABLE profile_lease;
+    `);
+  } finally {
+    legacyDatabase.close();
+  }
   profile = openWritableProfile({
     ...configuration,
     files: [
@@ -103,12 +129,49 @@ try {
       },
     ],
   });
+  assert.equal(
+    profile.database
+      .prepare("SELECT schema_version FROM profile_metadata WHERE singleton = 1")
+      .get().schema_version,
+    2,
+  );
+  const migratedLeaseState = profile.database
+    .prepare("SELECT epoch, session_key, active FROM profile_lease WHERE singleton = 1")
+    .get();
+  assert.equal(migratedLeaseState.epoch, 0);
+  assert.equal(migratedLeaseState.session_key, null);
+  assert.equal(migratedLeaseState.active, 0);
+  const restartedLease = acquireWritableProfileLease(profile, "session-a-restarted");
   const restarted = snapshotWritableProfile(profile).files[0];
   assert.equal(restarted.generation, 2);
-  assert.deepEqual(Buffer.from(restarted.bytes), finalBytes);
-  assert.equal(commitWritableProfile(profile, lostRequest, finalBytes).duplicate, true);
+  assert.deepEqual(
+    readWritableProfile(profile, {
+      sourceId: 0,
+      objectId: 1,
+      offset: 0n,
+      requestedBytes: finalBytes.length,
+    }).bytes,
+    finalBytes,
+  );
+  assert.equal(
+    commitWritableProfile(
+      profile,
+      {
+        ...lostRequest,
+        sessionKey: restartedLease.sessionKey,
+        sessionEpoch: restartedLease.epoch,
+      },
+      finalBytes,
+    ).duplicate,
+    true,
+  );
   assert.throws(
-    () => commitWritableProfile(profile, request("session-a:7", 2, Buffer.alloc(33)), Buffer.alloc(33)),
+    () =>
+      commitWritableProfile(
+        profile,
+        request("session-a:7", 2, Buffer.alloc(33), restartedLease),
+        Buffer.alloc(33),
+      ),
     { code: "writable-profile-integer-invalid" },
   );
 
@@ -118,14 +181,31 @@ try {
     }
   });
   const port = await listen(server);
-  const baseUrl = `http://127.0.0.1:${port}/api/profile/v1`;
+  const baseUrl = `http://127.0.0.1:${port}/api/profile/v2`;
   try {
-    const snapshotResponse = await fetch(`${baseUrl}/snapshot`);
+    assert.equal(
+      (await fetch(`http://127.0.0.1:${port}/api/profile/v1/snapshot`)).status,
+      404,
+    );
+    assert.equal((await fetch(`${baseUrl}/snapshot`)).status, 400);
+    const leaseResponse = await fetch(`${baseUrl}/sessions`, {
+      method: "POST",
+      headers: { "X-Vine-Session-Key": "http-session" },
+    });
+    assert.equal(leaseResponse.status, 201);
+    const httpEpoch = leaseResponse.headers.get("x-vine-session-epoch");
+    assert.match(httpEpoch, /^[1-9][0-9]*$/u);
+    const leaseHeaders = {
+      "X-Vine-Session-Key": "http-session",
+      "X-Vine-Session-Epoch": httpEpoch,
+    };
+    const snapshotResponse = await fetch(`${baseUrl}/snapshot`, { headers: leaseHeaders });
     assert.equal(snapshotResponse.status, 200);
     assert.deepEqual(await snapshotResponse.json(), snapshotWritableProfile(profile));
     const rangeResponse = await fetch(
       `${baseUrl}/titles/${configuration.titleFingerprint}/profiles/default/objects/1` +
         `?generation=2&offset=4&length=6`,
+      { headers: leaseHeaders },
     );
     assert.equal(rangeResponse.status, 206);
     assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), finalBytes.subarray(4, 10));
@@ -140,6 +220,7 @@ try {
       "X-Vine-Base-Generation": "2",
       "X-Vine-Byte-Length": String(httpBytes.length),
       "X-Vine-Content-Sha256": httpHash,
+      ...leaseHeaders,
     };
     const commitResponse = await fetch(commitUrl, {
       method: "POST",
@@ -163,6 +244,65 @@ try {
     });
     assert.equal(duplicateResponse.status, 200);
     assert.equal(duplicateResponse.headers.get("x-vine-duplicate"), "true");
+    const staleBytes = Buffer.from("stale generation", "ascii");
+    const staleResponse = await fetch(commitUrl, {
+      method: "POST",
+      headers: {
+        ...commitHeaders,
+        "X-Vine-Request-Key": "http-session:stale",
+        "X-Vine-Base-Generation": "2",
+        "X-Vine-Byte-Length": String(staleBytes.length),
+        "X-Vine-Content-Sha256": crypto.createHash("sha256").update(staleBytes).digest("hex"),
+      },
+      body: staleBytes,
+    });
+    assert.equal(staleResponse.status, 200);
+    assert.equal(decodeCommitResponse(await staleResponse.arrayBuffer()).win32Error, 29);
+    assert.equal(snapshotWritableProfile(profile).files[0].generation, 3);
+
+    const revokeResponse = await fetch(`${baseUrl}/sessions/${httpEpoch}`, {
+      method: "DELETE",
+      headers: { "X-Vine-Session-Key": "http-session" },
+    });
+    assert.equal(revokeResponse.status, 204);
+    assert.equal(revokeResponse.headers.get("x-vine-session-revoked"), "true");
+    const lateBytes = Buffer.from("late old session", "ascii");
+    const lateResponse = await fetch(commitUrl, {
+      method: "POST",
+      headers: {
+        ...commitHeaders,
+        "X-Vine-Request-Key": "http-session:late",
+        "X-Vine-Base-Generation": "3",
+        "X-Vine-Byte-Length": String(lateBytes.length),
+        "X-Vine-Content-Sha256": crypto.createHash("sha256").update(lateBytes).digest("hex"),
+      },
+      body: lateBytes,
+    });
+    assert.equal(lateResponse.status, 200);
+    assert.equal(decodeCommitResponse(await lateResponse.arrayBuffer()).win32Error, 995);
+    assert.equal(snapshotWritableProfile(profile).files[0].generation, 3);
+
+    const nextLeaseResponse = await fetch(`${baseUrl}/sessions`, {
+      method: "POST",
+      headers: { "X-Vine-Session-Key": "next-session" },
+    });
+    assert.equal(nextLeaseResponse.status, 201);
+    const nextEpoch = nextLeaseResponse.headers.get("x-vine-session-epoch");
+    assert.notEqual(nextEpoch, httpEpoch);
+    const staleAfterNext = await fetch(commitUrl, {
+      method: "POST",
+      headers: {
+        ...commitHeaders,
+        "X-Vine-Request-Key": "http-session:after-next",
+        "X-Vine-Base-Generation": "3",
+        "X-Vine-Byte-Length": String(lateBytes.length),
+        "X-Vine-Content-Sha256": crypto.createHash("sha256").update(lateBytes).digest("hex"),
+      },
+      body: lateBytes,
+    });
+    assert.equal(staleAfterNext.status, 200);
+    assert.equal(decodeCommitResponse(await staleAfterNext.arrayBuffer()).win32Error, 995);
+    assert.equal(snapshotWritableProfile(profile).files[0].generation, 3);
   } finally {
     await close(server);
   }
@@ -175,14 +315,125 @@ try {
   profile = openWritableProfile(configuration);
   const httpRestarted = snapshotWritableProfile(profile).files[0];
   assert.equal(httpRestarted.generation, 3);
-  assert.deepEqual(Buffer.from(httpRestarted.bytes), Buffer.from("http commit", "ascii"));
+  assert.deepEqual(
+    readWritableProfile(profile, {
+      sourceId: 0,
+      objectId: 1,
+      offset: 0n,
+      requestedBytes: httpRestarted.byteLength,
+    }).bytes,
+    Buffer.from("http commit", "ascii"),
+  );
   profile.close();
+
+  const failureProfile = openWritableProfile({
+    ...configuration,
+    databasePath: path.join(temporaryDirectory, "failure-profile.sqlite"),
+    files: [
+      { objectId: 1, relativePathA: Buffer.from("BGI.gdb", "ascii") },
+      {
+        objectId: 2,
+        relativePathA: Buffer.from("settings.dat", "ascii"),
+        seedBytes: Buffer.alloc(16, 0x5a),
+      },
+    ],
+  });
+  const failureServer = http.createServer(async (incoming, response) => {
+    if (!(await handleWritableProfileHttp(incoming, response, failureProfile))) {
+      response.writeHead(404).end();
+    }
+  });
+  const failurePort = await listen(failureServer);
+  const failureBase = `http://127.0.0.1:${failurePort}/api/profile/v2`;
+  try {
+    const leaseResponse = await fetch(`${failureBase}/sessions`, {
+      method: "POST",
+      headers: { "X-Vine-Session-Key": "failure-session" },
+    });
+    const epoch = leaseResponse.headers.get("x-vine-session-epoch");
+    assert.equal(leaseResponse.status, 201);
+    const commitUrl =
+      `${failureBase}/titles/${configuration.titleFingerprint}/profiles/default/objects/1/commits`;
+    const quotaBytes = Buffer.alloc(17, 0x71);
+    const quotaResponse = await fetch(commitUrl, {
+      method: "POST",
+      headers: commitHeadersFor("failure-session:quota", 0, quotaBytes, epoch),
+      body: quotaBytes,
+    });
+    assert.equal(quotaResponse.status, 200);
+    assert.equal(decodeCommitResponse(await quotaResponse.arrayBuffer()).win32Error, 112);
+    assert.equal(snapshotWritableProfile(failureProfile).files[0].generation, 0);
+
+    const lock = new DatabaseSync(failureProfile.databasePath);
+    try {
+      lock.exec("BEGIN IMMEDIATE");
+      const lockedBytes = Buffer.from("retryable", "ascii");
+      const lockedResponse = await fetch(commitUrl, {
+        method: "POST",
+        headers: commitHeadersFor("failure-session:locked", 0, lockedBytes, epoch),
+        body: lockedBytes,
+      });
+      assert.equal(lockedResponse.status, 200);
+      assert.equal(decodeCommitResponse(await lockedResponse.arrayBuffer()).win32Error, 33);
+      assert.equal(snapshotWritableProfile(failureProfile).files[0].generation, 0);
+      lock.exec("ROLLBACK");
+    } finally {
+      lock.close();
+    }
+  } finally {
+    await close(failureServer);
+    failureProfile.close();
+  }
+
+  const largeBytes = Buffer.alloc(4 * 1024 * 1024, 0xff);
+  const largeProfile = openWritableProfile({
+    ...configuration,
+    databasePath: path.join(temporaryDirectory, "large-profile.sqlite"),
+    quotaBytes: 16 * 1024 * 1024,
+    files: [
+      {
+        objectId: 1,
+        relativePathA: Buffer.from("BGI.gdb", "ascii"),
+        seedBytes: largeBytes,
+      },
+    ],
+  });
+  try {
+    const largeSnapshot = snapshotWritableProfile(largeProfile);
+    const serialized = Buffer.from(JSON.stringify(largeSnapshot));
+    assert(serialized.length < 4096);
+    assert.equal(Object.hasOwn(largeSnapshot.files[0], "bytes"), false);
+    const lastChunk = readWritableProfile(largeProfile, {
+      sourceId: 0,
+      objectId: 1,
+      offset: BigInt(largeBytes.length - 1024 * 1024),
+      requestedBytes: 1024 * 1024,
+    });
+    assert.deepEqual(lastChunk.bytes, largeBytes.subarray(largeBytes.length - 1024 * 1024));
+  } finally {
+    largeProfile.close();
+  }
+  testCompleted = true;
   console.log("writable profile SQLite tests passed");
 } finally {
-  fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  try {
+    fs.rmSync(temporaryDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  } catch (cleanupError) {
+    if (testCompleted) {
+      throw cleanupError;
+    }
+    process.stderr.write(
+      `writable profile test cleanup deferred for ${temporaryDirectory}: ${String(cleanupError)}\n`,
+    );
+  }
 }
 
-function request(requestKey, baseGeneration, bytes) {
+function request(requestKey, baseGeneration, bytes, lease) {
   return {
     requestKey,
     titleFingerprint: configuration.titleFingerprint,
@@ -192,6 +443,20 @@ function request(requestKey, baseGeneration, bytes) {
     baseGeneration,
     byteLength: bytes.length,
     sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    sessionKey: lease.sessionKey,
+    sessionEpoch: lease.epoch,
+  };
+}
+
+function commitHeadersFor(requestKey, baseGeneration, bytes, sessionEpoch) {
+  return {
+    "Content-Type": "application/octet-stream",
+    "X-Vine-Request-Key": requestKey,
+    "X-Vine-Base-Generation": String(baseGeneration),
+    "X-Vine-Byte-Length": String(bytes.length),
+    "X-Vine-Content-Sha256": crypto.createHash("sha256").update(bytes).digest("hex"),
+    "X-Vine-Session-Key": "failure-session",
+    "X-Vine-Session-Epoch": sessionEpoch,
   };
 }
 

@@ -956,6 +956,18 @@ impl RuntimeKernel {
         self.files.writable_profile()
     }
 
+    pub fn hydrate_writable_profile_object(
+        &mut self,
+        object_id: u32,
+        generation: u64,
+        bytes: &[u8],
+    ) -> Result<&super::RuntimeWritableFile, RuntimeStateError> {
+        let plan = self
+            .files
+            .plan_writable_profile_hydration(object_id, generation, bytes)?;
+        self.files.commit_writable_profile_hydration(plan)
+    }
+
     pub fn open_source_file_a(
         &mut self,
         requested_path: &[u8],

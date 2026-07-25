@@ -239,6 +239,24 @@ impl Bridge {
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
+    fn hydrate_writable_profile_object(
+        &mut self,
+        object_id: u32,
+        generation: u64,
+        input_length: usize,
+    ) -> Result<(), String> {
+        let bytes = self
+            .input
+            .get(..input_length)
+            .ok_or_else(|| "writable profile hydration exceeds the bridge buffer".to_owned())?;
+        let metadata = self
+            .runtime
+            .as_mut()
+            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?
+            .hydrate_writable_profile_object(object_id, generation, bytes)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
     fn runtime_mut(&mut self) -> Result<&mut BrowserRuntime, String> {
         self.runtime
             .as_mut()
@@ -375,6 +393,30 @@ struct BrowserRuntime {
 }
 
 impl BrowserRuntime {
+    fn hydrate_writable_profile_object(
+        &mut self,
+        object_id: u32,
+        generation: u64,
+        bytes: &[u8],
+    ) -> Result<Value, String> {
+        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
+            return Err("writable profile hydration requires the private BGI runtime".to_owned());
+        }
+        let sha256 = self
+            .runtime
+            .hydrate_writable_profile_object(object_id, generation, bytes)
+            .map_err(error_string)?
+            .sha256
+            .clone();
+        Ok(json!({
+            "kind": "writable-profile-hydrated",
+            "objectId": object_id,
+            "generation": generation,
+            "byteLength": bytes.len(),
+            "sha256": sha256,
+        }))
+    }
+
     fn prepare(
         fixture: Vec<u8>,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
@@ -3976,6 +4018,22 @@ pub extern "C" fn vine_bridge_complete_writable_commit(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         bridge.complete_writable_commit(request_id, control_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_hydrate_writable_profile_object(
+    object_id: u32,
+    generation_low: u32,
+    generation_high: u32,
+    input_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.hydrate_writable_profile_object(
+            object_id,
+            u64::from(generation_low) | (u64::from(generation_high) << 32),
+            input_length as usize,
+        )
     })
 }
 

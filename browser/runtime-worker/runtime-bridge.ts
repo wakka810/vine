@@ -185,6 +185,12 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     high: number,
     controlLength: number,
   ): number;
+  vine_bridge_hydrate_writable_profile_object(
+    objectId: number,
+    generationLow: number,
+    generationHigh: number,
+    inputLength: number,
+  ): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
@@ -406,6 +412,23 @@ export class RuntimeBridge {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() =>
       this.#exports.vine_bridge_complete_writable_commit(low, high, control.byteLength),
+    );
+  }
+
+  hydrateWritableProfileObject<T = Record<string, unknown>>(
+    objectId: number,
+    generation: bigint,
+    bytes: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([bytes]);
+    const [low, high] = splitU64(generation);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_hydrate_writable_profile_object(
+        objectId,
+        low,
+        high,
+        bytes.byteLength,
+      ),
     );
   }
 

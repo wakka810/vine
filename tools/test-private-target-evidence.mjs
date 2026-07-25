@@ -8,6 +8,7 @@ import {
   finalizePrivateTargetEvidence,
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
+  validatePrivateTargetEvidenceDescendantPaths,
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
 import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
@@ -220,6 +221,33 @@ function mutated(mutate) {
 }
 
 assert.deepEqual(validatePrivateTargetEvidence(validEvidence(), checkpoint), []);
+assert.deepEqual(
+  validatePrivateTargetEvidenceDescendantPaths([
+    "docs/private-target-evidence.json",
+  ]),
+  [],
+);
+for (const disguisedPath of [
+  "docs\\private-target-evidence.json",
+  "\ndocs/private-target-evidence.json",
+]) {
+  assert.match(
+    validatePrivateTargetEvidenceDescendantPaths([disguisedPath])[0],
+    /evidence is stale/u,
+  );
+}
+assert.match(
+  validatePrivateTargetEvidenceDescendantPaths([
+    "browser/runtime-worker/runtime-worker.ts",
+  ])[0],
+  /evidence is stale.*runtime-worker\.ts/u,
+);
+assert.match(
+  validatePrivateTargetEvidenceDescendantPaths([
+    "docs/current-checkpoint.json",
+  ])[0],
+  /evidence is stale.*current-checkpoint\.json/u,
+);
 
 const tamperedDigest = validEvidence();
 tamperedDigest.semantic.node.supportedCalls += 1;

@@ -1326,40 +1326,76 @@ async function checkSourceApi(baseUrl, registration) {
 }
 
 async function checkWritableProfileApi(baseUrl, profile) {
-  const snapshotResponse = await fetch(`${baseUrl}api/profile/v1/snapshot`, {
+  const leaseResponse = await fetch(`${baseUrl}api/profile/v2/sessions`, {
+    method: "POST",
     cache: "no-store",
+    headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
+  });
+  assert.equal(leaseResponse.status, 201);
+  const sessionEpoch = leaseResponse.headers.get("x-vine-session-epoch");
+  assert.match(sessionEpoch, /^[1-9][0-9]*$/u);
+  const leaseHeaders = {
+    "X-Vine-Session-Key": "browser-runner-preflight",
+    "X-Vine-Session-Epoch": sessionEpoch,
+  };
+  const snapshotResponse = await fetch(`${baseUrl}api/profile/v2/snapshot`, {
+    cache: "no-store",
+    headers: leaseHeaders,
   });
   assert.equal(snapshotResponse.status, 200);
   const snapshot = JSON.parse(Buffer.from(await snapshotResponse.arrayBuffer()));
   assert.deepEqual(snapshot, snapshotWritableProfile(profile));
   const file = snapshot.files[0];
-  if (!file.exists) {
-    return;
+  if (file.exists) {
+    const length = Math.min(7, file.byteLength);
+    const rangeUrl =
+      `${baseUrl}api/profile/v2/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
+      `/profiles/${encodeURIComponent(snapshot.profileId)}/objects/${file.objectId}` +
+      `?generation=${file.generation}&offset=0&length=${length}`;
+    const rangeResponse = await fetch(rangeUrl, { cache: "no-store", headers: leaseHeaders });
+    assert.equal(rangeResponse.status, 206);
+    assert.equal(rangeResponse.headers.get("x-vine-profile-id"), snapshot.profileId);
+    assert.equal(rangeResponse.headers.get("x-vine-generation"), String(file.generation));
+    const expected = readWritableProfile(profile, {
+      sourceId: 0,
+      objectId: file.objectId,
+      offset: 0n,
+      requestedBytes: length,
+    });
+    assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), expected.bytes);
+    assert.equal(
+      (
+        await fetch(rangeUrl.replace(`generation=${file.generation}`, "generation=999999"), {
+          headers: leaseHeaders,
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await fetch(
+          rangeUrl.replace(encodeURIComponent(snapshot.titleFingerprint), "wrong-title"),
+          { headers: leaseHeaders },
+        )
+      ).status,
+      404,
+    );
   }
-  const length = Math.min(7, file.byteLength);
-  const rangeUrl =
-    `${baseUrl}api/profile/v1/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
-    `/profiles/${encodeURIComponent(snapshot.profileId)}/objects/${file.objectId}` +
-    `?generation=${file.generation}&offset=0&length=${length}`;
-  const rangeResponse = await fetch(rangeUrl, { cache: "no-store" });
-  assert.equal(rangeResponse.status, 206);
-  assert.equal(rangeResponse.headers.get("x-vine-profile-id"), snapshot.profileId);
-  assert.equal(rangeResponse.headers.get("x-vine-generation"), String(file.generation));
-  const expected = readWritableProfile(profile, {
-    sourceId: 0,
-    objectId: file.objectId,
-    offset: 0n,
-    requestedBytes: length,
+  const revokeResponse = await fetch(`${baseUrl}api/profile/v2/sessions/${sessionEpoch}`, {
+    method: "DELETE",
+    cache: "no-store",
+    headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
   });
-  assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), expected.bytes);
-  assert.equal(
-    (await fetch(rangeUrl.replace(`generation=${file.generation}`, "generation=999999"))).status,
-    409,
-  );
-  assert.equal(
-    (await fetch(rangeUrl.replace(encodeURIComponent(snapshot.titleFingerprint), "wrong-title"))).status,
-    404,
-  );
+  assert.equal(revokeResponse.status, 204);
+  assert.equal(revokeResponse.headers.get("x-vine-session-revoked"), "true");
+}
+
+function assertWritableProfileLeaseReleased(profile) {
+  const lease = profile.database
+    .prepare("SELECT session_key, active FROM profile_lease WHERE singleton = 1")
+    .get();
+  assert.equal(lease?.active, 0);
+  assert.equal(lease?.session_key, null);
 }
 
 function findChrome() {
@@ -1709,12 +1745,15 @@ if (serveOnly) {
         const oracleBytes = await readFile(bgiOracleReportPath);
         const oracle = JSON.parse(oracleBytes);
         const success = await runBgiProbe(chrome.browserWebSocketUrl, url, "success");
+        assertWritableProfileLeaseReleased(writableProfile);
         const cancellation = await runBgiProbe(
           chrome.browserWebSocketUrl,
           url,
           "cancel-pending",
         );
+        assertWritableProfileLeaseReleased(writableProfile);
         const watchdog = await runBgiProbe(chrome.browserWebSocketUrl, url, "watchdog");
+        assertWritableProfileLeaseReleased(writableProfile);
         console.log(
           `BGI browser generations ${success.report.initialGeneration}->${success.report.finalGeneration}; ` +
             `writebacks=${success.report.writebackBatches}/${success.report.writebackPages}, ` +
@@ -1813,21 +1852,27 @@ if (serveOnly) {
       await stopChrome(chrome);
     } finally {
       try {
-        await closeServer(server);
-      } finally {
-        writableProfile?.close();
-        if (bgiMode) {
-          const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
-          assert.deepEqual(
-            bgiGdbAfter,
-            bgiGdbBefore,
-            "distribution BGI.gdb changed outside the writable profile",
-          );
+        if (writableProfile !== null) {
+          assertWritableProfileLeaseReleased(writableProfile);
         }
-        if (profile !== null) {
-          const safePrefix = path.join(temporaryRoot, "vine-browser-runtime-");
-          assert(profile.startsWith(safePrefix), "refusing to remove unexpected Chrome profile");
-          await rm(profile, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+      } finally {
+        try {
+          await closeServer(server);
+        } finally {
+          writableProfile?.close();
+          if (bgiMode) {
+            const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+            assert.deepEqual(
+              bgiGdbAfter,
+              bgiGdbBefore,
+              "distribution BGI.gdb changed outside the writable profile",
+            );
+          }
+          if (profile !== null) {
+            const safePrefix = path.join(temporaryRoot, "vine-browser-runtime-");
+            assert(profile.startsWith(safePrefix), "refusing to remove unexpected Chrome profile");
+            await rm(profile, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+          }
         }
       }
     }

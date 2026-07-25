@@ -464,7 +464,6 @@ fn writable_profile_api_generates_commits_and_reopens_without_source_shadowing()
                 generation: 0,
                 byte_length: 0,
                 sha256: None,
-                bytes: Vec::new(),
             }],
         })
         .expect("register writable profile");
