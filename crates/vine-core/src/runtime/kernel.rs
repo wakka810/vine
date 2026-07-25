@@ -91,6 +91,10 @@ use super::heaps::{
     RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown, RuntimeHeaps,
     RuntimeLargeHeapAllocationBacking,
 };
+use super::imm32::{
+    RuntimeImeAssociationResult, RuntimeImeContext, RuntimeImeContextAssociation,
+    RuntimeImeContextId, RuntimeImm32,
+};
 use super::input::{
     RuntimeInput, RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
 };
@@ -151,9 +155,10 @@ use super::timers::{
     RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
-    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource, RuntimeIcon,
-    RuntimeIconId, RuntimeIconResource, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
-    RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
+    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
+    RuntimeDefaultImeWindowResult, RuntimeIcon, RuntimeIconId, RuntimeIconResource,
+    RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId, RuntimeLoadCursorAResult,
+    RuntimeLoadIconAResult, RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
     RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowStyleResult,
@@ -463,6 +468,7 @@ pub struct RuntimeKernel {
     input: RuntimeInput,
     audio: RuntimeAudio,
     user32: RuntimeUser32,
+    imm32: RuntimeImm32,
     gdi: RuntimeGdi,
     gdiplus: RuntimeGdiplus,
     graphics: RuntimeGraphics,
@@ -560,6 +566,8 @@ struct RuntimeStateSnapshot<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     user32: Option<&'a RuntimeUser32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    imm32: Option<&'a RuntimeImm32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<&'a RuntimeGdi>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdiplus: Option<&'a RuntimeGdiplus>,
@@ -609,6 +617,7 @@ impl Serialize for RuntimeKernel {
             input: &self.input,
             audio: (!self.audio.is_empty()).then_some(&self.audio),
             user32: (!self.user32.is_empty()).then_some(&self.user32),
+            imm32: (!self.imm32.is_empty()).then_some(&self.imm32),
             gdi: (!self.gdi.is_empty()).then_some(&self.gdi),
             gdiplus: (!self.gdiplus.is_empty()).then_some(&self.gdiplus),
             graphics: (!self.graphics.is_empty()).then_some(&self.graphics),
@@ -731,6 +740,7 @@ impl RuntimeKernel {
             input: RuntimeInput::default(),
             audio: RuntimeAudio::default(),
             user32: RuntimeUser32::default(),
+            imm32: RuntimeImm32::default(),
             gdi: RuntimeGdi::default(),
             gdiplus: RuntimeGdiplus::default(),
             graphics: RuntimeGraphics::default(),
@@ -4022,6 +4032,72 @@ impl RuntimeKernel {
         self.user32.windows()
     }
 
+    pub(crate) fn get_default_ime_window(
+        &mut self,
+        window_handle: u32,
+    ) -> Result<RuntimeDefaultImeWindowResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_imm32_operation_state()?;
+        let user32 = self
+            .user32
+            .plan_default_ime_window(window_handle, self.current_thread_id())?;
+        let target = self.user32.default_ime_window_target(&user32);
+        let imm32 = self.imm32.plan_ensure_window(target)?;
+        self.user32.preflight_default_ime_window(&user32)?;
+        self.imm32.preflight_ensure_window(&imm32)?;
+        let result = self.user32.commit_default_ime_window_preflighted(user32);
+        self.imm32.commit_ensure_window_preflighted(imm32);
+        Ok(result)
+    }
+
+    pub(crate) fn associate_ime_context(
+        &mut self,
+        window_handle: u32,
+        context_handle: u32,
+    ) -> Result<RuntimeImeAssociationResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_imm32_operation_state()?;
+        let target = self
+            .user32
+            .resolve_ime_app_window_target(window_handle, self.current_thread_id())?;
+        let plan = self.imm32.plan_association(target, context_handle)?;
+        self.imm32.commit_association(plan)
+    }
+
+    pub(crate) fn control_ime_status_window(
+        &mut self,
+        window_handle: u32,
+        request: RuntimeImeStatusWindowRequest,
+    ) -> Result<RuntimeImeWindow, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan =
+            self.user32
+                .plan_ime_control(window_handle, self.current_thread_id(), request)?;
+        self.user32.commit_ime_control(plan)
+    }
+
+    pub fn ime_window(&self, handle: u32) -> Result<&RuntimeImeWindow, RuntimeStateError> {
+        self.user32.ime_window(handle)
+    }
+
+    pub fn ime_windows(&self) -> &BTreeMap<RuntimeImeWindowId, RuntimeImeWindow> {
+        self.user32.ime_windows()
+    }
+
+    pub fn ime_context(&self, handle: u32) -> Result<&RuntimeImeContext, RuntimeStateError> {
+        self.imm32.context(handle)
+    }
+
+    pub fn ime_contexts(&self) -> &BTreeMap<RuntimeImeContextId, RuntimeImeContext> {
+        self.imm32.contexts()
+    }
+
+    pub fn ime_context_associations(
+        &self,
+    ) -> &BTreeMap<RuntimeWindowId, RuntimeImeContextAssociation> {
+        self.imm32.associations()
+    }
+
     pub(crate) fn register_window_timer(
         &mut self,
         window_handle: u32,
@@ -5735,6 +5811,23 @@ impl RuntimeKernel {
         Ok(())
     }
 
+    fn require_imm32_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-imm32",
+                "imm32-operation-state-invalid",
+                "IMM32 operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
     fn require_gdiplus_operation_state(&self) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -6449,6 +6542,7 @@ impl RuntimeKernel {
         let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
         let gdiplus_teardown = self.gdiplus.plan_process_teardown()?;
+        let imm32_teardown = self.imm32.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(gdi_plan) = gdi_teardown.as_ref() {
@@ -6456,6 +6550,9 @@ impl RuntimeKernel {
         }
         if let Some(gdiplus_plan) = gdiplus_teardown.as_ref() {
             self.gdiplus.preflight_process_teardown(gdiplus_plan)?;
+        }
+        if let Some(imm32_plan) = imm32_teardown.as_ref() {
+            self.imm32.preflight_process_teardown(imm32_plan)?;
         }
         if let Some(graphics_plan) = graphics_teardown.as_ref() {
             self.graphics.preflight_process_teardown(graphics_plan)?;
@@ -6469,6 +6566,9 @@ impl RuntimeKernel {
         }
         if let Some(gdiplus_plan) = gdiplus_teardown {
             self.gdiplus.commit_process_teardown(gdiplus_plan);
+        }
+        if let Some(imm32_plan) = imm32_teardown {
+            self.imm32.commit_process_teardown(imm32_plan);
         }
         if let Some(graphics_plan) = graphics_teardown {
             self.graphics.commit_process_teardown(graphics_plan);
@@ -6548,6 +6648,7 @@ impl RuntimeKernel {
         let graphics_teardown = self.graphics.plan_process_teardown()?;
         let gdi_teardown = self.gdi.plan_process_teardown()?;
         let gdiplus_teardown = self.gdiplus.plan_process_teardown()?;
+        let imm32_teardown = self.imm32.plan_process_teardown()?;
         let user32_teardown = self.user32.plan_process_teardown()?;
         self.process.preflight_mutation_commit(&process_plan)?;
         if let Some(timer_plan) = plan.timer_teardown.as_ref() {
@@ -6558,6 +6659,9 @@ impl RuntimeKernel {
         }
         if let Some(gdiplus_plan) = gdiplus_teardown.as_ref() {
             self.gdiplus.preflight_process_teardown(gdiplus_plan)?;
+        }
+        if let Some(imm32_plan) = imm32_teardown.as_ref() {
+            self.imm32.preflight_process_teardown(imm32_plan)?;
         }
         if let Some(graphics_plan) = graphics_teardown.as_ref() {
             self.graphics.preflight_process_teardown(graphics_plan)?;
@@ -6585,6 +6689,9 @@ impl RuntimeKernel {
         }
         if let Some(gdiplus_plan) = gdiplus_teardown {
             self.gdiplus.commit_process_teardown(gdiplus_plan);
+        }
+        if let Some(imm32_plan) = imm32_teardown {
+            self.imm32.commit_process_teardown(imm32_plan);
         }
         if let Some(graphics_plan) = graphics_teardown {
             self.graphics.commit_process_teardown(graphics_plan);

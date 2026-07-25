@@ -1,6 +1,6 @@
 {
   "schema": "vine.current-checkpoint",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "scenarioMilestones": {
     "schema": "vine.scenario-milestones",
     "schemaVersion": 1,
@@ -9582,6 +9582,67 @@
       "reportSha256": "90c69bd17ec69e4cf298205ab5b7e0cd9a96787aef6986695aff9a0d81c138b5"
     },
   "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
+  },
+  "activeBlocker": {
+    "schema": "vine.structured-blocker",
+    "schemaVersion": 1,
+    "id": "imm32-default-ime-context-canonical-source-and-liveness-20260725",
+    "kind": "corpus-identity-and-feasibility",
+    "checkpoint": "imm32-default-ime-context",
+    "summary": "Canonical private-target acceptance cannot proceed because the fingerprinted BGI.gdb identity is unavailable; a noncanonical diagnostic then remains in critical-section polling after the reached IME detach prefix.",
+    "exactReproduction": "npm run check:runtime:bgi -- --profile imm32-default-ime-context --evidence-level full",
+    "diagnosticReproduction": "node tools/run-runtime-v86-bgi-first-trap.mjs --checkpoint bgi-seventeenth-win32-call --generic-runtime-reentry --evidence-level full --runtime-capability imm32-default-ime-context --runtime-policy fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json --source-manifest .work/bgi-gdb-current-diagnostic-snapshot.json",
+    "firstFailure": {
+      "stage": "source-registration",
+      "code": "source-object-identity-mismatch",
+      "objectId": 1,
+      "relativePath": "BGI.gdb",
+      "expectedBytes": 125461,
+      "observedBytes": 125461,
+      "expectedSha256": "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92",
+      "observedSha256": "511684c20839ce847c2593a58a69dc966f819b10985438b2b44a4bc6bc2030ba"
+    },
+    "evidence": {
+      "sourceLastWriteTime": "2026-07-24T22:39:38.9893043+09:00",
+      "sourceLastWriteOverlapsNativeTrace": true,
+      "sourceModificationAttributionConfirmed": false,
+      "sourceExecutableBytes": 1193472,
+      "sourceExecutableSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+      "diagnosticSourceSnapshotId": "bgi-gdb-511684c20839ce84-diagnostic-v1",
+      "diagnosticCanonical": false,
+      "diagnosticImeCallsCompleted": 3,
+      "diagnosticFirstImeSequence": 18643,
+      "diagnosticLastImeSequence": 18645,
+      "diagnosticFirstImeInstructionCount": 12111929,
+      "diagnosticCallLimits": [19000, 32768],
+      "diagnosticTerminalApi": "kernel32.dll!EnterCriticalSection",
+      "diagnosticTerminalOccurrences": [161, 7045],
+      "diagnosticTerminalInstructionCounts": [13891597, 14380361],
+      "diagnosticContextDetached": true,
+      "diagnosticNextStructuredStopReached": false,
+      "nativeTraceProfile": "x86-bgi-default-ime-window-context-detach-prefix-v1",
+      "nativePrimaryTraceSha256": "a36b5ca6f9c96759e5ddcda71c40b72108da6a0de4ae8f27ead043b9a2ce7413",
+      "nativePrimaryTraceComplete": false,
+      "nativeConfirmationTraceSha256": "fa5f717ad4721a3bdeb647e4266a3f2f0f89f05bb16ca70556c3fbe37798e6ca",
+      "nativeConfirmationDiagnostics": 0,
+      "nativeRepetitionTraceSha256": "a0356ef12d65ee12ca9471d62c7116da94aa163dbdba8698b92c95a383bf9eac",
+      "nativeRepetitionDiagnostics": 0,
+      "nativeRestoreReached": false,
+      "nativeReopenStatusWindowReached": false,
+      "privateTargetAccepted": false,
+      "chromeAccepted": false
+    },
+    "attemptedOptions": [
+      "Captured two clean focused native repetitions and one incomplete primary trace without promoting opaque native handles to runtime identity.",
+      "Searched the workspace and nearby title backups for the canonical BGI.gdb identity; no matching copy was found.",
+      "Ran read-only bounded Node diagnostics against an explicitly noncanonical source snapshot at 19000 and 32768 generic-call limits."
+    ],
+    "protectedInvariants": [
+      "Do not modify or restore a distribution file without explicit user approval, a backup, and before/after hashes.",
+      "Do not promote noncanonical diagnostic output to private-target or Chrome acceptance.",
+      "Keep logical HWND and HIMC authority in Rust and preserve cross-subsystem preflight-before-commit ordering."
+    ],
+    "resumeCondition": "Recover or re-import the canonical BGI.gdb identity under an authorized read-only workflow, rerun the Node and Chrome IMM32 profile, and classify the post-detach polling with scheduler/thread evidence before advancing the checkpoint."
   },
   "nextStructuredStop": {
     "kind": "api-endpoint",

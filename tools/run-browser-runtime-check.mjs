@@ -556,6 +556,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "gdi-text-raster",
         "gdiplus-startup",
         "kernel32-virtual-alloc",
+        "imm32-default-ime-context",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]

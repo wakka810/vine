@@ -6,13 +6,14 @@ use vine_core::{
     ApiImmediateCompletion, ApiOwnedTrap, ApiPointeeSchema, ApiReturnSchema, ApiValueSchema,
     ApiWriteRequirement, CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, CallingConvention,
     DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
-    GuestCallbackCompletionPolicy, GuestMemory, GuestRange, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
-    LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    ModuleSnapshot, PageProtection, Pe32Limits, PreparedGuestCallback, ProcessAddressSpaceLayout,
-    RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorSource,
-    RuntimeDeviceContextTarget, RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction,
+    GuestCallbackCompletionPolicy, GuestMemory, GuestRange, Imm32CompatibilityPolicy, ImportTarget,
+    ImportThunk, ImportThunkDisposition, ImportThunkId, LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, LoaderIngressReport, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, PageProtection, Pe32Limits,
+    PreparedGuestCallback, ProcessAddressSpaceLayout, RUNTIME_PRIMARY_MONITOR_HANDLE,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeCursorSource, RuntimeDeviceContextTarget,
+    RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest,
     RuntimeInputProfile, RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
@@ -20,14 +21,15 @@ use vine_core::{
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
     RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, build_pe32_load_plan,
     create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
-    dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
-    fill_rect_contract, gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
-    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
-    get_system_metrics_contract, load_cursor_a_contract, load_icon_a_contract,
-    load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_timer_contract,
-    set_window_long_a_contract, set_window_pos_contract, swap_mouse_button_contract,
-    user32_contract_for_endpoint,
+    dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy, enable_menu_item_contract,
+    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
+    get_client_rect_contract, get_dc_contract, get_monitor_info_a_contract,
+    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
+    imm_associate_context_contract, imm_get_default_ime_wnd_contract, load_cursor_a_contract,
+    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
+    send_message_a_contract, set_timer_contract, set_window_long_a_contract,
+    set_window_pos_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -77,6 +79,14 @@ const SEND_MESSAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 24);
 const WINDOW_IMAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1c00;
 const SEND_MESSAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1d00;
 const SEND_MESSAGE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f58);
+const IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_00a0);
+const IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_00b0);
+const IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 68);
+const IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 72);
+const IMM_GET_DEFAULT_IME_WND_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x21a0;
+const IMM_ASSOCIATE_CONTEXT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x21c0;
+const IMM_GET_DEFAULT_IME_WND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_73da);
+const IMM_ASSOCIATE_CONTEXT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_73fe);
 const SET_WINDOW_POS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c90);
 const SET_WINDOW_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 28);
 const SET_WINDOW_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1e00;
@@ -194,7 +204,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v19();
+        let policy = User32CompatibilityPolicy::controlled_v20();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -285,7 +295,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v19();
+        let mut policy = User32CompatibilityPolicy::controlled_v20();
         policy
             .swap_mouse_button
             .as_mut()
@@ -382,7 +392,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v19();
+        let policy = User32CompatibilityPolicy::controlled_v20();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -537,7 +547,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v19(),
+            policy: User32CompatibilityPolicy::controlled_v20(),
         }
     }
 
@@ -783,7 +793,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v19(),
+            policy: User32CompatibilityPolicy::controlled_v20(),
         }
     }
 
@@ -984,7 +994,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v19(),
+            policy: User32CompatibilityPolicy::controlled_v20(),
         }
     }
 
@@ -1024,6 +1034,8 @@ struct RegisterClassFixture {
     def_window_proc_endpoint: ApiEndpointIdentity,
     image_endpoint: ApiEndpointIdentity,
     send_message_endpoint: ApiEndpointIdentity,
+    imm_get_default_ime_wnd_endpoint: ApiEndpointIdentity,
+    imm_associate_context_endpoint: ApiEndpointIdentity,
     set_window_pos_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
@@ -1037,6 +1049,7 @@ struct RegisterClassFixture {
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
+    imm32_policy: Imm32CompatibilityPolicy,
 }
 
 impl RegisterClassFixture {
@@ -1109,6 +1122,14 @@ impl RegisterClassFixture {
             ),
             (WINDOW_IMAGE_IAT_ADDRESS, IMAGE_ENDPOINT_ADDRESS),
             (SEND_MESSAGE_IAT_ADDRESS, SEND_MESSAGE_ENDPOINT_ADDRESS),
+            (
+                IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
+                IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
+            ),
+            (
+                IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS,
+                IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
+            ),
             (SET_WINDOW_POS_IAT_ADDRESS, SET_WINDOW_POS_ENDPOINT_ADDRESS),
             (
                 GET_CLIENT_RECT_IAT_ADDRESS,
@@ -1458,6 +1479,37 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let imm_get_default_ime_wnd_endpoint =
+            ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+                id: ImportThunkId(311),
+                address: IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
+                requester_owner: runtime_owner,
+                module: "IMM32.dll".to_owned(),
+                iat_rva: vine_core::Rva(IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS.0 - MEMORY_BASE.0),
+                iat_address: IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
+                original_iat_value: 0,
+                disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+                target: ImportTarget::Name {
+                    name: "ImmGetDefaultIMEWnd".to_owned(),
+                    hint: 0,
+                    name_rva: vine_core::Rva(0),
+                },
+            });
+        let imm_associate_context_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(312),
+            address: IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "IMM32.dll".to_owned(),
+            iat_rva: vine_core::Rva(IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS.0 - MEMORY_BASE.0),
+            iat_address: IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "ImmAssociateContext".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let set_window_pos_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(202),
             address: SET_WINDOW_POS_ENDPOINT_ADDRESS,
@@ -1617,6 +1669,8 @@ impl RegisterClassFixture {
                 def_window_proc_endpoint.clone(),
                 image_endpoint.clone(),
                 send_message_endpoint.clone(),
+                imm_get_default_ime_wnd_endpoint.clone(),
+                imm_associate_context_endpoint.clone(),
                 set_window_pos_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
                 get_dc_endpoint.clone(),
@@ -1638,6 +1692,10 @@ impl RegisterClassFixture {
                 load_image_a_contract(image_endpoint.clone()).expect("window image contract"),
                 send_message_a_contract(send_message_endpoint.clone())
                     .expect("synchronous message contract"),
+                imm_get_default_ime_wnd_contract(imm_get_default_ime_wnd_endpoint.clone())
+                    .expect("default IME window contract"),
+                imm_associate_context_contract(imm_associate_context_endpoint.clone())
+                    .expect("IME context association contract"),
                 set_window_pos_contract(set_window_pos_endpoint.clone())
                     .expect("window position contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
@@ -1657,7 +1715,8 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v19();
+        let policy = User32CompatibilityPolicy::controlled_v20();
+        let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -1674,6 +1733,8 @@ impl RegisterClassFixture {
             def_window_proc_endpoint,
             image_endpoint,
             send_message_endpoint,
+            imm_get_default_ime_wnd_endpoint,
+            imm_associate_context_endpoint,
             set_window_pos_endpoint,
             get_client_rect_endpoint,
             get_dc_endpoint,
@@ -1687,6 +1748,7 @@ impl RegisterClassFixture {
             window_procedure,
             callback_sentinel,
             policy,
+            imm32_policy,
         }
     }
 
@@ -1862,6 +1924,50 @@ impl RegisterClassFixture {
             self.send_message_endpoint.clone(),
             GuestAddress(SEND_MESSAGE_STACK_POINTER),
             SEND_MESSAGE_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_imm_get_default_ime_wnd(&mut self, window_handle: u32) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(IMM_GET_DEFAULT_IME_WND_STACK_POINTER),
+                &[IMM_GET_DEFAULT_IME_WND_RETURN_ADDRESS.0, window_handle]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write ImmGetDefaultIMEWnd frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.imm_get_default_ime_wnd_endpoint.clone(),
+            GuestAddress(IMM_GET_DEFAULT_IME_WND_STACK_POINTER),
+            IMM_GET_DEFAULT_IME_WND_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_imm_associate_context(
+        &mut self,
+        window_handle: u32,
+        context_handle: u32,
+    ) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(IMM_ASSOCIATE_CONTEXT_STACK_POINTER),
+                &[
+                    IMM_ASSOCIATE_CONTEXT_RETURN_ADDRESS.0,
+                    window_handle,
+                    context_handle,
+                ]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+            )
+            .expect("write ImmAssociateContext frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.imm_associate_context_endpoint.clone(),
+            GuestAddress(IMM_ASSOCIATE_CONTEXT_STACK_POINTER),
+            IMM_ASSOCIATE_CONTEXT_RETURN_ADDRESS,
         )
     }
 
@@ -2158,6 +2264,8 @@ impl RegisterClassFixture {
             |contract, frame, session| {
                 if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
                     dispatch_gdi32_api(contract, frame, session)
+                } else if contract.endpoint.module.eq_ignore_ascii_case("imm32.dll") {
+                    dispatch_imm32_api_with_policy(&self.imm32_policy, contract, frame, session)
                 } else {
                     dispatch_user32_api_with_policy(
                         &self.policy,
@@ -2429,7 +2537,7 @@ fn load_image_a_contract_is_six_argument_stdcall_with_handler_last_error() {
 }
 
 #[test]
-fn send_message_a_contract_is_four_argument_stdcall_callback_with_lresult() {
+fn send_message_a_contract_is_four_argument_stdcall_optional_callback_with_lresult() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
         id: ImportThunkId(229),
@@ -2457,7 +2565,66 @@ fn send_message_a_contract_is_four_argument_stdcall_callback_with_lresult() {
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
-    assert_eq!(contract.callback_policy, CallbackPolicy::Required);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Optional);
+}
+
+#[test]
+fn imm32_contracts_use_distinct_nullable_logical_hwnd_and_himc_namespaces() {
+    let (_, owner) = initialized_memory();
+    let get_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(311),
+        address: IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "IMM32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_10d0),
+        iat_address: IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "ImmGetDefaultIMEWnd".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let get = imm_get_default_ime_wnd_contract(get_endpoint).unwrap();
+    assert_eq!(get.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(get.abi.arguments.len(), 1);
+    assert_eq!(get.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(get.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(get.callback_policy, CallbackPolicy::Forbidden);
+    assert_eq!(
+        get.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: vine_core::LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+            nullable: true,
+        }
+    );
+
+    let associate_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(312),
+        address: IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "IMM32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_10d4),
+        iat_address: IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "ImmAssociateContext".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let associate = imm_associate_context_contract(associate_endpoint).unwrap();
+    assert_eq!(associate.abi.arguments.len(), 2);
+    assert_eq!(associate.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(
+        associate.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+            nullable: true,
+        }
+    );
 }
 
 #[test]
@@ -3933,6 +4100,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.invalid_menu_chain = None;
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
+    disabled.policy.send_message_a_ime_control = None;
     disabled.policy.set_window_pos = None;
     disabled.policy.set_window_long_a = None;
     disabled.policy.monitor_from_window = None;
@@ -4981,6 +5149,204 @@ fn send_message_a_dispatches_same_thread_small_icon_to_registered_window_procedu
             .callback_frames
             .is_empty()
     );
+}
+
+#[test]
+fn imm32_default_window_control_detach_and_restore_share_logical_authority() {
+    let mut fixture = RegisterClassFixture::new();
+    let (app_window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let app_window_id = fixture.runtime.window(app_window_handle).unwrap().id;
+    fixture.runtime.set_current_last_error(0xa5a5_5a5a).unwrap();
+
+    let first = match fixture.dispatch_imm_get_default_ime_wnd(app_window_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected ImmGetDefaultIMEWnd completion, got {other:?}"),
+    };
+    let ime_window_handle = match first.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("expected logical IME HWND, got {other:?}"),
+    };
+    assert_eq!(ime_window_handle, app_window_handle + 1);
+    assert_eq!(first.last_error, 0);
+    assert_eq!(
+        first.stack_pointer,
+        GuestAddress(IMM_GET_DEFAULT_IME_WND_STACK_POINTER + 8)
+    );
+    let ime_window = fixture.runtime.ime_window(ime_window_handle).unwrap();
+    assert_eq!(ime_window.class_name, "IME");
+    assert_eq!(ime_window.owner_thread_id, RuntimeThreadId(THREAD_ID));
+    assert_eq!(ime_window.status_window_request, None);
+    let initial_association = fixture.runtime.ime_context_associations()[&app_window_id].clone();
+    let context_handle = initial_association.context.unwrap().handle;
+    assert_eq!(
+        fixture
+            .runtime
+            .ime_context(context_handle)
+            .unwrap()
+            .namespace,
+        LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE
+    );
+    assert_ne!(context_handle, ime_window_handle);
+
+    let state_before_repeat = (
+        fixture.runtime.ime_windows().clone(),
+        fixture.runtime.ime_contexts().clone(),
+        fixture.runtime.ime_context_associations().clone(),
+    );
+    let repeated = match fixture.dispatch_imm_get_default_ime_wnd(app_window_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated IME window completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(ime_window_handle));
+    assert_eq!(repeated.last_error, 0);
+    assert_eq!(
+        (
+            fixture.runtime.ime_windows().clone(),
+            fixture.runtime.ime_contexts().clone(),
+            fixture.runtime.ime_context_associations().clone(),
+        ),
+        state_before_repeat
+    );
+
+    fixture.configure_send_message(ime_window_handle, 0x0283, 0x21, 0);
+    let close = match fixture.dispatch_send_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected immediate IME status close, got {other:?}"),
+    };
+    assert_eq!(close.eax, RegisterUpdate::Set(0));
+    assert_eq!(close.last_error, 0);
+    assert_eq!(
+        fixture
+            .runtime
+            .ime_window(ime_window_handle)
+            .unwrap()
+            .status_window_request,
+        Some(RuntimeImeStatusWindowRequest::Close)
+    );
+
+    let detach = match fixture.dispatch_imm_associate_context(app_window_handle, 0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected IME context detach completion, got {other:?}"),
+    };
+    assert_eq!(detach.eax, RegisterUpdate::Set(context_handle));
+    assert_eq!(detach.last_error, 0);
+    assert_eq!(
+        fixture.runtime.ime_context_associations()[&app_window_id].context,
+        None
+    );
+
+    let repeated_after_detach = match fixture.dispatch_imm_get_default_ime_wnd(app_window_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected detached repeat query, got {other:?}"),
+    };
+    assert_eq!(
+        repeated_after_detach.eax,
+        RegisterUpdate::Set(ime_window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.ime_context_associations()[&app_window_id].context,
+        None
+    );
+
+    let restore = match fixture.dispatch_imm_associate_context(app_window_handle, context_handle) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected IME context restore completion, got {other:?}"),
+    };
+    assert_eq!(restore.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        fixture.runtime.ime_context_associations()[&app_window_id]
+            .context
+            .unwrap()
+            .handle,
+        context_handle
+    );
+
+    fixture.configure_send_message(ime_window_handle, 0x0283, 0x22, 0);
+    assert!(matches!(
+        fixture.dispatch_send_message(),
+        DispatchOutcome::Immediate(ref completion) if completion.eax == RegisterUpdate::Set(0)
+    ));
+    assert_eq!(
+        fixture
+            .runtime
+            .ime_window(ime_window_handle)
+            .unwrap()
+            .status_window_request,
+        Some(RuntimeImeStatusWindowRequest::Open)
+    );
+
+    fixture.runtime.terminate_current_process(0).unwrap();
+    assert!(fixture.runtime.ime_windows().is_empty());
+    assert!(fixture.runtime.ime_contexts().is_empty());
+    assert!(fixture.runtime.ime_context_associations().is_empty());
+}
+
+#[test]
+fn imm32_null_invalid_policy_and_wrong_identity_fail_without_partial_resources() {
+    let mut fixture = RegisterClassFixture::new();
+    let (app_window_handle, _) = fixture.prepare_created_window_and_small_icon();
+
+    fixture.runtime.set_current_last_error(0xa5a5_5a5a).unwrap();
+    let null_query = match fixture.dispatch_imm_get_default_ime_wnd(0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected NULL IME window query completion, got {other:?}"),
+    };
+    assert_eq!(null_query.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_query.last_error, 0);
+    assert!(fixture.runtime.ime_windows().is_empty());
+    assert!(fixture.runtime.ime_contexts().is_empty());
+
+    fixture.runtime.set_current_last_error(0xa5a5_5a5a).unwrap();
+    let invalid_query = match fixture.dispatch_imm_get_default_ime_wnd(0x1234) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid IME window query completion, got {other:?}"),
+    };
+    assert_eq!(invalid_query.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_query.last_error, 1400);
+    assert!(fixture.runtime.ime_windows().is_empty());
+    assert!(fixture.runtime.ime_contexts().is_empty());
+
+    let ime_window_handle = match fixture.dispatch_imm_get_default_ime_wnd(app_window_handle) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("expected logical IME HWND, got {other:?}"),
+        },
+        other => panic!("expected valid IME window query, got {other:?}"),
+    };
+    let runtime_before = fixture.runtime.clone();
+    fixture.configure_send_message(app_window_handle, 0x0283, 0x21, 0);
+    let wrong_window = match fixture.dispatch_send_message() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected wrong IME HWND fault, got {other:?}"),
+    };
+    assert_eq!(wrong_window.class, ApiFaultClass::InvalidCall);
+    assert_eq!(wrong_window.code, "ime-window-handle-unknown");
+    assert_eq!(fixture.runtime, runtime_before);
+
+    let runtime_before = fixture.runtime.clone();
+    let unknown_context =
+        match fixture.dispatch_imm_associate_context(app_window_handle, 0x494d_ffff) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected unknown logical HIMC fault, got {other:?}"),
+        };
+    assert_eq!(unknown_context.class, ApiFaultClass::InvalidCall);
+    assert_eq!(unknown_context.code, "ime-context-handle-unknown");
+    assert_eq!(fixture.runtime, runtime_before);
+    assert!(fixture.runtime.ime_window(ime_window_handle).is_ok());
+
+    fixture.imm32_policy.get_default_ime_window = None;
+    fixture.imm32_policy.associate_context = None;
+    let runtime_before = fixture.runtime.clone();
+    let disabled = match fixture.dispatch_imm_get_default_ime_wnd(app_window_handle) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled IMM32 policy fault, got {other:?}"),
+    };
+    assert_eq!(disabled.class, ApiFaultClass::Unsupported);
+    assert_eq!(
+        disabled.code,
+        "imm32-get-default-ime-window-policy-disabled"
+    );
+    assert_eq!(fixture.runtime, runtime_before);
 }
 
 #[test]

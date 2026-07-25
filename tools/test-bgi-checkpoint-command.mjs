@@ -224,6 +224,10 @@ assert.equal(
   bgiProfileOutputDirectory("kernel32-virtual-alloc"),
   "v86-bgi-virtual-alloc",
 );
+assert.equal(
+  bgiProfileOutputDirectory("imm32-default-ime-context"),
+  "v86-bgi-default-ime-context",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

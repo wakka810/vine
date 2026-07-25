@@ -59,6 +59,7 @@ SUPPORTED_OBSERVATIONS = (
     "font-object",
     "gdiplus-startup",
     "virtual-alloc",
+    "ime-context",
     "set-window-long-a",
     "get-string-type-w",
     "lc-map-string-w",

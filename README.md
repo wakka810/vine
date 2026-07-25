@@ -17,6 +17,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Runtime diagnostics | `kernel32-virtual-alloc`: 18642 calls across 106 API contracts, memory generation 36588 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
+| Active blocker | `imm32-default-ime-context-canonical-source-and-liveness-20260725`: `source-object-identity-mismatch`; Recover or re-import the canonical BGI.gdb identity under an authorized read-only workflow, rerun the Node and Chrome IMM32 profile, and classify the post-detach polling with scheduler/thread evidence before advancing the checkpoint. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `imm32.dll!ImmGetDefaultIMEWnd(0x48010001)` at instruction 12111929: `endpoint-contract-missing` |
 

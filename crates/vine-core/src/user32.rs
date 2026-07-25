@@ -18,11 +18,12 @@ use crate::runtime::{
     RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
     RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
-    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeInputProfile,
-    RuntimeRect, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
+    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeImeStatusWindowRequest,
+    RuntimeInputProfile, RuntimeRect, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
     RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
     RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
@@ -31,7 +32,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 19;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 20;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -72,6 +73,9 @@ const WM_NCACTIVATE: u32 = 0x0086;
 const WM_GETICON: u32 = 0x007f;
 const WM_IME_SETCONTEXT: u32 = 0x0281;
 const WM_IME_NOTIFY: u32 = 0x0282;
+pub const USER32_WM_IME_CONTROL: u32 = 0x0283;
+pub const USER32_IMC_CLOSESTATUSWINDOW: u32 = 0x0021;
+pub const USER32_IMC_OPENSTATUSWINDOW: u32 = 0x0022;
 const ICON_SMALL: u32 = 0;
 const ICON_SMALL2: u32 = 2;
 const HWND_NOTOPMOST: u32 = 0xffff_fffe;
@@ -123,6 +127,16 @@ pub struct User32SendMessageAPolicy {
     pub w_param: u32,
     pub icon_width: u16,
     pub icon_height: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SendMessageAImeControlPolicy {
+    pub profile_id: String,
+    pub message: u32,
+    pub close_status_window_command: u32,
+    pub open_status_window_command: u32,
+    pub l_param: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -262,6 +276,7 @@ pub struct User32CompatibilityPolicy {
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_image_a: Option<User32LoadImageAPolicy>,
     pub send_message_a: Option<User32SendMessageAPolicy>,
+    pub send_message_a_ime_control: Option<User32SendMessageAImeControlPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
     pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
     pub set_timer: Option<User32SetTimerPolicy>,
@@ -276,11 +291,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v19() -> Self {
+    pub fn controlled_v20() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-v19"
+            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-v20"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -321,6 +336,13 @@ impl User32CompatibilityPolicy {
                 w_param: ICON_SMALL,
                 icon_width: 16,
                 icon_height: 16,
+            }),
+            send_message_a_ime_control: Some(User32SendMessageAImeControlPolicy {
+                profile_id: "same-thread-default-ime-status-window-control-v1".to_owned(),
+                message: USER32_WM_IME_CONTROL,
+                close_status_window_command: USER32_IMC_CLOSESTATUSWINDOW,
+                open_status_window_command: USER32_IMC_OPENSTATUSWINDOW,
+                l_param: 0,
             }),
             set_window_pos: Some(User32SetWindowPosPolicy {
                 profile_id: "initial-offscreen-show-hide-same-geometry-activation-v2".to_owned(),
@@ -517,6 +539,21 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-send-message-a-profile-invalid",
                 "User32 SendMessageA profile requires the reached same-thread WM_SETICON small-icon window callback",
+            ));
+        }
+        if let Some(profile) = self.send_message_a_ime_control.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.message != USER32_WM_IME_CONTROL
+                || profile.close_status_window_command != USER32_IMC_CLOSESTATUSWINDOW
+                || profile.open_status_window_command != USER32_IMC_OPENSTATUSWINDOW
+                || profile.close_status_window_command == profile.open_status_window_command
+                || profile.l_param != 0
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-send-message-a-ime-control-profile-invalid",
+                "User32 IME control profile requires the reached same-thread default IME status-window commands",
             ));
         }
         if let Some(profile) = self.set_window_pos.as_ref()
@@ -1710,25 +1747,56 @@ fn handle_send_message_a(
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiHandlerResult, ApiFault> {
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let message = required_argument(contract, frame, 1, "message")?;
+    let w_param = required_argument(contract, frame, 2, "wParam")?;
+    let l_param = required_argument(contract, frame, 3, "lParam")?;
+
+    if let Some(ime_policy) = policy.send_message_a_ime_control.as_ref()
+        && message == ime_policy.message
+    {
+        if l_param != ime_policy.l_param {
+            return Err(ApiFault::unsupported(
+                "user32-windows",
+                "send-message-a-ime-control-lparam-unsupported",
+                "SendMessageA WM_IME_CONTROL requires the evidenced zero lParam",
+            ));
+        }
+        let request = if w_param == ime_policy.close_status_window_command {
+            RuntimeImeStatusWindowRequest::Close
+        } else if w_param == ime_policy.open_status_window_command {
+            RuntimeImeStatusWindowRequest::Open
+        } else {
+            return Err(ApiFault::unsupported(
+                "user32-windows",
+                "send-message-a-ime-control-command-unsupported",
+                "SendMessageA WM_IME_CONTROL supports only the evidenced close/open status-window commands",
+            ));
+        };
+        session
+            .runtime_mut()
+            .control_ime_status_window(window_handle, request)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+            ApiReturnValue::U32(0),
+        )));
+    }
+
     let message_policy = policy.send_message_a.as_ref().ok_or_else(|| {
         ApiFault::unsupported(
             "user32-windows",
             "send-message-a-policy-disabled",
             format!(
-                "compatibility policy {} does not enable synchronous logical window messages",
+                "compatibility policy {} does not enable synchronous app-window messages",
                 policy.id
             ),
         )
     })?;
-    let window_handle = required_argument(contract, frame, 0, "window handle")?;
-    let message = required_argument(contract, frame, 1, "message")?;
-    let w_param = required_argument(contract, frame, 2, "wParam")?;
-    let l_param = required_argument(contract, frame, 3, "lParam")?;
     if message != message_policy.message {
         return Err(ApiFault::unsupported(
             "user32-windows",
             "send-message-a-message-unsupported",
-            "SendMessageA currently supports only the reached WM_SETICON message",
+            "SendMessageA message is outside the selected app-window and IME control profiles",
         ));
     }
     if w_param != message_policy.w_param {
@@ -4730,7 +4798,7 @@ pub fn send_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         last_error_policy: LastErrorPolicy::Preserve,
         reentrancy_policy: ReentrancyPolicy::Allowed,
         behavior: ApiBehavior::Immediate,
-        callback_policy: CallbackPolicy::Required,
+        callback_policy: CallbackPolicy::Optional,
         implementation_id: SEND_MESSAGE_A_IMPLEMENTATION.to_owned(),
     })
 }
@@ -5264,7 +5332,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v19();
+        let policy = User32CompatibilityPolicy::controlled_v20();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -5311,7 +5379,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v20();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -5323,14 +5391,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v20();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v20();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -5341,21 +5409,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v20();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v20();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v20();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -5366,7 +5434,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v20();
         invalid_timer
             .set_timer
             .as_mut()
@@ -5377,14 +5445,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v20();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v20();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -5395,7 +5463,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v20();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -5406,7 +5474,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v20();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -5417,7 +5485,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v20();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -5429,7 +5497,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v20();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -5440,7 +5508,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v20();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -5451,7 +5519,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v20();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -5462,7 +5530,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v19();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v20();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

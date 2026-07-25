@@ -83,6 +83,13 @@ outputも同じownerへ接続し、host／browser font discoveryやnative HDCは
 riskはnative evidenceでguest-visibleと確認した`TextOutA`のDIB mutation、glyph rasterization／substitutionを可読性要件へ
 接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を第二のauthorityにしない。
 
+Default IME windowのlogical HWND、thread default HIMC、app-window association、status-window close／open requestは
+Rust ownerへ分離し、NULL detachとruntime-owned restoreをfailure-atomicにmodel化した。残るriskはAPI identityではなく、
+primary detach直後に観測したcritical-section pollingがguest threadの正常な待機かscheduler progress不足かをcanonical
+corpusで判定できないことである。Fingerprint済みsource objectを回復するまではnoncanonical snapshotの継続を
+acceptanceに使わず、配布fileを復元・書換せずに停止する。再開後はthread selection／wait evidenceを先に取り、IME
+compositionやDOM inputへscopeを広げない。
+
 ## 5. Scope reduction／no-go trigger
 
 次がrepeatableならdownstream実装を止め、scopeまたはarchitectureを明示的に判断する。

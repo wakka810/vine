@@ -13,27 +13,30 @@ use vine_core::{
     DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
     Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress, GuestCallbackArgument,
     GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, ImportBinding, ImportTarget, InitialThreadStack, Kernel32CompatibilityPolicy,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy,
-    MappingOperation, MemoryDeltaBuffers, MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits,
-    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, SchedulerThreadState, StackCleanup,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    complete_kernel32_source_read, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
-    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
-    dispatch_gdiplus_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
+    HostRequest, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION, IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION,
+    Imm32CompatibilityPolicy, ImportBinding, ImportTarget, InitialThreadStack,
+    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
+    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
+    RuntimeThreadId, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
+    USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
+    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
     dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, imm32_contract_for_endpoint,
+    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
+    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
+    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
+    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -300,6 +303,7 @@ enum BrowserRuntimeTarget {
         user32_policy: Box<User32CompatibilityPolicy>,
         gdi32_policy: Box<Gdi32CompatibilityPolicy>,
         gdiplus_policy: Box<GdiplusCompatibilityPolicy>,
+        imm32_policy: Box<Imm32CompatibilityPolicy>,
         winmm_policy: Box<WinmmCompatibilityPolicy>,
     },
 }
@@ -355,7 +359,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v19();
+        let user32_policy = User32CompatibilityPolicy::controlled_v20();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -524,12 +528,14 @@ impl BrowserRuntime {
             .runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v19();
+        let user32_policy = User32CompatibilityPolicy::controlled_v20();
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
         gdiplus_policy.validate().map_err(api_fault_string)?;
+        let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
+        imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
         let d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
@@ -662,6 +668,7 @@ impl BrowserRuntime {
                 "user32Policy": user32_policy.id,
                 "gdi32Policy": gdi32_policy.id,
                 "gdiplusPolicy": gdiplus_policy.id,
+                "imm32Policy": imm32_policy.id,
                 "winmmPolicy": winmm_policy.id,
             },
         });
@@ -686,6 +693,7 @@ impl BrowserRuntime {
                     user32_policy: Box::new(user32_policy),
                     gdi32_policy: Box::new(gdi32_policy),
                     gdiplus_policy: Box::new(gdiplus_policy),
+                    imm32_policy: Box::new(imm32_policy),
                     winmm_policy: Box::new(winmm_policy),
                 },
             },
@@ -1153,6 +1161,7 @@ impl BrowserRuntime {
                         user32_policy,
                         gdi32_policy,
                         gdiplus_policy,
+                        imm32_policy,
                         winmm_policy,
                         ..
                     } => {
@@ -1179,6 +1188,8 @@ impl BrowserRuntime {
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("imm32.dll") {
+                            dispatch_imm32_api_with_policy(imm32_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -1317,8 +1328,10 @@ impl BrowserRuntime {
                         completion_metadata("api-complete", &completion)
                     }
                     BrowserRuntimeTarget::Bgi {
+                        user32_policy,
                         gdi32_policy,
                         gdiplus_policy,
+                        imm32_policy,
                         ..
                     } => {
                         let mut metadata = json!({
@@ -1466,6 +1479,14 @@ impl BrowserRuntime {
                             gdiplus_policy,
                         )? {
                             metadata["gdiplus"] = gdiplus;
+                        }
+                        if let Some(imm32) = bgi_imm32_completion_metadata(
+                            &completion,
+                            &self.runtime,
+                            imm32_policy,
+                            user32_policy,
+                        )? {
+                            metadata["imm32"] = imm32;
                         }
                         if let Some(virtual_memory) = bgi_virtual_memory_completion_metadata(
                             &completion,
@@ -2497,6 +2518,9 @@ fn bgi_contract_for_endpoint(
     if let Some(contract) = gdiplus_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = imm32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
@@ -2749,6 +2773,117 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
         "kind": kind,
         "completion": completion,
     })
+}
+
+fn bgi_imm32_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    imm32_policy: &Imm32CompatibilityPolicy,
+    user32_policy: &User32CompatibilityPolicy,
+) -> Result<Option<Value>, String> {
+    let eax = || match completion.eax {
+        RegisterUpdate::Set(value) => Ok(value),
+        RegisterUpdate::Preserve => {
+            Err("IMM32 completion did not set the expected EAX result".to_owned())
+        }
+    };
+    let app_association = |app_window_handle: u32| {
+        runtime
+            .ime_context_associations()
+            .values()
+            .find(|association| association.window_handle == app_window_handle)
+            .ok_or_else(|| "completed IMM32 call has no logical app-window association".to_owned())
+    };
+    let associated_context = |association: &vine_core::RuntimeImeContextAssociation| {
+        association
+            .context
+            .map(|reference| runtime.ime_context(reference.handle).map_err(error_string))
+            .transpose()
+    };
+
+    match completion.implementation_id.as_str() {
+        IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION => {
+            let app_window_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "ImmGetDefaultIMEWnd completion has no app HWND".to_owned())?;
+            let ime_window_handle = eax()?;
+            if app_window_handle == 0 || ime_window_handle == 0 {
+                return Err(
+                    "primary ImmGetDefaultIMEWnd unexpectedly used or returned NULL".to_owned(),
+                );
+            }
+            let ime_window = runtime
+                .ime_window(ime_window_handle)
+                .map_err(error_string)?;
+            let association = app_association(app_window_handle)?;
+            let context = associated_context(association)?;
+            Ok(Some(json!({
+                "action": "default-window-resolved",
+                "policyId": imm32_policy.id,
+                "appWindowHandle": app_window_handle,
+                "imeWindow": ime_window,
+                "association": association,
+                "context": context,
+                "nativeHandleImported": false,
+                "browserResourceCreated": false,
+            })))
+        }
+        SEND_MESSAGE_A_IMPLEMENTATION
+            if completion.frame.argument_u32(1) == Some(USER32_WM_IME_CONTROL) =>
+        {
+            let ime_window_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "WM_IME_CONTROL completion has no logical IME HWND".to_owned())?;
+            if eax()? != 0 {
+                return Err("primary WM_IME_CONTROL did not return zero".to_owned());
+            }
+            let ime_window = runtime
+                .ime_window(ime_window_handle)
+                .map_err(error_string)?;
+            Ok(Some(json!({
+                "action": "status-window-control-requested",
+                "policyId": user32_policy.id,
+                "imeWindow": ime_window,
+                "nativeMessageForwarded": false,
+                "browserResourceCreated": false,
+            })))
+        }
+        IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION => {
+            let app_window_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "ImmAssociateContext completion has no app HWND".to_owned())?;
+            let requested_context_handle = completion
+                .frame
+                .argument_u32(1)
+                .ok_or_else(|| "ImmAssociateContext completion has no HIMC".to_owned())?;
+            let previous_context_handle = eax()?;
+            let association = app_association(app_window_handle)?;
+            let context = associated_context(association)?;
+            if association.context.map_or(0, |reference| reference.handle)
+                != requested_context_handle
+            {
+                return Err(
+                    "ImmAssociateContext argument and logical association authority disagree"
+                        .to_owned(),
+                );
+            }
+            Ok(Some(json!({
+                "action": "context-associated",
+                "policyId": imm32_policy.id,
+                "appWindowHandle": app_window_handle,
+                "requestedContextHandle": requested_context_handle,
+                "previousContextHandle": previous_context_handle,
+                "association": association,
+                "context": context,
+                "nativeHandleImported": false,
+                "browserResourceCreated": false,
+            })))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn bgi_virtual_memory_completion_metadata(

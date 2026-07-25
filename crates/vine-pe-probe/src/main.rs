@@ -18,7 +18,8 @@ use vine_core::{
     Dinput8CompatibilityPolicy, DispatchOutcome, DsoundCompatibilityPolicy, DynamicExportThunk,
     ExecutionSession, Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress,
     GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
-    GuestWriteResult, ImageMaterialization, ImageMemoryLayout, ImportBinding, ImportTarget,
+    GuestWriteResult, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION, IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION,
+    ImageMaterialization, ImageMemoryLayout, Imm32CompatibilityPolicy, ImportBinding, ImportTarget,
     ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
     Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass,
     LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
@@ -29,29 +30,31 @@ use vine_core::{
     RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
     RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey,
-    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
-    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerResolutionState, RuntimeTlsValue,
-    RuntimeWaitableTimer, RuntimeWindowTimer, SET_THREAD_PRIORITY_IMPLEMENTATION,
-    SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState,
-    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
+    RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor,
+    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
+    RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeThreadPriority, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
+    SEND_MESSAGE_A_IMPLEMENTATION, SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION,
+    SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
+    TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL,
     UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
     WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
     build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
     dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
     dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
-    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, install_callback_return_sentinel,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    dsound_contract_for_endpoint, encode_pointer_contract, gdi32_contract_for_endpoint,
+    gdiplus_contract_for_endpoint, get_current_process_id_contract, get_current_thread_id_contract,
+    get_module_handle_w_contract, get_proc_address_contract, get_startup_info_w_contract,
+    get_system_time_as_file_time_contract, get_tick_count_contract, heap_create_contract,
+    heap_set_information_contract, imm32_contract_for_endpoint, install_callback_return_sentinel,
     install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
@@ -222,6 +225,7 @@ enum GenericRuntimeCapability {
     TextRaster,
     GdiplusStartup,
     VirtualAlloc,
+    Imm32Context,
 }
 
 struct GenericRuntimeProcess {
@@ -396,6 +400,8 @@ struct GenericRuntimeSessionReady {
     #[serde(skip_serializing_if = "Option::is_none")]
     gdiplus_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    imm32_compatibility_policy_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     winmm_compatibility_policy_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_profile_id: Option<String>,
@@ -467,6 +473,8 @@ struct GenericRuntimeCompletion {
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_priority: Option<GenericRuntimeThreadPriority>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imm32: Option<GenericRuntimeImm32Completion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     virtual_memory: Option<GenericRuntimeVirtualMemory>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -676,6 +684,40 @@ struct GenericRuntimeVirtualMemory {
     protection: u32,
     reserve_only: bool,
     top_down: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+enum GenericRuntimeImm32Completion {
+    DefaultWindowResolved {
+        policy_id: String,
+        app_window_handle: u32,
+        ime_window: RuntimeImeWindow,
+        association: RuntimeImeContextAssociation,
+        context: Option<RuntimeImeContext>,
+        native_handle_imported: bool,
+        browser_resource_created: bool,
+    },
+    StatusWindowControlRequested {
+        policy_id: String,
+        ime_window: RuntimeImeWindow,
+        native_message_forwarded: bool,
+        browser_resource_created: bool,
+    },
+    ContextAssociated {
+        policy_id: String,
+        app_window_handle: u32,
+        requested_context_handle: u32,
+        previous_context_handle: u32,
+        association: RuntimeImeContextAssociation,
+        context: Option<RuntimeImeContext>,
+        native_handle_imported: bool,
+        browser_resource_created: bool,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -2525,6 +2567,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::TextRaster
                     | GenericRuntimeCapability::GdiplusStartup
                     | GenericRuntimeCapability::VirtualAlloc
+                    | GenericRuntimeCapability::Imm32Context
             )
         ) {
             let loader = kernel32_policy
@@ -3153,6 +3196,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = gdiplus_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = imm32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
@@ -3176,9 +3222,13 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let imm32_context_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::Imm32Context)
+    );
     let virtual_alloc_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::VirtualAlloc)
+        Some(GenericRuntimeCapability::VirtualAlloc | GenericRuntimeCapability::Imm32Context)
     );
     let dinput8_factory_enabled = matches!(
         enabled_capability,
@@ -3200,6 +3250,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let dinput8_enum_devices_enabled = matches!(
@@ -3221,6 +3272,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let dsound_root_enabled = matches!(
@@ -3241,6 +3293,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let dsound_initial_buffers_enabled = matches!(
@@ -3260,6 +3313,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let dsound_buffer_transfer_enabled = matches!(
@@ -3278,6 +3332,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let requested_capability = match enabled_capability {
@@ -3298,7 +3353,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::OutlineTextMetrics
             | GenericRuntimeCapability::TextRaster
             | GenericRuntimeCapability::GdiplusStartup
-            | GenericRuntimeCapability::VirtualAlloc,
+            | GenericRuntimeCapability::VirtualAlloc
+            | GenericRuntimeCapability::Imm32Context,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3389,6 +3445,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let font_creation_enabled = matches!(
@@ -3401,6 +3458,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let compatible_dc_enabled = matches!(
@@ -3412,6 +3470,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let dib_lifecycle_enabled = matches!(
@@ -3422,6 +3481,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let outline_text_metrics_enabled = matches!(
@@ -3431,6 +3491,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let text_raster_enabled = matches!(
@@ -3439,13 +3500,20 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     );
     let gdiplus_startup_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::GdiplusStartup | GenericRuntimeCapability::VirtualAlloc)
+        Some(
+            GenericRuntimeCapability::GdiplusStartup
+                | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
+        )
     );
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v19();
+    let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
+    imm32_policy.validate().map_err(api_fault)?;
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v20();
     if !matches!(
         user32_capability,
         Some(
@@ -3495,6 +3563,9 @@ fn run_v86_generic_runtime_session(
         )
     ) {
         user32_policy.send_message_a = None;
+    }
+    if !imm32_context_enabled {
+        user32_policy.send_message_a_ime_control = None;
     }
     if !matches!(
         user32_capability,
@@ -3567,6 +3638,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     ) {
         user32_policy.set_timer = None;
@@ -3583,6 +3655,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::TextRaster
                 | GenericRuntimeCapability::GdiplusStartup
                 | GenericRuntimeCapability::VirtualAlloc
+                | GenericRuntimeCapability::Imm32Context
         )
     ) {
         user32_policy.screen_dc = None;
@@ -3966,6 +4039,8 @@ fn run_v86_generic_runtime_session(
             font_creation_enabled
         } else if endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
             gdiplus_startup_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("imm32.dll") {
+            imm32_context_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -4161,6 +4236,7 @@ fn run_v86_generic_runtime_session(
                 .then(|| gdi32_policy.id.clone()),
             gdiplus_compatibility_policy_id: gdiplus_startup_enabled
                 .then(|| gdiplus_policy.id.clone()),
+            imm32_compatibility_policy_id: imm32_context_enabled.then(|| imm32_policy.id.clone()),
             winmm_compatibility_policy_id: matches!(
                 endpoint_capability,
                 Some(
@@ -4338,6 +4414,7 @@ fn run_v86_generic_runtime_session(
                             window_timer: None,
                             thread_affinity: None,
                             thread_priority: None,
+                            imm32: None,
                             virtual_memory: None,
                             created_thread: None,
                             resumed_thread: None,
@@ -4633,6 +4710,8 @@ fn run_v86_generic_runtime_session(
                                 frame,
                                 session,
                             )
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("imm32.dll") {
+                            dispatch_imm32_api_with_policy(&imm32_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
@@ -5168,6 +5247,12 @@ fn run_v86_generic_runtime_session(
                             session.runtime(),
                             &gdiplus_policy,
                         )?;
+                        let imm32 = generic_runtime_imm32_completion(
+                            &completion,
+                            session.runtime(),
+                            &imm32_policy,
+                            &user32_policy,
+                        )?;
                         let virtual_memory = generic_runtime_virtual_memory_completion(
                             &completion,
                             session.runtime(),
@@ -5197,6 +5282,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer,
                                 thread_affinity,
                                 thread_priority,
+                                imm32,
                                 virtual_memory,
                                 created_thread,
                                 resumed_thread,
@@ -5397,6 +5483,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
+                                imm32: None,
                                 virtual_memory: None,
                                 created_thread: None,
                                 resumed_thread: None,
@@ -5503,6 +5590,7 @@ fn run_v86_generic_runtime_session(
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
+                                imm32: None,
                                 virtual_memory: None,
                                 created_thread: None,
                                 resumed_thread: None,
@@ -11028,6 +11116,156 @@ fn set_eax_result(
     }
 }
 
+fn generic_runtime_imm32_completion(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    imm32_policy: &Imm32CompatibilityPolicy,
+    user32_policy: &User32CompatibilityPolicy,
+) -> Result<Option<GenericRuntimeImm32Completion>, LoaderError> {
+    let app_association = |app_window_handle: u32| {
+        runtime
+            .ime_context_associations()
+            .values()
+            .find(|association| association.window_handle == app_window_handle)
+            .cloned()
+            .ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-context-association-missing-after-dispatch",
+                    "completed IMM32 call has no logical app-window association",
+                )
+            })
+    };
+    let associated_context = |association: &RuntimeImeContextAssociation| {
+        association
+            .context
+            .map(|reference| {
+                runtime
+                    .ime_context(reference.handle)
+                    .map_err(runtime_state_error)
+                    .cloned()
+            })
+            .transpose()
+    };
+
+    match completion.implementation_id.as_str() {
+        IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION => {
+            let app_window_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-default-window-argument-missing-after-dispatch",
+                    "ImmGetDefaultIMEWnd completion has no logical app HWND argument",
+                )
+            })?;
+            let ime_window_handle = set_eax_result(
+                completion,
+                "ime-default-window-return-register-invalid",
+                "ImmGetDefaultIMEWnd dispatcher did not set EAX",
+            )?;
+            if app_window_handle == 0 || ime_window_handle == 0 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-default-window-primary-result-null",
+                    "primary ImmGetDefaultIMEWnd unexpectedly used or returned NULL",
+                ));
+            }
+            let ime_window = runtime
+                .ime_window(ime_window_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            let association = app_association(app_window_handle)?;
+            let context = associated_context(&association)?;
+            Ok(Some(GenericRuntimeImm32Completion::DefaultWindowResolved {
+                policy_id: imm32_policy.id.clone(),
+                app_window_handle,
+                ime_window,
+                association,
+                context,
+                native_handle_imported: false,
+                browser_resource_created: false,
+            }))
+        }
+        SEND_MESSAGE_A_IMPLEMENTATION
+            if completion.frame.argument_u32(1) == Some(USER32_WM_IME_CONTROL) =>
+        {
+            let ime_window_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-control-window-argument-missing-after-dispatch",
+                    "WM_IME_CONTROL completion has no logical IME HWND argument",
+                )
+            })?;
+            let result = set_eax_result(
+                completion,
+                "ime-control-return-register-invalid",
+                "WM_IME_CONTROL dispatcher did not set EAX",
+            )?;
+            if result != 0 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-control-result-invalid",
+                    "primary WM_IME_CONTROL did not return zero",
+                ));
+            }
+            let ime_window = runtime
+                .ime_window(ime_window_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            Ok(Some(
+                GenericRuntimeImm32Completion::StatusWindowControlRequested {
+                    policy_id: user32_policy.id.clone(),
+                    ime_window,
+                    native_message_forwarded: false,
+                    browser_resource_created: false,
+                },
+            ))
+        }
+        IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION => {
+            let app_window_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-association-window-argument-missing-after-dispatch",
+                    "ImmAssociateContext completion has no logical app HWND argument",
+                )
+            })?;
+            let requested_context_handle = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-association-context-argument-missing-after-dispatch",
+                    "ImmAssociateContext completion has no logical HIMC argument",
+                )
+            })?;
+            let previous_context_handle = set_eax_result(
+                completion,
+                "ime-association-return-register-invalid",
+                "ImmAssociateContext dispatcher did not set EAX",
+            )?;
+            let association = app_association(app_window_handle)?;
+            let context = associated_context(&association)?;
+            if association.context.map_or(0, |reference| reference.handle)
+                != requested_context_handle
+            {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-imm32",
+                    "ime-association-authority-mismatch",
+                    "ImmAssociateContext argument and logical association authority disagree",
+                ));
+            }
+            Ok(Some(GenericRuntimeImm32Completion::ContextAssociated {
+                policy_id: imm32_policy.id.clone(),
+                app_window_handle,
+                requested_context_handle,
+                previous_context_handle,
+                association,
+                context,
+                native_handle_imported: false,
+                browser_resource_created: false,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn generic_runtime_virtual_memory_completion(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
@@ -12983,6 +13221,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-text-raster" => GenericRuntimeCapability::TextRaster,
                 "gdiplus-startup" => GenericRuntimeCapability::GdiplusStartup,
                 "kernel32-virtual-alloc" => GenericRuntimeCapability::VirtualAlloc,
+                "imm32-default-ime-context" => GenericRuntimeCapability::Imm32Context,
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

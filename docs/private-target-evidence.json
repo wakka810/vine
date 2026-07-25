@@ -26,7 +26,7 @@
   },
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
-    "currentCheckpointSchemaVersion": 3,
+    "currentCheckpointSchemaVersion": 4,
     "runtimeCheckpoint": "kernel32-virtual-alloc",
     "runtimeProfile": "kernel32-virtual-alloc",
     "policySchema": "vine.kernel32-compatibility-policy",
@@ -225,5 +225,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "7d3569d11f27aedd01af06ff46f63f33afdfcd62e4a0e8b1ed61d31e7034a1c1"
   },
-  "payloadSha256": "b21633c458a4bbd2f80e88842c784173728fb1fd53e96045a186f631d93e4a16"
+  "payloadSha256": "06257051a23a2cfa9cd8f520b56d6248dc40d7c5d951649987d8ff5558d5966c"
 }

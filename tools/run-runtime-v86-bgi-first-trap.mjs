@@ -173,6 +173,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-text-raster",
         "gdiplus-startup",
         "kernel32-virtual-alloc",
+        "imm32-default-ime-context",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
@@ -265,6 +266,7 @@ assert(
       "gdi-text-raster",
       "gdiplus-startup",
       "kernel32-virtual-alloc",
+      "imm32-default-ime-context",
     ].includes(
       genericRuntimeCapability,
     ),
@@ -321,6 +323,7 @@ if (
     "gdi-text-raster",
     "gdiplus-startup",
     "kernel32-virtual-alloc",
+    "imm32-default-ime-context",
   ].includes(
     genericRuntimeCapability,
   ) &&
@@ -335,7 +338,8 @@ if (
 }
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-virtual-alloc"
+    genericRuntimeCapability === "kernel32-virtual-alloc" ||
+    genericRuntimeCapability === "imm32-default-ime-context"
       ? "kernel32-virtual-alloc-reserve-v1.json"
       : [
       "kernel32-set-thread-priority",
@@ -510,7 +514,10 @@ const dispatchTlsAlloc = includesCall(14);
 const dispatchTlsSetValue = includesCall(15);
 const dispatchEncodePointer = includesCall(16);
 const dispatchEncodePointerSecond = includesCall(17);
-const virtualAllocEnabled = genericRuntimeCapability === "kernel32-virtual-alloc";
+const imm32ContextEnabled =
+  genericRuntimeCapability === "imm32-default-ime-context";
+const virtualAllocEnabled =
+  imm32ContextEnabled || genericRuntimeCapability === "kernel32-virtual-alloc";
 const gdiplusStartupEnabled =
   virtualAllocEnabled || genericRuntimeCapability === "gdiplus-startup";
 const textRasterEnabled =
@@ -788,7 +795,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? virtualAllocEnabled
+      ? imm32ContextEnabled
+      ? "v86-bgi-default-ime-context"
+      : virtualAllocEnabled
       ? "v86-bgi-virtual-alloc"
       : gdiplusStartupEnabled
       ? "v86-bgi-startup"
@@ -4800,6 +4809,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (imm32ContextEnabled) {
+        validateImm32ContextResult(genericResult);
       } else if (virtualAllocEnabled) {
         validateVirtualAllocResult(genericResult);
       } else if (gdiplusStartupEnabled) {
@@ -5017,6 +5028,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : imm32ContextEnabled
+          ? "bgi logical default IME window and context"
           : virtualAllocEnabled
           ? "bgi VirtualAlloc top-down reserve-only mapping"
           : gdiplusStartupEnabled
@@ -6248,6 +6261,9 @@ function buildGenericCallRecord(
     ...(completionFrame.gdiplus === undefined
       ? {}
       : { gdiplus: completionFrame.gdiplus }),
+    ...(completionFrame.imm32 === undefined
+      ? {}
+      : { imm32: completionFrame.imm32 }),
   };
 }
 
@@ -6300,6 +6316,8 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       (genericRuntimeCapability === null
         ? 0
+        : imm32ContextEnabled
+          ? 95
         : virtualAllocEnabled
           ? 93
         : gdiplusStartupEnabled
@@ -6464,7 +6482,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-v19",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-v20",
     );
     assert.equal(
       ready.displayProfileId,
@@ -6508,6 +6526,14 @@ function validateGenericRuntimeReady(ready, offer) {
     );
   } else {
     assert.equal(ready.gdiplusCompatibilityPolicyId, undefined);
+  }
+  if (imm32ContextEnabled) {
+    assert.equal(
+      ready.imm32CompatibilityPolicyId,
+      "imm32-primary-default-ime-window-context-v1",
+    );
+  } else {
+    assert.equal(ready.imm32CompatibilityPolicyId, undefined);
   }
   if (timeGetDevCapsEnabled) {
     assert.equal(
@@ -15543,6 +15569,25 @@ function validateVirtualAllocResult(result) {
   ]);
 }
 
+function validateImm32ContextResult(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "imm32.dll" ||
+      (call.symbol === "SendMessageA" && call.arguments[1] === 0x0283),
+  );
+  assert(calls.length > 0, "IMM32 checkpoint completed no IME calls");
+  const query = calls.find((call) => call.symbol === "ImmGetDefaultIMEWnd");
+  assert(query, "IMM32 checkpoint omitted ImmGetDefaultIMEWnd");
+  assert.equal(
+    query.implementationId,
+    "imm32.get-default-ime-window.thread-logical-v1",
+  );
+  assert.equal(query.imm32?.action, "default-window-resolved");
+  assert.notEqual(query.result.value, 0);
+  assert(result.fault !== null, "IMM32 checkpoint did not reach a structured stop");
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -19265,10 +19310,22 @@ function buildGenericRuntimeReentryReport({
     assert(virtualAllocCall, "VirtualAlloc report summary has no primary call");
     assert(virtualAllocDelta, "VirtualAlloc report summary has no reserve delta");
   }
+  const imm32Calls = imm32ContextEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.module.toLowerCase() === "imm32.dll" ||
+          (call.symbol === "SendMessageA" && call.arguments[1] === 0x0283),
+      )
+    : [];
+  if (imm32ContextEnabled) {
+    assert(imm32Calls.length > 0, "IMM32 report summary has no IME calls");
+  }
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : imm32ContextEnabled
+        ? "vine.v86-bgi-imm32-default-ime-context"
         : virtualAllocEnabled
         ? "vine.v86-bgi-kernel32-virtual-alloc"
         : gdiplusStartupEnabled
@@ -19646,6 +19703,19 @@ function buildGenericRuntimeReentryReport({
             tokenNamespace: "vine.logical-gdiplus-session-token.v1",
             mutation: "owner-plan-stale-check-transactional-commit",
             nativeTokenImported: false,
+            browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(imm32ContextEnabled
+      ? {
+          imm32Context: {
+            calls: imm32Calls,
+            windowAuthority: "runtime-user32-logical-window",
+            contextAuthority: "runtime-imm32-logical-context",
+            associationAuthority: "runtime-imm32-window-association",
+            nativeHandleImported: false,
+            nativeMessageForwarded: false,
             browserResourceCreated: false,
           },
         }

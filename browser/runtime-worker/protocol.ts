@@ -347,6 +347,7 @@ export interface SessionReport {
     sourceRead?: RuntimeSourceReadSnapshot;
     gdi?: RuntimeGdiSnapshot;
     gdiplus?: RuntimeGdiplusSnapshot;
+    imm32?: RuntimeImm32Snapshot;
     virtualMemory?: RuntimeVirtualMemorySnapshot;
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
@@ -404,6 +405,63 @@ export type RuntimeGdiplusSnapshot =
       action: "session-shutdown";
       token: number;
       liveSessions: number;
+    };
+
+export interface RuntimeImeWindowSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  ownerThreadId: number;
+  className: "IME";
+  statusWindowRequest?: "close" | "open";
+  generation: number;
+}
+
+export interface RuntimeImeContextSnapshot {
+  id: number;
+  handle: number;
+  namespace: string;
+  ownerThreadId: number;
+  defaultForThread: true;
+  generation: number;
+}
+
+export interface RuntimeImeContextAssociationSnapshot {
+  windowId: number;
+  windowHandle: number;
+  ownerThreadId: number;
+  context?: { contextId: number; handle: number };
+  generation: number;
+}
+
+export type RuntimeImm32Snapshot =
+  | {
+      action: "default-window-resolved";
+      policyId: string;
+      appWindowHandle: number;
+      imeWindow: RuntimeImeWindowSnapshot;
+      association: RuntimeImeContextAssociationSnapshot;
+      context: RuntimeImeContextSnapshot | null;
+      nativeHandleImported: false;
+      browserResourceCreated: false;
+    }
+  | {
+      action: "status-window-control-requested";
+      policyId: string;
+      imeWindow: RuntimeImeWindowSnapshot;
+      nativeMessageForwarded: false;
+      browserResourceCreated: false;
+    }
+  | {
+      action: "context-associated";
+      policyId: string;
+      appWindowHandle: number;
+      requestedContextHandle: number;
+      previousContextHandle: number;
+      association: RuntimeImeContextAssociationSnapshot;
+      context: RuntimeImeContextSnapshot | null;
+      nativeHandleImported: false;
+      browserResourceCreated: false;
     };
 
 export interface RuntimeVirtualMemorySnapshot {

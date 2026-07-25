@@ -23,11 +23,12 @@ export function bgiProfileOutputDirectory(profile) {
     !profile.startsWith("dinput8-") &&
     !profile.startsWith("dsound-") &&
     !profile.startsWith("gdi-") &&
-    !profile.startsWith("gdiplus-")
+    !profile.startsWith("gdiplus-") &&
+    !profile.startsWith("imm32-")
   ) {
     throw new Error(`BGI profile must be baseline or a runtime capability: ${profile}`);
   }
-  return `v86-bgi-${profile.replace(/^(?:kernel32|user32|ole32|winmm|gdi|gdiplus)-/u, "")}`;
+  return `v86-bgi-${profile.replace(/^(?:kernel32|user32|ole32|winmm|gdi|gdiplus|imm32)-/u, "")}`;
 }
 
 export function planBgiCheckpointCommand(arguments_, manifest, root) {

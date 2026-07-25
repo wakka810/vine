@@ -18,6 +18,8 @@ const focusedGdiplusStartupObservation =
   selectedObservations.has("gdiplus-startup");
 const focusedVirtualAllocObservation =
   selectedObservations.size === 1 && selectedObservations.has("virtual-alloc");
+const focusedImeContextObservation =
+  selectedObservations.size === 1 && selectedObservations.has("ime-context");
 const focusedSetWindowLongAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-long-a");
@@ -372,6 +374,15 @@ let virtualAllocCompletionRecorded = false;
 let virtualAllocActivityGeneration = 0;
 const virtualAllocMainModuleCalls = [];
 let virtualQueryFunction = null;
+let imeContextCompletionRecorded = false;
+let imeContextDrainCheckScheduled = false;
+let imeContextOracleScheduled = false;
+let imeContextOracleComplete = false;
+let imeContextOracleEvidence = null;
+const imeGetDefaultWindowCalls = [];
+const imeAssociateContextCalls = [];
+const imeControlMessageCalls = [];
+let imeWindowInspector = null;
 const gdiplusMainModuleCalls = [];
 let setWindowLongAOracleScheduled = false;
 let setWindowLongAOracleCall = null;
@@ -3035,6 +3046,7 @@ const hooks = {
     ["CreateWindowExA", [null, "ansi", "ansi"]],
     ["CreateWindowExW", [null, "utf16", "utf16"]],
   ],
+  "imm32.dll": [],
   "gdi32.dll": [
     ["BitBlt", []],
     ["StretchDIBits", []],
@@ -6953,10 +6965,19 @@ function attachSendMessageAHook(module) {
         this.traceFrame = null;
         return;
       }
+      this.recordSendMessageObservation =
+        selectedObservations.has("send-message-a");
+      this.recordImeControl =
+        focusedImeContextObservation && args[1].toUInt32() === 0x0283;
+      if (!this.recordSendMessageObservation && !this.recordImeControl) {
+        this.traceFrame = null;
+        return;
+      }
       this.windowHandle = args[0].toString();
       this.message = args[1].toUInt32();
       this.wParam = args[2].toUInt32();
       this.lParam = args[3].toUInt32();
+      this.callerRva = caller.rva;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.immediateConsumer = {
         apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -7011,7 +7032,7 @@ function attachSendMessageAHook(module) {
         },
         this.lastError,
       );
-      if (!sendMessageACompletionRecorded) {
+      if (this.recordSendMessageObservation && !sendMessageACompletionRecorded) {
         sendMessageAMainModuleCalls.push({
           callId: this.traceFrame.callId,
           returnAddress: this.returnAddress.toString(),
@@ -7026,6 +7047,23 @@ function attachSendMessageAHook(module) {
           immediateConsumer: this.immediateConsumer,
         });
         setImmediate(maybeCompleteSendMessageAObservation);
+      }
+      if (this.recordImeControl && !imeContextCompletionRecorded) {
+        imeControlMessageCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.callerRva,
+          windowHandle: this.windowHandle,
+          message: this.message,
+          wParam: this.wParam,
+          lParam: this.lParam,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        setImmediate(maybeCompleteImeContextObservation);
       }
     },
   });
@@ -10667,6 +10705,360 @@ function attachVirtualAllocHook(module, name) {
         immediateConsumer: this.immediateConsumer,
       });
       scheduleVirtualAllocCompletion();
+    },
+  });
+}
+
+function requireImeWindowInspector() {
+  if (imeWindowInspector !== null) {
+    return imeWindowInspector;
+  }
+  const user32 = Process.getModuleByName("user32.dll");
+  const isWindowAddress = findExport(user32, "IsWindow");
+  const getWindowThreadProcessIdAddress = findExport(
+    user32,
+    "GetWindowThreadProcessId",
+  );
+  const getClassNameAAddress = findExport(user32, "GetClassNameA");
+  if (
+    isWindowAddress === null ||
+    getWindowThreadProcessIdAddress === null ||
+    getClassNameAAddress === null
+  ) {
+    throw new Error("User32 window identity exports are unavailable");
+  }
+  imeWindowInspector = {
+    isWindow: new NativeFunction(
+      isWindowAddress,
+      "int32",
+      ["pointer"],
+      "stdcall",
+    ),
+    getWindowThreadProcessId: new NativeFunction(
+      getWindowThreadProcessIdAddress,
+      "uint32",
+      ["pointer", "pointer"],
+      "stdcall",
+    ),
+    getClassNameA: new NativeFunction(
+      getClassNameAAddress,
+      "int32",
+      ["pointer", "pointer", "int32"],
+      "stdcall",
+    ),
+  };
+  return imeWindowInspector;
+}
+
+function snapshotImeWindowIdentity(window) {
+  const handle = window.toString();
+  if (window.isNull()) {
+    return {
+      handle,
+      nonNull: false,
+      isWindow: false,
+      threadId: 0,
+      processId: 0,
+      className: null,
+    };
+  }
+  try {
+    const inspector = requireImeWindowInspector();
+    const processId = Memory.alloc(4);
+    processId.writeU32(0);
+    const threadId = inspector.getWindowThreadProcessId(window, processId);
+    const classNameBuffer = Memory.alloc(64);
+    classNameBuffer.writeByteArray(Array(64).fill(0));
+    const classNameLength = inspector.getClassNameA(window, classNameBuffer, 64);
+    return {
+      handle,
+      nonNull: true,
+      isWindow: inspector.isWindow(window) !== 0,
+      threadId,
+      processId: processId.readU32(),
+      className:
+        classNameLength > 0
+          ? classNameBuffer.readAnsiString(classNameLength)
+          : null,
+    };
+  } catch (error) {
+    return {
+      handle,
+      nonNull: true,
+      error: error.message,
+    };
+  }
+}
+
+function scheduleImeContextOracle(module, reachedWindow) {
+  if (imeContextOracleScheduled) {
+    return;
+  }
+  imeContextOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const getDefaultImeWindowAddress = findExport(
+        module,
+        "ImmGetDefaultIMEWnd",
+      );
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const setLastErrorAddress = findExport(kernel32, "SetLastError");
+      if (getDefaultImeWindowAddress === null || setLastErrorAddress === null) {
+        throw new Error("IME query oracle exports are unavailable");
+      }
+      const getDefaultImeWindow = new SystemFunction(
+        getDefaultImeWindowAddress,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
+      const setLastError = new SystemFunction(
+        setLastErrorAddress,
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const invoke = (variant, window, sentinel) => {
+        setLastError(sentinel);
+        const outcome = getDefaultImeWindow(window);
+        return {
+          variant,
+          window: window.toString(),
+          sentinel,
+          result: outcome.value.toString(),
+          lastError: Number(outcome.lastError) >>> 0,
+          resultIdentity: snapshotImeWindowIdentity(outcome.value),
+        };
+      };
+      const reached = ptr(reachedWindow);
+      imeContextOracleEvidence = {
+        profile: "x86-imm-get-default-ime-window-query-v1",
+        calls: [
+          invoke("reached-repeat-first", reached, 0x5a5a_0101),
+          invoke("reached-repeat-second", reached, 0x5a5a_0102),
+          invoke("null-window", ptr(0), 0x5a5a_0103),
+          invoke("invalid-window", ptr(0x1234), 0x5a5a_0104),
+        ],
+      };
+      imeContextOracleComplete = true;
+      emit("ime-context-oracle", imeContextOracleEvidence);
+      maybeCompleteImeContextObservation();
+    } catch (error) {
+      emit("ime-context-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteImeContextObservation() {
+  if (imeContextCompletionRecorded || !imeContextOracleComplete) {
+    return;
+  }
+  const primaryGet = imeGetDefaultWindowCalls.find(
+    (call) => call.callerRva === 0x0008_73da,
+  );
+  const detach = imeAssociateContextCalls.find(
+    (call) => call.callerRva === 0x0008_73fe,
+  );
+  const restore = imeAssociateContextCalls.find(
+    (call) => call.callerRva === 0x0008_7413,
+  );
+  const before = imeControlMessageCalls.find(
+    (call) => call.callerRva === 0x0008_73ee,
+  );
+  const after = imeControlMessageCalls.find(
+    (call) => call.callerRva === 0x0008_741f,
+  );
+  if (
+    primaryGet === undefined ||
+    detach === undefined ||
+    before === undefined
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteImeContextObservation, 10);
+    return;
+  }
+  if (imeContextDrainCheckScheduled) {
+    return;
+  }
+  imeContextDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    imeContextDrainCheckScheduled = false;
+    if (imeContextCompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteImeContextObservation();
+      return;
+    }
+    imeContextCompletionRecorded = true;
+    emit("ime-context-complete", {
+      profile: "x86-bgi-default-ime-window-context-detach-prefix-v1",
+      quiescenceMilliseconds: 250,
+      restoreReached: restore !== undefined,
+      reopenStatusWindowReached: after !== undefined,
+      getDefaultImeWindowCalls: imeGetDefaultWindowCalls.map((call) => ({
+        ...call,
+      })),
+      associateContextCalls: imeAssociateContextCalls.map((call) => ({
+        ...call,
+      })),
+      controlMessageCalls: imeControlMessageCalls.map((call) => ({ ...call })),
+      oracle: imeContextOracleEvidence,
+    });
+    if (stopOnEvent === "ime-context-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function attachImmGetDefaultImeWindowHook(module) {
+  const name = "ImmGetDefaultIMEWnd";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.window = args[0];
+      this.windowHandle = this.window.toString();
+      this.callerRva = caller.rva;
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructions(this.returnAddress, 96),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          8,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle],
+          lastErrorBefore: this.lastErrorBefore,
+          immediateConsumer: this.immediateConsumer,
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultIdentity = snapshotImeWindowIdentity(result);
+      const inputIdentity = snapshotImeWindowIdentity(this.window);
+      this.lastError = lastError;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          imeWindow: resultIdentity,
+        },
+        this.lastError,
+      );
+      imeGetDefaultWindowCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.callerRva,
+        windowHandle: this.windowHandle,
+        inputIdentity,
+        result: result.toString(),
+        resultIdentity,
+        resultDistinctFromInput: !result.equals(this.window),
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      });
+      scheduleImeContextOracle(module, this.windowHandle);
+      setImmediate(maybeCompleteImeContextObservation);
+    },
+  });
+}
+
+function attachImmAssociateContextHook(module) {
+  const name = "ImmAssociateContext";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error(`${name} export is unavailable`);
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandle = args[0].toString();
+      this.contextHandle = args[1].toString();
+      this.callerRva = caller.rva;
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructions(this.returnAddress, 64),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          8,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle, this.contextHandle],
+          lastErrorBefore: this.lastErrorBefore,
+          immediateConsumer: this.immediateConsumer,
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+        },
+        this.lastError,
+      );
+      imeAssociateContextCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        callerRva: this.callerRva,
+        windowHandle: this.windowHandle,
+        contextHandle: this.contextHandle,
+        result: result.toString(),
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      });
+      setImmediate(maybeCompleteImeContextObservation);
     },
   });
 }
@@ -20050,6 +20442,7 @@ Process.attachModuleObserver({
       !focusedFontObjectObservation &&
       !focusedGdiplusStartupObservation &&
       !focusedVirtualAllocObservation &&
+      !focusedImeContextObservation &&
       !focusedSetWindowLongAObservation &&
       !focusedSetWindowPosSizeObservation
     ) {
@@ -20109,6 +20502,25 @@ Process.attachModuleObserver({
           api: "QueryPerformanceCounter",
           error: error.message,
         });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "imm32.dll" &&
+      focusedImeContextObservation
+    ) {
+      for (const [name, attach] of [
+        ["ImmGetDefaultIMEWnd", attachImmGetDefaultImeWindowHook],
+        ["ImmAssociateContext", attachImmAssociateContextHook],
+      ]) {
+        try {
+          attach(module);
+        } catch (error) {
+          emit("hook-error", {
+            module: module.name,
+            api: name,
+            error: error.message,
+          });
+        }
       }
     }
     if (
@@ -20276,7 +20688,8 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&
-      selectedObservations.has("send-message-a")
+      (selectedObservations.has("send-message-a") ||
+        focusedImeContextObservation)
     ) {
       try {
         attachSendMessageAHook(module);

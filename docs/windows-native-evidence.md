@@ -4840,3 +4840,46 @@ cancel／watchdogを通した。Current measured artifact identityは[current-ch
 `0x100D10D0`／return `0x100873DA`の`endpoint-contract-missing`である。Argumentはlogical main HWND
 `0x48010001`である。IME window identity、message integration、commit／decommit／release、general `VirtualAlloc`
 placementはこのcheckpointで実装済みとしない。
+
+## 143. BGI default IME window and context prefix
+
+Focused profile `x86-bgi-default-ime-window-context-detach-prefix-v1`を同じsource executableから取得した。
+Primary raw traceは57,748 bytes／81 records／SHA-256
+`a36b5ca6f9c96759e5ddcda71c40b72108da6a0de4ae8f27ead043b9a2ce7413`だがcomplete event前にtimeoutしたため
+semantic oracleから除外する。Confirmationは97,286 bytes／81 records／SHA-256
+`fa5f717ad4721a3bdeb647e4266a3f2f0f89f05bb16ca70556c3fbe37798e6ca`、repetitionは97,603 bytes／82
+records／SHA-256 `a0356ef12d65ee12ca9471d62c7116da94aa163dbdba8698b92c95a383bf9eac`で、両方とも
+diagnostics／hook errors 0である。Raw traceは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+BGI main windowに対する`ImmGetDefaultIMEWnd`は、同じthread／processに属するclass `IME`のdistinct HWNDを返す。
+同一runのrepeat queryではidentityが安定し、confirmationのapp／IME HWNDは`0x5019E`／`0x120320`、repetitionは
+`0x80322`／`0x170332`である。続く`SendMessageA(imeHwnd, WM_IME_CONTROL, IMC_CLOSESTATUSWINDOW, 0)`は0、
+`ImmAssociateContext(appHwnd, NULL)`はopaque nonzero previous HIMCを返し、各callはLastError `0 -> 0`を保つ。
+Confirmation／repetitionのprevious HIMCは`0x2305E1`／`0x63045F`で、HWND／HIMCのnumeric valueはrun間で変わる
+artifact identityでありVineへimportしない。Controlled oracleはrepeat queryの安定、NULL inputのNULL／LastError 0、
+invalid HWND `0x1234`のNULL／`ERROR_INVALID_WINDOW_HANDLE` 1,400を固定する。Restoreとstatus-window reopenの
+static continuationは確認したがfocused native observationではgraphics初期化より先へ到達せず、native reached
+semanticsとしてclaimしない。
+
+Runtimeは`RuntimeUser32`にshared logical HWND allocatorとthread default IME windowを、`RuntimeImm32`にlogical HIMC、
+thread default context、app-window associationを所有させる。Aggregateは両ownerをpreflightしてからdefault window／
+contextをpublishし、detach／restore、wrong owner、unknown HIMC、stale plan、process teardownをmutation-free negative
+caseとともにmodel testで固定する。Worker metadataはread-only completionで、native handle／browser resourceを作らない。
+
+Canonical command
+`npm run check:runtime:bgi -- --profile imm32-default-ime-context --evidence-level full`はruntime開始前のsource
+registrationで停止した。Fingerprint済み`BGI.gdb`は125,461 bytes／SHA-256
+`e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92`だが、installed objectは同size／SHA-256
+`511684c20839ce847c2593a58a69dc966f819b10985438b2b44a4bc6bc2030ba`である。Last-write時刻はprimary native trace
+windowと重なるが、変更主体は確定していない。Workspaceと近傍backupにcanonical identityは見つからず、配布fileは
+追加変更・復元していない。
+
+Observed objectを明示したnoncanonical snapshotによるread-only diagnosticではsequence 18,643のqueryがlogical
+IME HWND `0x48010002`とHIMC `0x494D0001`を作り、sequence 18,644のclose、18,645のNULL detachまでauthority
+validationを通した。その後は新しいunsupported endpointへ進まず、19,000／32,768 generic-call limitで最後のcallが
+`EnterCriticalSection` occurrence 161／7,045、instruction 13,891,597／14,380,361となった。このpollingがtitleの
+正常なthread waitかscheduler progress不足かはnoncanonical corpusから判定しない。Private target／Chrome acceptanceは
+未成立であり、exact failure、試行、protected invariant、resume conditionは
+[current-checkpoint.json](current-checkpoint.json)のactive structured blockerを正本とする。

@@ -689,7 +689,16 @@ cross-thread／multi-window activationは別contractである。
 - DirectInput 8 frontend は同じ normalized keyboard／mouse state を読み、独立した DOM listener や別の入力時刻系を持たない
 - Acquire／Unacquire、cooperative level、buffered event は logical HWND／focus state と明示的に接続する
 
-IME、clipboard、file drop は personal target の keyboard path と分離して deferred とする。
+到達したdefault IME window／context prefixはkeyboard event pathと分離したlogical resource boundaryとする。
+`RuntimeUser32`がapp windowと同じlogical HWND namespace、thread別default IME window relation、class `IME`、
+status-window requestを所有し、`RuntimeImm32`がthread別default HIMCとapp-window associationを別namespaceで
+所有する。`RuntimeKernel`はapp window lifecycle／owner、両allocator、associationを全てpreflightしてから
+targeted commitし、片方だけを先行publishしない。Worker completionはimmutable snapshotであり、native HWND／
+HIMCやbrowser resourceをlogical identityへimportしない。
+
+Active bounded policyは`ImmGetDefaultIMEWnd`、`WM_IME_CONTROL`のclose／open request、
+`ImmAssociateContext`のNULL detachとruntime-owned restoreだけを扱う。IME composition、candidate UI、DOM text
+input、cross-thread association、clipboard、file dropはdeferredであり、このprefixの成立からclaimしない。
 
 ## 13. Graphics
 

@@ -13,6 +13,7 @@ mod gdi;
 mod gdiplus;
 mod graphics;
 mod heaps;
+mod imm32;
 mod input;
 mod kernel;
 mod messages;
@@ -129,6 +130,11 @@ pub use heaps::{
     RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown,
     RuntimeLargeHeapAllocationBacking,
 };
+pub use imm32::{
+    LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE, RUNTIME_IME_CONTEXT_HANDLE_PREFIX,
+    RUNTIME_IME_CONTEXT_LIMIT, RuntimeImeAssociationResult, RuntimeImeContext,
+    RuntimeImeContextAssociation, RuntimeImeContextId, RuntimeImeContextReference,
+};
 pub use input::{RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult};
 pub use kernel::*;
 pub use messages::{
@@ -197,14 +203,16 @@ pub use timers::{
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,
     LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
-    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_ICON_HANDLE_BASE, RUNTIME_SHARED_CURSOR_LIMIT,
-    RUNTIME_SHARED_ICON_LIMIT, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
-    RUNTIME_WINDOW_CLASS_ATOM_BASE, RUNTIME_WINDOW_CLASS_LIMIT,
-    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
-    RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING,
-    RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
-    RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId,
-    RuntimeCursorResource, RuntimeCursorSource, RuntimeIcon, RuntimeIconId, RuntimeIconResource,
+    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_DEFAULT_IME_WINDOW_LIMIT, RUNTIME_ICON_HANDLE_BASE,
+    RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_WINDOW_CLASS_ATOM_BASE,
+    RUNTIME_WINDOW_CLASS_LIMIT, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT,
+    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
+    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
+    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorResource,
+    RuntimeCursorSource, RuntimeDefaultImeWindowResult, RuntimeIcon, RuntimeIconId,
+    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId,
     RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeRegisterClassExAResult,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,

@@ -158,6 +158,7 @@ export function validateCurrentCheckpoint(manifest) {
     "browserCheckpoint",
     "engineDecisionEvidence",
     "activeRuntimeCheckpoint",
+    "activeBlocker",
     "nextStructuredStop",
   ];
   const rootKeys = Object.keys(root);
@@ -172,8 +173,143 @@ export function validateCurrentCheckpoint(manifest) {
   if (root.schema !== "vine.current-checkpoint") {
     errors.push("manifest.schema must be vine.current-checkpoint");
   }
-  if (root.schemaVersion !== 3) {
-    errors.push("manifest.schemaVersion must be 3");
+  if (root.schemaVersion !== 4) {
+    errors.push("manifest.schemaVersion must be 4");
+  }
+
+  if (root.activeBlocker !== null) {
+    const blocker = requireRecord(root.activeBlocker, "activeBlocker", errors);
+    for (const field of [
+      "schema",
+      "id",
+      "kind",
+      "checkpoint",
+      "summary",
+      "exactReproduction",
+      "diagnosticReproduction",
+      "resumeCondition",
+    ]) {
+      requireString(blocker[field], `activeBlocker.${field}`, errors);
+    }
+    requireInteger(blocker.schemaVersion, "activeBlocker.schemaVersion", errors, 1);
+    const firstFailure = requireRecord(
+      blocker.firstFailure,
+      "activeBlocker.firstFailure",
+      errors,
+    );
+    for (const field of ["stage", "code", "relativePath"]) {
+      requireString(firstFailure[field], `activeBlocker.firstFailure.${field}`, errors);
+    }
+    for (const field of ["objectId", "expectedBytes", "observedBytes"]) {
+      requireInteger(firstFailure[field], `activeBlocker.firstFailure.${field}`, errors, 1);
+    }
+    for (const field of ["expectedSha256", "observedSha256"]) {
+      requireSha256(firstFailure[field], `activeBlocker.firstFailure.${field}`, errors);
+    }
+    const evidence = requireRecord(blocker.evidence, "activeBlocker.evidence", errors);
+    for (const field of [
+      "sourceLastWriteTime",
+      "sourceExecutableSha256",
+      "diagnosticSourceSnapshotId",
+      "diagnosticTerminalApi",
+      "nativeTraceProfile",
+      "nativePrimaryTraceSha256",
+      "nativeConfirmationTraceSha256",
+      "nativeRepetitionTraceSha256",
+    ]) {
+      requireString(evidence[field], `activeBlocker.evidence.${field}`, errors);
+    }
+    for (const field of [
+      "sourceExecutableBytes",
+      "diagnosticImeCallsCompleted",
+      "diagnosticFirstImeSequence",
+      "diagnosticLastImeSequence",
+      "diagnosticFirstImeInstructionCount",
+      "nativeConfirmationDiagnostics",
+      "nativeRepetitionDiagnostics",
+    ]) {
+      requireInteger(evidence[field], `activeBlocker.evidence.${field}`, errors);
+    }
+    const diagnosticCallLimits = requireIntegerArray(
+      evidence.diagnosticCallLimits,
+      "activeBlocker.evidence.diagnosticCallLimits",
+      errors,
+    );
+    const diagnosticTerminalOccurrences = requireOrderedIntegerArray(
+      evidence.diagnosticTerminalOccurrences,
+      "activeBlocker.evidence.diagnosticTerminalOccurrences",
+      errors,
+    );
+    const diagnosticTerminalInstructionCounts = requireOrderedIntegerArray(
+      evidence.diagnosticTerminalInstructionCounts,
+      "activeBlocker.evidence.diagnosticTerminalInstructionCounts",
+      errors,
+    );
+    const attemptedOptions = requireStringArray(
+      blocker.attemptedOptions,
+      "activeBlocker.attemptedOptions",
+      errors,
+    );
+    const protectedInvariants = requireStringArray(
+      blocker.protectedInvariants,
+      "activeBlocker.protectedInvariants",
+      errors,
+    );
+    if (
+      blocker.schema !== "vine.structured-blocker" ||
+      blocker.schemaVersion !== 1 ||
+      blocker.id !== "imm32-default-ime-context-canonical-source-and-liveness-20260725" ||
+      blocker.kind !== "corpus-identity-and-feasibility" ||
+      blocker.checkpoint !== "imm32-default-ime-context" ||
+      firstFailure.stage !== "source-registration" ||
+      firstFailure.code !== "source-object-identity-mismatch" ||
+      firstFailure.objectId !== 1 ||
+      firstFailure.relativePath !== "BGI.gdb" ||
+      firstFailure.expectedBytes !== 125_461 ||
+      firstFailure.observedBytes !== 125_461 ||
+      firstFailure.expectedSha256 !==
+        "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92" ||
+      firstFailure.observedSha256 !==
+        "511684c20839ce847c2593a58a69dc966f819b10985438b2b44a4bc6bc2030ba" ||
+      evidence.sourceExecutableBytes !== 1_193_472 ||
+      evidence.sourceExecutableSha256 !==
+        "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
+      evidence.sourceLastWriteOverlapsNativeTrace !== true ||
+      evidence.sourceModificationAttributionConfirmed !== false ||
+      evidence.diagnosticSourceSnapshotId !==
+        "bgi-gdb-511684c20839ce84-diagnostic-v1" ||
+      evidence.diagnosticCanonical !== false ||
+      evidence.diagnosticImeCallsCompleted !== 3 ||
+      evidence.diagnosticFirstImeSequence !== 18_643 ||
+      evidence.diagnosticLastImeSequence !== 18_645 ||
+      evidence.diagnosticFirstImeInstructionCount !== 12_111_929 ||
+      diagnosticCallLimits.join(",") !== "19000,32768" ||
+      evidence.diagnosticTerminalApi !== "kernel32.dll!EnterCriticalSection" ||
+      diagnosticTerminalOccurrences.join(",") !== "161,7045" ||
+      diagnosticTerminalInstructionCounts.join(",") !== "13891597,14380361" ||
+      evidence.diagnosticContextDetached !== true ||
+      evidence.diagnosticNextStructuredStopReached !== false ||
+      evidence.nativeTraceProfile !==
+        "x86-bgi-default-ime-window-context-detach-prefix-v1" ||
+      evidence.nativePrimaryTraceComplete !== false ||
+      evidence.nativeConfirmationDiagnostics !== 0 ||
+      evidence.nativeRepetitionDiagnostics !== 0 ||
+      evidence.nativeRestoreReached !== false ||
+      evidence.nativeReopenStatusWindowReached !== false ||
+      evidence.privateTargetAccepted !== false ||
+      evidence.chromeAccepted !== false ||
+      attemptedOptions.length < 3 ||
+      protectedInvariants.length < 3
+    ) {
+      errors.push("active structured blocker is invalid or incomplete");
+    }
+    for (const field of [
+      "nativePrimaryTraceSha256",
+      "nativeConfirmationTraceSha256",
+      "nativeRepetitionTraceSha256",
+    ]) {
+      requireSha256(evidence[field], `activeBlocker.evidence.${field}`, errors);
+    }
   }
 
   const scenarioMilestones = requireRecord(
@@ -11780,9 +11916,11 @@ export function renderReadmeStatus(manifest) {
           `${next.instructionCount}: \`${next.reason}\``
       : `\`${next.api}(${next.arguments.join(", ")})\` at instruction ` +
         `${next.instructionCount}: \`${next.reason}\``;
-  const blockerSummary = browser.bgiBenchmarkBlocker
-    ? `| Active blocker | \`${browser.bgiBenchmarkBlocker.id}\`: \`${browser.bgiBenchmarkBlocker.firstFailure.thresholdId}\`; ${browser.bgiBenchmarkBlocker.resumeCondition} |\n`
-    : "";
+  const blockerSummary = manifest.activeBlocker
+    ? `| Active blocker | \`${manifest.activeBlocker.id}\`: \`${manifest.activeBlocker.firstFailure.code}\`; ${manifest.activeBlocker.resumeCondition} |\n`
+    : browser.bgiBenchmarkBlocker
+      ? `| Active blocker | \`${browser.bgiBenchmarkBlocker.id}\`: \`${browser.bgiBenchmarkBlocker.firstFailure.thresholdId}\`; ${browser.bgiBenchmarkBlocker.resumeCondition} |\n`
+      : "";
 
   return `${README_STATUS_START}
 ## Current Status

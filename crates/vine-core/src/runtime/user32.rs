@@ -18,6 +18,7 @@ pub const RUNTIME_WINDOW_CLASS_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_CLASS_NAME_A_LIMIT: usize = 256;
 pub const RUNTIME_WINDOW_CLASS_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_WINDOW_LIMIT: usize = 4_096;
+pub const RUNTIME_DEFAULT_IME_WINDOW_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_NAME_A_LIMIT: usize = 512;
 pub const RUNTIME_WINDOW_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_ICON_HANDLE_BASE: u32 = 0x4901_0001;
@@ -381,6 +382,38 @@ pub struct RuntimeWindow {
     pub small_icon: Option<RuntimeWindowIconReference>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeImeWindowId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeImeStatusWindowRequest {
+    Close,
+    Open,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeImeWindow {
+    pub id: RuntimeImeWindowId,
+    pub handle: u32,
+    pub namespace: String,
+    pub owner_thread_id: RuntimeThreadId,
+    pub class_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_window_request: Option<RuntimeImeStatusWindowRequest>,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeDefaultImeWindowResult {
+    pub ime_window_id: RuntimeImeWindowId,
+    pub handle: u32,
+    pub already_created: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeCreateWindowExAResult {
@@ -486,6 +519,27 @@ enum RuntimeWindowCreationDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeDefaultImeWindowDisposition {
+    Existing(RuntimeImeWindow),
+    Create {
+        window: RuntimeImeWindow,
+        next_ime_window_id: u64,
+        next_window_handle: u32,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeImeControlDisposition {
+    Unchanged(RuntimeImeWindow),
+    Update {
+        previous: RuntimeImeWindow,
+        next: RuntimeImeWindow,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeWindowCreationCallbackDisposition {
     Update {
         previous: RuntimeWindow,
@@ -582,6 +636,26 @@ pub(super) struct RuntimeWindowCreationPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeDefaultImeWindowPlan {
+    expected_generation: u64,
+    app_window: RuntimeWindow,
+    disposition: RuntimeDefaultImeWindowDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeImeControlPlan {
+    expected_generation: u64,
+    disposition: RuntimeImeControlDisposition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeImeAppWindowTarget {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWindowCreationCallbackPlan {
     expected_generation: u64,
     disposition: RuntimeWindowCreationCallbackDisposition,
@@ -613,6 +687,8 @@ pub(super) struct RuntimeUser32TeardownPlan {
     retired_cursors: usize,
     retired_window_classes: usize,
     retired_windows: usize,
+    retired_ime_windows: usize,
+    retired_default_ime_windows: usize,
     retired_active_windows: usize,
     retired_focused_windows: usize,
     retired_foreground_window: bool,
@@ -644,6 +720,12 @@ pub(super) struct RuntimeUser32 {
     #[serde(skip)]
     window_handle_index: BTreeMap<u32, RuntimeWindowId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    ime_windows: BTreeMap<RuntimeImeWindowId, RuntimeImeWindow>,
+    #[serde(skip)]
+    ime_window_handle_index: BTreeMap<u32, RuntimeImeWindowId>,
+    #[serde(skip)]
+    default_ime_windows: BTreeMap<RuntimeThreadId, RuntimeImeWindowId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     active_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     focused_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
@@ -656,6 +738,7 @@ pub(super) struct RuntimeUser32 {
     next_window_class_id: u64,
     next_window_class_atom: u32,
     next_window_id: u64,
+    next_ime_window_id: u64,
     next_window_handle: u32,
     generation: u64,
 }
@@ -674,6 +757,9 @@ impl Default for RuntimeUser32 {
             window_class_atom_index: BTreeMap::new(),
             windows: BTreeMap::new(),
             window_handle_index: BTreeMap::new(),
+            ime_windows: BTreeMap::new(),
+            ime_window_handle_index: BTreeMap::new(),
+            default_ime_windows: BTreeMap::new(),
             active_windows: BTreeMap::new(),
             focused_windows: BTreeMap::new(),
             foreground_window: None,
@@ -684,6 +770,7 @@ impl Default for RuntimeUser32 {
             next_window_class_id: 1,
             next_window_class_atom: u32::from(RUNTIME_WINDOW_CLASS_ATOM_BASE),
             next_window_id: 1,
+            next_ime_window_id: 1,
             next_window_handle: RUNTIME_WINDOW_HANDLE_BASE,
             generation: 0,
         }
@@ -1209,6 +1296,9 @@ impl RuntimeUser32 {
             || self
                 .window_handle_index
                 .contains_key(&self.next_window_handle)
+            || self
+                .ime_window_handle_index
+                .contains_key(&self.next_window_handle)
         {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-user32",
@@ -1293,6 +1383,7 @@ impl RuntimeUser32 {
                     || self.next_window_handle != window.handle
                     || self.windows.contains_key(&window.id)
                     || self.window_handle_index.contains_key(&window.handle)
+                    || self.ime_window_handle_index.contains_key(&window.handle)
                 {
                     return Err(RuntimeStateError::conflict(
                         "runtime-user32",
@@ -1330,6 +1421,217 @@ impl RuntimeUser32 {
                 debug_assert!(previous_handle.is_none());
                 debug_assert!(previous_window.is_none());
                 Ok(result)
+            }
+        }
+    }
+
+    pub(super) fn resolve_ime_app_window_target(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeImeAppWindowTarget, RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        Ok(RuntimeImeAppWindowTarget {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id: window.creation.owner_thread_id,
+        })
+    }
+
+    pub(super) fn plan_default_ime_window(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeDefaultImeWindowPlan, RuntimeStateError> {
+        let app_window = self.window(window_handle)?.clone();
+        self.validate_created_window_owner(&app_window, owner_thread_id)?;
+        if let Some(id) = self.default_ime_windows.get(&owner_thread_id) {
+            let window = self.ime_windows.get(id).cloned().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-user32",
+                    "default-ime-window-index-dangling",
+                    "default IME window index does not resolve to a live logical window",
+                )
+            })?;
+            self.validate_ime_window_identity(&window)?;
+            if window.owner_thread_id != owner_thread_id {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-user32",
+                    "default-ime-window-owner-mismatch",
+                    "default IME window index resolves to a different owner thread",
+                ));
+            }
+            return Ok(RuntimeDefaultImeWindowPlan {
+                expected_generation: self.generation,
+                app_window,
+                disposition: RuntimeDefaultImeWindowDisposition::Existing(window),
+            });
+        }
+        if self.ime_windows.len() >= RUNTIME_DEFAULT_IME_WINDOW_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "default-ime-window-limit-exceeded",
+                "logical default IME window count exceeds the runtime bound",
+            ));
+        }
+        let id = RuntimeImeWindowId(self.next_ime_window_id);
+        if id.0 == 0 || self.ime_windows.contains_key(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "default-ime-window-id-collision",
+                "logical default IME window allocator selected an invalid or live identity",
+            ));
+        }
+        if self.next_window_handle < RUNTIME_WINDOW_HANDLE_BASE
+            || self
+                .window_handle_index
+                .contains_key(&self.next_window_handle)
+            || self
+                .ime_window_handle_index
+                .contains_key(&self.next_window_handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "default-ime-window-handle-collision",
+                "logical HWND allocator selected an invalid or live IME window handle",
+            ));
+        }
+        let next_ime_window_id = self.next_ime_window_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "default-ime-window-id-space-exhausted",
+                "logical default IME window identity space is exhausted",
+            )
+        })?;
+        let next_window_handle = self.next_window_handle.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "window-handle-space-exhausted",
+                "logical HWND space is exhausted",
+            )
+        })?;
+        let next_generation = self.next_generation()?;
+        Ok(RuntimeDefaultImeWindowPlan {
+            expected_generation: self.generation,
+            app_window,
+            disposition: RuntimeDefaultImeWindowDisposition::Create {
+                window: RuntimeImeWindow {
+                    id,
+                    handle: self.next_window_handle,
+                    namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+                    owner_thread_id,
+                    class_name: "IME".to_owned(),
+                    status_window_request: None,
+                    generation: next_generation,
+                },
+                next_ime_window_id,
+                next_window_handle,
+                next_generation,
+            },
+        })
+    }
+
+    pub(super) fn default_ime_window_target(
+        &self,
+        plan: &RuntimeDefaultImeWindowPlan,
+    ) -> RuntimeImeAppWindowTarget {
+        RuntimeImeAppWindowTarget {
+            window_id: plan.app_window.id,
+            window_handle: plan.app_window.handle,
+            owner_thread_id: plan.app_window.creation.owner_thread_id,
+        }
+    }
+
+    pub(super) fn preflight_default_ime_window(
+        &self,
+        plan: &RuntimeDefaultImeWindowPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation
+            || self.windows.get(&plan.app_window.id) != Some(&plan.app_window)
+            || self.window_handle_index.get(&plan.app_window.handle) != Some(&plan.app_window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "default-ime-window-plan-stale",
+                "User32 app-window state changed after default IME window planning",
+            ));
+        }
+        self.validate_created_window_owner(
+            &plan.app_window,
+            plan.app_window.creation.owner_thread_id,
+        )?;
+        match &plan.disposition {
+            RuntimeDefaultImeWindowDisposition::Existing(window) => {
+                self.validate_ime_window_identity(window)?;
+                if self.default_ime_windows.get(&window.owner_thread_id) != Some(&window.id)
+                    || self.ime_windows.get(&window.id) != Some(window)
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-user32",
+                        "default-ime-window-plan-stale",
+                        "default IME window identity changed after planning",
+                    ));
+                }
+            }
+            RuntimeDefaultImeWindowDisposition::Create { window, .. } => {
+                if self.next_ime_window_id != window.id.0
+                    || self.next_window_handle != window.handle
+                    || self.ime_windows.len() >= RUNTIME_DEFAULT_IME_WINDOW_LIMIT
+                    || self.ime_windows.contains_key(&window.id)
+                    || self.ime_window_handle_index.contains_key(&window.handle)
+                    || self.window_handle_index.contains_key(&window.handle)
+                    || self
+                        .default_ime_windows
+                        .contains_key(&window.owner_thread_id)
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-user32",
+                        "default-ime-window-plan-stale",
+                        "default IME window allocators or indexes changed after planning",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_default_ime_window_preflighted(
+        &mut self,
+        plan: RuntimeDefaultImeWindowPlan,
+    ) -> RuntimeDefaultImeWindowResult {
+        debug_assert!(self.preflight_default_ime_window(&plan).is_ok());
+        match plan.disposition {
+            RuntimeDefaultImeWindowDisposition::Existing(window) => RuntimeDefaultImeWindowResult {
+                ime_window_id: window.id,
+                handle: window.handle,
+                already_created: true,
+            },
+            RuntimeDefaultImeWindowDisposition::Create {
+                window,
+                next_ime_window_id,
+                next_window_handle,
+                next_generation,
+            } => {
+                let result = RuntimeDefaultImeWindowResult {
+                    ime_window_id: window.id,
+                    handle: window.handle,
+                    already_created: false,
+                };
+                self.next_ime_window_id = next_ime_window_id;
+                self.next_window_handle = next_window_handle;
+                self.generation = next_generation;
+                let previous_handle = self
+                    .ime_window_handle_index
+                    .insert(window.handle, window.id);
+                let previous_default = self
+                    .default_ime_windows
+                    .insert(window.owner_thread_id, window.id);
+                let previous_window = self.ime_windows.insert(window.id, window);
+                debug_assert!(previous_handle.is_none());
+                debug_assert!(previous_default.is_none());
+                debug_assert!(previous_window.is_none());
+                result
             }
         }
     }
@@ -1574,6 +1876,8 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.ime_windows.is_empty()
+            && self.default_ime_windows.is_empty()
             && self.active_windows.is_empty()
             && self.focused_windows.is_empty()
             && self.foreground_window.is_none()
@@ -1587,6 +1891,8 @@ impl RuntimeUser32 {
             retired_cursors: self.cursors.len(),
             retired_window_classes: self.window_classes.len(),
             retired_windows: self.windows.len(),
+            retired_ime_windows: self.ime_windows.len(),
+            retired_default_ime_windows: self.default_ime_windows.len(),
             retired_active_windows: self.active_windows.len(),
             retired_focused_windows: self.focused_windows.len(),
             retired_foreground_window: self.foreground_window.is_some(),
@@ -1609,6 +1915,9 @@ impl RuntimeUser32 {
             || self.window_class_atom_index.len() != plan.retired_window_classes
             || self.windows.len() != plan.retired_windows
             || self.window_handle_index.len() != plan.retired_windows
+            || self.ime_windows.len() != plan.retired_ime_windows
+            || self.ime_window_handle_index.len() != plan.retired_ime_windows
+            || self.default_ime_windows.len() != plan.retired_default_ime_windows
             || self.active_windows.len() != plan.retired_active_windows
             || self.focused_windows.len() != plan.retired_focused_windows
             || self.foreground_window.is_some() != plan.retired_foreground_window
@@ -1626,6 +1935,9 @@ impl RuntimeUser32 {
         debug_assert!(self.preflight_process_teardown(&plan).is_ok());
         self.windows.clear();
         self.window_handle_index.clear();
+        self.ime_windows.clear();
+        self.ime_window_handle_index.clear();
+        self.default_ime_windows.clear();
         self.active_windows.clear();
         self.focused_windows.clear();
         self.foreground_window = None;
@@ -1757,6 +2069,113 @@ impl RuntimeUser32 {
                 "logical HWND index does not resolve to a live window",
             )
         })
+    }
+
+    pub fn ime_window(&self, handle: u32) -> Result<&RuntimeImeWindow, RuntimeStateError> {
+        let id = self
+            .ime_window_handle_index
+            .get(&handle)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-user32",
+                    "ime-window-handle-unknown",
+                    format!("logical IME HWND {handle:#010x} is not live"),
+                )
+            })?;
+        let window = self.ime_windows.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "ime-window-handle-index-dangling",
+                "logical IME HWND index does not resolve to a live window",
+            )
+        })?;
+        self.validate_ime_window_identity(window)?;
+        Ok(window)
+    }
+
+    pub fn ime_windows(&self) -> &BTreeMap<RuntimeImeWindowId, RuntimeImeWindow> {
+        &self.ime_windows
+    }
+
+    pub(super) fn plan_ime_control(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeImeStatusWindowRequest,
+    ) -> Result<RuntimeImeControlPlan, RuntimeStateError> {
+        let previous = self.ime_window(window_handle)?.clone();
+        if previous.owner_thread_id != owner_thread_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "ime-window-message-owner-thread-mismatch",
+                "synchronous IME window control requires the selected owner thread",
+            ));
+        }
+        let disposition = if previous.status_window_request == Some(request) {
+            RuntimeImeControlDisposition::Unchanged(previous)
+        } else {
+            let mut next = previous.clone();
+            let next_generation = self.next_generation()?;
+            next.status_window_request = Some(request);
+            next.generation = next_generation;
+            RuntimeImeControlDisposition::Update {
+                previous,
+                next,
+                next_generation,
+            }
+        };
+        Ok(RuntimeImeControlPlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_ime_control(
+        &self,
+        plan: &RuntimeImeControlPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "ime-window-control-plan-stale",
+                "User32 state changed after IME window control planning",
+            ));
+        }
+        let previous = match &plan.disposition {
+            RuntimeImeControlDisposition::Unchanged(previous)
+            | RuntimeImeControlDisposition::Update { previous, .. } => previous,
+        };
+        if self.ime_windows.get(&previous.id) != Some(previous)
+            || self.ime_window_handle_index.get(&previous.handle) != Some(&previous.id)
+            || self.default_ime_windows.get(&previous.owner_thread_id) != Some(&previous.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "ime-window-control-plan-stale",
+                "logical IME window identity changed after control planning",
+            ));
+        }
+        self.validate_ime_window_identity(previous)
+    }
+
+    pub(super) fn commit_ime_control(
+        &mut self,
+        plan: RuntimeImeControlPlan,
+    ) -> Result<RuntimeImeWindow, RuntimeStateError> {
+        self.preflight_ime_control(&plan)?;
+        match plan.disposition {
+            RuntimeImeControlDisposition::Unchanged(window) => Ok(window),
+            RuntimeImeControlDisposition::Update {
+                next,
+                next_generation,
+                ..
+            } => {
+                self.generation = next_generation;
+                self.ime_windows.insert(next.id, next.clone());
+                Ok(next)
+            }
+        }
     }
 
     pub(super) fn resolve_small_icon_window_procedure(
@@ -2647,6 +3066,26 @@ impl RuntimeUser32 {
         self.validate_window_creation_references(&window.creation)
     }
 
+    fn validate_ime_window_identity(
+        &self,
+        window: &RuntimeImeWindow,
+    ) -> Result<(), RuntimeStateError> {
+        if window.id.0 == 0
+            || window.handle < RUNTIME_WINDOW_HANDLE_BASE
+            || window.namespace != LOGICAL_WINDOW_HANDLE_NAMESPACE
+            || window.class_name != "IME"
+            || self.ime_window_handle_index.get(&window.handle) != Some(&window.id)
+            || self.window_handle_index.contains_key(&window.handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "ime-window-record-inconsistent",
+                "logical default IME window does not match its namespace or indexes",
+            ));
+        }
+        Ok(())
+    }
+
     fn validate_window_icon_reference(
         &self,
         reference: Option<RuntimeWindowIconReference>,
@@ -2692,6 +3131,8 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.ime_windows.is_empty()
+            && self.default_ime_windows.is_empty()
             && self.active_windows.is_empty()
             && self.focused_windows.is_empty()
             && self.foreground_window.is_none()
@@ -3740,6 +4181,70 @@ mod tests {
             .unwrap();
         assert_eq!(user32.commit_window_small_icon(icon_plan).unwrap(), 0);
         (user32, created.handle, small_icon.handle)
+    }
+
+    #[test]
+    fn default_ime_window_uses_shared_hwnd_authority_and_tracks_status_requests() {
+        let (mut user32, app_window_handle, _) = created_window_with_small_icon();
+        let owner_thread_id = user32
+            .window(app_window_handle)
+            .unwrap()
+            .creation
+            .owner_thread_id;
+        let plan = user32
+            .plan_default_ime_window(app_window_handle, owner_thread_id)
+            .unwrap();
+        user32.preflight_default_ime_window(&plan).unwrap();
+        let result = user32.commit_default_ime_window_preflighted(plan);
+        assert_eq!(result.handle, app_window_handle + 1);
+        assert!(!result.already_created);
+        let ime = user32.ime_window(result.handle).unwrap();
+        assert_eq!(ime.class_name, "IME");
+        assert_eq!(ime.owner_thread_id, owner_thread_id);
+        assert_eq!(ime.status_window_request, None);
+
+        let repeated = user32
+            .plan_default_ime_window(app_window_handle, owner_thread_id)
+            .unwrap();
+        let repeated = user32.commit_default_ime_window_preflighted(repeated);
+        assert_eq!(repeated.handle, result.handle);
+        assert!(repeated.already_created);
+
+        let close = user32
+            .plan_ime_control(
+                result.handle,
+                owner_thread_id,
+                RuntimeImeStatusWindowRequest::Close,
+            )
+            .unwrap();
+        user32.commit_ime_control(close).unwrap();
+        assert_eq!(
+            user32
+                .ime_window(result.handle)
+                .unwrap()
+                .status_window_request,
+            Some(RuntimeImeStatusWindowRequest::Close)
+        );
+        let open = user32
+            .plan_ime_control(
+                result.handle,
+                owner_thread_id,
+                RuntimeImeStatusWindowRequest::Open,
+            )
+            .unwrap();
+        user32.commit_ime_control(open).unwrap();
+        assert_eq!(
+            user32
+                .ime_window(result.handle)
+                .unwrap()
+                .status_window_request,
+            Some(RuntimeImeStatusWindowRequest::Open)
+        );
+
+        let teardown = user32.plan_process_teardown().unwrap().unwrap();
+        user32.preflight_process_teardown(&teardown).unwrap();
+        user32.commit_process_teardown(teardown);
+        assert!(user32.is_empty());
     }
 
     fn arrow_cursor() -> RuntimeCursorSource {

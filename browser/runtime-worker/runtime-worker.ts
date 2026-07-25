@@ -20,6 +20,7 @@ import {
   type RuntimeSourceReadSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
+  type RuntimeImm32Snapshot,
   type RuntimeVirtualMemorySnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
@@ -173,6 +174,7 @@ interface CompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -250,6 +252,7 @@ interface HostCompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -292,6 +295,7 @@ interface CallbackCompletionMetadata {
   sourceRead?: RuntimeSourceReadSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
+  imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -1376,6 +1380,16 @@ class BrowserRuntimeSession {
       isGdiplusCompletion === (metadata.gdiplus !== undefined),
       "BGI GDI+ completion metadata mismatch",
     );
+    const isImm32Completion =
+      completion.implementationId ===
+        "imm32.get-default-ime-window.thread-logical-v1" ||
+      completion.implementationId === "imm32.associate-context.logical-window-v1" ||
+      (completion.implementationId === "user32.send-message-a.v1" &&
+        frame.arguments[1]?.words[0] === 0x0283);
+    invariant(
+      isImm32Completion === (metadata.imm32 !== undefined),
+      "BGI IMM32 completion metadata mismatch",
+    );
     const isVirtualAllocCompletion =
       completion.implementationId === "kernel32.virtual-alloc.reserve-top-down.v1";
     invariant(
@@ -1426,6 +1440,7 @@ class BrowserRuntimeSession {
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
       ...(metadata.gdiplus === undefined ? {} : { gdiplus: metadata.gdiplus }),
+      ...(metadata.imm32 === undefined ? {} : { imm32: metadata.imm32 }),
       ...(metadata.virtualMemory === undefined
         ? {}
         : { virtualMemory: metadata.virtualMemory }),

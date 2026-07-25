@@ -31,7 +31,10 @@ assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
 assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
-assert.ok(!rendered.includes("| Active blocker |"));
+assert.equal(manifest.schemaVersion, 4);
+assert.ok(rendered.includes("| Active blocker |"));
+assert.ok(rendered.includes(manifest.activeBlocker.id));
+assert.ok(rendered.includes(manifest.activeBlocker.firstFailure.code));
 assert.equal(manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus, "valid");
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
@@ -154,6 +157,19 @@ assert.ok(
     error.includes("structured performance blocker"),
   ),
 );
+
+const incompleteActiveBlocker = structuredClone(manifest);
+delete incompleteActiveBlocker.activeBlocker.firstFailure.observedSha256;
+assert.ok(
+  validateCurrentCheckpoint(incompleteActiveBlocker).some((error) =>
+    error.includes("active structured blocker"),
+  ),
+);
+
+const clearedActiveBlocker = structuredClone(manifest);
+clearedActiveBlocker.activeBlocker = null;
+assert.deepEqual(validateCurrentCheckpoint(clearedActiveBlocker), []);
+assert.ok(!renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"));
 
 const mismatchedBenchmarkProfile = structuredClone(manifest);
 mismatchedBenchmarkProfile.browserCheckpoint.bgiBenchmarkEvidence.runtimeProfile =
