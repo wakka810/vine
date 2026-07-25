@@ -25,6 +25,12 @@ import {
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
 import {
+  handleWritableProfileHttp,
+  openWritableProfile,
+  readWritableProfile,
+  snapshotWritableProfile,
+} from "./writable-profile.mjs";
+import {
   SEMANTIC_CALL_DIGEST_ALGORITHM,
   normalizeSemanticCall,
 } from "../browser/runtime-worker/semantic-call.mjs";
@@ -51,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v11";
+const runtimeProtocol = "vine.browser-runtime-worker.v12";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -65,15 +71,14 @@ const bgiPolicyPath = path.resolve(
   bgiPolicyOverride ??
     checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
+const bgiGdbPath = path.join(path.dirname(bgiPath), "BGI.gdb");
 const sourceManifestPath = path.join(
   root,
   "fixtures",
   "source-snapshots",
-  bgiMode ? "bgi-gdb-v1.json" : "controlled-source-read-v1.json",
+  "controlled-source-read-v1.json",
 );
-const sourceObjectPath = bgiMode
-  ? path.join(path.dirname(bgiPath), "BGI.gdb")
-  : path.join(root, "fixtures", "storage", "source-read-v1.dat");
+const sourceObjectPath = path.join(root, "fixtures", "storage", "source-read-v1.dat");
 const bgiOracleReportPath = path.join(
   root,
   ".work",
@@ -562,8 +567,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         ? [8192, 8193]
         : [8192],
     );
-    assert.deepEqual(evidence.report.executedThreadIds, [8192]);
-    assert.equal(evidence.report.contextSwitches, 0);
+    assert.deepEqual(
+      evidence.report.executedThreadIds,
+      bgiProfile === "imm32-default-ime-context" && scenario === "success"
+        ? [8192, 8193]
+        : [8192],
+    );
+    assert.equal(
+      evidence.report.contextSwitches,
+      bgiProfile === "imm32-default-ime-context" && scenario === "success" ? 1 : 0,
+    );
     assert.deepEqual(evidence.report.initialCurrentDirectory, {
       directory: {
         sourceAuthority: "browser-private-process-bootstrap",
@@ -1191,10 +1204,19 @@ function mimeType(file) {
   }
 }
 
-function createServer(sourceRegistration) {
+function createServer(sourceRegistration, writableProfile) {
   return http.createServer(async (request, response) => {
     try {
-      if (handleSourceSnapshotHttp(request, response, sourceRegistration)) {
+      if (
+        sourceRegistration !== null &&
+        handleSourceSnapshotHttp(request, response, sourceRegistration)
+      ) {
+        return;
+      }
+      if (
+        writableProfile !== null &&
+        await handleWritableProfileHttp(request, response, writableProfile)
+      ) {
         return;
       }
       const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -1231,11 +1253,11 @@ function listen(server, port) {
   });
 }
 
-async function startServer(preferredPort, sourceRegistration) {
+async function startServer(preferredPort, sourceRegistration, writableProfile) {
   const ports = preferredPort === 0 ? [0] : Array.from({ length: 20 }, (_, index) => preferredPort + index);
   let lastError = null;
   for (const port of ports) {
-    const server = createServer(sourceRegistration);
+    const server = createServer(sourceRegistration, writableProfile);
     try {
       return { server, port: await listen(server, port) };
     } catch (error) {
@@ -1301,6 +1323,43 @@ async function checkSourceApi(baseUrl, registration) {
     rangeUrl.replace("offset=0", `offset=${file.byteLength + 1}`),
   );
   assert.equal(wrongRange.status, 416);
+}
+
+async function checkWritableProfileApi(baseUrl, profile) {
+  const snapshotResponse = await fetch(`${baseUrl}api/profile/v1/snapshot`, {
+    cache: "no-store",
+  });
+  assert.equal(snapshotResponse.status, 200);
+  const snapshot = JSON.parse(Buffer.from(await snapshotResponse.arrayBuffer()));
+  assert.deepEqual(snapshot, snapshotWritableProfile(profile));
+  const file = snapshot.files[0];
+  if (!file.exists) {
+    return;
+  }
+  const length = Math.min(7, file.byteLength);
+  const rangeUrl =
+    `${baseUrl}api/profile/v1/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
+    `/profiles/${encodeURIComponent(snapshot.profileId)}/objects/${file.objectId}` +
+    `?generation=${file.generation}&offset=0&length=${length}`;
+  const rangeResponse = await fetch(rangeUrl, { cache: "no-store" });
+  assert.equal(rangeResponse.status, 206);
+  assert.equal(rangeResponse.headers.get("x-vine-profile-id"), snapshot.profileId);
+  assert.equal(rangeResponse.headers.get("x-vine-generation"), String(file.generation));
+  const expected = readWritableProfile(profile, {
+    sourceId: 0,
+    objectId: file.objectId,
+    offset: 0n,
+    requestedBytes: length,
+  });
+  assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), expected.bytes);
+  assert.equal(
+    (await fetch(rangeUrl.replace(`generation=${file.generation}`, "generation=999999"))).status,
+    409,
+  );
+  assert.equal(
+    (await fetch(rangeUrl.replace(encodeURIComponent(snapshot.titleFingerprint), "wrong-title"))).status,
+    404,
+  );
 }
 
 function findChrome() {
@@ -1397,18 +1456,49 @@ assert(
   "--bgi-benchmark-ms is invalid",
 );
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
-const sourceRegistration = await registerSourceSnapshot({
-  manifestPath: sourceManifestPath,
-  objectFiles: { 1: sourceObjectPath },
-});
-const { server, port } = await startServer(requestedPort, sourceRegistration);
+const sourceRegistration = bgiMode
+  ? null
+  : await registerSourceSnapshot({
+      manifestPath: sourceManifestPath,
+      objectFiles: { 1: sourceObjectPath },
+    });
+const bgiGdbBefore = bgiMode && fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+const writableProfile = bgiMode
+  ? openWritableProfile({
+      databasePath: path.join(
+        root,
+        ".work",
+        "private-profiles",
+        checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
+        "default.sqlite",
+      ),
+      titleFingerprint: checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
+      profileId: "default",
+      rootPathA: Buffer.from("C:\\Vine\0", "binary"),
+      quotaBytes: 16 * 1024 * 1024,
+      files: [
+        {
+          objectId: 1,
+          relativePathA: Buffer.from("BGI.gdb", "ascii"),
+          ...(bgiGdbBefore === null ? {} : { seedBytes: bgiGdbBefore }),
+        },
+      ],
+    })
+  : null;
+const { server, port } = await startServer(requestedPort, sourceRegistration, writableProfile);
 const url = `http://127.0.0.1:${port}/`;
-await checkSourceApi(url, sourceRegistration);
+if (sourceRegistration !== null) {
+  await checkSourceApi(url, sourceRegistration);
+}
+if (writableProfile !== null) {
+  await checkWritableProfileApi(url, writableProfile);
+}
 
 if (serveOnly) {
   console.log(`Vine browser runtime listening at ${url}`);
   await waitForShutdown();
   await closeServer(server);
+  writableProfile?.close();
 } else {
   const temporaryRoot = path.resolve(os.tmpdir());
   let profile = null;
@@ -1630,6 +1720,10 @@ if (serveOnly) {
             `writebacks=${success.report.writebackBatches}/${success.report.writebackPages}, ` +
             `mappingDeltas=${success.report.mappingDeltas}`,
         );
+        await writeFile(
+          path.join(assetsRoot, "bgi-browser-latest-success.json"),
+          Buffer.from(`${JSON.stringify(success, null, 2)}\n`),
+        );
         validateBgiEquivalence(success, oracle);
         const sourceAfter = await readFile(bgiPath);
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
@@ -1718,11 +1812,23 @@ if (serveOnly) {
     try {
       await stopChrome(chrome);
     } finally {
-      await closeServer(server);
-      if (profile !== null) {
-        const safePrefix = path.join(temporaryRoot, "vine-browser-runtime-");
-        assert(profile.startsWith(safePrefix), "refusing to remove unexpected Chrome profile");
-        await rm(profile, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+      try {
+        await closeServer(server);
+      } finally {
+        writableProfile?.close();
+        if (bgiMode) {
+          const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+          assert.deepEqual(
+            bgiGdbAfter,
+            bgiGdbBefore,
+            "distribution BGI.gdb changed outside the writable profile",
+          );
+        }
+        if (profile !== null) {
+          const safePrefix = path.join(temporaryRoot, "vine-browser-runtime-");
+          assert(profile.startsWith(safePrefix), "refusing to remove unexpected Chrome profile");
+          await rm(profile, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+        }
       }
     }
   }

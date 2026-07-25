@@ -139,7 +139,8 @@ function validEvidence() {
       outcome: "passed",
       node: {
         outcome: "structured-stop",
-        implementedApiContracts: checkpoint.activeRuntimeCheckpoint.genericDispatcherApiCount,
+        implementedApiContracts:
+          checkpoint.activeRuntimeCheckpoint.genericDispatcherContractCount,
         supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
         callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,

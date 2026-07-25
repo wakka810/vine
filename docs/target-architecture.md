@@ -32,8 +32,8 @@
 | process、thread、handle、module、heap、wait、message、TLS／FLS | Rust runtime kernel | なし |
 | guest scheduler state、wait registration、host request identity | Rust runtime kernel | Worker event loop |
 | CPU context | per-thread runtime-owned context record | execution engine state buffer |
-| Windows path、mount、snapshot／object descriptor、file／directory、handle、cursor、share state | Rust `RuntimeFiles` | storage object identity |
-| Fingerprint済みimmutable source bytes、committed save／registry generation | Local Vine server | Rust logical source／transaction state |
+| Windows path、mount、source／profile object descriptor、file handle、cursor、share、staged bytes／generation | Rust `RuntimeFiles` | storage object identity |
+| Fingerprint済みimmutable source bytes、committed profile／registry generation | Local Vine server／SQLite | Rust logical source／staged transaction state |
 | Canvas、WebGL／WebGPU、Audio resource | TypeScript browser backend | Rust logical resource identity |
 | DOM input、permission、user activation、browser lifecycle | TypeScript | Rust scheduler event |
 | Win32 argument／pointer validationと同期semantics | Rust | なし |
@@ -200,14 +200,14 @@ OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は
 最初の候補は、複数の Windows thread を一つの Runtime Worker 上で cooperative に schedule する方式である。
 
 - 各 thread は register set、FPU state、stack、TEB／FS、LastError、Win32 TLS slot、COM apartment、wait state を持つ。
-- 命令 count、virtual time、API boundary、wait で yield する。
+- browser executionは命令budgetでhostへyieldするが、guest thread selectionはwait／blockと、競合runnable laneが存在する間だけ数えるbounded API boundaryで行う。
 - Windows wait object と message queue を runtime 内で解決する。
 - browser main thread や Promise の完了を、runtime event として enqueue する。
 - priority-weighted selection、APC、alertable wait、true parallelism は corpus の必要性を測って拡張する。
 
 この方式は data race の再現性を高める一方、multi-core 性能や一部 timing-sensitive code を制約する。SharedArrayBuffer を使う 1 guest thread / 1 Worker 方式は、Phase 1 の benchmark と semantic test を通った場合だけ採用候補にする。
 
-version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／suspended／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／logical affinity／logical priority／COM apartment／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。Reached `CreateThread`はmonotonic TID、typed object／handle、dedicated stack／TEB allocation、PEB relation、entry／parameter／ESP／FS bootstrap、optional output、scheduler laneを全owner preflight後に一括publishする。`ResumeThread`はpositive suspend countだけをtargeted updateし、WorkerはRust snapshotからopaque CPU contextを作る。Reached `SetThreadPriority`はpolicy-bounded valueをthread ownerのstale-checked targeted commitで保存し、scheduler／host／browser priorityへ複製しない。Dynamic entry returnはsignal後にstack／TEB mappingをreleaseする。COM apartmentはmodelとsuccessful initialization countだけをthread recordで所有し、COM object identity／refcountを所有する`RuntimeCom`とは分離する。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。Priority-weighted scheduling、last-thread semantics、wait-any／wait-all／timeout、User32 message semantics、cross-thread COM marshalingは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
+version 1 Rust lifecycle foundationはprocess `bootstrapping／running／exit-requested／exited`、thread `initialized／running／exit-requested／exited`、scheduler `initialized／suspended／terminating`を所有する。controlled registryはsecond TID／typed handle、thread-local LastError／TLS／callback／logical affinity／logical priority／COM apartment／lane、explicit selectionを加え、process terminationをTID昇順thread signal＋process-last signalとして最大3 object recordsへtargeted atomic commitする。Reached `CreateThread`はmonotonic TID、typed object／handle、dedicated stack／TEB allocation、PEB relation、entry／parameter／ESP／FS bootstrap、optional output、scheduler laneを全owner preflight後に一括publishする。`ResumeThread`はpositive suspend countだけをtargeted updateし、WorkerはRust snapshotからopaque CPU contextを作る。Resume completion自体はcallerをpreemptせず、別のrunnable laneが存在する間に64 guest API boundariesが完了した時だけRust schedulerがround-robin selectionをplan／commitする。競合がない期間はcounterを蓄積せず、callback frame中はswitchしない。Reached `SetThreadPriority`はpolicy-bounded valueをthread ownerのstale-checked targeted commitで保存し、scheduler／host／browser priorityへ複製しない。Dynamic entry returnはsignal後にstack／TEB mappingをreleaseする。COM apartmentはmodelとsuccessful initialization countだけをthread recordで所有し、COM object identity／refcountを所有する`RuntimeCom`とは分離する。wait queueはmonotonic registration／object FIFO、`WaitingObject`、thread signalによるrunnable wake／exact event、exit cancellationを所有する。message queueはper-thread bounded FIFO、global sequence、`WaitingMessage`、first enqueue wake、exit cleanupを所有する。Priority-weighted scheduling、instruction／wall-clock preemption、last-thread semantics、wait-any／wait-all／timeout、User32 message semantics、cross-thread COM marshalingは未実装である。詳細は[runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)、[runtime-thread-registry.md](runtime-thread-registry.md)、[runtime-wait-queue.md](runtime-wait-queue.md)、[runtime-message-queue.md](runtime-message-queue.md)、[com-iunknown-foundation.md](com-iunknown-foundation.md)を正とする。
 
 `runtime.rs`はsubsystem宣言とpublic re-exportだけのfacadeである。実体のaggregate rootは
 `runtime/kernel.rs::RuntimeKernel`で、既存caller向けの`RuntimeState`はそのtype aliasとする。
@@ -218,7 +218,7 @@ handle／policyは`runtime/process.rs::RuntimeProcessState`が所有する。既
 `RuntimeProcessView`がheap、module、synchronization、timer resolution、TLS／FLS ownerをimmutable borrowして従来の
 `process` shapeへflattenするが、このviewはmutation authorityではない。
 
-Immutable source stateはprivate `runtime/files.rs::RuntimeFiles`が所有する。Manifest、Windows-932-aware path index、monotonic file ID、cursor、pending readはkernelへmutable collectionとして公開しない。Typed file handle generationは`RuntimeObjectTable`、file payload lifetimeは`RuntimeFiles`が所有し、kernelはopen／last close、scheduler request／completion、process exitを全owner preflight後にcommitする。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
+Immutable sourceとwritable profile stateはprivate `runtime/files.rs::RuntimeFiles`が所有する。Manifest、Windows-932-aware path index、monotonic file ID、cursor、committed／staged bytes、dirty base generation／revision、pending read／commitはkernelへmutable collectionとして公開しない。同一pathのsource／profile登録は拒否する。Typed file handle generationは`RuntimeObjectTable`、file payload lifetimeは`RuntimeFiles`が所有し、kernelはopen、read／write、durable flush／last close、scheduler request／completion、process exitを全owner preflight後にcommitする。Local serverのSQLiteはcommitted generationだけを所有し、BGI.gdb等のprofile objectを配布directoryへ書き戻さない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
 Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame／thread ID allocatorsは
 private `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、LastError／TLS／FLS、callback
@@ -227,14 +227,15 @@ scheduler、object、message、wait、memoryをpreflightしてからinfallible c
 resource allocatorを直接mutateしない。Existing process TLS/FLS fieldsとroot next-ID fieldsはborrowed
 serialization viewである。Scheduler laneはthread collectionへ統合せずscheduler authorityに残す。
 
-Mutable scheduler lanes／current selector／event FIFO／pending host-request table／request ID allocatorは
+Mutable scheduler lanes／current selector／contended API-boundary counter／event FIFO／pending host-request table／request ID allocatorは
 private `runtime/scheduler.rs::RuntimeScheduler`、wait registration／object FIFO／registration ID allocatorは
 private `runtime/waits.rs::RuntimeWaits`だけが所有する。Wait stateはscheduler serializationへflattenし、host
 requestとwait allocatorはroot `registries.hostRequests`／`nextHostRequestId`／`nextWaitRegistrationId`への
 borrowed compatibility viewで既存shapeを維持するが、authorityは各private ownerだけにある。Host start／completionはlaneとrequest identityを
 同じmutation-free planで検査してtargeted commitする。Thread exitはthread／message／waitとscheduler-owned
 host cancellation planをcross-subsystem preflightしてからcommitし、aggregateはscheduler／wait／host-request
-mapを直接mutateしない。
+mapを直接mutateしない。API-boundary selectionもcurrent selector、counter、runnable competitor setを含む
+mutation-free planを作り、stale／duplicate commitを拒否してからtarget laneだけをcommitする。
 
 Mutable dynamic endpoint table、encoded-pointer token table／source index、pointer namespace／prefix policy、
 token ID allocatorはprivate `runtime/registries.rs::RuntimeRegistries`だけが所有する。Endpoint registrationは
@@ -598,9 +599,9 @@ Path normalization は Windows semantics と mount resolution を同じ関数で
 
 初期backendはsame-origin localhost Vine serverとし、immutable source filesystemはread-only、save／registryはtitle fingerprint別SQLite transactionを使う。Rust VFSがWindows path、mount、handle、cursor、access／share、LastErrorのauthorityであり、serverはsource snapshot bytesとcommitted generationのdurabilityだけを所有する。Workerはscheduler-owned host requestを運び、別のfile stateを作らない。
 
-実装済みsource sliceはprocess-static version-1 manifestをRustへ登録し、`CreateFileA`／`GetFileSize`／`ReadFile`／`SetFilePointer`／`CloseHandle`を一つのread-only mountへ接続する。Worker requestはprepared manifestへbindingされ、HTTP URLとresponse headerでtitle fingerprint、snapshot、source、object、offset、lengthを往復検証し、Workerと異なるoriginのsource manifest／byte serviceはfetch前に拒否する。Serverは明示登録fileの全length／SHA-256を先に検証したimmutable copyだけをrange deliveryする。Wrong／stale／duplicate completion、memory write failure、cancel、process exitはcursor、guest bytes、handle allocatorを部分更新しない。
+実装済みstorage foundationはprocess-static version-1 source manifestとwritable profileをRustへ登録し、`CreateFileA`／`GetFileSize`／`ReadFile`／`WriteFile`／`SetFilePointer`／`FlushFileBuffers`／`CloseHandle`をpath-disjointなmountへ接続する。Worker requestはprepared manifest／profileへbindingされ、HTTP URLとresponse headerでtitle fingerprint、snapshot／profile、source／object、generation、offset、lengthを往復検証し、Workerと異なるoriginはfetch前に拒否する。Serverはsourceの検証済みimmutable copyをrange deliveryし、profileはSQLite transactionでgeneration／hash／quota／idempotencyをcommitする。Wrong／stale／duplicate completion、memory write failure、storage failure、cancel、process exitはcursor、staged／committed bytes、guest bytes、handle allocatorを部分更新しない。
 
-このsource sliceはwritable overlay、directory enumeration、mapped file、large-corpus streaming、server restart、save／load、SQLite durabilityを実装済みとしない。
+このfoundationはcontrolled browser guest write、browser／server restart後load、kill injection、directory enumeration、mapped file、large-corpus streaming、registry、primary save／loadを実装済みとしない。
 
 Storage requestにはtitle fingerprint、snapshot／profile ID、mount内object／path key、range、base generationを渡し、生のguest pointer、Win32 handle、任意host absolute pathを渡さない。UIとAPIをloopbackの同一originから配信し、利用者が登録したsource rootとVine管理profile root以外を公開しない。Flushまたは成功したCloseを最初のdurability boundaryとし、cancel／watchdog／server killでは未commit write-setをrollbackする。詳細は[ADR-006](adr-006-vfs-local-server.md)を正とする。
 

@@ -31,8 +31,8 @@ checkpointで偶然動いたことだけではResolvedにしない。
 | Q-THREADS | Required SEH／VEH／APCとadvanced thread behavior | Reached CreateThread／ResumeThread、dynamic stack／TEB／CPU bootstrap、logical priority state、multiple guest context、host-wait schedulingは成立。priority-weighted selectionと高度なWindows delivery semanticsは未確定 | Primary fairness／wait traceとcontrolled block／wake／timeout／cancel／exception fixture |
 | Q-LOADER | Required PE／DLL feature setとdeterministic module resolution | Mapped image、import／export、module graph、process attach／detach foundationは成立 | 到達dynamic load／unload、TLS／delay import、alias／manifest、search order、failure unwind trace |
 | Q-ABI | ABI metadata生成と到達Win32／COM／variadic support band | Generic checked dispatchとexplicit unsupported stopがbaseline | Nested structure、callback、union、size-versioned API、COM class use、caller consumer、format grammar fixture |
-| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource snapshot lifecycle | Read-only manifest／path／share／cursor／pending read、same-origin object service、実asset read、wrong-root／cancelは成立。Rust VFSがsemantics authority | Replacement／TOCTOU、large-corpus streaming、server restart、broader path／share、mapped file test |
-| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | 初期storeはtitle-local SQLite。Serverがcommitted generation、Rustがlogical write-setを所有する | Commit各段階のbrowser／Worker／server kill、quota-full、stale generation、migration、export／import test |
+| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource／profile lifecycle | Immutable manifestとwritable profileをpath-disjointに登録し、Rustがhandle／cursor／staged bytes／generation、same-origin serviceがsource bytes／SQLite committed generationを所有する。Bounded read／write／seek／flush／close、cancel、failed commit retryは成立 | Replacement／TOCTOU、large-corpus streaming、broader path／share、rename／delete、mapped file test |
+| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | Title/profile-scoped SQLite、generation CAS、idempotency ledger、quota、rollback、restart／response-loss modelが成立。既存BGI.gdbはnew DBだけへseedし配布fileへ書き戻さない | Controlled Chrome guest write／browser restart／load、commit各段階のbrowser／Worker／server kill、permission revoke、migration、export／import test |
 | Q-GRAPHICS | Bounded DirectInput／D3D9、common surface boundary、renderer、日本語font behavior | Logical frontend stateとbrowser／GPU resourceを分離する | Primary vtable／state／format／draw／input trace、upload／readback benchmark、context loss、glyph／metric／visual oracle |
 | Q-AUDIO | Audio transport、clock／drift、到達WinMM／media scope | Rust-owned DirectSound8 root、primary／secondary buffer descriptor、PCM format、full-range secondary Lock／Unlock backing、content generation、looping playback stateをbrowser audio resourceから分離し、AudioWorkletをconsumer候補とする | Cursor／notification／Stop／Restore oracle、browser PCM transport、long playback drift／underrun、activation／background recovery、到達command trace |
 | Q-055 | Full-play performance、fingerprint内容、soak／fuzz budget、acceptance evidence | Component／browser workload gateはあるがfull-play behaviorの代用ではない | Representative scene、versioned fuzz profile、long-run distribution、save／restart session、fingerprint collision／update test |
@@ -84,11 +84,14 @@ riskはnative evidenceでguest-visibleと確認した`TextOutA`のDIB mutation�
 接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を第二のauthorityにしない。
 
 Default IME windowのlogical HWND、thread default HIMC、app-window association、status-window close／open requestは
-Rust ownerへ分離し、NULL detachとruntime-owned restoreをfailure-atomicにmodel化した。残るriskはAPI identityではなく、
-primary detach直後に観測したcritical-section pollingがguest threadの正常な待機かscheduler progress不足かをcanonical
-corpusで判定できないことである。Fingerprint済みsource objectを回復するまではnoncanonical snapshotの継続を
-acceptanceに使わず、配布fileを復元・書換せずに停止する。再開後はthread selection／wait evidenceを先に取り、IME
-compositionやDOM inputへscopeを広げない。
+Rust ownerへ分離し、NULL detachとruntime-owned restoreをfailure-atomicにmodel化した。BGI.gdbはglobal stateを持つ
+writable profile objectであり、そのcontent hash変化をsource corpus identity mismatchとして扱わない。既存objectは
+new SQLite profileだけへseedし、以後のread／writeを配布directoryから分離する。Canonical rerunはdetach後のpollingを
+runnable childが選択されないscheduler progress不足と分類し、競合中だけ数える64 API-boundary quantumでNode／Chromeの
+両thread実行と一回のswitchを一致させた。残るthread riskはCPU-bound laneのpreemption、wait／timerによるwake ordering、
+child exit／cleanupをprimary flowで固定できていないことである。Storage riskはprimary guest write、browser／server restart後
+load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、次の
+`SetWaitableTimer`とstorage vertical sliceをそれぞれのowner境界で進める。
 
 ## 5. Scope reduction／no-go trigger
 

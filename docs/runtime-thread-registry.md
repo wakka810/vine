@@ -76,9 +76,14 @@ writeし、LastErrorを保存する。
 
 `ResumeThread`はtyped live thread handleを再検証し、positive suspended countをdecrementしてprevious countを
 返す。1から0へのtransitionだけがlaneをrunnableにする。Synchronous API completionではcallerを即時preemptせず、
-callerがblockするかexplicit scheduler selectionが行われるまでAPI-created contextはreadyのまま保持する。これは
-primary callerが`ResumeThread`直後に同じhandleで`SetThreadPriority`へ進むorderingを保つためのdeterministic
-cooperative policyである。
+primary callerが`ResumeThread`直後に同じhandleで`SetThreadPriority`へ進むorderingを保つ。別のrunnable laneが
+存在する間だけcompleted guest API boundaryを数え、64 boundariesでruntime TID順のround-robin selectionを
+plan／commitする。競合laneがなければcounterは0へ戻すため、adapterの起動履歴やhost slice数は後のswitch時点へ
+影響しない。Callback frameの実行中はcounterを進めず、callbackを別threadへinterleaveしない。Selection planは
+mutation-freeで、current thread／counter／runnable setがstaleならcommit前に拒否する。
+
+このbounded cooperative policyはpriority-weighted、instruction／wall-clock preemption、CPU-bound threadのfairnessを
+claimしない。Browserのperiodic slice yieldもguest thread selectionではない。
 
 Dynamic threadがentry return sentinelへ到達すると、Rustはexit／signalをcommitした後、そのthreadのstack／TEB
 mappingとaddress allocationをreleaseする。Workerはreturned mapping deltaをmirrorへ適用してCPU contextをretireする。

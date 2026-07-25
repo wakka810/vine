@@ -14,15 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-virtual-alloc`: 18642 calls across 106 API contracts, memory generation 36588 |
+| Runtime diagnostics | `imm32-default-ime-context`: 18680 calls across 110 endpoint contracts / 108 APIs, memory generation 36650 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (121 sessions) |
-| Active blocker | `imm32-default-ime-context-canonical-source-and-liveness-20260725`: `source-object-identity-mismatch`; Recover or re-import the canonical BGI.gdb identity under an authorized read-only workflow, rerun the Node and Chrome IMM32 profile, and classify the post-detach polling with scheduler/thread evidence before advancing the checkpoint. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `imm32.dll!ImmGetDefaultIMEWnd(0x48010001)` at instruction 12111929: `endpoint-contract-missing` |
+| Next structured stop | `kernel32.dll!SetWaitableTimer(0x57010002, 0x500fff98, 0x00000000, 0x00000000, 0x00000000, 0x00000000)` at instruction 11973553: `endpoint-contract-missing` |
 
-The active semantic report is 394,030 bytes with SHA-256
-`90c69bd17ec69e4cf298205ab5b7e0cd9a96787aef6986695aff9a0d81c138b5`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 398,802 bytes with SHA-256
+`de97404c4dbee923a4c1f1687f1b727aa8186466cee5cf34bcb46204455cc61d`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,11 +29,11 @@ The active semantic report is 394,030 bytes with SHA-256
 |---|---|---|---|
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, and owner-thread SetTimer registration slices pass; logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
-| `immutable-source-asset-access` | Immutable source asset access | `bounded-foundation` | One fingerprinted primary asset range is read through the immutable source gateway |
+| `immutable-source-asset-access` | Immutable source asset access | `fixture-only` | Controlled immutable source range reads pass; BGI.gdb is writable profile state, so no primary immutable asset access is currently claimed |
 | `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached, while pixel storage, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
-| `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Controlled same-session persistent byte passes; writable overlay, restart, and load are not implemented |
+| `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
 | `full-play-long-run` | Full play and long run | `not-reached` | No route, ending, or long-run primary acceptance is claimed |
 
@@ -146,6 +145,8 @@ The active semantic report is 394,030 bytes with SHA-256
 - `KERNEL32.dll!CreateThread`
 - `KERNEL32.dll!ResumeThread`
 - `KERNEL32.dll!SetThreadPriority`
+- `IMM32.dll!ImmGetDefaultIMEWnd`
+- `IMM32.dll!ImmAssociateContext`
 
 ### Reproduce Current Checkpoint
 

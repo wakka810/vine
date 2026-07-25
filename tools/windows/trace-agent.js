@@ -3289,8 +3289,10 @@ if (selectedObservations.has("source-file-read")) {
   ];
   hooks["kernel32.dll"].push(
     ["ReadFile", [null, null, null, null, null]],
+    ["WriteFile", [null, null, null, null, null]],
     ["SetFilePointer", [null, null, null, null]],
     ["GetFileSize", [null, null]],
+    ["FlushFileBuffers", [null]],
     ["CloseHandle", [null]],
   );
 }
@@ -12303,7 +12305,14 @@ function attachHook(module, name, decoders) {
         isMainModuleCaller;
       const sourceFileHandleKey =
         selectedObservations.has("source-file-read") &&
-        ["ReadFile", "SetFilePointer", "GetFileSize", "CloseHandle"].includes(name)
+        [
+          "ReadFile",
+          "WriteFile",
+          "SetFilePointer",
+          "GetFileSize",
+          "FlushFileBuffers",
+          "CloseHandle",
+        ].includes(name)
           ? args[0].toString().toLowerCase()
           : null;
       const focusedSourceFileOperationObservation =
@@ -12487,7 +12496,14 @@ function attachHook(module, name, decoders) {
       }
       if (
         selectedObservations.has("source-file-read") &&
-        ["ReadFile", "SetFilePointer", "GetFileSize", "CloseHandle"].includes(name) &&
+        [
+          "ReadFile",
+          "WriteFile",
+          "SetFilePointer",
+          "GetFileSize",
+          "FlushFileBuffers",
+          "CloseHandle",
+        ].includes(name) &&
         !focusedSourceFileOperationObservation
       ) {
         this.traceFrame = null;
@@ -12984,6 +13000,16 @@ function attachHook(module, name, decoders) {
                     bytesRead: args[3],
                     bytesReadBefore: snapshotOptionalU32(args[3]),
                     overlapped: args[4].toString(),
+                  }
+                : {}),
+              ...(name === "WriteFile"
+                ? {
+                    buffer: args[1],
+                    requestedBytes: args[2].toUInt32(),
+                    bytesWritten: args[3],
+                    bytesWrittenBefore: snapshotOptionalU32(args[3]),
+                    overlapped: args[4].toString(),
+                    inputBefore: snapshotByteBuffer(args[1], args[2].toUInt32()),
                   }
                 : {}),
               ...(name === "SetFilePointer"
@@ -13989,6 +14015,18 @@ function attachHook(module, name, decoders) {
                       };
                     })()
                   : {}),
+                ...(this.traceSourceFileOperation.api === "WriteFile"
+                  ? {
+                      requestedBytes: this.traceSourceFileOperation.requestedBytes,
+                      bytesWrittenBefore:
+                        this.traceSourceFileOperation.bytesWrittenBefore,
+                      bytesWrittenAfter: snapshotOptionalU32(
+                        this.traceSourceFileOperation.bytesWritten,
+                      ),
+                      overlapped: this.traceSourceFileOperation.overlapped,
+                      inputBefore: this.traceSourceFileOperation.inputBefore,
+                    }
+                  : {}),
                 ...(this.traceSourceFileOperation.api === "SetFilePointer"
                   ? {
                       distanceLow: this.traceSourceFileOperation.distanceLow,
@@ -14266,6 +14304,16 @@ function attachHook(module, name, decoders) {
                   ),
                 };
               })()
+            : {}),
+          ...(this.traceSourceFileOperation.api === "WriteFile"
+            ? {
+                requestedBytes: this.traceSourceFileOperation.requestedBytes,
+                bytesWritten: snapshotOptionalU32(
+                  this.traceSourceFileOperation.bytesWritten,
+                ),
+                overlapped: this.traceSourceFileOperation.overlapped,
+                input: this.traceSourceFileOperation.inputBefore,
+              }
             : {}),
           ...(this.traceSourceFileOperation.api === "SetFilePointer"
             ? {

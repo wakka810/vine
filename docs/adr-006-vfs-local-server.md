@@ -6,8 +6,8 @@
 - Decision date: 2026-07-16
 - Scope: 最初のasset／save vertical sliceに使うstorage topologyとauthority境界
 - Decision: same-origin localhost Vine serverを最初のbackendとし、immutable sourceはread-only、save／registryはtitle-local SQLite transactionへ保存する
-- Implemented: bounded immutable-source manifest、Windows-932 path／share／cursor／typed-handle state、`CreateFileA`／`GetFileSize`／`ReadFile`／`SetFilePointer`／`CloseHandle`、same-origin range service、cancel／watchdog cleanup、実asset read
-- Not implemented: writable overlay、save／restart／load、SQLite commit path、migration／backup、general Windows file breadth
+- Implemented: bounded immutable-source manifestとwritable profile、Windows-932 path／share／cursor／typed-handle／staged state、`CreateFileA`／`GetFileSize`／`ReadFile`／`WriteFile`／`SetFilePointer`／`FlushFileBuffers`／`CloseHandle`、same-origin range／SQLite commit service、generation／idempotency／quota／rollback、cancel／watchdog cleanup
+- Not implemented: controlled browser save／restart／load acceptance、kill matrix、registry projection、migration／backup UI、general Windows file breadth
 
 このADRは最初のbackendを決めるものであり、VFSまたはpersistenceの完成を意味しない。OPFS／IndexedDBやremote serviceは初期baselineに含めず、実測された必要性が出た場合に同じbackend contractへ追加する。
 
@@ -27,7 +27,7 @@ Windows file APIはguestから見ると同期的だが、browser storageとnetwo
 | Committed save／registry bytes、generation、schema、content hash | Local Vine serverのtitle-local SQLite | Rust logical transaction／file state |
 | Async request、cancel、timeout、completion delivery | Runtime Worker | Rust scheduler-owned host request |
 
-Runtime Workerとserverはguest pointer、Win32 handle、生のhost absolute pathをauthorityとして保持しない。RustはWindows pathを正規化してmount内のstable object IDへ解決する。最初のread transportはsource／object IDとrangeだけをWorkerへ渡し、Workerはprocess準備時にRustと共有したimmutable manifestへtitle fingerprint／snapshot IDをbindingしてserver requestを作る。Server requestにはtitle fingerprint、snapshot ID、source／object ID、rangeだけを渡す。Save transportは将来profile ID、path key、base generationを追加する。
+Runtime Workerとserverはguest pointer、Win32 handle、生のhost absolute pathをauthorityとして保持しない。RustはWindows pathを正規化してmount内のstable object IDへ解決する。Source read transportはsource／object IDとrangeだけをWorkerへ渡し、Workerはprocess準備時にRustと共有したimmutable manifestへtitle fingerprint／snapshot IDをbindingしてserver requestを作る。Profile transportはreserved source ID zero、profile／object ID、generation、range、またはbase generation／length／hashを渡す。WorkerはRust-owned staged payloadを検証して運ぶだけで、file stateを所有しない。
 
 Local serverはVine UI、immutable source API、save APIを同じloopback originから提供する。任意directoryをHTTP越しに公開せず、利用者が明示的に登録したread-only source rootと、Vine管理のwritable profile rootだけへアクセスする。Remote upload、multi-user同期、cloud accountは初期scope外とする。
 
@@ -56,13 +56,13 @@ SQLiteは最初のtransactional storeであり、Windows file semanticsのauthor
 5. Commit前、transaction中、publish後へkillを注入し、再起動後に旧generationまたは新generationの完全な一方だけが見えることを確認する。
 6. Wrong path／title／generation、quota full、duplicate completionをmutation前に拒否する。
 
-### 5.1 Implemented source half
+### 5.1 Implemented storage foundation
 
 Source halfはpublic PE32 fixtureとprivate targetで完了した。Rust `RuntimeFiles`がmanifest、Windows-932-aware path identity、typed file payload、share、cursor、pending requestを所有し、Workerはsame-origin byte requestだけを行う。Local serverは明示登録fileの全bytes／SHA-256を先に検証してimmutable copyからrangeを返す。HTTP identityはtitle fingerprint、snapshot、source、object、offset、requested／transferred lengthを往復検査する。
 
-Public fixtureはOpen／Size／Read／Seek／Read／Closeを自己検証し、Chromeはsuccess、pending cancel、watchdogを通す。Private targetは同じfingerprinted assetを二つのfile lifetimeで全量readし、実行前後のsource hash不変とNode／Chrome semantic equivalenceを確認する。詳細contractは[runtime-vfs.md](runtime-vfs.md)を正とする。
+Public fixtureはOpen／Size／Read／Seek／Read／Closeを自己検証し、Chromeはsuccess、pending cancel、watchdogを通す。Writable profileはRustがcreate／truncate／write／seek／dirty read／flush／closeをplan／commitし、SQLiteがgeneration CAS、content hash、quota、idempotency ledgerを一transactionで保持する。Modelはrestart、rollback、commit後response lossとfailed Close retryを通す。Private targetはBGI.gdbをprofileとして読み、Node／Chrome semantic equivalenceと配布copy不変を確認する。詳細contractは[runtime-vfs.md](runtime-vfs.md)を正とする。
 
-Save half、server／browser restart、SQLite durability、kill injection、overlay precedenceは未完了であり、このsource結果からclaimしない。
+Controlled guestによるChrome commit、server／browser restart後load、kill injection、registry／multi-file lifecycleは未完了であり、このfoundationからprimary save scenario完了をclaimしない。
 
 ## 6. Consequences and reconsideration
 

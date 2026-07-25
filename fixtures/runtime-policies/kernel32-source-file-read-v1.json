@@ -25,12 +25,13 @@
     "maximumPathBytes": 32768
   },
   "sourceFiles": {
-    "allowedDesiredAccess": [2147483648],
-    "allowedShareModes": [1],
-    "allowedCreationDispositions": [3],
+    "allowedDesiredAccess": [2147483648, 1073741824],
+    "allowedShareModes": [1, 0],
+    "allowedCreationDispositions": [3, 4, 2],
     "allowedFlagsAndAttributes": [134217760],
     "maximumPathBytes": 32768,
-    "maximumReadBytes": 1048576
+    "maximumReadBytes": 1048576,
+    "maximumWriteBytes": 1048576
   },
   "getDriveTypeA": {
     "processImageDriveOnly": true,

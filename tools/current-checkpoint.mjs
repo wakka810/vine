@@ -450,8 +450,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (!new Set(["threshold-passed", "threshold-blocked"]).has(browser.bgiBenchmark)) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v11") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v11");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v12") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v12");
   }
   if (
     browser.executionEngineProfile !==
@@ -1180,16 +1180,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_317 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_837 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_341 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_848 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_183 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_271 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
-    JSON.stringify(bgiBrowserEvidence.executedThreadIds) !== JSON.stringify([8_192]) ||
-    bgiBrowserEvidence.contextSwitches !== 0 ||
+    JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
+      JSON.stringify([8_192, 8_193]) ||
+    bgiBrowserEvidence.contextSwitches !== 1 ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
@@ -1947,10 +1948,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.resumeThreadPreviousSuspendCount !== 1 ||
     bgiBrowserEvidence.resumeThreadFinalSchedulerState !== "runnable" ||
     bgiBrowserEvidence.guestThreadSchedulingPolicy !==
-      "synchronous-resume-preserves-caller-until-block-or-explicit-schedule" ||
+      "synchronous-resume-preserves-caller-until-runnable-contention-api-boundary-quantum-64-expires" ||
     bgiBrowserEvidence.guestThreadBrowserOwnsWindowsState !== false ||
     bgiBrowserEvidence.guestThreadNodeChromeOrderedSemanticsMatched !== true ||
-    bgiBrowserEvidence.guestThreadExecutedBeforeNextStop !== false
+    bgiBrowserEvidence.guestThreadExecutedBeforeNextStop !== true
   ) {
     errors.push("browser BGI guest-thread bootstrap evidence is invalid");
   }
@@ -2923,11 +2924,23 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   requireInteger(
+    active.genericDispatcherContractCount,
+    "activeRuntimeCheckpoint.genericDispatcherContractCount",
+    errors,
+  );
+  if (active.genericDispatcherContractCount < active.genericDispatcherApiCount) {
+    errors.push(
+      "activeRuntimeCheckpoint genericDispatcherContractCount must cover every genericDispatcherApi",
+    );
+  }
+  requireInteger(
     active.genericDispatcherCallOccurrenceCount,
     "activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount",
     errors,
   );
-  if (active.genericDispatcherCallOccurrenceCount < APIs.length) {
+  if (
+    active.genericDispatcherCallOccurrenceCount < active.genericDispatcherContractCount
+  ) {
     errors.push(
       "activeRuntimeCheckpoint call occurrences must cover every API contract",
     );
@@ -5723,7 +5736,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    scheduler.schema !== "vine.runtime-scheduler.v3" ||
+    scheduler.schema !== "vine.runtime-scheduler.v4" ||
     scheduler.stateOwner !== "runtime/scheduler.rs::RuntimeScheduler" ||
     scheduler.mutableCollectionVisibility !== "private" ||
     scheduler.serializedRuntimeField !== "scheduler" ||
@@ -5737,13 +5750,13 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime-state-borrowed-compatibility-view" ||
     !Array.isArray(scheduler.ownedCollections) ||
     scheduler.ownedCollections.join(",") !==
-      "current-thread-selector,thread-lanes,event-fifo,host-request-table,host-request-id-allocator" ||
+      "current-thread-selector,thread-lanes,event-fifo,host-request-table,host-request-id-allocator,api-boundary-quantum-counter" ||
     scheduler.waitSubsystemAdapter !== "serde-flatten-private-runtime-waits" ||
     scheduler.crossSubsystemMutation !==
       "scheduler-host-plan-aggregate-lifecycle-preflight-targeted-commit" ||
     scheduler.hostRequestTransition !== "scheduler-plan-infallible-targeted-commit" ||
-    scheduler.subsystemTests < 6 ||
-    scheduler.crossSubsystemAtomicTests < 5 ||
+    scheduler.subsystemTests < 8 ||
+    scheduler.crossSubsystemAtomicTests < 7 ||
     scheduler.directCollectionMutationFromAggregate !== false ||
     scheduler.directHostRequestMutationFromAggregate !== false ||
     scheduler.hostRequestCancellationPlan !== true ||
@@ -5751,6 +5764,18 @@ export function validateCurrentCheckpoint(manifest) {
     scheduler.positiveSuspendCountOwnedByScheduler !== true ||
     scheduler.resumeToRunnablePlanCommit !== true ||
     scheduler.synchronousResumePreemptsCaller !== false ||
+    scheduler.apiBoundaryQuantum !== 64 ||
+    scheduler.apiBoundaryCountsOnlyWithRunnableCompetitor !== true ||
+    scheduler.apiBoundaryCallbackNonInterleaving !== true ||
+    scheduler.apiBoundaryPlanMutationFree !== true ||
+    scheduler.apiBoundaryStaleCommitRejected !== true ||
+    scheduler.apiBoundaryDuplicateCommitRejected !== true ||
+    scheduler.apiBoundaryRunnableSetStaleRejected !== true ||
+    scheduler.apiBoundaryPlanRevisionPrivate !== true ||
+    scheduler.apiBoundarySelectionOrder !== "round-robin-runtime-thread-id" ||
+    scheduler.privateNodeChromeRegisteredThreadIds?.join(",") !== "8192,8193" ||
+    scheduler.privateNodeChromeExecutedThreadIds?.join(",") !== "8192,8193" ||
+    scheduler.privateNodeChromeContextSwitches !== 1 ||
     scheduler.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime scheduler subsystem boundary is invalid");
@@ -6109,30 +6134,33 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("active Kernel32 compatibility policy boundary is invalid");
   }
-  const sourceSnapshot = requireRecord(
-    active.sourceSnapshot,
-    "activeRuntimeCheckpoint.sourceSnapshot",
+  const writableProfile = requireRecord(
+    active.writableProfile,
+    "activeRuntimeCheckpoint.writableProfile",
     errors,
   );
   if (
-    sourceSnapshot.schema !== "vine.source-snapshot-manifest" ||
-    sourceSnapshot.schemaVersion !== 1 ||
-    sourceSnapshot.source !== "fixtures/source-snapshots/bgi-gdb-v1.json" ||
-    sourceSnapshot.titleFingerprint !==
+    writableProfile.schema !== "vine.writable-profile-snapshot" ||
+    writableProfile.schemaVersion !== 1 ||
+    writableProfile.titleFingerprint !==
       "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
-    sourceSnapshot.snapshotId !== "bgi-gdb-e14899243887737b-v1" ||
-    sourceSnapshot.sourceId !== 1 ||
-    sourceSnapshot.rootPathA?.join(",") !== "67,58,92,86,105,110,101,0" ||
-    sourceSnapshot.fileCount !== 1 ||
-    sourceSnapshot.objectId !== 1 ||
-    sourceSnapshot.relativePathA?.join(",") !== "66,71,73,46,103,100,98" ||
-    sourceSnapshot.byteLength !== 125_461 ||
-    sourceSnapshot.sha256 !==
-      "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92" ||
-    sourceSnapshot.immutableAcrossRun !== true ||
-    sourceSnapshot.privateSourcePathCommitted !== false
+    writableProfile.profileId !== "default" ||
+    writableProfile.storagePathTemplate !==
+      ".work/private-profiles/<title-fingerprint>/default.sqlite" ||
+    writableProfile.rootPathA?.join(",") !== "67,58,92,86,105,110,101,0" ||
+    writableProfile.quotaBytes !== 16 * 1024 * 1024 ||
+    writableProfile.fileCount !== 1 ||
+    writableProfile.objectId !== 1 ||
+    writableProfile.relativePathA?.join(",") !== "66,71,73,46,103,100,98" ||
+    writableProfile.reservedReadSourceId !== 0 ||
+    writableProfile.initialization !==
+      "distribution-seed-only-when-database-is-new" ||
+    writableProfile.stagedStateAuthority !== "rust-runtime-vfs" ||
+    writableProfile.durableStateAuthority !== "same-origin-sqlite" ||
+    writableProfile.distributionFileWritable !== false ||
+    writableProfile.profileDatabaseGitCommitted !== false
   ) {
-    errors.push("active immutable source snapshot boundary is invalid");
+    errors.push("active writable profile boundary is invalid");
   }
   const gdi32Policy = requireRecord(
     active.gdi32CompatibilityPolicy,
@@ -6755,7 +6783,10 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.latestEvidence",
     errors,
   );
-  if (latestEvidence.implementedApiContractCount !== APIs.length) {
+  if (
+    latestEvidence.implementedApiContractCount !==
+    active.genericDispatcherContractCount
+  ) {
     errors.push("latest active evidence API count does not match the active summary");
   }
   for (const field of [
@@ -6792,6 +6823,18 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.latestEvidence.sourceFileReadPayloadSha256",
     errors,
   );
+  requireInteger(
+    latestEvidence.sourceFileReadRequestedBytes,
+    "activeRuntimeCheckpoint.latestEvidence.sourceFileReadRequestedBytes",
+    errors,
+    1,
+  );
+  requireInteger(
+    latestEvidence.writableProfileObjectGeneration,
+    "activeRuntimeCheckpoint.latestEvidence.writableProfileObjectGeneration",
+    errors,
+    1,
+  );
   if (
     latestEvidence.sourceFileCreateImplemented !== true ||
     latestEvidence.sourceFileGetSizeImplemented !== true ||
@@ -6804,12 +6847,12 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.sourceFileSetPointerCallCount !== 0 ||
     latestEvidence.sourceFileCloseCallCount !== 2 ||
     latestEvidence.sourceFileReadSequences?.join(",") !== "1362,1378" ||
-    latestEvidence.sourceFileReadRequestedBytes !== 125_461 ||
-    latestEvidence.sourceFileReadTransferredBytes !== 125_461 ||
+    latestEvidence.sourceFileReadTransferredBytes !==
+      latestEvidence.sourceFileReadRequestedBytes ||
     latestEvidence.sourceFileReadOffsets?.join(",") !== "0,0" ||
     latestEvidence.sourceFileReadRequestIds?.join(",") !== "1,2" ||
     latestEvidence.sourceFileReadObjectId !== 1 ||
-    latestEvidence.sourceFileReadSourceId !== 1 ||
+    latestEvidence.sourceFileReadSourceId !== 0 ||
     latestEvidence.sourceFileMappingOperationCount !== 43 ||
     latestEvidence.sourceFileHostDirtyPageCount !== 958 ||
     latestEvidence.sourceFileHeapPageMaterializationCount !== 31 ||
@@ -6818,12 +6861,19 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.sourceFileReadPendingCancellation !== true ||
     latestEvidence.sourceFileReadProcessExitTeardown !== true ||
     latestEvidence.sourceFileReadBrowserOwnsWindowsState !== false ||
-    latestEvidence.sourceSnapshotId !== "bgi-gdb-e14899243887737b-v1" ||
-    latestEvidence.sourceSnapshotManifest !== "fixtures/source-snapshots/bgi-gdb-v1.json" ||
-    latestEvidence.sourceSnapshotImmutableAcrossRun !== true ||
-    latestEvidence.sourceSnapshotPrivatePathCommitted !== false
+    latestEvidence.writableProfileId !== "default" ||
+    latestEvidence.writableProfileStoragePathTemplate !==
+      ".work/private-profiles/<title-fingerprint>/default.sqlite" ||
+    latestEvidence.writableProfileWriteImplemented !== true ||
+    latestEvidence.writableProfileDurableCommitImplemented !== true ||
+    latestEvidence.writableProfileWriteCallCount !== 0 ||
+    latestEvidence.writableProfileCommitCallCount !== 0 ||
+    latestEvidence.writableProfileStagedStateAuthority !== "rust-runtime-vfs" ||
+    latestEvidence.writableProfileDurableStateAuthority !== "same-origin-sqlite" ||
+    latestEvidence.writableProfileDistributionFileUnchangedAcrossRun !== true ||
+    latestEvidence.writableProfileDatabaseGitCommitted !== false
   ) {
-    errors.push("latest immutable source-file evidence is invalid");
+    errors.push("latest writable-profile file evidence is invalid");
   }
   if (
     latestEvidence.swapMouseButtonImplemented !== true ||
@@ -7089,7 +7139,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !== "vine.v86-bgi-kernel32-virtual-alloc.v1" ||
+    latestEvidence.schema !== "vine.v86-bgi-imm32-default-ime-context.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7551,11 +7601,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_698 ||
-    latestEvidence.writebackDirtyPages !== 37_634 ||
-    latestEvidence.writebackChangedBytes !== 2_951_429 ||
-    latestEvidence.hostDeltaBatches !== 17_317 ||
-    latestEvidence.finalMemoryGeneration !== 36_588
+    latestEvidence.writebackBatches !== 18_736 ||
+    latestEvidence.writebackDirtyPages !== 37_707 ||
+    latestEvidence.writebackChangedBytes !== 2_932_448 ||
+    latestEvidence.hostDeltaBatches !== 17_341 ||
+    latestEvidence.finalMemoryGeneration !== 36_650
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -9478,10 +9528,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "66b57e063b689b3bc09bedc200ccc47f6891a433a394db56c4f57abce4277d74" ||
+      "6e0d7795057f9ed45a7e380e49758fdc7bf603a777353f74139dc759e0f65dcc" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.firstUnsupportedMemoryContentSha256 !==
-      "bf87be18f36bbe79f7338d2e809b4701b6953e92bda01123dd5990357a3abffa" ||
+      "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -9980,12 +10030,12 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.resumeThreadPreviousSuspendCount !== 1 ||
     latestEvidence.resumeThreadFinalSchedulerState !== "runnable" ||
     latestEvidence.createThreadSchedulingPolicy !==
-      "synchronous-resume-preserves-caller-until-block-or-explicit-schedule" ||
-    latestEvidence.createThreadNodeExecutedThreadIds?.join(",") !== "8192" ||
+      "synchronous-resume-preserves-caller-until-runnable-contention-api-boundary-quantum-64-expires" ||
+    latestEvidence.createThreadNodeExecutedThreadIds?.join(",") !== "8192,8193" ||
     latestEvidence.createThreadChromeRegisteredThreadIds?.join(",") !==
       "8192,8193" ||
-    latestEvidence.createThreadChromeExecutedThreadIds?.join(",") !== "8192" ||
-    latestEvidence.createThreadContextSwitchesBeforeNextStop !== 0 ||
+    latestEvidence.createThreadChromeExecutedThreadIds?.join(",") !== "8192,8193" ||
+    latestEvidence.createThreadContextSwitchesBeforeNextStop !== 1 ||
     latestEvidence.createThreadDynamicExitReleasesMappings !== true ||
     latestEvidence.createThreadDynamicAddressReuseVerified !== true ||
     latestEvidence.createThreadFailureAtomicity !== true ||
@@ -9997,6 +10047,35 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.createThreadNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest CreateThread and ResumeThread evidence is invalid");
+  }
+  const imm32Context = requireRecord(
+    latestEvidence.imm32ContextEvidence,
+    "activeRuntimeCheckpoint.latestEvidence.imm32ContextEvidence",
+    errors,
+  );
+  if (
+    imm32Context.calls !== 3 ||
+    imm32Context.sequences?.join(",") !== "18643,18644,18645" ||
+    imm32Context.instructionCounts?.join(",") !==
+      "11971315,11971323,11971329" ||
+    imm32Context.apis?.join(",") !==
+      "IMM32.dll!ImmGetDefaultIMEWnd,USER32.dll!SendMessageA,IMM32.dll!ImmAssociateContext" ||
+    imm32Context.appWindowHandle !== "0x48010001" ||
+    imm32Context.defaultImeWindowHandle !== "0x48010002" ||
+    imm32Context.defaultContextHandle !== "0x494d0001" ||
+    imm32Context.statusWindowRequest !== "close" ||
+    imm32Context.associateRequestedContextHandle !== "0x00000000" ||
+    imm32Context.associatePreviousContextHandle !== "0x494d0001" ||
+    imm32Context.finalAssociatedContext !== null ||
+    imm32Context.windowAuthority !== "runtime-user32-logical-window" ||
+    imm32Context.contextAuthority !== "runtime-imm32-logical-context" ||
+    imm32Context.associationAuthority !== "runtime-imm32-window-association" ||
+    imm32Context.nativeHandleImported !== false ||
+    imm32Context.nativeMessageForwarded !== false ||
+    imm32Context.browserResourceCreated !== false ||
+    imm32Context.nodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("latest IMM32 default context evidence is invalid");
   }
   for (const field of [
     "nativeSetThreadPriorityPrimaryTraceSha256",
@@ -11932,7 +12011,7 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 |---|---|
 | Historical baseline | \`${historical.checkpoint}\`: ${historical.supportedCallCount} calls, ${historical.entryInstructionCount} instructions |
 | Active scenario | \`${scenario.activeMilestone}\` |
-| Runtime diagnostics | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherApiCount} API contracts, memory generation ${latest.finalMemoryGeneration} |
+| Runtime diagnostics | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherContractCount} endpoint contracts / ${active.genericDispatcherApiCount} APIs, memory generation ${latest.finalMemoryGeneration} |
 | Runtime architecture | \`${kernelBoundary.checkpoint}\`: \`${kernelBoundary.aggregateType}\`; \`${kernelBoundary.compatibilityAlias}\` remains a compatibility alias |
 | Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
 ${blockerSummary}| Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |

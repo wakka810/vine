@@ -68,10 +68,19 @@ pub use files::{
     RUNTIME_SOURCE_FILE_LIMIT, RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_SOURCE_READ_REQUEST_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
     RUNTIME_SOURCE_READ_SERVICE, RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
-    RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION, RuntimeOpenSourceFileResult,
-    RuntimeSourceFile, RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
-    RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
-    RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+    RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION,
+    RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES, RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION,
+    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_PROFILE_FILE_LIMIT,
+    RUNTIME_WRITABLE_PROFILE_MAX_BYTES, RUNTIME_WRITABLE_PROFILE_SCHEMA,
+    RUNTIME_WRITABLE_PROFILE_VERSION, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFileBacking,
+    RuntimeOpenSourceFileResult, RuntimeSourceFile, RuntimeSourceFileDescriptor,
+    RuntimeSourceFileId, RuntimeSourceFileManifest, RuntimeSourceMountManifest,
+    RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeWritableCommitCompletion,
+    RuntimeWritableCommitHostResponse, RuntimeWritableCommitRequest, RuntimeWritableFile,
+    RuntimeWritableFileManifest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
+    RuntimeWritableReadResult, RuntimeWritableWriteResult,
 };
 pub use gdi::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
@@ -171,8 +180,8 @@ pub use registries::{
     RuntimeRegistries,
 };
 pub use scheduler::{
-    RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
-    RuntimeThreadExecutionSelection, SchedulerThreadState,
+    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler,
+    RuntimeSchedulerEvent, RuntimeThreadExecutionSelection, SchedulerThreadState,
 };
 pub use synchronization::{
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCreateMutexAResult,

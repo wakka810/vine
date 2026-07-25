@@ -249,12 +249,16 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
 
     let source_files: Kernel32CompatibilityPolicy = serde_json::from_str(policies[34]).unwrap();
     let source_profile = source_files.source_files().expect("source file profile");
-    assert_eq!(source_profile.allowed_desired_access, [0x8000_0000]);
-    assert_eq!(source_profile.allowed_share_modes, [1]);
-    assert_eq!(source_profile.allowed_creation_dispositions, [3]);
+    assert_eq!(
+        source_profile.allowed_desired_access,
+        [0x8000_0000, 0x4000_0000]
+    );
+    assert_eq!(source_profile.allowed_share_modes, [1, 0]);
+    assert_eq!(source_profile.allowed_creation_dispositions, [3, 4, 2]);
     assert_eq!(source_profile.allowed_flags_and_attributes, [0x0800_0020]);
     assert_eq!(source_profile.maximum_path_bytes, 32_768);
     assert_eq!(source_profile.maximum_read_bytes, 1024 * 1024);
+    assert_eq!(source_profile.maximum_write_bytes, 1024 * 1024);
     let mut unsupported_source_files = source_files;
     unsupported_source_files
         .source_files

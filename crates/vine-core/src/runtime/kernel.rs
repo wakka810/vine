@@ -52,10 +52,16 @@ use super::com::{
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::files::{
-    RUNTIME_SOURCE_READ_SERVICE, RuntimeFiles, RuntimeSourceFile, RuntimeSourceFileRetirementPlan,
-    RuntimeSourceReadBeginPlan, RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
+    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_READ_SERVICE,
+    RuntimeFiles, RuntimeSourceFile, RuntimeSourceFileRetirementPlan, RuntimeSourceReadBeginPlan,
+    RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
     RuntimeSourceReadCompletionPlan, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
-    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeWritableCommitBeginPlan,
+    RuntimeWritableCommitCancellationPlan, RuntimeWritableCommitCompletion,
+    RuntimeWritableCommitCompletionPlan, RuntimeWritableCommitHostResponse,
+    RuntimeWritableCommitRequest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
+    RuntimeWritableReadPlan, RuntimeWritableReadResult, RuntimeWritableWritePlan,
+    RuntimeWritableWriteResult,
 };
 use super::gdi::{
     RUNTIME_GDI_RESOURCE_ADDRESS_OWNER, RuntimeCreateCompatibleDcResult,
@@ -203,6 +209,7 @@ struct RuntimeThreadExitRequestPlan {
     cancelled_wait: Option<RuntimeWaitRegistration>,
     host_request_cancellation: RuntimeHostRequestCancellationPlan,
     source_read_cancellation: RuntimeSourceReadCancellationPlan,
+    writable_commit_cancellation: RuntimeWritableCommitCancellationPlan,
     message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
 }
@@ -237,6 +244,19 @@ struct RuntimePayloadObjectTeardownPlan {
 pub(crate) struct RuntimeSourceReadAggregateCompletionPlan {
     scheduler: super::scheduler::RuntimeHostCompletionPlan,
     source_read: RuntimeSourceReadCompletionPlan,
+}
+
+pub(crate) struct RuntimeWritableCommitAggregateCompletionPlan {
+    scheduler: super::scheduler::RuntimeHostCompletionPlan,
+    writable_commit: RuntimeWritableCommitCompletionPlan,
+    object: Option<RuntimeCloseHandleObjectMutationPlan>,
+    retirement: Option<RuntimeSourceFileRetirementPlan>,
+}
+
+impl RuntimeWritableCommitAggregateCompletionPlan {
+    pub(crate) fn completion(&self) -> &RuntimeWritableCommitCompletion {
+        self.writable_commit.completion()
+    }
 }
 
 impl RuntimeSourceReadAggregateCompletionPlan {
@@ -917,6 +937,25 @@ impl RuntimeKernel {
         self.files.snapshot()
     }
 
+    pub fn register_writable_profile(
+        &mut self,
+        manifest: RuntimeWritableProfileManifest,
+    ) -> Result<&RuntimeWritableProfile, RuntimeStateError> {
+        let plan = self.files.plan_writable_profile_registration(manifest)?;
+        self.files.commit_writable_profile_registration(plan)?;
+        self.files.writable_profile().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "writable-profile-registration-missing",
+                "writable profile disappeared after registration commit",
+            )
+        })
+    }
+
+    pub fn writable_profile(&self) -> Option<&RuntimeWritableProfile> {
+        self.files.writable_profile()
+    }
+
     pub fn open_source_file_a(
         &mut self,
         requested_path: &[u8],
@@ -924,12 +963,30 @@ impl RuntimeKernel {
         share_mode: u32,
         flags_and_attributes: u32,
     ) -> Result<Option<super::RuntimeOpenSourceFileResult>, RuntimeStateError> {
+        self.open_file_a(
+            requested_path,
+            desired_access,
+            share_mode,
+            3,
+            flags_and_attributes,
+        )
+    }
+
+    pub fn open_file_a(
+        &mut self,
+        requested_path: &[u8],
+        desired_access: u32,
+        share_mode: u32,
+        creation_disposition: u32,
+        flags_and_attributes: u32,
+    ) -> Result<Option<super::RuntimeOpenSourceFileResult>, RuntimeStateError> {
         self.require_source_file_operation_state()?;
-        let Some(plan) = self.files.plan_open(
+        let Some(plan) = self.files.plan_open_with_disposition(
             requested_path,
             &self.process.current_directory_a().bytes_with_nul,
             desired_access,
             share_mode,
+            creation_disposition,
             flags_and_attributes,
         )?
         else {
@@ -941,10 +998,15 @@ impl RuntimeKernel {
         let object_plan = self.objects.plan_close_handle_object_open(key, false)?;
         self.files.preflight_open(&plan)?;
         let handle = object_plan.opened_handle();
+        let existed = plan.existed();
         self.objects
             .commit_close_handle_object_mutation(object_plan)?;
         let file = self.files.commit_open(plan);
-        Ok(Some(super::RuntimeOpenSourceFileResult { file, handle }))
+        Ok(Some(super::RuntimeOpenSourceFileResult {
+            file,
+            handle,
+            existed,
+        }))
     }
 
     pub fn source_file_for_handle(
@@ -964,6 +1026,203 @@ impl RuntimeKernel {
         self.files.open_file(super::RuntimeSourceFileId(file_id))
     }
 
+    pub fn source_file_byte_length(&self, handle: RuntimeHandle) -> Result<u64, RuntimeStateError> {
+        let file_id = self.source_file_for_handle(handle)?.id;
+        self.files.file_byte_length(file_id)
+    }
+
+    pub fn read_writable_file(
+        &mut self,
+        memory: &mut GuestMemory,
+        handle: RuntimeHandle,
+        buffer: GuestAddress,
+        bytes_read: GuestAddress,
+        requested_bytes: u32,
+    ) -> Result<
+        (
+            RuntimeWritableReadResult,
+            Vec<u8>,
+            Option<GuestWriteResult>,
+            GuestWriteResult,
+        ),
+        RuntimeStateError,
+    > {
+        self.require_source_file_operation_state()?;
+        let file_id = self.source_file_for_handle(handle)?.id;
+        let plan: RuntimeWritableReadPlan =
+            self.files.plan_writable_read(file_id, requested_bytes)?;
+        memory
+            .validate_access(bytes_read, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        if !plan.bytes().is_empty() {
+            memory
+                .validate_access(buffer, plan.bytes().len(), MemoryAccess::Write)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        self.files.preflight_writable_read(&plan)?;
+        let bytes = plan.bytes().to_vec();
+        let result = plan.result();
+        let mut transaction = memory.begin_transaction();
+        let buffer_write = (!bytes.is_empty())
+            .then(|| {
+                transaction
+                    .write(buffer, &bytes)
+                    .map_err(RuntimeStateError::from_memory)
+            })
+            .transpose()?;
+        let count_write = transaction
+            .write(bytes_read, &result.transferred_bytes.to_le_bytes())
+            .map_err(RuntimeStateError::from_memory)?;
+        let committed = self.files.commit_writable_read(plan);
+        debug_assert_eq!(committed, result);
+        transaction.commit_transaction();
+        Ok((result, bytes, buffer_write, count_write))
+    }
+
+    pub fn write_writable_file(
+        &mut self,
+        memory: &mut GuestMemory,
+        handle: RuntimeHandle,
+        bytes_written: GuestAddress,
+        bytes: &[u8],
+    ) -> Result<(RuntimeWritableWriteResult, GuestWriteResult), RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let file_id = self.source_file_for_handle(handle)?.id;
+        let plan: RuntimeWritableWritePlan = self.files.plan_writable_write(file_id, bytes)?;
+        memory
+            .validate_access(bytes_written, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.files.preflight_writable_write(&plan)?;
+        let result = plan.result();
+        let mut transaction = memory.begin_transaction();
+        let count_write = transaction
+            .write(bytes_written, &result.transferred_bytes.to_le_bytes())
+            .map_err(RuntimeStateError::from_memory)?;
+        let committed = self.files.commit_writable_write(plan);
+        debug_assert_eq!(committed, result);
+        transaction.commit_transaction();
+        Ok((result, count_write))
+    }
+
+    pub fn writable_file_needs_commit(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<bool, RuntimeStateError> {
+        let file_id = self.source_file_for_handle(handle)?.id;
+        self.files.writable_file_needs_commit(file_id)
+    }
+
+    pub fn begin_writable_file_commit(
+        &mut self,
+        handle: RuntimeHandle,
+        close_after_commit: bool,
+    ) -> Result<RuntimeWritableCommitRequest, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let file_id = self.source_file_for_handle(handle)?.id;
+        let scheduler = self
+            .scheduler
+            .plan_host_request(RUNTIME_WRITABLE_COMMIT_SERVICE.to_owned())?;
+        let writable: RuntimeWritableCommitBeginPlan = self.files.plan_writable_commit_begin(
+            file_id,
+            scheduler.request().request_id,
+            close_after_commit,
+        )?;
+        self.files.preflight_writable_commit_begin(&writable)?;
+        let runtime_request = self.scheduler.commit_host_request(scheduler);
+        let request = self.files.commit_writable_commit_begin(writable);
+        debug_assert_eq!(runtime_request.request_id, request.request_id);
+        debug_assert_eq!(runtime_request.service, RUNTIME_WRITABLE_COMMIT_SERVICE);
+        Ok(request)
+    }
+
+    pub fn writable_file_commit_bytes(&self, request_id: u64) -> Result<&[u8], RuntimeStateError> {
+        self.files.writable_commit_bytes(request_id)
+    }
+
+    pub fn writable_file_commit_request(
+        &self,
+        request_id: u64,
+    ) -> Result<&RuntimeWritableCommitRequest, RuntimeStateError> {
+        self.files.writable_commit_request(request_id)
+    }
+
+    pub(crate) fn plan_writable_file_commit_completion(
+        &self,
+        response: RuntimeWritableCommitHostResponse,
+    ) -> Result<RuntimeWritableCommitAggregateCompletionPlan, RuntimeStateError> {
+        let scheduler = self.scheduler.plan_host_completion(response.request_id)?;
+        if scheduler.request().service != RUNTIME_WRITABLE_COMMIT_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-vfs",
+                "writable-commit-host-service-mismatch",
+                "writable commit completion belongs to another host service",
+            ));
+        }
+        let writable_commit = self.files.plan_writable_commit_completion(response)?;
+        self.files
+            .preflight_writable_commit_completion(&writable_commit)?;
+        let (object, retirement) = if writable_commit.closes_file() {
+            let file_id = writable_commit.file_id();
+            let key = RuntimeObjectKey::File { file_id: file_id.0 };
+            let handle = self.objects.handle_for_object(&key)?;
+            let record = self
+                .objects
+                .object_for_handle(handle, RuntimeObjectKind::File)?;
+            if record.open_handles != 1 {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-vfs",
+                    "writable-close-handle-count-invalid",
+                    "writable close commit requires one open logical handle",
+                ));
+            }
+            let retirement = self.files.plan_retirement_after_commit(&writable_commit)?;
+            self.files.preflight_retirement(&retirement)?;
+            let object = self
+                .objects
+                .plan_close_handle_object_close(handle, Some(&key))?;
+            (Some(object), Some(retirement))
+        } else {
+            (None, None)
+        };
+        Ok(RuntimeWritableCommitAggregateCompletionPlan {
+            scheduler,
+            writable_commit,
+            object,
+            retirement,
+        })
+    }
+
+    pub(crate) fn commit_writable_file_commit_completion(
+        &mut self,
+        plan: RuntimeWritableCommitAggregateCompletionPlan,
+    ) -> RuntimeWritableCommitCompletion {
+        debug_assert!(
+            self.files
+                .preflight_writable_commit_completion(&plan.writable_commit)
+                .is_ok()
+        );
+        if let Some(retirement) = plan.retirement.as_ref() {
+            debug_assert!(self.files.preflight_retirement(retirement).is_ok());
+        }
+        if let Some(object) = plan.object {
+            self.objects
+                .commit_close_handle_object_mutation(object)
+                .expect("preflighted writable close object plan must commit");
+        }
+        let scheduler_completion = self.scheduler.commit_host_completion(plan.scheduler);
+        debug_assert_eq!(
+            scheduler_completion.request_id,
+            plan.writable_commit.completion().request.request_id
+        );
+        let completion = self
+            .files
+            .commit_writable_commit_completion(plan.writable_commit);
+        if let Some(retirement) = plan.retirement {
+            self.files.commit_retirement(retirement);
+        }
+        completion
+    }
+
     pub fn begin_source_file_read(
         &mut self,
         handle: RuntimeHandle,
@@ -973,9 +1232,8 @@ impl RuntimeKernel {
     ) -> Result<RuntimeSourceReadRequest, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let file_id = self.source_file_for_handle(handle)?.id;
-        let scheduler_plan = self
-            .scheduler
-            .plan_host_request(RUNTIME_SOURCE_READ_SERVICE.to_owned())?;
+        let service = self.files.file_read_service(file_id)?;
+        let scheduler_plan = self.scheduler.plan_host_request(service.to_owned())?;
         let source_plan: RuntimeSourceReadBeginPlan = self.files.plan_read_begin(
             file_id,
             scheduler_plan.request().request_id,
@@ -987,7 +1245,7 @@ impl RuntimeKernel {
         let runtime_request = self.scheduler.commit_host_request(scheduler_plan);
         let source_request = self.files.commit_read_begin(source_plan);
         debug_assert_eq!(runtime_request.request_id, source_request.request_id);
-        debug_assert_eq!(runtime_request.service, RUNTIME_SOURCE_READ_SERVICE);
+        debug_assert_eq!(runtime_request.service, service);
         Ok(source_request)
     }
 
@@ -996,7 +1254,10 @@ impl RuntimeKernel {
         response: RuntimeSourceReadHostResponse,
     ) -> Result<RuntimeSourceReadAggregateCompletionPlan, RuntimeStateError> {
         let scheduler = self.scheduler.plan_host_completion(response.request_id)?;
-        if scheduler.request().service != RUNTIME_SOURCE_READ_SERVICE {
+        if !matches!(
+            scheduler.request().service.as_str(),
+            RUNTIME_SOURCE_READ_SERVICE | RUNTIME_WRITABLE_READ_SERVICE
+        ) {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-vfs",
                 "source-read-host-service-mismatch",
@@ -1004,6 +1265,13 @@ impl RuntimeKernel {
             ));
         }
         let source_read = self.files.plan_read_completion(response)?;
+        if scheduler.request().service != source_read.service() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "file-read-host-service-mismatch",
+                "file read completion service does not match its backing authority",
+            ));
+        }
         self.files.preflight_read_completion(&source_read)?;
         Ok(RuntimeSourceReadAggregateCompletionPlan {
             scheduler,
@@ -2858,6 +3126,65 @@ impl RuntimeKernel {
         };
         self.scheduler.commit_selection(plan);
         Ok(Some(selection))
+    }
+
+    pub fn complete_api_execution_boundary(
+        &mut self,
+    ) -> Result<Option<RuntimeThreadExecutionSelection>, RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !self.scheduler_state()?.is_executable()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-registry",
+                "api-boundary-process-state-invalid",
+                "an API execution boundary requires a running process and executable current thread",
+            ));
+        }
+        let current_key = RuntimeObjectKey::Thread {
+            thread_id: self.current_thread_id().0,
+        };
+        if !self.objects.contains_identity(&current_key) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-thread-registry",
+                "thread-registry-object-missing",
+                "current API boundary thread has no runtime object identity",
+            ));
+        }
+        let plan = self.scheduler.plan_completed_api_boundary()?;
+        let selection = if let Some(selection) = plan.selection() {
+            let thread_id = selection.next();
+            let state = self.scheduler_state_for_thread(thread_id)?;
+            if state != SchedulerThreadState::Runnable
+                || self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
+            {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-thread-registry",
+                    "api-boundary-thread-state-mismatch",
+                    "API boundary selected a thread without matching executable runtime state",
+                ));
+            }
+            let thread_key = RuntimeObjectKey::Thread {
+                thread_id: thread_id.0,
+            };
+            if !self.objects.contains_identity(&thread_key) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-thread-registry",
+                    "thread-registry-object-missing",
+                    "API boundary selected a thread without runtime object identity",
+                ));
+            }
+            Some(RuntimeThreadExecutionSelection {
+                previous_thread_id: selection.previous(),
+                thread_id,
+                state,
+            })
+        } else {
+            None
+        };
+        self.scheduler.preflight_completed_api_boundary(&plan)?;
+        self.scheduler.commit_completed_api_boundary(plan);
+        Ok(selection)
     }
 
     pub fn wait_current_thread_on(
@@ -6642,7 +6969,12 @@ impl RuntimeKernel {
         let cancelling_source_reads = plan
             .thread_plans
             .iter()
-            .flat_map(|thread| thread.source_read_cancellation.request_ids())
+            .flat_map(|thread| {
+                thread
+                    .source_read_cancellation
+                    .request_ids()
+                    .chain(thread.writable_commit_cancellation.request_ids())
+            })
             .collect::<BTreeSet<_>>();
         let payload_teardown = self.plan_payload_object_teardown(&cancelling_source_reads)?;
         let graphics_teardown = self.graphics.plan_process_teardown()?;
@@ -6853,6 +7185,9 @@ impl RuntimeKernel {
         let source_read_cancellation = self
             .files
             .plan_read_cancellation(host_request_cancellation.request_ids());
+        let writable_commit_cancellation = self
+            .files
+            .plan_writable_commit_cancellation(host_request_cancellation.request_ids());
         let message_clear = self.messages.plan_clear(thread_id)?;
         let messages_discarded = message_clear.message_count;
         let host_requests_cancelled = host_request_cancellation.request_count();
@@ -6864,6 +7199,7 @@ impl RuntimeKernel {
             cancelled_wait,
             host_request_cancellation,
             source_read_cancellation,
+            writable_commit_cancellation,
             message_clear,
             cancellation: RuntimeCancellation {
                 thread_id,
@@ -6881,6 +7217,8 @@ impl RuntimeKernel {
         self.messages.commit_clear(plan.message_clear);
         self.files
             .commit_read_cancellation(plan.source_read_cancellation);
+        self.files
+            .commit_writable_commit_cancellation(plan.writable_commit_cancellation);
         self.scheduler
             .commit_host_request_cancellation(plan.host_request_cancellation);
         if let Some(registration) = plan.cancelled_wait {

@@ -16,8 +16,8 @@ session in one Chrome Dedicated Worker. Each session starts from a new Rust
 runtime and v86 mirror, dispatches 18,452 calls before the 11,921,739-instruction
 `DSOUND.dll` ordinal 11 terminal stop, performs 55,176 Rust/Wasm bridge
 operations, and applies four
-initial-thread stack-growth commits. It opens the fingerprinted asset twice,
-performs two complete 125,461-byte source reads through the same-origin service,
+initial-thread stack-growth commits. It opens the then-misclassified BGI.gdb twice,
+performs two complete 125,461-byte reads through the historical source service,
 closes both typed file lifetimes, completes one Rust-owned logical window through
 creation, small-icon send, initial show／hide callbacks, client-rect query,
 window-long update, and same-geometry activation, then creates one Rust-owned
@@ -47,6 +47,11 @@ game-controller catalog without scheduling the callback, then executes the
 following heap path and stops at `DirectSoundCreate8(NULL, output, NULL)`. The successful resource path
 does not traverse the earlier `timeGetTime`／`MessageBoxA` error branch. No
 texture／surface pixel bytes, GPU vertex buffer, or browser renderer is allocated.
+
+BGI.gdb is global writable state. Its byte count and hash in this historical
+benchmark identify that run only; they are not immutable title corpus identity.
+Current canonical runs use the writable SQLite profile boundary described in
+[runtime-vfs.md](runtime-vfs.md).
 
 The session includes all earlier process, NLS, heap, synchronization, display,
 COM, icon／cursor, window-class, logical-window, system-metric, large-heap,

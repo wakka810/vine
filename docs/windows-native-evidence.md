@@ -3008,17 +3008,19 @@ page identity、memory digest、instruction 51,614の`CreateFileA` stopを再現
 変更後の3分gateは326 sessions／failure 0で17 thresholdsを通した。詳細は
 [bgi-large-heap-allocation.md](bgi-large-heap-allocation.md)を正とする。
 
-## 102. Immutable source-file gateway
+## 102. Source-file gateway and corrected BGI.gdb classification
 
-Historical Windows startup traceは最初のtitle-local `CreateFileA`が`${TITLE_ROOT}\BGI.gdb`を開き、main `CreateWindowExA`より前に到達することを示す。旧hookはdesired access／share／creation／flags／LastErrorを保持しないため、そのtraceだけからfile contractを一般化しない。Source manifestはinstalled `BGI.gdb`をobject ID 1、125,461 bytes、SHA-256 `e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92`としてfingerprintし、private pathやbytesをGitへ入れない。
+Historical Windows startup traceは最初のtitle-local `CreateFileA`が`${TITLE_ROOT}\BGI.gdb`をmain `CreateWindowExA`より前に開くことを示した。当初はinstalled object 125,461 bytes／SHA-256 `e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92`をimmutable sourceとしてmanifest化したが、これは誤分類だった。このbyte length／hashはglobal state fileのある時点のartifact identityにすぎず、title corpus identityではない。
+
+追加native lifecycle evidenceでは、存在時のreaderが`GENERIC_READ`／share-read／`OPEN_EXISTING`で開き、`GetFileSize -> ReadFile -> CloseHandle`を行う。Objectがmissingなら最初のread failure後にtitle serializerへ入り、writerは`GENERIC_WRITE`／share none／`OPEN_ALWAYS`（wrapperの別supported pathは`CREATE_ALWAYS`）で開く。`WriteFile`のBOOLとfull transferred countを検査し、successful `CloseHandle`を完了境界にする。この到達pathでは`FlushFileBuffers`を観測していない。削除後に再生成されるbehaviorとwrite consumerにより、BGI.gdbはsave／設定と同じwritable profileへ分類する。配布copyはnew profileのmigration seedとしてread-onlyに扱い、runtimeから書き戻さない。
 
 Public Windows oracleは新しい2,560-byte PE32 fixtureである。SHA-256は`292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63`、native exitは0である。Fixture自身が`CreateFileA -> GetFileSize -> ReadFile(8) -> SetFilePointer(50) -> ReadFile(11) -> CloseHandle`を実行し、94-byte public source objectのsizeと二つのpayloadを比較する。これによりx86 stdcall ABI、caller-visible BOOL／DWORD output、cursor consumerをWindows self-oracleとして固定するが、Vineのlogical handle数値やasync transportをnative goldenにしない。
 
 Rust `RuntimeFiles`はmanifest／Windows-932 path／share／typed file payload／cursor／pending requestをprivateに所有する。Wrong mount、share conflict、stale manifest plan、wrong／duplicate completion、guest-memory failure、pending close、process exitはobservable stateを部分更新しない。Workerはprepared manifestへRust requestをbindingし、title fingerprint／snapshot／source／object／rangeだけでsame-origin serviceを呼ぶ。
 
-Private Node evidenceは二つのfile lifetimeで同じassetをoffset 0から全量readし、各payload hashがmanifestと一致する。Source executableは実行前後で1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。Chromeもordered calls、二つのsource completion、guest writes、memory digest、next `CreateWindowExA` stopを再現し、pending cancel／watchdog後にRust／Worker recordを残さない。3分source-read workloadは全versioned thresholdを通した。
+Historical private Node／Chrome evidenceは二つのfile lifetimeで同じBGI.gdb contentをoffset 0から全量readし、ordered calls、guest writes、memory digest、next stopを再現した。Read semanticsのevidenceは有効だが、payload hash不変をsource immutabilityの証明には使わない。Source executableは実行前後で1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままであり、こちらは引き続きimmutable corpus identityである。
 
-このevidenceは一objectのread-only Open／Size／Read／Seek／Closeだけを成立させる。Directory enumeration、write、truncate、mapped file、replacement recovery、large-corpus streaming、writable overlay、save／restart／load、SQLite durabilityは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、backend decisionは[ADR-006](adr-006-vfs-local-server.md)を正とする。
+現在のruntime contractはimmutable fixtureのOpen／Size／Read／Seek／Closeに加え、BGI.gdb profileのCreate／Write／Seek／Flush／durable Close、generation／idempotency／SQLite rollbackをmodel／integration testで成立させる。Primary runはprofile readを通すが、guestによるChrome write、browser restart後load、kill injection、directory enumeration、mapped file、large-corpus streamingは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、backend decisionは[ADR-006](adr-006-vfs-local-server.md)を正とする。
 
 ## 103. BGI synchronous logical-window creation
 
@@ -4832,11 +4834,11 @@ deltas、generation 36,588、semantic SHA-256
 bytes／SHA-256 `90c69bd17ec69e4cf298205ab5b7e0cd9a96787aef6986695aff9a0d81c138b5`である。Full evidenceでも
 Node／Chromeの全18,642 ordered callsとVirtualAlloc allocation／region metadataが一致した。
 
-Chrome Runtime Worker protocol v11は19,406 slices、19,404 writebacks／39,269 pages、17,317 mapping deltas／
+このVirtualAlloc checkpoint当時のChrome Runtime Worker protocol v11は19,406 slices、19,404 writebacks／39,269 pages、17,317 mapping deltas／
 18,837 dirty pages、generation 27→37,296、55,737 Wasm crossings、58,183 success transitions、clean
 cancel／watchdogを通した。Current measured artifact identityは[current-checkpoint.json](current-checkpoint.json)を正とする。
 
-次stopはinstruction 12,111,929、`IMM32.dll!ImmGetDefaultIMEWnd` endpoint ID 11／address `0x7F0000A0`／IAT
+このcheckpointの次stopはinstruction 12,111,929、`IMM32.dll!ImmGetDefaultIMEWnd` endpoint ID 11／address `0x7F0000A0`／IAT
 `0x100D10D0`／return `0x100873DA`の`endpoint-contract-missing`である。Argumentはlogical main HWND
 `0x48010001`である。IME window identity、message integration、commit／decommit／release、general `VirtualAlloc`
 placementはこのcheckpointで実装済みとしない。
@@ -4868,18 +4870,35 @@ thread default context、app-window associationを所有させる。Aggregateは
 contextをpublishし、detach／restore、wrong owner、unknown HIMC、stale plan、process teardownをmutation-free negative
 caseとともにmodel testで固定する。Worker metadataはread-only completionで、native handle／browser resourceを作らない。
 
-Canonical command
+旧canonical command
 `npm run check:runtime:bgi -- --profile imm32-default-ime-context --evidence-level full`はruntime開始前のsource
-registrationで停止した。Fingerprint済み`BGI.gdb`は125,461 bytes／SHA-256
-`e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92`だが、installed objectは同size／SHA-256
-`511684c20839ce847c2593a58a69dc966f819b10985438b2b44a4bc6bc2030ba`である。Last-write時刻はprimary native trace
-windowと重なるが、変更主体は確定していない。Workspaceと近傍backupにcanonical identityは見つからず、配布fileは
-追加変更・復元していない。
+registrationで停止した。Manifest化したBGI.gdbとinstalled objectのhash差をcorpus identity mismatchとした判断は、
+global state fileをimmutable sourceと誤分類したことによるfalse blockerである。観測した各size／hash／last-writeは
+historical state artifactとしてのみ保持し、canonical title identityや復元対象にしない。配布fileは復元・書換していない。
 
-Observed objectを明示したnoncanonical snapshotによるread-only diagnosticではsequence 18,643のqueryがlogical
+Observed objectを明示した旧diagnosticではsequence 18,643のqueryがlogical
 IME HWND `0x48010002`とHIMC `0x494D0001`を作り、sequence 18,644のclose、18,645のNULL detachまでauthority
 validationを通した。その後は新しいunsupported endpointへ進まず、19,000／32,768 generic-call limitで最後のcallが
 `EnterCriticalSection` occurrence 161／7,045、instruction 13,891,597／14,380,361となった。このpollingがtitleの
-正常なthread waitかscheduler progress不足かはnoncanonical corpusから判定しない。Private target／Chrome acceptanceは
-未成立であり、exact failure、試行、protected invariant、resume conditionは
-[current-checkpoint.json](current-checkpoint.json)のactive structured blockerを正本とする。
+正常なthread waitかscheduler progress不足かはwritable profile経由のrerunで分類する。この旧runを
+noncanonicalとして排除する根拠はなくなったが、read-only snapshot adapter自体は現在のcanonical pathではない。
+
+Canonical writable-profile rerunにより両方を分類した。既存BGI.gdbをtitle fingerprint別SQLite profileのgeneration 1へ
+一度だけseedし、以後の2 readsをprofile adapterへ向けると、Node／Chromeはいずれも18,680 supported callsを通した。
+BGI.gdbは123,642 bytes／SHA-256 `6dba2f3ade90d3706b45ccf37e490a56c97e74511a0eae0c4ab5546f34ce1cd6`
+のまま実行前後で不変であり、BGI.exeも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。Guest writeはこのrunで
+到達していないため、配布profileへのwrite-backは発生していない。
+
+Pollingはprofile content差ではなく、旧scheduler policyがrunnable childを選択しないprogress不足だった。
+`ResumeThread` completionはcallerを即時preemptしないまま、競合runnable laneが存在する間だけ64 completed API
+boundariesを数えるround-robin plan／commitへ変更した。競合前の履歴をcounterへ蓄積せず、callback frame中は
+interleaveせず、stale planを拒否する。これによりNode／ChromeともTID 8,192／8,193を実行し、switch 1回で
+IMM32 prefixを抜けた。Nodeは18,736 writebacks／37,707 dirty pages／17,341 host deltas、generation 36,650、
+Chromeは19,435 slices／19,433 writebacks／39,321 pages、generation 37,349を通し、semantic SHA-256
+`6e0d7795057f9ed45a7e380e49758fdc7bf603a777353f74139dc759e0f65dcc`とterminal memory SHA-256
+`ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5`が一致した。
+
+次stopはinstruction 11,973,553、endpoint ID 118／address `0x7F000750`／IAT `0x100D1280`／return
+`0x10050607`の`kernel32.dll!SetWaitableTimer(0x57010002, 0x500FFF98, 0, 0, 0, 0)`である。
+Current acceptanceとartifact identityは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。

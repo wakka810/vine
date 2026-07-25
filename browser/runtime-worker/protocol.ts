@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 11 as const;
+export const protocolVersion = 12 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
@@ -168,6 +168,8 @@ export interface SessionConfiguration {
   policyUrl?: string;
   sourceManifestUrl?: string;
   sourceApiUrl?: string;
+  writableProfileUrl?: string;
+  writableProfileApiUrl?: string;
   instructionBudget: number;
   watchdogInstructionLimit: number;
   watchdogWallMilliseconds: number;
@@ -345,12 +347,14 @@ export interface SessionReport {
     window?: RuntimeWindowSnapshot;
     comApartment?: RuntimeComApartmentSnapshot;
     sourceRead?: RuntimeSourceReadSnapshot;
+    writableCommit?: RuntimeWritableCommitSnapshot;
     gdi?: RuntimeGdiSnapshot;
     gdiplus?: RuntimeGdiplusSnapshot;
     imm32?: RuntimeImm32Snapshot;
     virtualMemory?: RuntimeVirtualMemorySnapshot;
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
+  writableCommits: RuntimeWritableCommitSnapshot[];
   firstUnsupported: {
     capabilityCluster: string;
     endpoint: unknown;
@@ -376,6 +380,21 @@ export interface RuntimeSourceReadSnapshot {
   cursorBefore: number;
   cursorAfter: number;
   contentSha256: string;
+}
+
+export interface RuntimeWritableCommitSnapshot {
+  request: {
+    requestId: number;
+    fileId: number;
+    objectId: number;
+    baseGeneration: number;
+    byteLength: number;
+    contentSha256: string;
+    closeAfterCommit: boolean;
+  };
+  succeeded: boolean;
+  committedGeneration: number;
+  win32Error: number;
 }
 
 export type RuntimeGdiplusSnapshot =

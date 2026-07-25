@@ -18,6 +18,7 @@ import {
   type RuntimeWindowClassSnapshot,
   type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
+  type RuntimeWritableCommitSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
   type RuntimeImm32Snapshot,
@@ -76,6 +77,12 @@ interface HostRequestMetadata {
   };
 }
 
+interface WritableCommitPayloadMetadata {
+  kind: "writable-commit-payload";
+  requestId: string;
+  request: RuntimeWritableCommitSnapshot["request"];
+}
+
 type ExecutableSchedulerMetadata =
   | { state: "runnable" }
   | { state: "in-callback"; depth: number };
@@ -85,6 +92,12 @@ interface ThreadScheduledMetadata {
   previousThreadId: number;
   threadId: number;
   scheduler: ExecutableSchedulerMetadata;
+}
+
+interface ApiBoundaryThreadSelection {
+  previousThreadId: number;
+  threadId: number;
+  state: ExecutableSchedulerMetadata;
 }
 
 interface SchedulerIdleMetadata {
@@ -172,12 +185,14 @@ interface CompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  writableCommit?: RuntimeWritableCommitSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
+  threadSelection?: ApiBoundaryThreadSelection;
 }
 
 interface ApiFaultMetadata {
@@ -250,6 +265,7 @@ interface HostCompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  writableCommit?: RuntimeWritableCommitSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
@@ -269,6 +285,24 @@ interface SourceManifest {
     relativePathA: number[];
     byteLength: number;
     sha256: string;
+  }>;
+}
+
+interface WritableProfileManifest {
+  schema: "vine.writable-profile-snapshot";
+  schemaVersion: 1;
+  titleFingerprint: string;
+  profileId: string;
+  rootPathA: number[];
+  quotaBytes: number;
+  files: Array<{
+    objectId: number;
+    relativePathA: number[];
+    exists: boolean;
+    generation: number;
+    byteLength: number;
+    sha256: string | null;
+    bytes: number[];
   }>;
 }
 
@@ -293,6 +327,7 @@ interface CallbackCompletionMetadata {
   window?: RuntimeWindowSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
+  writableCommit?: RuntimeWritableCommitSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
@@ -432,6 +467,19 @@ function byteArraysEqual(left: number[], right: number[]): boolean {
   return left.length === right.length && left.every((byte, index) => byte === right[index]);
 }
 
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", ownedArrayBuffer(bytes)),
+  );
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 function post(message: WorkerToMainMessage): void {
   worker.postMessage(message);
 }
@@ -464,6 +512,8 @@ class BrowserRuntimeSession {
   readonly #pendingHostRequests = new PendingHostRequestTable();
   readonly #sourceReadControllers = new Map<string, AbortController>();
   #sourceManifest: SourceManifest | null = null;
+  #writableProfile: WritableProfileManifest | null = null;
+  readonly #profileSessionKey = crypto.randomUUID();
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   readonly #semanticCallDigest = new SemanticCallDigest();
@@ -512,6 +562,7 @@ class BrowserRuntimeSession {
     supportedCallSemanticsSha256: null as string | null,
     supportedCalls: [] as SessionReport["supportedCalls"],
     sourceReads: [] as SessionReport["sourceReads"],
+    writableCommits: [] as SessionReport["writableCommits"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
   };
 
@@ -532,8 +583,8 @@ class BrowserRuntimeSession {
         this.#configuration.evidenceLevel === "full" || workload === "private-bgi",
         "summary runtime evidence is only supported for the private BGI workload",
       );
-      const sourceBackedWorkload =
-        workload === "controlled-source-read" || workload === "private-bgi";
+      const sourceBackedWorkload = workload === "controlled-source-read";
+      const profileBackedWorkload = workload === "private-bgi";
       this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
       const executableUrl = new URL(
@@ -561,7 +612,7 @@ class BrowserRuntimeSession {
       const sourceManifestBytes =
         sourceBackedWorkload
           ? await this.#fetchBytes(
-              this.#sameOriginSourceUrl(
+              this.#sameOriginStorageUrl(
                 this.#configuration.sourceManifestUrl,
                 "/api/source/v1/manifest",
                 "source manifest URL",
@@ -569,8 +620,23 @@ class BrowserRuntimeSession {
               "source manifest",
             )
           : null;
+      const writableProfileBytes =
+        profileBackedWorkload
+          ? await this.#fetchBytes(
+              this.#sameOriginStorageUrl(
+                this.#configuration.writableProfileUrl,
+                "/api/profile/v1/snapshot",
+                "writable profile URL",
+              ),
+              "writable profile",
+            )
+          : null;
       this.#sourceManifest =
         sourceManifestBytes === null ? null : this.#parseSourceManifest(sourceManifestBytes);
+      this.#writableProfile =
+        writableProfileBytes === null
+          ? null
+          : this.#parseWritableProfile(writableProfileBytes);
       const preparedOutput =
         workload === "private-bgi"
           ? bridge.prepareBgi(
@@ -581,8 +647,9 @@ class BrowserRuntimeSession {
                   import.meta.url,
                 ),
               ),
-               sourceManifestBytes ?? failInvariant("BGI source manifest is missing"),
-             )
+              sourceManifestBytes,
+              writableProfileBytes ?? failInvariant("BGI writable profile is missing"),
+            )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
                 executable,
@@ -638,6 +705,9 @@ class BrowserRuntimeSession {
       );
       if (sourceBackedWorkload) {
         this.#validatePreparedSourceSnapshot(preparedOutput.metadata);
+      }
+      if (profileBackedWorkload) {
+        this.#validatePreparedWritableProfile(preparedOutput.metadata);
       }
       if (workload === "private-bgi") {
         const stack = preparedOutput.metadata.initialThreadStack;
@@ -727,7 +797,7 @@ class BrowserRuntimeSession {
     return this.#fetchBytes(url, "runtime policy");
   }
 
-  #sameOriginSourceUrl(configured: string | undefined, fallback: string, label: string): URL {
+  #sameOriginStorageUrl(configured: string | undefined, fallback: string, label: string): URL {
     const runtimeUrl = new URL(import.meta.url);
     const url = new URL(configured ?? fallback, runtimeUrl);
     invariant(url.origin === runtimeUrl.origin, `${label} must use the Runtime Worker origin`);
@@ -801,6 +871,94 @@ class BrowserRuntimeSession {
     }
   }
 
+  #parseWritableProfile(bytes: Uint8Array): WritableProfileManifest {
+    const profile = JSON.parse(new TextDecoder().decode(bytes)) as WritableProfileManifest;
+    invariant(
+      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 1,
+      "writable profile schema mismatch",
+    );
+    invariant(
+      /^[a-zA-Z0-9:._-]{1,128}$/u.test(profile.titleFingerprint) &&
+        /^[a-zA-Z0-9._-]{1,128}$/u.test(profile.profileId) &&
+        validByteArray(profile.rootPathA, true) &&
+        Number.isSafeInteger(profile.quotaBytes) &&
+        profile.quotaBytes > 0 &&
+        profile.quotaBytes <= 16 * 1024 * 1024,
+      "writable profile identity or quota is invalid",
+    );
+    invariant(
+      profile.files.length > 0 && profile.files.length <= 64,
+      "writable profile file count is invalid",
+    );
+    const objectIds = new Set<number>();
+    const paths = new Set<string>();
+    let totalBytes = 0;
+    for (const file of profile.files) {
+      const pathIdentity = file.relativePathA
+        .map((byte) => (byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte))
+        .join(",");
+      invariant(
+        Number.isInteger(file.objectId) &&
+          file.objectId > 0 &&
+          !objectIds.has(file.objectId) &&
+          validByteArray(file.relativePathA, false) &&
+          !paths.has(pathIdentity) &&
+          typeof file.exists === "boolean" &&
+          Number.isSafeInteger(file.generation) &&
+          file.generation >= 0 &&
+          Number.isSafeInteger(file.byteLength) &&
+          file.byteLength >= 0 &&
+          file.byteLength <= profile.quotaBytes &&
+          Array.isArray(file.bytes) &&
+          file.bytes.every(
+            (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+          ) &&
+          file.bytes.length === file.byteLength &&
+          (file.sha256 === null || /^[0-9a-f]{64}$/u.test(file.sha256)) &&
+          (file.exists
+            ? file.generation > 0 && file.sha256 !== null
+            : file.generation === 0 && file.byteLength === 0 && file.sha256 === null),
+        "writable profile file descriptor is invalid or duplicated",
+      );
+      objectIds.add(file.objectId);
+      paths.add(pathIdentity);
+      totalBytes += file.byteLength;
+    }
+    invariant(totalBytes <= profile.quotaBytes, "writable profile content exceeds its quota");
+    return profile;
+  }
+
+  #validatePreparedWritableProfile(prepared: PreparedMetadata): void {
+    const profile = this.#writableProfile ?? failInvariant("writable profile was not registered");
+    const runtime =
+      prepared.writableProfile ?? failInvariant("Rust writable profile metadata is missing");
+    invariant(
+      runtime.titleFingerprint === profile.titleFingerprint &&
+        runtime.profileId === profile.profileId &&
+        byteArraysEqual(runtime.rootPathA, profile.rootPathA) &&
+        runtime.quotaBytes === profile.quotaBytes,
+      "Rust and browser writable profile identities differ",
+    );
+    invariant(
+      Object.keys(runtime.files).length === profile.files.length,
+      "Rust and browser writable profile file counts differ",
+    );
+    for (const file of profile.files) {
+      const preparedFile = runtime.files[String(file.objectId)];
+      invariant(
+        preparedFile !== undefined &&
+          preparedFile.objectId === file.objectId &&
+          byteArraysEqual(preparedFile.relativePathA, file.relativePathA) &&
+          preparedFile.exists === file.exists &&
+          preparedFile.generation === file.generation &&
+          preparedFile.byteLength === file.byteLength &&
+          preparedFile.sha256 === file.sha256 &&
+          !preparedFile.dirty,
+        `Rust and browser writable object ${file.objectId} differ`,
+      );
+    }
+  }
+
   completeHost(message: HostCompletionMessage): void {
     if (this.#terminal) {
       throw new Error("host completion arrived after the runtime session stopped");
@@ -866,7 +1024,7 @@ class BrowserRuntimeSession {
       "source read length is outside the transport bound",
     );
     const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
-    const base = this.#sameOriginSourceUrl(
+    const base = this.#sameOriginStorageUrl(
       this.#configuration.sourceApiUrl,
       "/api/source/v1/",
       "source API URL",
@@ -925,6 +1083,200 @@ class BrowserRuntimeSession {
     }
   }
 
+  async #serviceProfileRead(metadata: HostRequestMetadata): Promise<void> {
+    const profile =
+      this.#writableProfile ?? failInvariant("profile read has no registered profile");
+    invariant(metadata.service === "storage.profile-read.v1", "unexpected profile read service");
+    invariant(metadata.arguments.length === 6, "profile read request must contain six words");
+    const [version, sourceId, objectId, offsetLow, offsetHigh, requestedBytes] =
+      metadata.arguments;
+    invariant(version === 1 && sourceId === 0, "profile read transport identity mismatch");
+    const file = profile.files.find((candidate) => candidate.objectId === objectId);
+    invariant(file !== undefined && file.exists, "profile read object is not committed");
+    const offset = BigInt(offsetLow ?? 0) | (BigInt(offsetHigh ?? 0) << 32n);
+    invariant(offset <= BigInt(file.byteLength), "profile read offset is outside the object");
+    invariant(
+      Number.isInteger(requestedBytes) &&
+        (requestedBytes ?? 0) > 0 &&
+        (requestedBytes ?? 0) <= 1024 * 1024,
+      "profile read length is outside the transport bound",
+    );
+    const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
+    const base = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v1/",
+      "writable profile API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    const url = new URL(
+      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
+        `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}`,
+      base,
+    );
+    url.searchParams.set("generation", String(file.generation));
+    url.searchParams.set("offset", offset.toString());
+    url.searchParams.set("length", String(requestedBytes));
+    const controller = new AbortController();
+    invariant(
+      !this.#sourceReadControllers.has(metadata.requestId),
+      "profile read request already owns a fetch",
+    );
+    this.#sourceReadControllers.set(metadata.requestId, controller);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      invariant(response.status === 206, `profile read failed with ${response.status}`);
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+          response.headers.get("x-vine-profile-id") === profile.profileId &&
+          response.headers.get("x-vine-object-id") === String(objectId) &&
+          response.headers.get("x-vine-generation") === String(file.generation) &&
+          response.headers.get("x-vine-offset") === offset.toString() &&
+          response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
+          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes),
+        "profile read response identity mismatch",
+      );
+      const payload = new Uint8Array(await response.arrayBuffer());
+      invariant(payload.byteLength === expectedBytes, "profile read response length mismatch");
+      const control = new Uint8Array(32);
+      const view = new DataView(control.buffer);
+      [
+        1,
+        0,
+        objectId ?? 0,
+        offsetLow ?? 0,
+        offsetHigh ?? 0,
+        requestedBytes ?? 0,
+        payload.byteLength,
+        0,
+      ].forEach((word, index) => view.setUint32(index * 4, word, true));
+      this.#completeSourceRead(metadata, control, payload);
+    } finally {
+      this.#sourceReadControllers.delete(metadata.requestId);
+    }
+  }
+
+  async #serviceWritableCommit(metadata: HostRequestMetadata): Promise<void> {
+    const profile =
+      this.#writableProfile ?? failInvariant("writable commit has no registered profile");
+    invariant(
+      metadata.service === "storage.profile-commit.v1",
+      "unexpected writable commit service",
+    );
+    invariant(metadata.arguments.length === 7, "writable commit request must contain seven words");
+    const [
+      version,
+      objectId,
+      baseLow,
+      baseHigh,
+      byteLengthLow,
+      byteLengthHigh,
+      closeAfterCommit,
+    ] = metadata.arguments;
+    invariant(version === 1, "writable commit request version mismatch");
+    const baseGeneration = BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
+    const byteLength = BigInt(byteLengthLow ?? 0) | (BigInt(byteLengthHigh ?? 0) << 32n);
+    invariant(
+      baseGeneration <= BigInt(Number.MAX_SAFE_INTEGER) &&
+        byteLength <= BigInt(profile.quotaBytes) &&
+        (closeAfterCommit === 0 || closeAfterCommit === 1),
+      "writable commit request exceeds the profile bounds",
+    );
+    const file = profile.files.find((candidate) => candidate.objectId === objectId);
+    invariant(file !== undefined, "writable commit object is not allowlisted");
+    invariant(
+      BigInt(file.generation) === baseGeneration,
+      "writable commit base generation differs from the browser snapshot",
+    );
+    const payloadOutput = this.#requireBridge().writableCommitPayload<WritableCommitPayloadMetadata>(
+      BigInt(metadata.requestId),
+    );
+    invariant(
+      payloadOutput.metadata.kind === "writable-commit-payload" &&
+        payloadOutput.metadata.requestId === metadata.requestId &&
+        payloadOutput.control.byteLength === 0 &&
+        BigInt(payloadOutput.payload.byteLength) === byteLength,
+      "writable commit payload identity mismatch",
+    );
+    const request = payloadOutput.metadata.request;
+    invariant(
+      request.objectId === objectId &&
+        BigInt(request.baseGeneration) === baseGeneration &&
+        BigInt(request.byteLength) === byteLength &&
+        request.closeAfterCommit === (closeAfterCommit === 1) &&
+        /^[0-9a-f]{64}$/u.test(request.contentSha256),
+      "writable commit Rust metadata disagrees with the transport words",
+    );
+    const contentSha256 = await sha256Hex(payloadOutput.payload);
+    invariant(contentSha256 === request.contentSha256, "writable commit payload hash mismatch");
+    const base = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v1/",
+      "writable profile API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    const url = new URL(
+      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
+        `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}/commits`,
+      base,
+    );
+    const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
+    let response: Response | null = null;
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
+      try {
+        const candidate = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Vine-Request-Key": requestKey,
+            "X-Vine-Base-Generation": baseGeneration.toString(),
+            "X-Vine-Byte-Length": byteLength.toString(),
+            "X-Vine-Content-Sha256": contentSha256,
+          },
+          body: ownedArrayBuffer(payloadOutput.payload),
+        });
+        if (candidate.status >= 500 && attempt === 0) {
+          lastError = new Error(`writable commit failed with ${candidate.status}`);
+          continue;
+        }
+        response = candidate;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (response === null) {
+      throw (lastError instanceof Error ? lastError : new Error(String(lastError)));
+    }
+    invariant(response.status === 200, `writable commit failed with ${response.status}`);
+    invariant(
+      response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+        response.headers.get("x-vine-profile-id") === profile.profileId &&
+        response.headers.get("x-vine-object-id") === String(objectId) &&
+        response.headers.get("x-vine-base-generation") === baseGeneration.toString() &&
+        response.headers.get("x-vine-content-sha256") === contentSha256,
+      "writable commit response identity mismatch",
+    );
+    const control = new Uint8Array(await response.arrayBuffer());
+    invariant(control.byteLength === 32, "writable commit response size mismatch");
+    const completion = this.#completeWritableCommit(metadata, control);
+    if (completion.succeeded) {
+      file.exists = true;
+      file.generation = completion.committedGeneration;
+      file.byteLength = payloadOutput.payload.byteLength;
+      file.sha256 = contentSha256;
+      file.bytes = [...payloadOutput.payload];
+    }
+  }
+
   #completeSourceRead(
     request: HostRequestMetadata,
     control: Uint8Array,
@@ -965,6 +1317,54 @@ class BrowserRuntimeSession {
       this.#signalRunnable();
     }
     this.#status("running", `${pending.service} completed`);
+  }
+
+  #completeWritableCommit(
+    request: HostRequestMetadata,
+    control: Uint8Array,
+  ): RuntimeWritableCommitSnapshot {
+    if (this.#terminal) {
+      throw new SessionStopped("writable commit completed after the session stopped");
+    }
+    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
+    const output = this.#requireBridge().completeWritableCommit<HostCompletionMetadata>(
+      BigInt(pending.requestId),
+      control,
+    );
+    const completion = output.metadata;
+    invariant(
+      completion.kind === "host-complete" &&
+        completion.threadId === pending.threadId &&
+        completion.writableCommit !== undefined &&
+        output.control.byteLength === 0 &&
+        output.payload.byteLength === 0,
+      "invalid writable commit completion metadata",
+    );
+    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const expectedResumeState =
+      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+    invariant(resumeState === expectedResumeState, "writable commit resume policy mismatch");
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#recordBgiCompletion(completion);
+    }
+    this.#report.writableCommits.push(completion.writableCommit);
+    this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+    this.#threadExecutionStates.set(completion.threadId, resumeState);
+    this.#report.rustSchedulerTransitions += 1;
+    pending.resolve({
+      result: completion.writableCommit.succeeded ? 1 : 0,
+      completionPolicy: pending.completionPolicy,
+    });
+    if (this.#execution.state() === "waiting-host") {
+      this.#execution.transition("host-completion", {
+        cause: "writable-commit-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      this.#signalRunnable();
+    }
+    this.#status("running", `${pending.service} completed`);
+    return completion.writableCommit;
   }
 
   cancel(): void {
@@ -1136,7 +1536,10 @@ class BrowserRuntimeSession {
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "host-request": {
-        invariant(output.control.byteLength === 0, "host request unexpectedly returned a delta");
+        invariant(
+          output.control.byteLength === 0 && output.payload.byteLength === 0,
+          "host request unexpectedly returned a delta",
+        );
         this.#report.hostRequests += 1;
         this.#status("waiting-host", metadata.service);
         this.#postHost(metadata);
@@ -1192,10 +1595,7 @@ class BrowserRuntimeSession {
             "runnable API-created guest thread has no CPU context",
           );
         }
-        this.#execution.transition(resumeState, {
-          cause: "synchronous-api-complete",
-          threadId: this.#currentThreadId,
-        });
+        this.#completeApiExecutionBoundary(resumeState, metadata.threadSelection);
         break;
       }
       case "api-fault":
@@ -1438,6 +1838,9 @@ class BrowserRuntimeSession {
         ? {}
         : { comApartment: metadata.comApartment }),
       ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
+      ...(metadata.writableCommit === undefined
+        ? {}
+        : { writableCommit: metadata.writableCommit }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
       ...(metadata.gdiplus === undefined ? {} : { gdiplus: metadata.gdiplus }),
       ...(metadata.imm32 === undefined ? {} : { imm32: metadata.imm32 }),
@@ -1784,6 +2187,38 @@ class BrowserRuntimeSession {
     this.#report.registeredThreadIds.push(thread.id);
   }
 
+  #completeApiExecutionBoundary(
+    callerResumeState: "ready" | "guest-callback",
+    selection: ApiBoundaryThreadSelection | undefined,
+  ): void {
+    if (selection === undefined) {
+      this.#execution.transition(callerResumeState, {
+        cause: "synchronous-api-complete",
+        threadId: this.#currentThreadId,
+      });
+      return;
+    }
+    invariant(
+      selection.previousThreadId === this.#currentThreadId &&
+        selection.threadId !== this.#currentThreadId &&
+        (selection.state.state === "runnable" || selection.state.state === "in-callback"),
+      "Rust API boundary returned an invalid thread selection",
+    );
+    this.#saveLiveThreadContext();
+    this.#execution.transition("thread-switch", {
+      cause: "api-boundary-quantum-expired",
+      threadId: selection.threadId,
+    });
+    this.#activateThread(selection.threadId, selection.state);
+    const selectedResumeState =
+      selection.state.state === "in-callback" ? "guest-callback" : "ready";
+    this.#execution.transition(selectedResumeState, {
+      cause: "api-boundary-thread-context-restored",
+      threadId: selection.threadId,
+    });
+    this.#report.rustSchedulerTransitions += 1;
+  }
+
   async #completeThread(exitCode: number): Promise<void> {
     const threadId = this.#currentThreadId;
     const preparedThread = this.#requirePrepared().additionalThreads?.find(
@@ -2082,6 +2517,22 @@ class BrowserRuntimeSession {
     if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {
         void this.#serviceSourceRead(metadata).catch((error: unknown) => {
+          if (!this.#terminal) {
+            this.#fail(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+      }
+    } else if (metadata.service === "storage.profile-read.v1") {
+      if (this.#configuration.mode === "success") {
+        void this.#serviceProfileRead(metadata).catch((error: unknown) => {
+          if (!this.#terminal) {
+            this.#fail(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+      }
+    } else if (metadata.service === "storage.profile-commit.v1") {
+      if (this.#configuration.mode === "success") {
+        void this.#serviceWritableCommit(metadata).catch((error: unknown) => {
           if (!this.#terminal) {
             this.#fail(error instanceof Error ? error : new Error(String(error)));
           }
@@ -2490,6 +2941,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
             supportedCalls: [],
             sourceReads: [],
+            writableCommits: [],
             firstUnsupported: null,
             error: "another runtime session is active",
           },

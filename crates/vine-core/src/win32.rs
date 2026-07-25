@@ -18,11 +18,12 @@ use crate::runtime::{
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
     RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
-    RuntimeSourceReadHostResponse, RuntimeStateErrorClass, RuntimeThreadPriority,
-    RuntimeVirtualMemoryReserveRequest, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE, RuntimeCreateThreadRequest,
+    RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
+    RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
+    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWritableCommitHostResponse,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -80,6 +81,8 @@ pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-d
 pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
 pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
+pub const WRITE_FILE_IMPLEMENTATION: &str = "kernel32.write-file.profile.v1";
+pub const FLUSH_FILE_BUFFERS_IMPLEMENTATION: &str = "kernel32.flush-file-buffers.profile.v1";
 pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.source.v1";
 pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.v2";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
@@ -124,9 +127,11 @@ const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_FILE_NOT_FOUND: u32 = 2;
+const ERROR_ACCESS_DENIED: u32 = 5;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
 const ERROR_SHARING_VIOLATION: u32 = 32;
+const ERROR_DISK_FULL: u32 = 112;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
@@ -168,6 +173,12 @@ pub fn dispatch_kernel32_api_with_policy(
     }
     if contract.implementation_id == READ_FILE_IMPLEMENTATION {
         return handle_read_file(policy, contract, frame, session);
+    }
+    if contract.implementation_id == FLUSH_FILE_BUFFERS_IMPLEMENTATION {
+        return handle_flush_file_buffers(policy, contract, frame, session);
+    }
+    if contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION {
+        return handle_close_handle(policy, contract, frame, session);
     }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
@@ -228,10 +239,10 @@ pub fn dispatch_kernel32_api_with_policy(
         }
         CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
         GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
+        WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
         SET_FILE_POINTER_IMPLEMENTATION => {
             handle_set_file_pointer(policy, contract, frame, session)
         }
-        CLOSE_HANDLE_IMPLEMENTATION => handle_close_handle(policy, contract, frame, session),
         CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
         CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
             handle_create_waitable_timer_a(policy, contract, frame, session)
@@ -338,6 +349,8 @@ pub fn kernel32_contract_for_endpoint(
         "CreateFileA" => create_file_a_contract(endpoint)?,
         "GetFileSize" => get_file_size_contract(endpoint)?,
         "ReadFile" => read_file_contract(endpoint)?,
+        "WriteFile" => write_file_contract(endpoint)?,
+        "FlushFileBuffers" => flush_file_buffers_contract(endpoint)?,
         "SetFilePointer" => set_file_pointer_contract(endpoint)?,
         "CloseHandle" => close_handle_contract(endpoint)?,
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
@@ -1875,6 +1888,10 @@ fn handle_create_file_a(
     let creation_disposition = required_argument(contract, frame, 4, "creation disposition")?;
     let flags_and_attributes = required_argument(contract, frame, 5, "flags and attributes")?;
     let template_file = required_argument(contract, frame, 6, "template file")?;
+    let supported_read_open =
+        desired_access == 0x8000_0000 && share_mode == 1 && creation_disposition == 3;
+    let supported_write_open =
+        desired_access == 0x4000_0000 && share_mode == 0 && matches!(creation_disposition, 2 | 4);
     if path_address == 0 {
         return Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
             .with_last_error(ERROR_INVALID_PARAMETER));
@@ -1889,12 +1906,13 @@ fn handle_create_file_a(
         || !file_policy
             .allowed_flags_and_attributes
             .contains(&flags_and_attributes)
+        || !(supported_read_open || supported_write_open)
     {
         return Err(ApiFault::unsupported(
             "win32-vfs",
             "create-file-a-variant-unsupported",
             format!(
-                "compatibility policy {} enables only its bounded immutable-source open variants",
+                "compatibility policy {} enables only bounded source-read and writable-profile open variants",
                 policy.id
             ),
         ));
@@ -1908,15 +1926,24 @@ fn handle_create_file_a(
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.runtime_mut().open_source_file_a(
+    match session.runtime_mut().open_file_a(
         &path,
         desired_access,
         share_mode,
+        creation_disposition,
         flags_and_attributes,
     ) {
-        Ok(Some(opened)) => {
-            Ok(source_file_handle_result(opened.handle.0).with_last_error(preserved_last_error))
-        }
+        Ok(Some(opened)) => Ok(source_file_handle_result(opened.handle.0).with_last_error(
+            if matches!(creation_disposition, 2 | 4) {
+                if opened.existed {
+                    ERROR_ALREADY_EXISTS
+                } else {
+                    ERROR_SUCCESS
+                }
+            } else {
+                preserved_last_error
+            },
+        )),
         Ok(None) => {
             Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
                 .with_last_error(ERROR_FILE_NOT_FOUND))
@@ -1925,6 +1952,9 @@ fn handle_create_file_a(
             Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
                 .with_last_error(ERROR_SHARING_VIOLATION))
         }
+        Err(error) if error.code == "immutable-source-write-denied" => Ok(
+            source_file_handle_result(INVALID_HANDLE_VALUE).with_last_error(ERROR_ACCESS_DENIED),
+        ),
         Err(error) => Err(ApiFault::unsupported(
             "win32-vfs",
             "create-file-a-path-unsupported",
@@ -1959,14 +1989,14 @@ fn handle_get_file_size(
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let file = match session.runtime().source_file_for_handle(handle) {
-        Ok(file) => file,
+    let size = match session.runtime().source_file_byte_length(handle) {
+        Ok(size) => size,
         Err(_) => {
             return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
                 .with_last_error(ERROR_INVALID_HANDLE));
         }
     };
-    let size = u32::try_from(file.byte_length).map_err(|_| {
+    let size = u32::try_from(size).map_err(|_| {
         ApiFault::runtime_defect(
             "win32-vfs",
             "source-file-size-not-representable",
@@ -1989,12 +2019,15 @@ fn handle_read_file(
         let requested_bytes = required_argument(contract, frame, 2, "requested bytes")?;
         let bytes_read = GuestAddress(required_argument(contract, frame, 3, "bytes-read output")?);
         let overlapped = required_argument(contract, frame, 4, "overlapped state")?;
-        if session.runtime().source_file_for_handle(handle).is_err() {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_INVALID_HANDLE),
-            ));
-        }
+        let backing = match session.runtime().source_file_for_handle(handle) {
+            Ok(file) => file.backing,
+            Err(_) => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::Bool32(false))
+                        .with_last_error(ERROR_INVALID_HANDLE),
+                ));
+            }
+        };
         if buffer.0 == 0
             || bytes_read.0 == 0
             || requested_bytes == 0
@@ -2026,13 +2059,162 @@ fn handle_read_file(
             .memory()
             .validate_access(bytes_read, 4, MemoryAccess::Write)
             .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        if matches!(backing, RuntimeFileBacking::WritableProfile { .. })
+            && session
+                .runtime()
+                .writable_file_needs_commit(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        {
+            let (result, bytes, buffer_write, count_write) = session
+                .read_writable_file(handle, buffer, bytes_read, requested_bytes)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            let mut immediate = ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_committed_guest_write(ApiGuestWriteReceipt {
+                    write: ApiGuestWrite {
+                        address: bytes_read,
+                        bytes: result.transferred_bytes.to_le_bytes().to_vec(),
+                    },
+                    result: count_write,
+                })
+                .with_last_error(ERROR_SUCCESS);
+            if let Some(buffer_write) = buffer_write {
+                immediate = immediate.with_committed_guest_write(ApiGuestWriteReceipt {
+                    write: ApiGuestWrite {
+                        address: buffer,
+                        bytes,
+                    },
+                    result: buffer_write,
+                });
+            }
+            return Ok(ApiHandlerResult::Immediate(immediate));
+        }
         let request = session
             .runtime_mut()
             .begin_source_file_read(handle, buffer, bytes_read, requested_bytes)
             .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
         Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
             request_id: request.request_id,
-            service: RUNTIME_SOURCE_READ_SERVICE.to_owned(),
+            service: if request.source_id == 0 {
+                RUNTIME_WRITABLE_READ_SERVICE.to_owned()
+            } else {
+                RUNTIME_SOURCE_READ_SERVICE.to_owned()
+            },
+            payload: request.encode_host_payload().to_vec(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_write_file(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let file_policy = require_source_file_policy(policy)?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+    let buffer = GuestAddress(required_argument(contract, frame, 1, "write buffer")?);
+    let requested_bytes = required_argument(contract, frame, 2, "requested bytes")?;
+    let bytes_written = GuestAddress(required_argument(
+        contract,
+        frame,
+        3,
+        "bytes-written output",
+    )?);
+    let overlapped = required_argument(contract, frame, 4, "overlapped state")?;
+    let backing = match session.runtime().source_file_for_handle(handle) {
+        Ok(file) => file.backing,
+        Err(_) => {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+    };
+    if matches!(backing, RuntimeFileBacking::ImmutableSource { .. }) {
+        return Ok(
+            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_ACCESS_DENIED)
+        );
+    }
+    if buffer.0 == 0
+        || bytes_written.0 == 0
+        || requested_bytes == 0
+        || requested_bytes > file_policy.maximum_write_bytes
+        || requested_bytes > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES
+        || overlapped != 0
+    {
+        return Err(ApiFault::unsupported(
+            "win32-vfs",
+            "write-file-variant-unsupported",
+            format!(
+                "compatibility policy {} enables one bounded synchronous writable-profile write shape",
+                policy.id
+            ),
+        ));
+    }
+    let bytes = session
+        .memory()
+        .read(buffer, requested_bytes as usize)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
+        .to_vec();
+    match session.write_writable_file(handle, bytes_written, &bytes) {
+        Ok((result, count_write)) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+            .with_committed_guest_write(ApiGuestWriteReceipt {
+                write: ApiGuestWrite {
+                    address: bytes_written,
+                    bytes: result.transferred_bytes.to_le_bytes().to_vec(),
+                },
+                result: count_write,
+            })
+            .with_last_error(ERROR_SUCCESS)),
+        Err(error) if error.code == "writable-profile-quota-exceeded" => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_DISK_FULL))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_flush_file_buffers(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| {
+        require_source_file_policy(policy)?;
+        let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
+        let backing = match session.runtime().source_file_for_handle(handle) {
+            Ok(file) => file.backing,
+            Err(_) => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::Bool32(false))
+                        .with_last_error(ERROR_INVALID_HANDLE),
+                ));
+            }
+        };
+        if matches!(backing, RuntimeFileBacking::ImmutableSource { .. }) {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_ACCESS_DENIED),
+            ));
+        }
+        if !session
+            .runtime()
+            .writable_file_needs_commit(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(ERROR_SUCCESS),
+            ));
+        }
+        let request = session
+            .runtime_mut()
+            .begin_writable_file_commit(handle, false)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: RUNTIME_WRITABLE_COMMIT_SERVICE.to_owned(),
             payload: request.encode_host_payload().to_vec(),
         }))
     })();
@@ -2091,34 +2273,60 @@ fn handle_close_handle(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "object handle")?);
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let Ok(kind) = handle.kind() else {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
-        );
-    };
-    if !matches!(
-        kind,
-        RuntimeObjectKind::Process
-            | RuntimeObjectKind::Thread
-            | RuntimeObjectKind::Mutex
-            | RuntimeObjectKind::WaitableTimer
-            | RuntimeObjectKind::File
-    ) || session.runtime().object_for_handle(handle, kind).is_err()
-    {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
-        );
+) -> ApiHandlerResult {
+    let result = (|| {
+        let handle = RuntimeHandle(required_argument(contract, frame, 0, "object handle")?);
+        let preserved_last_error = session
+            .last_error()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let Ok(kind) = handle.kind() else {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        };
+        if !matches!(
+            kind,
+            RuntimeObjectKind::Process
+                | RuntimeObjectKind::Thread
+                | RuntimeObjectKind::Mutex
+                | RuntimeObjectKind::WaitableTimer
+                | RuntimeObjectKind::File
+        ) || session.runtime().object_for_handle(handle, kind).is_err()
+        {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        if kind == RuntimeObjectKind::File
+            && session
+                .runtime()
+                .writable_file_needs_commit(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        {
+            let request = session
+                .runtime_mut()
+                .begin_writable_file_commit(handle, true)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            return Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+                request_id: request.request_id,
+                service: RUNTIME_WRITABLE_COMMIT_SERVICE.to_owned(),
+                payload: request.encode_host_payload().to_vec(),
+            }));
+        }
+        session
+            .runtime_mut()
+            .close_handle(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        Ok(ApiHandlerResult::Immediate(
+            ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error),
+        ))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
     }
-    session
-        .runtime_mut()
-        .close_handle(handle)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error))
 }
 
 pub fn complete_kernel32_source_read(
@@ -2132,7 +2340,10 @@ pub fn complete_kernel32_source_read(
 ) {
     if call.contract.implementation_id != READ_FILE_IMPLEMENTATION
         || call.request.request_id != response.request_id
-        || call.request.service != RUNTIME_SOURCE_READ_SERVICE
+        || !matches!(
+            call.request.service.as_str(),
+            RUNTIME_SOURCE_READ_SERVICE | RUNTIME_WRITABLE_READ_SERVICE
+        )
     {
         return (
             DispatchOutcome::Fault(ApiFault::invalid_call(
@@ -2175,6 +2386,78 @@ pub fn complete_kernel32_source_read(
         let completion = session
             .runtime_mut()
             .commit_source_file_read_completion(plan);
+        (outcome, Some(completion))
+    } else {
+        (outcome, None)
+    }
+}
+
+pub fn complete_kernel32_writable_commit(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    response: RuntimeWritableCommitHostResponse,
+    session: &mut ExecutionSession<'_>,
+) -> (
+    DispatchOutcome,
+    Option<crate::runtime::RuntimeWritableCommitCompletion>,
+) {
+    if !matches!(
+        call.contract.implementation_id.as_str(),
+        CLOSE_HANDLE_IMPLEMENTATION | FLUSH_FILE_BUFFERS_IMPLEMENTATION
+    ) || call.request.request_id != response.request_id
+        || call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "writable-commit-suspended-call-mismatch",
+                "writable commit host completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let plan = match session
+        .runtime()
+        .plan_writable_file_commit_completion(response)
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let completion_last_error = if plan.completion().succeeded
+        && call.contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION
+    {
+        match session.last_error() {
+            Ok(last_error) => last_error,
+            Err(error) => {
+                return (
+                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                    None,
+                );
+            }
+        }
+    } else {
+        plan.completion().win32_error
+    };
+    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
+        .with_last_error(completion_last_error);
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let completion = session
+            .runtime_mut()
+            .commit_writable_file_commit_completion(plan);
         (outcome, Some(completion))
     } else {
         (outcome, None)
@@ -4171,6 +4454,37 @@ pub fn read_file_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, 
     Ok(contract)
 }
 
+pub fn write_file_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "WriteFile",
+        vec![
+            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
+            dynamic_in_bytes("buffer", false, 1, 1, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES),
+            u32_argument("bytesToWrite"),
+            out_struct("bytesWritten", "DWORD", 4),
+            opaque_pointer("overlapped", true, 4),
+        ],
+        ApiReturnSchema::Bool32,
+        WRITE_FILE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn flush_file_buffers_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "FlushFileBuffers",
+        vec![logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false)],
+        ApiReturnSchema::Bool32,
+        FLUSH_FILE_BUFFERS_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn set_file_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     let mut contract = kernel32_contract(
         endpoint,
@@ -4196,6 +4510,7 @@ pub fn close_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContrac
         ApiReturnSchema::Bool32,
         CLOSE_HANDLE_IMPLEMENTATION,
     )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
 }

@@ -1,14 +1,82 @@
 use vine_core::{
-    GuestAddress, LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout, RuntimeBootstrap,
-    RuntimeClockState, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    GuestAddress, LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout,
+    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeBootstrap, RuntimeClockState, RuntimeHandle,
+    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStartupInfo,
+    RuntimeState, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
 const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
+
+#[test]
+fn api_boundary_quantum_selects_another_runnable_thread_without_immediate_preemption() {
+    let mut runtime = running_runtime();
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second executable thread");
+
+    for completed in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+        assert_eq!(
+            runtime
+                .complete_api_execution_boundary()
+                .expect("complete API execution boundary"),
+            None,
+            "boundary {completed} must preserve the current quantum"
+        );
+        assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
+    }
+
+    let selection = runtime
+        .complete_api_execution_boundary()
+        .expect("expire initial API quantum")
+        .expect("second runnable thread is selected");
+    assert_eq!(selection.previous_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(selection.thread_id, SECOND_THREAD_ID);
+    assert_eq!(selection.state, SchedulerThreadState::Runnable);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+
+    for _ in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+        assert_eq!(runtime.complete_api_execution_boundary().unwrap(), None);
+    }
+    assert_eq!(
+        runtime
+            .complete_api_execution_boundary()
+            .unwrap()
+            .expect("round robin returns to the initial thread")
+            .thread_id,
+        INITIAL_THREAD_ID
+    );
+}
+
+#[test]
+fn api_boundary_quantum_starts_only_after_a_second_runnable_lane_exists() {
+    let mut runtime = running_runtime();
+    for _ in 0..(RUNTIME_API_BOUNDARY_QUANTUM * 2) {
+        assert_eq!(runtime.complete_api_execution_boundary().unwrap(), None);
+        assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
+    }
+
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register a newly contending thread");
+    for completed in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+        assert_eq!(
+            runtime.complete_api_execution_boundary().unwrap(),
+            None,
+            "fresh contention boundary {completed} must stay in the new quantum"
+        );
+    }
+    assert_eq!(
+        runtime
+            .complete_api_execution_boundary()
+            .unwrap()
+            .expect("fresh contention expires after a full quantum")
+            .thread_id,
+        SECOND_THREAD_ID
+    );
+}
 
 #[test]
 fn executable_selection_runs_another_thread_while_host_completion_remains_thread_owned() {

@@ -8,6 +8,8 @@ use super::{
     RuntimeWaitCompletion, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
 };
 
+pub const RUNTIME_API_BOUNDARY_QUANTUM: u32 = 64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum SchedulerThreadState {
@@ -89,6 +91,10 @@ impl RuntimeSchedulerEvent {
 pub struct RuntimeScheduler {
     current_thread_id: RuntimeThreadId,
     threads: BTreeMap<RuntimeThreadId, SchedulerThreadState>,
+    #[serde(skip)]
+    completed_api_boundaries_in_quantum: u32,
+    #[serde(skip)]
+    api_boundary_revision: u64,
     #[serde(flatten)]
     waits: RuntimeWaits,
     events: VecDeque<RuntimeSchedulerEvent>,
@@ -111,6 +117,18 @@ pub(super) struct RuntimeSchedulerSelectionPlan {
     next: RuntimeThreadId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeSchedulerApiBoundaryPlan {
+    previous_revision: u64,
+    next_revision: u64,
+    previous_thread_id: RuntimeThreadId,
+    previous_thread_state: SchedulerThreadState,
+    runnable_competitor: Option<RuntimeThreadId>,
+    previous_completed_boundaries: u32,
+    next_completed_boundaries: u32,
+    selection: Option<RuntimeSchedulerSelectionPlan>,
+}
+
 impl RuntimeSchedulerSelectionPlan {
     pub(super) const fn previous(self) -> RuntimeThreadId {
         self.previous
@@ -118,6 +136,12 @@ impl RuntimeSchedulerSelectionPlan {
 
     pub(super) const fn next(self) -> RuntimeThreadId {
         self.next
+    }
+}
+
+impl RuntimeSchedulerApiBoundaryPlan {
+    pub(super) const fn selection(self) -> Option<RuntimeSchedulerSelectionPlan> {
+        self.selection
     }
 }
 
@@ -179,6 +203,8 @@ impl RuntimeScheduler {
         Self {
             current_thread_id: initial_thread_id,
             threads: BTreeMap::from([(initial_thread_id, SchedulerThreadState::Initialized)]),
+            completed_api_boundaries_in_quantum: 0,
+            api_boundary_revision: 0,
             waits: RuntimeWaits::default(),
             events: VecDeque::new(),
             host_requests: BTreeMap::new(),
@@ -338,9 +364,152 @@ impl RuntimeScheduler {
         Ok(None)
     }
 
+    fn plan_next_other_runnable_selection(
+        &self,
+    ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
+        let thread_ids = self.threads.keys().copied().collect::<Vec<_>>();
+        let current_index = thread_ids
+            .iter()
+            .position(|thread_id| *thread_id == self.current_thread_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-scheduler",
+                    "current-thread-scheduler-state-missing",
+                    "current runtime thread has no scheduler lane",
+                )
+            })?;
+        for offset in 1..thread_ids.len() {
+            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
+            if self.state(thread_id)? == SchedulerThreadState::Runnable {
+                return self.plan_selection(thread_id).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
+    pub(super) fn plan_completed_api_boundary(
+        &self,
+    ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
+        let current_state = self.current_state()?;
+        let next_revision = self.api_boundary_revision.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-scheduler",
+                "api-boundary-revision-exhausted",
+                "API execution boundary plan revision is exhausted",
+            )
+        })?;
+        let next_runnable = self.plan_next_other_runnable_selection()?;
+        let runnable_competitor = next_runnable.map(|selection| selection.next);
+        if matches!(current_state, SchedulerThreadState::InCallback { .. }) {
+            return Ok(RuntimeSchedulerApiBoundaryPlan {
+                previous_revision: self.api_boundary_revision,
+                next_revision,
+                previous_thread_id: self.current_thread_id,
+                previous_thread_state: current_state,
+                runnable_competitor,
+                previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
+                next_completed_boundaries: self.completed_api_boundaries_in_quantum,
+                selection: None,
+            });
+        }
+        if current_state != SchedulerThreadState::Runnable {
+            return Err(RuntimeStateError::conflict(
+                "runtime-scheduler",
+                "api-boundary-thread-not-executable",
+                "an API execution boundary requires an executable current thread",
+            ));
+        }
+        let Some(next_runnable) = next_runnable else {
+            return Ok(RuntimeSchedulerApiBoundaryPlan {
+                previous_revision: self.api_boundary_revision,
+                next_revision,
+                previous_thread_id: self.current_thread_id,
+                previous_thread_state: current_state,
+                runnable_competitor,
+                previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
+                next_completed_boundaries: 0,
+                selection: None,
+            });
+        };
+        let completed = self
+            .completed_api_boundaries_in_quantum
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-scheduler",
+                    "api-boundary-counter-overflow",
+                    "API execution boundary counter is exhausted",
+                )
+            })?;
+        let quantum_expired = completed >= RUNTIME_API_BOUNDARY_QUANTUM;
+        Ok(RuntimeSchedulerApiBoundaryPlan {
+            previous_revision: self.api_boundary_revision,
+            next_revision,
+            previous_thread_id: self.current_thread_id,
+            previous_thread_state: current_state,
+            runnable_competitor,
+            previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
+            next_completed_boundaries: if quantum_expired { 0 } else { completed },
+            selection: quantum_expired.then_some(next_runnable),
+        })
+    }
+
+    pub(super) fn preflight_completed_api_boundary(
+        &self,
+        plan: &RuntimeSchedulerApiBoundaryPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let runnable_competitor = self
+            .plan_next_other_runnable_selection()?
+            .map(|selection| selection.next);
+        if self.api_boundary_revision != plan.previous_revision
+            || self.current_thread_id != plan.previous_thread_id
+            || self.current_state()? != plan.previous_thread_state
+            || runnable_competitor != plan.runnable_competitor
+            || self.completed_api_boundaries_in_quantum != plan.previous_completed_boundaries
+            || plan.selection.is_some_and(|selection| {
+                selection.previous != plan.previous_thread_id
+                    || Some(selection.next) != plan.runnable_competitor
+            })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-scheduler",
+                "api-boundary-plan-stale",
+                "runtime scheduler changed after API boundary preflight",
+            ));
+        }
+        if let Some(selection) = plan.selection
+            && (selection.next == self.current_thread_id
+                || self.state(selection.next)? != SchedulerThreadState::Runnable)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-scheduler",
+                "api-boundary-selection-stale",
+                "API boundary target is no longer another executable thread",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_completed_api_boundary(&mut self, plan: RuntimeSchedulerApiBoundaryPlan) {
+        debug_assert_eq!(self.api_boundary_revision, plan.previous_revision);
+        debug_assert_eq!(self.current_thread_id, plan.previous_thread_id);
+        debug_assert_eq!(self.current_state().ok(), Some(plan.previous_thread_state));
+        debug_assert_eq!(
+            self.completed_api_boundaries_in_quantum,
+            plan.previous_completed_boundaries
+        );
+        if let Some(selection) = plan.selection {
+            debug_assert_eq!(self.current_thread_id, selection.previous);
+            self.current_thread_id = selection.next;
+        }
+        self.completed_api_boundaries_in_quantum = plan.next_completed_boundaries;
+        self.api_boundary_revision = plan.next_revision;
+    }
+
     pub(super) fn commit_selection(&mut self, plan: RuntimeSchedulerSelectionPlan) {
         debug_assert_eq!(self.current_thread_id, plan.previous);
         self.current_thread_id = plan.next;
+        self.completed_api_boundaries_in_quantum = 0;
     }
 
     pub(super) fn plan_host_request(
@@ -584,6 +753,84 @@ mod tests {
         assert_eq!(scheduler.current_thread_id(), INITIAL);
         scheduler.commit_selection(selection);
         assert_eq!(scheduler.current_thread_id(), SECOND);
+    }
+
+    #[test]
+    fn api_boundary_plan_preserves_callback_atomicity_and_rejects_stale_commit() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        let initial_running = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(initial_running);
+        let no_competitor = scheduler.plan_completed_api_boundary().unwrap();
+        let second_running = scheduler
+            .plan_registration(SECOND, SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(second_running);
+        let before_runnable_set_stale = scheduler.clone();
+        assert_eq!(
+            scheduler
+                .preflight_completed_api_boundary(&no_competitor)
+                .expect_err("a plan cannot cross a runnable-set change")
+                .code,
+            "api-boundary-plan-stale"
+        );
+        assert_eq!(scheduler, before_runnable_set_stale);
+
+        for _ in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+            let plan = scheduler.plan_completed_api_boundary().unwrap();
+            scheduler.preflight_completed_api_boundary(&plan).unwrap();
+            scheduler.commit_completed_api_boundary(plan);
+        }
+        assert_eq!(
+            scheduler.completed_api_boundaries_in_quantum,
+            RUNTIME_API_BOUNDARY_QUANTUM - 1
+        );
+
+        let enter_callback = scheduler
+            .plan_current_transition(SchedulerThreadState::InCallback { depth: 1 })
+            .unwrap();
+        scheduler.commit_lane(enter_callback);
+        let callback_boundary = scheduler.plan_completed_api_boundary().unwrap();
+        assert_eq!(callback_boundary.selection(), None);
+        scheduler
+            .preflight_completed_api_boundary(&callback_boundary)
+            .unwrap();
+        scheduler.commit_completed_api_boundary(callback_boundary);
+        let before_duplicate_preflight = scheduler.clone();
+        assert_eq!(
+            scheduler
+                .preflight_completed_api_boundary(&callback_boundary)
+                .expect_err("an API boundary plan is single-use")
+                .code,
+            "api-boundary-plan-stale"
+        );
+        assert_eq!(scheduler, before_duplicate_preflight);
+        assert_eq!(scheduler.current_thread_id(), INITIAL);
+        assert_eq!(
+            scheduler.completed_api_boundaries_in_quantum,
+            RUNTIME_API_BOUNDARY_QUANTUM - 1
+        );
+
+        let leave_callback = scheduler
+            .plan_current_transition(SchedulerThreadState::Runnable)
+            .unwrap();
+        scheduler.commit_lane(leave_callback);
+        let expired = scheduler.plan_completed_api_boundary().unwrap();
+        assert_eq!(expired.selection().unwrap().next(), SECOND);
+        assert_eq!(scheduler.current_thread_id(), INITIAL);
+
+        let explicit_selection = scheduler.plan_selection(SECOND).unwrap();
+        scheduler.commit_selection(explicit_selection);
+        let before_stale_preflight = scheduler.clone();
+        assert_eq!(
+            scheduler
+                .preflight_completed_api_boundary(&expired)
+                .expect_err("a plan cannot cross an explicit selection")
+                .code,
+            "api-boundary-plan-stale"
+        );
+        assert_eq!(scheduler, before_stale_preflight);
     }
 
     #[test]

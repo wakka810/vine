@@ -152,6 +152,8 @@ pub struct Kernel32SourceFilePolicy {
     pub allowed_flags_and_attributes: Vec<u32>,
     pub maximum_path_bytes: u32,
     pub maximum_read_bytes: u32,
+    #[serde(default)]
+    pub maximum_write_bytes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -518,27 +520,41 @@ impl Kernel32CompatibilityPolicy {
                 .iter()
                 .copied()
                 .collect::<BTreeSet<_>>();
+            let writable = desired_access.contains(&0x4000_0000);
             if self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
                 || self.active_code_page() != Some(932)
                 || files.allowed_desired_access.is_empty()
                 || files.allowed_desired_access.len() > MAX_POLICY_ENTRIES
                 || desired_access.len() != files.allowed_desired_access.len()
-                || desired_access.iter().any(|access| *access != 0x8000_0000)
+                || !desired_access.contains(&0x8000_0000)
+                || desired_access
+                    .iter()
+                    .any(|access| !matches!(*access, 0x8000_0000 | 0x4000_0000))
                 || files.allowed_share_modes.is_empty()
                 || share_modes.len() != files.allowed_share_modes.len()
-                || share_modes.iter().any(|share| *share != 1)
+                || !share_modes.contains(&1)
+                || share_modes.iter().any(|share| !matches!(*share, 0 | 1))
                 || files.allowed_creation_dispositions.is_empty()
                 || dispositions.len() != files.allowed_creation_dispositions.len()
-                || dispositions.iter().any(|disposition| *disposition != 3)
+                || !dispositions.contains(&3)
+                || dispositions
+                    .iter()
+                    .any(|disposition| !matches!(*disposition, 2..=4))
                 || files.allowed_flags_and_attributes.is_empty()
                 || flags.len() != files.allowed_flags_and_attributes.len()
                 || flags.iter().any(|value| *value != 0x0800_0020)
                 || !(4..=32_768).contains(&files.maximum_path_bytes)
                 || !(1..=RUNTIME_SOURCE_READ_MAX_BYTES).contains(&files.maximum_read_bytes)
+                || (writable
+                    && (!share_modes.contains(&0)
+                        || !dispositions.contains(&4)
+                        || !(1..=RUNTIME_SOURCE_READ_MAX_BYTES)
+                            .contains(&files.maximum_write_bytes)))
+                || (!writable && files.maximum_write_bytes != 0)
             {
                 return Err(policy_error(
                     "kernel32-policy-source-files-invalid",
-                    "source file policy requires the bounded reached read-only open and read variants",
+                    "file policy requires bounded reached source-read and optional writable-profile variants",
                 ));
             }
         }

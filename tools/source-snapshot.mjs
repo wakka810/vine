@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 export const sourceSnapshotSchema = "vine.source-snapshot-manifest";
 export const sourceSnapshotVersion = 1;
 export const sourceReadService = "storage.source-read.v1";
+export const profileReadService = "storage.profile-read.v1";
 export const sourceReadTransportVersion = 1;
 export const sourceReadMaximumBytes = 1024 * 1024;
 
@@ -45,7 +46,7 @@ export async function registerSourceSnapshot({ manifestPath, objectFiles }) {
 }
 
 export function decodeSourceReadRequest(requestId, service, arguments_) {
-  if (service !== sourceReadService) {
+  if (service !== sourceReadService && service !== profileReadService) {
     throw new Error(`unsupported source service ${service}`);
   }
   if (!/^(0|[1-9][0-9]*)$/u.test(String(requestId))) {

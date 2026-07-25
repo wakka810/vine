@@ -2,11 +2,14 @@ use vine_core::{
     ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, DispatchOutcome, ExecutionSession,
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy,
     MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle,
-    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
+    RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate,
+    RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeThreadId, SchedulerThreadState, complete_kernel32_source_read,
-    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
+    RuntimeThreadId, RuntimeWritableCommitHostResponse, RuntimeWritableFileManifest,
+    RuntimeWritableProfileManifest, SchedulerThreadState, complete_kernel32_source_read,
+    complete_kernel32_writable_commit, dispatch_kernel32_api_with_policy,
+    kernel32_contract_for_endpoint,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -362,6 +365,309 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
     ));
     assert_eq!(invalid_size.eax, RegisterUpdate::Set(u32::MAX));
     assert_eq!(invalid_size.last_error, 6);
+}
+
+#[test]
+fn writable_profile_api_generates_commits_and_reopens_without_source_shadowing() {
+    let policy = source_policy();
+    let (mut memory, owner) = initialized_memory();
+    let endpoints = [
+        endpoint(11, "CreateFileA"),
+        endpoint(12, "WriteFile"),
+        endpoint(13, "CloseHandle"),
+        endpoint(14, "ReadFile"),
+    ];
+    let contracts = endpoints
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("valid writable file API contract")
+                .expect("implemented writable file API contract")
+        })
+        .collect::<Vec<_>>();
+    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts).expect("file dispatcher");
+    write_initialization(&mut memory, owner, GuestAddress(PATH_ADDRESS), b"BGI.gdb\0");
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(BUFFER_ADDRESS),
+        b"SDC FORMAT 1.00",
+    );
+    let frames = [
+        (
+            0x2000_0000,
+            vec![
+                0x1000_0010,
+                PATH_ADDRESS,
+                0x4000_0000,
+                0,
+                0,
+                4,
+                0x0800_0020,
+                0,
+            ],
+        ),
+        (
+            0x2000_0040,
+            vec![
+                0x1000_0020,
+                FIRST_FILE_HANDLE,
+                BUFFER_ADDRESS,
+                15,
+                BYTES_READ_ADDRESS,
+                0,
+            ],
+        ),
+        (0x2000_0080, vec![0x1000_0030, FIRST_FILE_HANDLE]),
+        (
+            0x2000_00c0,
+            vec![
+                0x1000_0040,
+                PATH_ADDRESS,
+                0x8000_0000,
+                1,
+                0,
+                3,
+                0x0800_0020,
+                0,
+            ],
+        ),
+    ];
+    for (address, words) in &frames {
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(*address),
+            &words
+                .iter()
+                .flat_map(|word| word.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+    }
+    memory.seal_owner(owner).expect("seal fixture memory");
+    acknowledge_initial_reflection(&mut memory);
+
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_writable_profile(RuntimeWritableProfileManifest {
+            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
+            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
+            title_fingerprint: "sha256:test-title".to_owned(),
+            profile_id: "default".to_owned(),
+            root_path_a: b"C:\\Vine\0".to_vec(),
+            quota_bytes: 1024,
+            files: vec![RuntimeWritableFileManifest {
+                object_id: 21,
+                relative_path_a: b"BGI.gdb".to_vec(),
+                exists: false,
+                generation: 0,
+                byte_length: 0,
+                sha256: None,
+                bytes: Vec::new(),
+            }],
+        })
+        .expect("register writable profile");
+
+    let create = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        frames[0].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(create.eax, RegisterUpdate::Set(FIRST_FILE_HANDLE));
+    assert_eq!(create.last_error, 0);
+
+    let write = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[1],
+        frames[1].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(write.eax, RegisterUpdate::Set(1));
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(BYTES_READ_ADDRESS), 4)
+            .expect("write count"),
+        15_u32.to_le_bytes()
+    );
+
+    let close = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[2],
+        frames[2].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(
+        decode_words(&close.request.payload),
+        vec![1, 21, 0, 0, 15, 0, 1]
+    );
+    let runtime_before_wrong = runtime.clone();
+    let (wrong, wrong_completion) = complete_kernel32_writable_commit(
+        &dispatcher,
+        close.clone(),
+        RuntimeWritableCommitHostResponse {
+            request_id: 1,
+            object_id: 21,
+            base_generation: 0,
+            committed_generation: 2,
+            win32_error: 0,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    assert!(matches!(wrong, DispatchOutcome::Fault(_)));
+    assert!(wrong_completion.is_none());
+    assert_eq!(runtime, runtime_before_wrong);
+
+    let (failed_close, failed_completion) = complete_kernel32_writable_commit(
+        &dispatcher,
+        close,
+        RuntimeWritableCommitHostResponse {
+            request_id: 1,
+            object_id: 21,
+            base_generation: 0,
+            committed_generation: 0,
+            win32_error: 5,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let failed_close = expect_immediate(failed_close);
+    assert_eq!(failed_close.eax, RegisterUpdate::Set(0));
+    assert_eq!(failed_close.last_error, 5);
+    let failed_completion = failed_completion.expect("failed writable commit");
+    assert!(!failed_completion.succeeded);
+    assert_eq!(failed_completion.committed_generation, 0);
+    assert!(
+        runtime
+            .writable_file_needs_commit(RuntimeHandle(FIRST_FILE_HANDLE))
+            .expect("dirty handle after failed close")
+    );
+    assert_eq!(
+        runtime.writable_file_commit_bytes(1).unwrap_err().code,
+        "writable-commit-request-unknown"
+    );
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
+
+    runtime.set_current_last_error(0x5a5a).unwrap();
+    let retry_close = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[2],
+        frames[2].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(
+        decode_words(&retry_close.request.payload),
+        vec![1, 21, 0, 0, 15, 0, 1]
+    );
+    assert_eq!(
+        runtime.writable_file_commit_bytes(2).expect("retry bytes"),
+        b"SDC FORMAT 1.00"
+    );
+    let (closed, completion) = complete_kernel32_writable_commit(
+        &dispatcher,
+        retry_close,
+        RuntimeWritableCommitHostResponse {
+            request_id: 2,
+            object_id: 21,
+            base_generation: 0,
+            committed_generation: 1,
+            win32_error: 0,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let closed = expect_immediate(closed);
+    assert_eq!(closed.eax, RegisterUpdate::Set(1));
+    assert_eq!(closed.last_error, 0x5a5a);
+    assert_eq!(completion.expect("writable commit").committed_generation, 1);
+    assert!(
+        runtime
+            .source_file_for_handle(RuntimeHandle(FIRST_FILE_HANDLE))
+            .is_err()
+    );
+    assert_eq!(
+        runtime.writable_profile().expect("profile").files[&21].byte_length,
+        15
+    );
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
+
+    let reopened = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        frames[3].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    let RegisterUpdate::Set(reopened_handle) = reopened.eax else {
+        panic!("reopened file did not return a handle");
+    };
+    let read_frame_address = 0x2000_0140;
+    let read_frame = [
+        0x1000_0050,
+        reopened_handle,
+        BUFFER_ADDRESS + 32,
+        32,
+        BYTES_READ_ADDRESS,
+        0,
+    ]
+    .into_iter()
+    .flat_map(u32::to_le_bytes)
+    .collect::<Vec<_>>();
+    memory
+        .write(GuestAddress(read_frame_address), &read_frame)
+        .expect("write reopened read frame");
+    acknowledge_pending_delta(&mut memory);
+    let read = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[3],
+        read_frame_address,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(
+        decode_words(&read.request.payload),
+        vec![1, 0, 21, 0, 0, 32]
+    );
+    let (read, read_completion) = complete_kernel32_source_read(
+        &dispatcher,
+        read,
+        RuntimeSourceReadHostResponse {
+            request_id: 3,
+            source_id: 0,
+            object_id: 21,
+            offset: 0,
+            requested_bytes: 32,
+            transferred_bytes: 15,
+            win32_error: 0,
+            bytes: b"SDC FORMAT 1.00".to_vec(),
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    assert_eq!(expect_immediate(read).eax, RegisterUpdate::Set(1));
+    assert_eq!(read_completion.expect("profile read").cursor_after, 15);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(BUFFER_ADDRESS + 32), 15)
+            .expect("reopened bytes"),
+        b"SDC FORMAT 1.00"
+    );
 }
 
 #[test]

@@ -18,25 +18,27 @@ use vine_core::{
     Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass,
-    RuntimeThreadId, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
-    USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports,
-    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
-    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, imm32_contract_for_endpoint,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
+    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
+    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
+    bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
+    complete_kernel32_writable_commit, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
+    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
+    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
+    dispatch_gdiplus_api_with_policy, dispatch_imm32_api_with_policy,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
+    gdiplus_contract_for_endpoint, imm32_contract_for_endpoint, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -132,24 +134,37 @@ impl Bridge {
         executable_length: usize,
         policy_length: usize,
         source_manifest_length: usize,
+        writable_profile_length: usize,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
             .and_then(|length| length.checked_add(source_manifest_length))
+            .and_then(|length| length.checked_add(writable_profile_length))
             .ok_or_else(|| "BGI bridge input length overflowed".to_owned())?;
         let input = self
             .input
             .get(..total_length)
             .ok_or_else(|| "BGI input lengths exceed the bridge buffer".to_owned())?;
         let (executable, remaining) = input.split_at(executable_length);
-        let (policy, source_manifest) = remaining.split_at(policy_length);
+        let (policy, storage) = remaining.split_at(policy_length);
+        let (source_manifest, writable_profile) = storage.split_at(source_manifest_length);
         let policy: Kernel32CompatibilityPolicy =
             serde_json::from_slice(policy).map_err(|error| error.to_string())?;
         policy.validate().map_err(error_string)?;
-        let source_manifest: RuntimeSourceSnapshotManifest =
-            serde_json::from_slice(source_manifest).map_err(|error| error.to_string())?;
-        let (runtime, metadata, reflection) =
-            BrowserRuntime::prepare_bgi(executable.to_vec(), policy, source_manifest)?;
+        let source_manifest = (!source_manifest.is_empty())
+            .then(|| serde_json::from_slice(source_manifest).map_err(|error| error.to_string()))
+            .transpose()?;
+        if writable_profile.is_empty() {
+            return Err("BGI writable profile snapshot is missing".to_owned());
+        }
+        let writable_profile: RuntimeWritableProfileManifest =
+            serde_json::from_slice(writable_profile).map_err(|error| error.to_string())?;
+        let (runtime, metadata, reflection) = BrowserRuntime::prepare_bgi(
+            executable.to_vec(),
+            policy,
+            source_manifest,
+            writable_profile,
+        )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
@@ -202,6 +217,26 @@ impl Bridge {
             .map(|buffers| (buffers.control, buffers.page_bytes))
             .unwrap_or_default();
         self.set_output(metadata, control, payload)
+    }
+
+    fn writable_commit_payload(&mut self, request_id: u64) -> Result<(), String> {
+        let (metadata, payload) = self.runtime_mut()?.writable_commit_payload(request_id)?;
+        self.set_output(metadata, Vec::new(), payload)
+    }
+
+    fn complete_writable_commit(
+        &mut self,
+        request_id: u64,
+        control_length: usize,
+    ) -> Result<(), String> {
+        let control = self
+            .input
+            .get(..control_length)
+            .ok_or_else(|| "writable commit input length exceeds the bridge buffer".to_owned())?;
+        let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
+            .map_err(error_string)?;
+        let metadata = self.runtime_mut()?.complete_writable_commit(response)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
     }
 
     fn runtime_mut(&mut self) -> Result<&mut BrowserRuntime, String> {
@@ -498,7 +533,8 @@ impl BrowserRuntime {
     fn prepare_bgi(
         executable: Vec<u8>,
         kernel32_policy: Kernel32CompatibilityPolicy,
-        source_manifest: RuntimeSourceSnapshotManifest,
+        source_manifest: Option<RuntimeSourceSnapshotManifest>,
+        writable_profile: RuntimeWritableProfileManifest,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -507,9 +543,18 @@ impl BrowserRuntime {
             .verify_expected_sha256(BGI_SHA256)
             .map_err(error_string)?;
         let source_identity = snapshot.identity();
-        if source_manifest.title_fingerprint != source_identity.sha256 {
+        if source_manifest
+            .as_ref()
+            .is_some_and(|manifest| manifest.title_fingerprint != source_identity.sha256)
+        {
             return Err(
                 "source snapshot title fingerprint does not match the prepared BGI executable"
+                    .to_owned(),
+            );
+        }
+        if writable_profile.title_fingerprint != source_identity.sha256 {
+            return Err(
+                "writable profile title fingerprint does not match the prepared BGI executable"
                     .to_owned(),
             );
         }
@@ -524,9 +569,15 @@ impl BrowserRuntime {
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
         let mut process =
             prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
+        if let Some(source_manifest) = source_manifest {
+            process
+                .runtime
+                .register_source_snapshot(source_manifest)
+                .map_err(error_string)?;
+        }
         process
             .runtime
-            .register_source_snapshot(source_manifest)
+            .register_writable_profile(writable_profile)
             .map_err(error_string)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v20();
         user32_policy.validate().map_err(api_fault_string)?;
@@ -642,6 +693,7 @@ impl BrowserRuntime {
             "workload": "private-bgi",
             "source": snapshot.identity(),
             "sourceSnapshot": process.runtime.source_snapshot(),
+            "writableProfile": process.runtime.writable_profile(),
             "entryPoint": materialization.entry_point_address.0,
             "fsBase": environment.teb_address.0,
             "generation": reflection.invalidation.generation,
@@ -1322,7 +1374,7 @@ impl BrowserRuntime {
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
-                let metadata = match &self.target {
+                let mut metadata = match &self.target {
                     BrowserRuntimeTarget::ControlledFixture
                     | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
                         completion_metadata("api-complete", &completion)
@@ -1498,6 +1550,13 @@ impl BrowserRuntime {
                         metadata
                     }
                 };
+                if let Some(selection) = self
+                    .runtime
+                    .complete_api_execution_boundary()
+                    .map_err(error_string)?
+                {
+                    metadata["threadSelection"] = json!(selection);
+                }
                 Ok((metadata, delta))
             }
             DispatchOutcome::Fault(fault) => match &self.target {
@@ -1835,6 +1894,114 @@ impl BrowserRuntime {
             }),
             delta,
         ))
+    }
+
+    fn writable_commit_payload(&self, request_id: u64) -> Result<(Value, Vec<u8>), String> {
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .ok_or_else(|| "writable commit payload has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
+        {
+            return Err("writable commit payload request identity is corrupt".to_owned());
+        }
+        let request = self
+            .runtime
+            .writable_file_commit_request(request_id)
+            .map_err(error_string)?;
+        if pending.call.request.payload != request.encode_host_payload() {
+            return Err("writable commit API payload disagrees with VFS authority".to_owned());
+        }
+        let payload = self
+            .runtime
+            .writable_file_commit_bytes(request_id)
+            .map_err(error_string)?
+            .to_vec();
+        if u64::try_from(payload.len()) != Ok(request.byte_length) {
+            return Err("writable commit content length disagrees with VFS authority".to_owned());
+        }
+        Ok((
+            json!({
+                "kind": "writable-commit-payload",
+                "requestId": request_id.to_string(),
+                "request": request,
+            }),
+            payload,
+        ))
+    }
+
+    fn complete_writable_commit(
+        &mut self,
+        response: RuntimeWritableCommitHostResponse,
+    ) -> Result<Value, String> {
+        let request_id = response.request_id;
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "writable commit completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
+        {
+            return Err("writable commit completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, writable_completion) = complete_kernel32_writable_commit(
+            &self.dispatcher,
+            pending.call.clone(),
+            response,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("writable commit completion produced a suspended outcome".to_owned());
+            }
+        };
+        let writable_completion = writable_completion.ok_or_else(|| {
+            "writable commit API completed without committing its VFS state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                if completion.request_id == request_id
+                    && completion.thread_id == owner_thread_id => {}
+            _ => return Err("writable commit scheduler completion event mismatch".to_owned()),
+        }
+        let removed = self
+            .pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "writable commit pending call disappeared before commit".to_owned())?;
+        debug_assert_eq!(removed.call.request.request_id, request_id);
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the writable commit request".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "writableCommit": writable_completion,
+            "memory": self.memory.stats(),
+        }))
     }
 
     fn complete_callback(
@@ -3565,12 +3732,14 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     executable_length: u32,
     policy_length: u32,
     source_manifest_length: u32,
+    writable_profile_length: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
             executable_length as usize,
             policy_length as usize,
             source_manifest_length as usize,
+            writable_profile_length as usize,
         )
     })
 }
@@ -3787,6 +3956,26 @@ pub extern "C" fn vine_bridge_complete_source_read(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         bridge.complete_source_read(request_id, control_length as usize, payload_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_writable_commit_payload(request_low: u32, request_high: u32) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.writable_commit_payload(request_id)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_writable_commit(
+    request_low: u32,
+    request_high: u32,
+    control_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.complete_writable_commit(request_id, control_length as usize)
     })
 }
 

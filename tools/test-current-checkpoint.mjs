@@ -32,9 +32,8 @@ assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
 assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
 assert.equal(manifest.schemaVersion, 4);
-assert.ok(rendered.includes("| Active blocker |"));
-assert.ok(rendered.includes(manifest.activeBlocker.id));
-assert.ok(rendered.includes(manifest.activeBlocker.firstFailure.code));
+assert.equal(manifest.activeBlocker, null);
+assert.ok(!rendered.includes("| Active blocker |"));
 assert.equal(manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus, "valid");
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
@@ -48,6 +47,15 @@ const stale = structuredClone(manifest);
 stale.activeRuntimeCheckpoint.genericDispatcherApiCount += 1;
 assert.ok(
   validateCurrentCheckpoint(stale).some((error) => error.includes("must match")),
+);
+
+const staleContractCount = structuredClone(manifest);
+staleContractCount.activeRuntimeCheckpoint.genericDispatcherContractCount =
+  staleContractCount.activeRuntimeCheckpoint.genericDispatcherApiCount - 1;
+assert.ok(
+  validateCurrentCheckpoint(staleContractCount).some((error) =>
+    error.includes("genericDispatcherContractCount must cover"),
+  ),
 );
 
 const invalidScenarioStatus = structuredClone(manifest);
@@ -159,7 +167,7 @@ assert.ok(
 );
 
 const incompleteActiveBlocker = structuredClone(manifest);
-delete incompleteActiveBlocker.activeBlocker.firstFailure.observedSha256;
+incompleteActiveBlocker.activeBlocker = {};
 assert.ok(
   validateCurrentCheckpoint(incompleteActiveBlocker).some((error) =>
     error.includes("active structured blocker"),

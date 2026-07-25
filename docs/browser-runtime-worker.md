@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-23
+- Date: 2026-07-25
 - Browser: Chrome `150.0.7871.130`
-- Protocol: `vine.browser-runtime-worker` version `11`
+- Protocol: `vine.browser-runtime-worker` version `12`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -64,6 +64,15 @@ changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
 
+After a guest API completion, Rust may return a `thread-switch` selected by the
+authoritative scheduler. The Worker saves the outgoing opaque engine context and
+restores the context associated with the selected runtime TID; it does not choose
+the lane. The current policy counts 64 completed API boundaries only while another
+lane is runnable, resets the count when there is no competitor, and excludes active
+callback frames. This keeps switch points independent of Node／Chrome slice history.
+Thread return similarly reports `thread-exit`, after which the Worker retires only
+the matching context and applies the Rust-produced mapping delta.
+
 Before guest entry, the same Worker applies seven ordered `VINEDL01` batches.
 The first real private-heap allocation lazily reserves its 16 MiB backing,
 commits one page, and transfers that page; the next batch is dirty-only. The
@@ -90,6 +99,30 @@ generation, one 4 KiB RW／NX commit, owner, and initialization bytes before
 applying the delta. It records evidence metadata but does not retain a Windows
 allocation or materialized-page authority. Rejected faults return no memory
 delta and resume the existing structured-stop path.
+
+## Storage boundary
+
+The private BGI path obtains a `vine.writable-profile-snapshot` from the same
+origin instead of registering `BGI.gdb` as immutable source. The Worker compares
+title fingerprint, profile ID, root, quota, object path, generation, length, hash,
+and bytes with Rust prepared metadata. Clean reads carry reserved source ID zero
+and fetch a generation-bound object range. Dirty reads never cross this adapter;
+Rust serves its staged bytes directly.
+
+For a flush or dirty close, Rust emits `storage.profile-commit.v1` metadata while
+retaining payload and Win32 state authority. The Worker obtains the payload through
+the Wasm bridge, verifies its length and SHA-256, and posts it to the same-origin
+SQLite endpoint with a session/request idempotency key. One transport/5xx retry uses
+the same key. The Worker updates its read-only profile snapshot only after SQLite
+and Rust both accept the completion; it does not decide generation, dirty state, or
+handle lifetime. The local runner seeds a new database from an existing distribution
+`BGI.gdb` only once and asserts the distribution file is unchanged after Node and
+Chrome execution.
+
+Protocol version 12 adds writable profile configuration and commit completion
+metadata. The current private checkpoint reads the profile but does not reach a
+guest write. A controlled Chrome write/restart/load fixture and the primary title
+save scenario remain separate acceptance work.
 
 ## Execution engine contract
 
@@ -241,7 +274,7 @@ The clean-profile Chrome gate requires all of the following semantic evidence:
 
 The private BGI gate uses the same Worker and Rust/Wasm authority. Node generates only a semantic
 oracle; Chrome must match ordered completions, caller-visible results, final guest bytes, and the
-same structured stop. Protocol v11 carries immutable snapshots for the Rust-owned NULL-source
+same structured stop. Protocol v12 carries immutable snapshots for the Rust-owned NULL-source
 memory DC, selected font and DIB, DIB content generation, bounded `TextOutA` raster completion,
 restore selections, and deletion notifications for `DeleteObject`／`DeleteDC`. The Worker validates
 these as GDI metadata while the changed pixel pages still cross the generic GuestMemory transport.

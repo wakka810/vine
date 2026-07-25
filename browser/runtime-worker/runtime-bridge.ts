@@ -89,6 +89,24 @@ export interface PreparedMetadata {
       }
     >;
   };
+  writableProfile?: {
+    titleFingerprint: string;
+    profileId: string;
+    rootPathA: number[];
+    quotaBytes: number;
+    files: Record<
+      string,
+      {
+        objectId: number;
+        relativePathA: number[];
+        exists: boolean;
+        generation: number;
+        byteLength: number;
+        sha256: string | null;
+        dirty: boolean;
+      }
+    >;
+  };
   endpoints: Array<{
     id: number;
     address: number;
@@ -128,6 +146,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     executableLength: number,
     policyLength: number,
     sourceManifestLength: number,
+    writableProfileLength: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -159,6 +178,12 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     high: number,
     controlLength: number,
     payloadLength: number,
+  ): number;
+  vine_bridge_writable_commit_payload(low: number, high: number): number;
+  vine_bridge_complete_writable_commit(
+    low: number,
+    high: number,
+    controlLength: number,
   ): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
@@ -213,14 +238,17 @@ export class RuntimeBridge {
   prepareBgi(
     executable: Uint8Array,
     policy: Uint8Array,
-    sourceManifest: Uint8Array,
+    sourceManifest: Uint8Array | null,
+    writableProfile: Uint8Array,
   ): BridgeOutput<PreparedMetadata> {
-    this.#setInput([executable, policy, sourceManifest]);
+    const source = sourceManifest ?? emptyBridgeOutput;
+    this.#setInput([executable, policy, source, writableProfile]);
     return this.#invoke(() =>
       this.#exports.vine_bridge_prepare_bgi(
         executable.byteLength,
         policy.byteLength,
-        sourceManifest.byteLength,
+        source.byteLength,
+        writableProfile.byteLength,
       ),
     );
   }
@@ -360,6 +388,24 @@ export class RuntimeBridge {
         control.byteLength,
         payload.byteLength,
       ),
+    );
+  }
+
+  writableCommitPayload<T = Record<string, unknown>>(
+    requestId: bigint,
+  ): BridgeOutput<T> {
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() => this.#exports.vine_bridge_writable_commit_payload(low, high));
+  }
+
+  completeWritableCommit<T = Record<string, unknown>>(
+    requestId: bigint,
+    control: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([control]);
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_complete_writable_commit(low, high, control.byteLength),
     );
   }
 

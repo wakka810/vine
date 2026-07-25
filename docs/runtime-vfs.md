@@ -1,106 +1,134 @@
-# Runtime VFS and immutable source reads
+# Runtime VFS, immutable sources, and writable profiles
 
 ## Status
 
-- Status: immutable-source read vertical implemented and verified
 - State owner: Rust `runtime/files.rs::RuntimeFiles`
 - Aggregate coordinator: `runtime/kernel.rs::RuntimeKernel`
-- Browser adapter: same-origin `storage.source-read.v1` byte service
-- Writable overlay／save／registry persistence: not implemented by this slice
+- Immutable adapter: same-origin `storage.source-read.v1`
+- Writable adapters: same-origin `storage.profile-read.v1` and
+  `storage.profile-commit.v1`
+- Durable backend: title/profile-scoped SQLite under ignored `.work/`
+- Primary save/browser-restart/load acceptance: not yet complete
 
-This document defines the stable contract established by the first VFS gateway.
-Current call counts, report identities, and the exact next stop remain in
+This document defines the stable storage contract. Current call counts, artifact
+identities, and the next structured stop remain in
 [`current-checkpoint.json`](current-checkpoint.json).
 
-## Authority and identity
+## Classification and authority
 
-`RuntimeFiles` privately owns the registered source snapshot, normalized path index,
-monotonic file IDs, open-file state, cursor, and pending-read records. A source file is
-also represented by a typed `RuntimeObjectKind::File` object and a
-`vine.runtime-source-file.v1` handle. The object table owns handle generation and
-staleness; `RuntimeFiles` owns the file payload and lifetime. Neither the Worker nor
-the HTTP service owns a Win32 handle, cursor, guest pointer, or LastError value.
+Executable, DLL, and asset bytes are immutable source objects. Save data, settings,
+and global state files are writable profile objects. A path can belong to only one
+class: registration rejects overlap between the source and profile path indexes.
+When both mounts exist they must have the same title fingerprint and normalized
+Windows root.
 
-One process-static `vine.source-snapshot-manifest` version 1 binds a title
-fingerprint and snapshot ID to one source mount and bounded object descriptors. Each
-descriptor contains a stable object ID, normalized relative Windows-932 path, byte
-length, and SHA-256. The loopback source service registers explicit host files,
-verifies the complete length and hash once, and serves an immutable in-memory copy;
-it never accepts a host path from the guest or Worker.
-The Worker rejects configured source-manifest or source-byte URLs whose origin differs
-from the Runtime Worker origin before issuing a fetch.
+`RuntimeFiles` privately owns normalized Windows-932 path identity, monotonic file
+IDs, open-file access/share/cursor state, profile generations, committed and staged
+bytes, dirty revisions, and pending read/commit records. `RuntimeObjectTable` owns
+typed handle generation and staleness. The Worker and local server never own a
+Win32 handle, cursor, guest pointer, LastError, or dirty-file decision.
 
-Source executable／DLL／asset identity and a future writable overlay remain separate
-namespaces. This slice cannot create, overwrite, truncate, delete, or shadow source
-objects.
+An immutable `vine.source-snapshot-manifest` version 1 binds a title and snapshot
+to source/object IDs, paths, byte lengths, and SHA-256 values. The source server
+validates and caches the configured host bytes and accepts no guest-supplied host
+path.
 
-## Path and API support band
+A `vine.writable-profile-snapshot` version 1 binds a title fingerprint, profile ID,
+root, quota, and path allowlist to per-object existence, generation, length, hash,
+and committed bytes. Source ID zero is reserved for profile reads; object identity
+remains explicit. Rust imports a snapshot at process start, then owns all staged
+mutations until a durable commit succeeds.
 
-Path resolution accepts a bounded trailing-NUL `CreateFileA` path. It resolves
-relative input against the Rust-owned process current directory, canonicalizes drive
-letter and separators, removes `.`, processes `..` without allowing an escape, and
-performs ASCII case folding without folding bytes inside valid Windows-932 pairs.
-Invalid pairs, DOS-invalid characters, and trailing dot／space variants stop before
-mutation. The normalized result must identify a manifest object below the registered
-mount.
+`BGI.gdb` is a writable profile object, not an immutable asset. On creation of a
+new profile database, an existing distribution copy may be read once as migration
+seed so current user state is retained. An existing database is never reseeded.
+If neither the database nor seed exists, the object begins absent and the guest can
+generate it through `OPEN_ALWAYS`. Runtime reads and writes after initialization
+target the profile only; Vine never writes the distribution `BGI.gdb`.
 
-The versioned Kernel32 policy enables only the reached immutable-source band:
+## Path and Win32 support band
 
-- `CreateFileA`: `GENERIC_READ`, share-read, `OPEN_EXISTING`, null security／template,
-  and the measured flags／attributes value;
+Path resolution accepts a bounded trailing-NUL `CreateFileA` path, resolves
+relative input against the Rust-owned current directory, canonicalizes drive and
+separators, processes `.` and `..` without mount escape, and folds ASCII case
+without folding bytes inside valid Windows-932 pairs. Invalid encodings, DOS-invalid
+characters, and trailing dot/space variants fail before mutation.
+
+The versioned Kernel32 policy supports these bounded variants:
+
+- immutable open: `GENERIC_READ`, share-read, `OPEN_EXISTING`;
+- writable open: `GENERIC_WRITE`, share none, `CREATE_ALWAYS` or
+  `OPEN_ALWAYS`;
+- common open constraints: null security/template and the measured
+  flags/attributes value;
 - `GetFileSize`: low DWORD only;
-- `ReadFile`: bounded nonzero synchronous read with explicit output count;
-- `SetFilePointer`: signed low-DWORD seek with `FILE_BEGIN`／`FILE_CURRENT`／`FILE_END`;
-- `CloseHandle`: typed live file handle.
+- `ReadFile`: bounded nonzero synchronous read with an explicit output count;
+- `WriteFile`: bounded nonzero synchronous write with an explicit output count;
+- `SetFilePointer`: signed low-DWORD seek with
+  `FILE_BEGIN`/`FILE_CURRENT`/`FILE_END`;
+- `FlushFileBuffers` and `CloseHandle`: durable profile commit boundaries.
 
-Missing files and expected Win32 failures return the bounded LastError result.
-Unreached access, creation, overlapped, high-size, high-distance, path, and seek
-variants are explicit unsupported or error outcomes before state mutation. Directory
-enumeration, metadata, writes, mapped files, delete semantics, locks, general volume
-resolution, and writable overlay precedence are not claimed.
+`CREATE_ALWAYS` stages truncation; `OPEN_ALWAYS` stages creation only when the
+profile object is absent. Both return `ERROR_ALREADY_EXISTS` when appropriate.
+Successful deferred `CloseHandle` preserves the owner thread's LastError exactly
+like the clean immediate path; a failed commit returns its concrete Win32 error and
+keeps both the handle and dirty staging available for retry.
+Sparse writes zero-fill the gap. Immutable writes and source/profile shadowing are
+denied before mutation. Directory enumeration, rename/delete, mapped files, locks,
+general volume resolution, arbitrary access/share/disposition combinations, and
+registry projection are not claimed.
 
-## Async read transaction
+## Read, write, and commit transactions
 
-A `ReadFile` request is a cross-subsystem transaction:
+A clean file read is a scheduler/VFS/guest-memory transaction. Rust validates the
+handle, cursor, request identity, generation, and guest outputs before suspending the
+thread. The same-origin adapter returns bounded bytes identified by title, profile or
+snapshot, object, offset, and generation. Rust validates the exact binary response
+and preflights all guest writes before advancing the cursor. Dirty profile reads use
+Rust-owned staged bytes directly and cannot observe stale SQLite content.
 
-1. Rust validates the typed handle, policy, guest output ranges, cursor, scheduler
-   lane, and absence of another pending read.
-2. `RuntimeFiles` and the scheduler create matching request records. The binary
-   request exposes only transport version, source／object IDs, offset, and bounded
-   length.
-3. The Worker binds those IDs to the already validated title／snapshot manifest and
-   performs a same-origin range request. The URL carries title fingerprint,
-   snapshot, source, and object identity; the response repeats them in headers.
-4. Rust first decodes an exact 32-byte response control record. Before copying host
-   bytes, the decoder rejects zero or over-1-MiB requests, success payloads whose
-   length differs from the transferred count, transfers larger than the request,
-   and error responses carrying bytes. It then validates request, source, object,
-   offset, file lifetime, and cursor. The dispatcher preflights the byte-count and
-   payload writes as one guest-memory transaction.
-5. Only after guest writes succeed does Rust retire the pending request and advance
-   the cursor. Wrong, stale, duplicate, oversized, or failed completions preserve the
-   cursor, guest bytes, scheduler request, and allocators.
+`WriteFile` first validates guest input and output spans, access, cursor, quota, and
+the absence of a pending operation. `RuntimeFiles` builds a mutation-free plan for
+the new staged bytes, length, hash, revision, and cursor. Guest byte-count output and
+the owner plan commit together. Failure leaves bytes, cursor, revision, generation,
+and guest output unchanged.
 
-Thread／process cancellation removes the matching file and scheduler request before
-file retirement. Normal `CloseHandle` rejects a file with a pending read; process
-exit cancels the read, retires all file handles and payloads, and leaves no browser
-fetch controller or Rust pending record.
+A dirty flush or close creates a versioned commit request containing object ID, base
+generation, length, hash, and close intent. The payload remains Rust-owned. The
+adapter adds a session/request idempotency key and sends it to the same-origin
+profile endpoint. SQLite uses strict identity tables, `BEGIN IMMEDIATE`, generation
+compare-and-swap, hash/length verification, and whole-profile quota accounting.
+`WAL` and `synchronous=FULL` are enabled.
+
+Rust advances committed generation, clears dirty state, and closes a requested
+handle only after a valid successful response. A storage failure removes the pending
+request but preserves the dirty handle and staged bytes for retry. A lost response is
+retried with the same idempotency key; the SQLite commit ledger returns the original
+generation without applying the bytes twice. Stale generations, duplicate keys with
+different content, malformed responses, and quota failures do not partially update
+either authority.
+
+Process/thread cancellation retires matching scheduler and VFS requests before file
+retirement. Process exit deliberately discards uncommitted staged bytes and leaves
+the durable generation unchanged. It does not copy dirty process memory into browser
+state during teardown.
 
 ## Verification and non-claims
 
-Rust model tests cover mount bounding, Windows-932-aware case identity, stale
-snapshot registration, share conflict, cursor plan／completion ordering, wrong and
-duplicate completion, guest-memory atomicity, close, and process-exit cancellation.
-The source-response decoder has valid success／error and malformed length／result
-tests, plus a coverage-guided arbitrary control／payload fuzz target. The same fuzz
-tier covers the CPU writeback binary decoder separately from the PE loader.
-The public PE32 fixture verifies open／size／read／seek／read／close and validates the
-returned bytes itself. Clean-profile Chrome covers success, pending cancellation,
-watchdog cleanup, same-origin delivery, and cross-origin adapter rejection. The private target additionally proves
-two complete reads of one fingerprinted asset and source hash invariance.
+Rust model and integration tests cover path separation, create/truncate/open
+semantics, sharing, sparse writes, quota, guest-memory atomicity, successful durable
+close, malformed completion, failed-close retry, stale/duplicate completion, and
+process-exit discard. The SQLite tests cover first creation, restart, idempotent
+duplicate, stale generation, identity/hash rejection, transaction rollback,
+post-commit response loss, quota, and the same-origin HTTP range/commit protocol.
+The public immutable fixture continues to cover open/size/read/seek/close and browser
+read cancellation/watchdog cleanup.
 
-The service currently caches registered source bytes for deterministic evidence. It
-does not establish large-corpus streaming memory bounds, source replacement recovery,
-server restart, writable durability, save／load, SQLite transactions, or full VFS
-coverage. Those remain the next storage milestones under
-[ADR-006](adr-006-vfs-local-server.md).
+The private Node and Chrome checks import `BGI.gdb` through the writable profile,
+serve it from SQLite, and verify that the distribution file is unchanged. This
+checkpoint establishes the storage authority and durable commit path. It does not
+yet claim that a controlled guest fixture has performed a browser commit and loaded
+it after a browser restart, nor that the primary title's full save/load UI,
+multi-slot lifecycle, registry settings, migration UI, crash recovery matrix, or
+long-run quota behavior has passed. Those remain scenario milestones under
+[`ADR-006`](adr-006-vfs-local-server.md).

@@ -27,13 +27,14 @@ use crate::runtime::{
     RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
     RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGdiplusSession,
     RuntimeGdiplusStartupRequest, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHeapAllocation, RuntimeHeapInitialization,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeHeapInitialization,
     RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeVirtualMemoryReservation,
     RuntimeVirtualMemoryReserveRequest, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowId,
+    RuntimeWindowCreationMessage, RuntimeWindowId, RuntimeWritableReadResult,
+    RuntimeWritableWriteResult,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -1066,6 +1067,35 @@ impl<'a> ExecutionSession<'a> {
         request: RuntimeCreateThreadRequest,
     ) -> Result<RuntimeCreateThreadResult, RuntimeStateError> {
         self.runtime.create_guest_thread(self.memory, request)
+    }
+
+    pub fn read_writable_file(
+        &mut self,
+        handle: RuntimeHandle,
+        buffer: GuestAddress,
+        bytes_read: GuestAddress,
+        requested_bytes: u32,
+    ) -> Result<
+        (
+            RuntimeWritableReadResult,
+            Vec<u8>,
+            Option<GuestWriteResult>,
+            GuestWriteResult,
+        ),
+        RuntimeStateError,
+    > {
+        self.runtime
+            .read_writable_file(self.memory, handle, buffer, bytes_read, requested_bytes)
+    }
+
+    pub fn write_writable_file(
+        &mut self,
+        handle: RuntimeHandle,
+        bytes_written: GuestAddress,
+        bytes: &[u8],
+    ) -> Result<(RuntimeWritableWriteResult, GuestWriteResult), RuntimeStateError> {
+        self.runtime
+            .write_writable_file(self.memory, handle, bytes_written, bytes)
     }
 
     pub fn create_gdi_dib_section(

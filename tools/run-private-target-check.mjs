@@ -244,7 +244,26 @@ function assertReportSemantics({
     nodeReport.supportedCallSemanticsSha256,
     expectedBrowser.callSemanticsSha256,
   );
-  assert.equal(nodeReport.process.implementedApiContracts, active.genericDispatcherApiCount);
+  assert.equal(
+    nodeReport.process.implementedApiContracts,
+    active.genericDispatcherContractCount,
+  );
+  assert.equal(
+    nodeReport.guestThreadBootstrap.schedulingPolicy,
+    expectedBrowser.guestThreadSchedulingPolicy,
+  );
+  assert.deepEqual(
+    nodeReport.threadExecution.registeredThreadIds,
+    expectedBrowser.registeredThreadIds,
+  );
+  assert.deepEqual(
+    nodeReport.threadExecution.executedThreadIds,
+    expectedBrowser.executedThreadIds,
+  );
+  assert.equal(
+    nodeReport.threadExecution.contextSwitches,
+    expectedBrowser.contextSwitches,
+  );
   assert.equal(nodeReport.firstUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
   assert.equal(
@@ -388,6 +407,18 @@ function assertReportSemantics({
   }
   assert.equal(browserReport.success.report.pendingHostCalls, 0);
   assert.equal(browserReport.success.report.pendingCallbacks, 0);
+  assert.deepEqual(
+    browserReport.success.report.registeredThreadIds,
+    expectedBrowser.registeredThreadIds,
+  );
+  assert.deepEqual(
+    browserReport.success.report.executedThreadIds,
+    expectedBrowser.executedThreadIds,
+  );
+  assert.equal(
+    browserReport.success.report.contextSwitches,
+    expectedBrowser.contextSwitches,
+  );
   assert.equal(browserReport.cancellation.report.pendingHostCalls, 0);
   assert.equal(browserReport.cancellation.report.pendingCallbacks, 0);
   assert.equal(browserReport.watchdog.report.pendingHostCalls, 0);

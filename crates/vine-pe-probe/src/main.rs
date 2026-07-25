@@ -26,28 +26,31 @@ use vine_core::{
     MemoryReflection, MemoryRegionSnapshot, MemoryStats, ModuleIdentity, ModuleSnapshot,
     Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RESUME_THREAD_IMPLEMENTATION, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor,
-    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
-    RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RESUME_THREAD_IMPLEMENTATION, RUNTIME_WRITABLE_COMMIT_SERVICE, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState,
+    RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
+    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor, RuntimeModule,
+    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode,
+    RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeThreadPriority, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
-    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeThreadExecutionSelection, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
+    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerResolutionState, RuntimeTlsValue,
+    RuntimeWaitableTimer, RuntimeWindowTimer, RuntimeWritableCommitCompletion,
+    RuntimeWritableCommitHostResponse, RuntimeWritableProfile, RuntimeWritableProfileManifest,
     SEND_MESSAGE_A_IMPLEMENTATION, SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION,
     SET_WINDOW_LONG_A_IMPLEMENTATION, SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION,
     TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL,
     UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
     WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
-    build_pe32_load_plan, complete_kernel32_source_read, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    build_pe32_load_plan, complete_kernel32_source_read, complete_kernel32_writable_commit,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
     dispatch_ole32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
     dsound_contract_for_endpoint, encode_pointer_contract, gdi32_contract_for_endpoint,
@@ -81,6 +84,7 @@ struct Arguments {
     generic_runtime_capability: Option<GenericRuntimeCapability>,
     kernel32_policy: Option<Kernel32CompatibilityPolicy>,
     source_manifest: Option<RuntimeSourceSnapshotManifest>,
+    writable_profile: Option<RuntimeWritableProfileManifest>,
     large_image_reflection: bool,
     install_callback_return_sentinel: bool,
     install_process_entry_return_sentinel: bool,
@@ -111,6 +115,8 @@ const RUNTIME_FRAME_PAGE_FAULT_SERVICE: u32 = 16;
 const RUNTIME_FRAME_PAGE_FAULT_COMPLETION: u32 = 17;
 const RUNTIME_FRAME_HOST_REQUEST: u32 = 18;
 const RUNTIME_FRAME_HOST_COMPLETION: u32 = 19;
+const RUNTIME_FRAME_THREAD_EXIT: u32 = 20;
+const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
@@ -338,6 +344,29 @@ struct GenericRuntimeSessionStopped {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeThreadExitRequest {
+    schema: String,
+    schema_version: u32,
+    generation: u64,
+    thread_id: u32,
+    exit_code: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeThreadExitCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    thread_id: u32,
+    exit_code: u32,
+    scheduler_state: SchedulerThreadState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_selection: Option<RuntimeThreadExecutionSelection>,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GenericRuntimeStackGrowthRequest {
     schema: String,
     schema_version: u32,
@@ -411,6 +440,8 @@ struct GenericRuntimeSessionReady {
     mouse_button_mapping: Option<vine_core::RuntimeMouseButtonMapping>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_snapshot: Option<RuntimeSourceSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    writable_profile: Option<RuntimeWritableProfile>,
     initial_thread_stack: RuntimeThreadStack,
     initial_stack_address_allocation: vine_core::ProcessAddressAllocationRecord,
     memory: MemoryStats,
@@ -490,11 +521,15 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     source_read: Option<RuntimeSourceReadCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    writable_commit: Option<RuntimeWritableCommitCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     runtime_module: Option<GenericRuntimeModuleLoad>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdi: Option<GenericRuntimeGdiCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     gdiplus: Option<GenericRuntimeGdiplusCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_selection: Option<RuntimeThreadExecutionSelection>,
     memory: MemoryStats,
 }
 
@@ -2272,6 +2307,7 @@ fn run_v86_reflection_session(
         .is_some_and(Kernel32CompatibilityPolicy::allows_wide_environment_strings);
     let kernel32_policy = arguments.kernel32_policy;
     let source_manifest = arguments.source_manifest;
+    let writable_profile = arguments.writable_profile;
     if source_manifest
         .as_ref()
         .is_some_and(|manifest| manifest.title_fingerprint != snapshot.identity().sha256)
@@ -2280,6 +2316,16 @@ fn run_v86_reflection_session(
             "source-snapshot-manifest",
             "source-snapshot-title-fingerprint-mismatch",
             "source snapshot title fingerprint does not match the prepared PE source",
+        ));
+    }
+    if writable_profile
+        .as_ref()
+        .is_some_and(|profile| profile.title_fingerprint != snapshot.identity().sha256)
+    {
+        return Err(LoaderError::invalid_input(
+            "writable-profile-manifest",
+            "writable-profile-title-fingerprint-mismatch",
+            "writable profile title fingerprint does not match the prepared PE source",
         ));
     }
     let supported_call_count = arguments
@@ -2361,6 +2407,7 @@ fn run_v86_reflection_session(
             &runtime_catalog,
             &declared_catalog,
             source_manifest,
+            writable_profile,
         )?;
         generic_runtime = Some(runtime);
         evidence_binding
@@ -2935,11 +2982,17 @@ fn prepare_generic_runtime_process(
     runtime_catalog: &RuntimeExportCatalog,
     declared_catalog: &RuntimeExportCatalog,
     source_manifest: Option<RuntimeSourceSnapshotManifest>,
+    writable_profile: Option<RuntimeWritableProfileManifest>,
 ) -> Result<(GenericRuntimeProcess, ImportBinding), LoaderError> {
     let mut runtime = controlled_runtime_state(&[])?;
     if let Some(source_manifest) = source_manifest {
         runtime
             .register_source_snapshot(source_manifest)
+            .map_err(runtime_state_error)?;
+    }
+    if let Some(writable_profile) = writable_profile {
+        runtime
+            .register_writable_profile(writable_profile)
             .map_err(runtime_state_error)?;
     }
     let mut module_handles = vec![CONTROLLED_KERNEL32_HANDLE];
@@ -4251,6 +4304,7 @@ fn run_v86_generic_runtime_session(
             primary_monitor: process.runtime.primary_monitor().cloned(),
             mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
             source_snapshot: process.runtime.source_snapshot().cloned(),
+            writable_profile: process.runtime.writable_profile().cloned(),
             initial_thread_stack,
             initial_stack_address_allocation,
             memory: memory.stats(),
@@ -4309,6 +4363,81 @@ fn run_v86_generic_runtime_session(
                 },
             )?;
             return Ok(());
+        }
+        if trap_frame.kind == RUNTIME_FRAME_THREAD_EXIT {
+            if !trap_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-thread-exit-payload-unexpected",
+                    "generic runtime thread-exit frames may not contain a byte payload",
+                ));
+            }
+            let request: GenericRuntimeThreadExitRequest =
+                serde_json::from_slice(&trap_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-thread-exit-json-invalid",
+                        format!("generic runtime thread-exit metadata is invalid JSON: {error}"),
+                    )
+                })?;
+            let thread_id = process.runtime.current_thread_id();
+            let thread = process
+                .runtime
+                .thread_state(thread_id)
+                .map_err(runtime_state_error)?;
+            if request.schema != "vine.v86-generic-runtime-thread-exit"
+                || request.schema_version != 1
+                || request.generation != memory.stats().generation
+                || request.thread_id != thread_id.0
+                || thread.guest_bootstrap.is_none()
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-thread-exit-identity-invalid",
+                    "generic runtime thread-exit identity, generation, or bootstrap is invalid",
+                ));
+            }
+            process
+                .runtime
+                .request_current_thread_exit(request.exit_code)
+                .map_err(runtime_state_error)?;
+            process
+                .runtime
+                .complete_current_guest_thread_exit(memory)
+                .map_err(runtime_state_error)?;
+            let scheduler_state = process
+                .runtime
+                .scheduler_state_for_thread(thread_id)
+                .map_err(runtime_state_error)?;
+            if scheduler_state
+                != (SchedulerThreadState::Terminated {
+                    exit_code: request.exit_code,
+                })
+            {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "runtime-thread-exit-state-mismatch",
+                    "generic runtime thread exit did not reach the matching terminated lane",
+                ));
+            }
+            let thread_selection = process
+                .runtime
+                .select_next_executable_thread()
+                .map_err(runtime_state_error)?;
+            send_pending_runtime_delta(input, memory)?;
+            write_runtime_json_frame(
+                RUNTIME_FRAME_THREAD_EXIT_COMPLETION,
+                &GenericRuntimeThreadExitCompletion {
+                    schema: "vine.v86-generic-runtime-thread-exit-completion",
+                    schema_version: 1,
+                    thread_id: thread_id.0,
+                    exit_code: request.exit_code,
+                    scheduler_state,
+                    thread_selection,
+                    memory: memory.stats(),
+                },
+            )?;
+            continue;
         }
         if trap_frame.kind == RUNTIME_FRAME_GUEST_CALLBACK_RETURN {
             if !trap_frame.payload.is_empty() {
@@ -4422,9 +4551,11 @@ fn run_v86_generic_runtime_session(
                             com_apartment: None,
                             timer_resolution: None,
                             source_read: None,
+                            writable_commit: None,
                             runtime_module: None,
                             gdi,
                             gdiplus,
+                            thread_selection: None,
                             memory: memory.stats(),
                         },
                     )?;
@@ -5258,6 +5389,10 @@ fn run_v86_generic_runtime_session(
                             session.runtime(),
                             session.memory(),
                         )?;
+                        let thread_selection = session
+                            .runtime_mut()
+                            .complete_api_execution_boundary()
+                            .map_err(runtime_state_error)?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -5290,9 +5425,11 @@ fn run_v86_generic_runtime_session(
                                 com_apartment,
                                 timer_resolution,
                                 source_read: None,
+                                writable_commit: None,
                                 runtime_module,
                                 gdi,
                                 gdiplus,
+                                thread_selection,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -5365,12 +5502,22 @@ fn run_v86_generic_runtime_session(
                         if scheduler_state != (SchedulerThreadState::WaitingHost { request_id }) {
                             return Err(LoaderError::runtime_defect(
                                 "runtime-reentry",
-                                "source-read-scheduler-state-invalid",
-                                "deferred source read is not owned by the waiting runtime thread",
+                                "storage-request-scheduler-state-invalid",
+                                "deferred storage request is not owned by the waiting runtime thread",
                             ));
                         }
                         let arguments = decode_runtime_host_payload(&call.request.payload)?;
-                        write_runtime_json_frame(
+                        let host_payload =
+                            if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
+                                session
+                                    .runtime()
+                                    .writable_file_commit_bytes(request_id)
+                                    .map_err(runtime_state_error)?
+                                    .to_vec()
+                            } else {
+                                Vec::new()
+                            };
+                        write_runtime_json_payload_frame(
                             RUNTIME_FRAME_HOST_REQUEST,
                             &GenericRuntimeHostRequest {
                                 schema: "vine.v86-generic-runtime-host-request",
@@ -5388,14 +5535,15 @@ fn run_v86_generic_runtime_session(
                                 },
                                 memory: session.memory().stats(),
                             },
+                            &host_payload,
                         )?;
                         let response_frame = read_runtime_frame(input)?;
                         require_runtime_frame_kind(&response_frame, RUNTIME_FRAME_HOST_COMPLETION)?;
                         if response_frame.control.len() != 40 {
                             return Err(LoaderError::invalid_input(
                                 "runtime-reentry",
-                                "source-read-completion-control-size-invalid",
-                                "source read completion requires an eight-byte request identity and 32-byte response control",
+                                "storage-completion-control-size-invalid",
+                                "storage completion requires an eight-byte request identity and 32-byte response control",
                             ));
                         }
                         let response_request_id = u64::from_le_bytes(
@@ -5406,22 +5554,46 @@ fn run_v86_generic_runtime_session(
                         if response_request_id != request_id {
                             return Err(LoaderError::invalid_input(
                                 "runtime-reentry",
-                                "source-read-completion-request-mismatch",
-                                "source read completion identifies a different pending request",
+                                "storage-completion-request-mismatch",
+                                "storage completion identifies a different pending request",
                             ));
                         }
-                        let response = RuntimeSourceReadHostResponse::decode_binary(
-                            request_id,
-                            &response_frame.control[8..],
-                            &response_frame.payload,
-                        )
-                        .map_err(runtime_state_error)?;
-                        let (outcome, source_read) = complete_kernel32_source_read(
-                            &dispatcher,
-                            call,
-                            response,
-                            &mut session,
-                        );
+                        let (outcome, source_read, writable_commit) =
+                            if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
+                                if !response_frame.payload.is_empty() {
+                                    return Err(LoaderError::invalid_input(
+                                        "runtime-reentry",
+                                        "writable-commit-completion-payload-invalid",
+                                        "writable commit completion must not contain a payload",
+                                    ));
+                                }
+                                let response = RuntimeWritableCommitHostResponse::decode_binary(
+                                    request_id,
+                                    &response_frame.control[8..],
+                                )
+                                .map_err(runtime_state_error)?;
+                                let (outcome, completion) = complete_kernel32_writable_commit(
+                                    &dispatcher,
+                                    call,
+                                    response,
+                                    &mut session,
+                                );
+                                (outcome, None, completion)
+                            } else {
+                                let response = RuntimeSourceReadHostResponse::decode_binary(
+                                    request_id,
+                                    &response_frame.control[8..],
+                                    &response_frame.payload,
+                                )
+                                .map_err(runtime_state_error)?;
+                                let (outcome, completion) = complete_kernel32_source_read(
+                                    &dispatcher,
+                                    call,
+                                    response,
+                                    &mut session,
+                                );
+                                (outcome, completion, None)
+                            };
                         let completion = match outcome {
                             DispatchOutcome::Immediate(completion) => completion,
                             DispatchOutcome::Fault(fault) => {
@@ -5435,18 +5607,31 @@ fn run_v86_generic_runtime_session(
                             _ => {
                                 return Err(LoaderError::runtime_defect(
                                     "runtime-reentry",
-                                    "source-read-completion-suspended",
-                                    "source read completion produced another suspended outcome",
+                                    "storage-completion-suspended",
+                                    "storage completion produced another suspended outcome",
                                 ));
                             }
                         };
-                        let source_read = source_read.ok_or_else(|| {
-                            LoaderError::runtime_defect(
+                        if source_read.is_none() == writable_commit.is_none() {
+                            return Err(LoaderError::runtime_defect(
                                 "runtime-reentry",
-                                "source-read-completion-state-missing",
-                                "source read API completed without committing VFS state",
-                            )
-                        })?;
+                                "storage-completion-state-missing",
+                                "storage API completion did not commit exactly one owner state",
+                            ));
+                        }
+                        if source_read
+                            .as_ref()
+                            .is_some_and(|completion| completion.request.request_id != request_id)
+                            || writable_commit.as_ref().is_some_and(|completion| {
+                                completion.request.request_id != request_id
+                            })
+                        {
+                            return Err(LoaderError::runtime_defect(
+                                "runtime-reentry",
+                                "storage-completion-identity-mismatch",
+                                "storage completion owner state identifies another request",
+                            ));
+                        }
                         match session.runtime_mut().pop_scheduler_event() {
                             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                                 if completion.request_id == request_id
@@ -5454,8 +5639,8 @@ fn run_v86_generic_runtime_session(
                             _ => {
                                 return Err(LoaderError::runtime_defect(
                                     "runtime-reentry",
-                                    "source-read-scheduler-event-mismatch",
-                                    "source read completion emitted a mismatched scheduler event",
+                                    "storage-scheduler-event-mismatch",
+                                    "storage completion emitted a mismatched scheduler event",
                                 ));
                             }
                         }
@@ -5490,10 +5675,12 @@ fn run_v86_generic_runtime_session(
                                 tick_count: None,
                                 com_apartment: None,
                                 timer_resolution: None,
-                                source_read: Some(source_read),
+                                source_read,
+                                writable_commit,
                                 runtime_module: None,
                                 gdi: None,
                                 gdiplus: None,
+                                thread_selection: None,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -5566,6 +5753,10 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let thread_selection = session
+                            .runtime_mut()
+                            .complete_api_execution_boundary()
+                            .map_err(runtime_state_error)?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -5598,9 +5789,11 @@ fn run_v86_generic_runtime_session(
                                 com_apartment: None,
                                 timer_resolution: None,
                                 source_read: None,
+                                writable_commit: None,
                                 runtime_module: None,
                                 gdi: None,
                                 gdiplus: None,
+                                thread_selection,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -7094,6 +7287,14 @@ fn require_runtime_frame_kind(frame: &RuntimeFrame, expected: u32) -> Result<(),
 }
 
 fn write_runtime_json_frame(kind: u32, value: &impl Serialize) -> Result<(), LoaderError> {
+    write_runtime_json_payload_frame(kind, value, &[])
+}
+
+fn write_runtime_json_payload_frame(
+    kind: u32,
+    value: &impl Serialize,
+    payload: &[u8],
+) -> Result<(), LoaderError> {
     let control = serde_json::to_vec(value).map_err(|error| {
         LoaderError::runtime_defect(
             "runtime-reentry",
@@ -7101,7 +7302,7 @@ fn write_runtime_json_frame(kind: u32, value: &impl Serialize) -> Result<(), Loa
             format!("could not serialize generic runtime frame metadata: {error}"),
         )
     })?;
-    write_runtime_frame(kind, &control, &[])
+    write_runtime_frame(kind, &control, payload)
 }
 
 fn decode_runtime_host_payload(payload: &[u8]) -> Result<Vec<u32>, LoaderError> {
@@ -12982,6 +13183,24 @@ fn load_source_snapshot_manifest(
     })
 }
 
+fn load_writable_profile_manifest(
+    path: &Path,
+) -> Result<RuntimeWritableProfileManifest, LoaderError> {
+    const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+
+    let bytes = read_bounded(path, MAX_MANIFEST_BYTES).map_err(|error| LoaderError {
+        stage: "writable-profile-manifest",
+        ..error
+    })?;
+    serde_json::from_slice(&bytes).map_err(|error| {
+        LoaderError::invalid_input(
+            "writable-profile-manifest",
+            "writable-profile-json-invalid",
+            format!("could not parse writable profile manifest: {error}"),
+        )
+    })
+}
+
 fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut input = None;
     let mut output = None;
@@ -12995,6 +13214,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut generic_runtime_capability = None;
     let mut runtime_policy = None;
     let mut source_manifest = None;
+    let mut writable_profile = None;
     let mut checkpoint_manifest = None;
     let mut checkpoint_id = None;
     let mut large_image_reflection = false;
@@ -13237,6 +13457,11 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
             if source_manifest.replace(PathBuf::from(value)).is_some() {
                 return Err(usage_error());
             }
+        } else if argument == "--writable-profile" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            if writable_profile.replace(PathBuf::from(value)).is_some() {
+                return Err(usage_error());
+            }
         } else if argument == "--checkpoint-manifest" {
             let value = arguments.next().ok_or_else(usage_error)?;
             if checkpoint_manifest.replace(PathBuf::from(value)).is_some() {
@@ -13339,6 +13564,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if source_manifest.is_some() && !generic_runtime_reentry {
         return Err(usage_error());
     }
+    if writable_profile.is_some() && !generic_runtime_reentry {
+        return Err(usage_error());
+    }
     if checkpoint_manifest.is_some() != checkpoint_id.is_some()
         || (checkpoint_manifest.is_some() && !v86_reflection_session)
     {
@@ -13361,10 +13589,14 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         .as_deref()
         .map(load_source_snapshot_manifest)
         .transpose()?;
+    let writable_profile = writable_profile
+        .as_deref()
+        .map(load_writable_profile_manifest)
+        .transpose()?;
     if kernel32_policy
         .as_ref()
         .is_some_and(|policy| policy.source_files().is_some())
-        != source_manifest.is_some()
+        != (source_manifest.is_some() || writable_profile.is_some())
     {
         return Err(usage_error());
     }
@@ -13383,6 +13615,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         generic_runtime_capability,
         kernel32_policy,
         source_manifest,
+        writable_profile,
         large_image_reflection,
         install_callback_return_sentinel,
         install_process_entry_return_sentinel,

@@ -93,10 +93,9 @@ assert.equal(
   active.runnerArguments[8],
   path.join(root, manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source),
 );
-assert.deepEqual(active.runnerArguments.slice(9), [
-  "--source-manifest",
-  path.join(root, manifest.activeRuntimeCheckpoint.sourceSnapshot.source),
-]);
+assert.deepEqual(active.runnerArguments.slice(9), []);
+assert.equal(manifest.activeRuntimeCheckpoint.sourceSnapshot, undefined);
+assert.equal(manifest.activeRuntimeCheckpoint.writableProfile.profileId, "default");
 assert.deepEqual(planBgiCheckpointCommand(["--profile", "active"], manifest, root), active);
 
 const fullEvidence = planBgiCheckpointCommand(

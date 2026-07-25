@@ -197,12 +197,13 @@ for (const relative of policyFiles) {
   }
   const sourceFiles = policy.sourceFiles ?? null;
   if (sourceFiles !== null) {
-    assert.deepEqual(sourceFiles.allowedDesiredAccess, [0x8000_0000]);
-    assert.deepEqual(sourceFiles.allowedShareModes, [1]);
-    assert.deepEqual(sourceFiles.allowedCreationDispositions, [3]);
+    assert.deepEqual(sourceFiles.allowedDesiredAccess, [0x8000_0000, 0x4000_0000]);
+    assert.deepEqual(sourceFiles.allowedShareModes, [1, 0]);
+    assert.deepEqual(sourceFiles.allowedCreationDispositions, [3, 4, 2]);
     assert.deepEqual(sourceFiles.allowedFlagsAndAttributes, [0x0800_0020]);
     assert.equal(sourceFiles.maximumPathBytes, 32_768);
     assert.equal(sourceFiles.maximumReadBytes, 1024 * 1024);
+    assert.equal(sourceFiles.maximumWriteBytes, 1024 * 1024);
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
   }
   const driveType = policy.getDriveTypeA ?? null;

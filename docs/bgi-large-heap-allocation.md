@@ -189,7 +189,10 @@ cluster:           kernel32-api-contract
 
 Native evidence identifies the filename as `${TITLE_ROOT}\BGI.gdb`. This is a
 filesystem／VFS subsystem gateway, not an isolated API leaf. The next
-checkpoint must first define the smallest immutable-source vertical slice and
-its handle, path, async host-service, read／seek／close, cancellation, and
-failure-atomicity acceptance criteria. Writable save overlay work remains a
-separate later slice.
+checkpoint originally defined an immutable-source read slice. Later native
+lifecycle evidence and the file's delete-and-regenerate behavior established
+that BGI.gdb is global writable state, so that historical classification is not
+the current storage boundary. The current VFS registers BGI.gdb in a separate
+writable profile, optionally seeds a new SQLite database from the distribution
+copy, and keeps handle／path／read／write／commit authority in Rust. See
+[runtime-vfs.md](runtime-vfs.md) for the corrected contract.

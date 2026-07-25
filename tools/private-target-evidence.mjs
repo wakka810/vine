@@ -418,7 +418,7 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   );
   checkEqual(
     node.implementedApiContracts,
-    checkpoint.activeRuntimeCheckpoint.genericDispatcherApiCount,
+    checkpoint.activeRuntimeCheckpoint.genericDispatcherContractCount,
     "evidence.semantic.node.implementedApiContracts",
     errors,
   );

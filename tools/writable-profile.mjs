@@ -1,0 +1,752 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+export const writableProfileSchema = "vine.writable-profile-snapshot";
+export const writableProfileSchemaVersion = 1;
+export const writableProfileReadService = "storage.profile-read.v1";
+export const writableProfileCommitService = "storage.profile-commit.v1";
+export const writableProfileMaximumBytes = 16 * 1024 * 1024;
+export const writableProfileMaximumIoBytes = 1024 * 1024;
+
+const databaseSchemaVersion = 1;
+const maximumGeneration = Number.MAX_SAFE_INTEGER;
+
+export function openWritableProfile({
+  databasePath,
+  titleFingerprint,
+  profileId,
+  rootPathA,
+  quotaBytes,
+  files,
+}) {
+  assertText(titleFingerprint, "title fingerprint", 128);
+  assertText(profileId, "profile ID", 128);
+  if (
+    !/^[a-zA-Z0-9:._-]+$/u.test(titleFingerprint) ||
+    !/^[a-zA-Z0-9._-]+$/u.test(profileId)
+  ) {
+    throw profileError(
+      "writable-profile-identity-invalid",
+      "title fingerprint or profile ID contains an unsupported character",
+    );
+  }
+  const root = boundedBytes(rootPathA, "profile root", 32 * 1024);
+  if (root.length < 4 || root.at(-1) !== 0 || root.subarray(0, -1).includes(0)) {
+    throw profileError(
+      "writable-profile-root-invalid",
+      "profile root must be one NUL-terminated Windows path",
+    );
+  }
+  assertInteger(quotaBytes, "profile quota", 1, writableProfileMaximumBytes);
+  if (!Array.isArray(files) || files.length === 0 || files.length > 64) {
+    throw profileError("writable-profile-files-invalid", "profile requires 1..64 writable paths");
+  }
+  const normalizedFiles = files.map((file) => normalizeConfiguredFile(file));
+  const objectIds = new Set(normalizedFiles.map((file) => file.objectId));
+  const paths = new Set(normalizedFiles.map((file) => windowsPathIdentity(file.relativePathA)));
+  if (objectIds.size !== normalizedFiles.length || paths.size !== normalizedFiles.length) {
+    throw profileError(
+      "writable-profile-files-duplicate",
+      "profile writable object or path identity is duplicated",
+    );
+  }
+
+  const configuration = {
+    titleFingerprint,
+    profileId,
+    rootPathA: root,
+    quotaBytes,
+    files: normalizedFiles,
+  };
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;");
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS profile_metadata (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        schema_version INTEGER NOT NULL,
+        title_fingerprint TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        root_path_a BLOB NOT NULL,
+        quota_bytes INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS writable_paths (
+        object_id INTEGER PRIMARY KEY,
+        relative_path_a BLOB NOT NULL UNIQUE
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS files (
+        object_id INTEGER PRIMARY KEY REFERENCES writable_paths(object_id),
+        generation INTEGER NOT NULL CHECK (generation > 0),
+        byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+        sha256 TEXT NOT NULL,
+        content BLOB NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS commits (
+        request_key TEXT PRIMARY KEY,
+        object_id INTEGER NOT NULL REFERENCES writable_paths(object_id),
+        base_generation INTEGER NOT NULL,
+        committed_generation INTEGER NOT NULL,
+        byte_length INTEGER NOT NULL,
+        sha256 TEXT NOT NULL
+      ) STRICT;
+    `);
+    initializeProfile(database, configuration);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+  return {
+    database,
+    databasePath: path.resolve(databasePath),
+    ...configuration,
+    close() {
+      database.close();
+    },
+  };
+}
+
+export function snapshotWritableProfile(profile) {
+  const stored = new Map(
+    profile.database
+      .prepare("SELECT object_id, generation, byte_length, sha256, content FROM files")
+      .all()
+      .map((file) => [file.object_id, file]),
+  );
+  return {
+    schema: writableProfileSchema,
+    schemaVersion: writableProfileSchemaVersion,
+    titleFingerprint: profile.titleFingerprint,
+    profileId: profile.profileId,
+    rootPathA: [...profile.rootPathA],
+    quotaBytes: profile.quotaBytes,
+    files: profile.files.map((configured) => {
+      const file = stored.get(configured.objectId);
+      if (file === undefined) {
+        return {
+          objectId: configured.objectId,
+          relativePathA: [...configured.relativePathA],
+          exists: false,
+          generation: 0,
+          byteLength: 0,
+          sha256: null,
+          bytes: [],
+        };
+      }
+      const content = Buffer.from(file.content);
+      assertStoredFile(file, content);
+      return {
+        objectId: configured.objectId,
+        relativePathA: [...configured.relativePathA],
+        exists: true,
+        generation: file.generation,
+        byteLength: file.byte_length,
+        sha256: file.sha256,
+        bytes: [...content],
+      };
+    }),
+  };
+}
+
+export function readWritableProfile(profile, request) {
+  if (request.sourceId !== 0) {
+    throw profileError(
+      "writable-profile-read-source-invalid",
+      "writable profile reads require the reserved source ID zero",
+    );
+  }
+  const configured = profile.files.find((file) => file.objectId === request.objectId);
+  if (configured === undefined) {
+    throw profileError(
+      "writable-profile-read-object-unknown",
+      "profile read object is not in the writable allowlist",
+    );
+  }
+  const stored = profile.database
+    .prepare("SELECT generation, byte_length, sha256, content FROM files WHERE object_id = ?")
+    .get(request.objectId);
+  if (stored === undefined) {
+    throw profileError(
+      "writable-profile-read-file-missing",
+      "profile read object has no committed generation",
+    );
+  }
+  const bytes = Buffer.from(stored.content);
+  assertStoredFile(stored, bytes);
+  if (request.offset > BigInt(bytes.length)) {
+    throw profileError(
+      "writable-profile-read-range-invalid",
+      "profile read offset exceeds the committed object",
+    );
+  }
+  const offset = Number(request.offset);
+  const transferredBytes = Math.min(request.requestedBytes, bytes.length - offset);
+  return {
+    sourceId: 0,
+    objectId: request.objectId,
+    offset: request.offset,
+    requestedBytes: request.requestedBytes,
+    transferredBytes,
+    bytes: Buffer.from(bytes.subarray(offset, offset + transferredBytes)),
+    generation: stored.generation,
+  };
+}
+
+export function commitWritableProfile(profile, request, content, { failpoint = null } = {}) {
+  const normalized = normalizeCommitRequest(profile, request, content);
+  if (failpoint === "before-transaction") {
+    throw profileError("writable-profile-failpoint", "injected failure before transaction");
+  }
+  const database = profile.database;
+  database.exec("BEGIN IMMEDIATE");
+  let committed = false;
+  try {
+    const duplicate = database
+      .prepare(
+        "SELECT object_id, base_generation, committed_generation, byte_length, sha256 FROM commits WHERE request_key = ?",
+      )
+      .get(normalized.requestKey);
+    if (duplicate !== undefined) {
+      assertDuplicateCommit(duplicate, normalized);
+      database.exec("COMMIT");
+      committed = true;
+      return {
+        objectId: normalized.objectId,
+        baseGeneration: normalized.baseGeneration,
+        committedGeneration: duplicate.committed_generation,
+        win32Error: 0,
+        duplicate: true,
+      };
+    }
+
+    const current = database
+      .prepare("SELECT generation FROM files WHERE object_id = ?")
+      .get(normalized.objectId);
+    const currentGeneration = current?.generation ?? 0;
+    if (currentGeneration !== normalized.baseGeneration) {
+      throw profileError(
+        "writable-profile-generation-stale",
+        `commit base generation ${normalized.baseGeneration} does not match ${currentGeneration}`,
+      );
+    }
+    const otherBytes = database
+      .prepare("SELECT COALESCE(SUM(byte_length), 0) AS total FROM files WHERE object_id <> ?")
+      .get(normalized.objectId).total;
+    if (otherBytes + normalized.byteLength > profile.quotaBytes) {
+      throw profileError(
+        "writable-profile-quota-exceeded",
+        "commit would exceed the writable profile quota",
+      );
+    }
+    const committedGeneration = normalized.baseGeneration + 1;
+    if (committedGeneration > maximumGeneration) {
+      throw profileError(
+        "writable-profile-generation-exhausted",
+        "writable profile generation exceeds lossless host accounting",
+      );
+    }
+    database
+      .prepare(`
+        INSERT INTO files(object_id, generation, byte_length, sha256, content)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(object_id) DO UPDATE SET
+          generation = excluded.generation,
+          byte_length = excluded.byte_length,
+          sha256 = excluded.sha256,
+          content = excluded.content
+      `)
+      .run(
+        normalized.objectId,
+        committedGeneration,
+        normalized.byteLength,
+        normalized.sha256,
+        normalized.content,
+      );
+    database
+      .prepare(`
+        INSERT INTO commits(
+          request_key, object_id, base_generation, committed_generation, byte_length, sha256
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        normalized.requestKey,
+        normalized.objectId,
+        normalized.baseGeneration,
+        committedGeneration,
+        normalized.byteLength,
+        normalized.sha256,
+      );
+    if (failpoint === "after-write-before-commit") {
+      throw profileError("writable-profile-failpoint", "injected failure before SQLite commit");
+    }
+    database.exec("COMMIT");
+    committed = true;
+    if (failpoint === "after-commit-response-lost") {
+      throw profileError("writable-profile-response-lost", "injected response loss after commit");
+    }
+    return {
+      objectId: normalized.objectId,
+      baseGeneration: normalized.baseGeneration,
+      committedGeneration,
+      win32Error: 0,
+      duplicate: false,
+    };
+  } finally {
+    if (!committed) {
+      database.exec("ROLLBACK");
+    }
+  }
+}
+
+export async function handleWritableProfileHttp(request, response, profile) {
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+  if (!url.pathname.startsWith("/api/profile/v1/")) {
+    return false;
+  }
+  try {
+    if (url.pathname === "/api/profile/v1/snapshot") {
+      if (request.method !== "GET") {
+        sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+        return true;
+      }
+      const bytes = Buffer.from(`${JSON.stringify(snapshotWritableProfile(profile))}\n`);
+      response.writeHead(200, profileHeaders(profile, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": String(bytes.length),
+      }));
+      response.end(bytes);
+      return true;
+    }
+
+    const match = url.pathname.match(
+      /^\/api\/profile\/v1\/titles\/([^/]+)\/profiles\/([^/]+)\/objects\/([1-9][0-9]*)(\/commits)?$/u,
+    );
+    if (match === null) {
+      sendProfileError(response, 404, "writable-profile-route-unknown", "profile route not found");
+      return true;
+    }
+    const [, encodedTitle, encodedProfile, objectText, commitSuffix] = match;
+    const titleFingerprint = decodeURIComponent(encodedTitle);
+    const profileId = decodeURIComponent(encodedProfile);
+    const objectId = Number(objectText);
+    if (
+      titleFingerprint !== profile.titleFingerprint ||
+      profileId !== profile.profileId ||
+      !Number.isSafeInteger(objectId) ||
+      !profile.files.some((file) => file.objectId === objectId)
+    ) {
+      sendProfileError(response, 404, "writable-profile-object-unknown", "profile object not found");
+      return true;
+    }
+
+    if (commitSuffix === undefined) {
+      if (request.method !== "GET") {
+        sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+        return true;
+      }
+      const generation = parseSafeInteger(url.searchParams.get("generation"), "read generation", 1);
+      const offset = parseBoundedBigInt(url.searchParams.get("offset"), "read offset");
+      const requestedBytes = parseSafeInteger(
+        url.searchParams.get("length"),
+        "read length",
+        1,
+        writableProfileMaximumIoBytes,
+      );
+      const result = readWritableProfile(profile, {
+        sourceId: 0,
+        objectId,
+        offset,
+        requestedBytes,
+      });
+      if (result.generation !== generation) {
+        throw profileError(
+          "writable-profile-read-generation-stale",
+          "profile read generation differs from committed storage",
+        );
+      }
+      response.writeHead(206, profileHeaders(profile, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(result.bytes.length),
+        "X-Vine-Object-Id": String(objectId),
+        "X-Vine-Generation": String(result.generation),
+        "X-Vine-Offset": offset.toString(),
+        "X-Vine-Requested-Bytes": String(requestedBytes),
+        "X-Vine-Transferred-Bytes": String(result.transferredBytes),
+      }));
+      response.end(result.bytes);
+      return true;
+    }
+
+    if (request.method !== "POST") {
+      sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+      return true;
+    }
+    const requestKey = requiredHeader(request, "x-vine-request-key", 256);
+    const baseGeneration = parseSafeInteger(
+      requiredHeader(request, "x-vine-base-generation", 32),
+      "commit base generation",
+      0,
+      maximumGeneration - 1,
+    );
+    const byteLength = parseSafeInteger(
+      requiredHeader(request, "x-vine-byte-length", 32),
+      "commit byte length",
+      0,
+      profile.quotaBytes,
+    );
+    const contentSha256 = requiredHeader(request, "x-vine-content-sha256", 64);
+    if (!/^[0-9a-f]{64}$/u.test(contentSha256)) {
+      throw profileError(
+        "writable-profile-commit-hash-invalid",
+        "commit content hash is not lowercase SHA-256",
+      );
+    }
+    const content = await readRequestBytes(request, profile.quotaBytes);
+    if (content.length !== byteLength) {
+      throw profileError(
+        "writable-profile-commit-length-mismatch",
+        "commit body length differs from declared content length",
+      );
+    }
+    const configured = profile.files.find((file) => file.objectId === objectId);
+    const result = commitWritableProfile(
+      profile,
+      {
+        requestKey,
+        titleFingerprint,
+        profileId,
+        objectId,
+        relativePathA: configured.relativePathA,
+        baseGeneration,
+        byteLength,
+        sha256: contentSha256,
+      },
+      content,
+    );
+    const control = encodeCommitResponse(result);
+    response.writeHead(200, profileHeaders(profile, {
+      "Content-Type": "application/vnd.vine.profile-commit.v1",
+      "Content-Length": String(control.length),
+      "X-Vine-Object-Id": String(objectId),
+      "X-Vine-Base-Generation": String(baseGeneration),
+      "X-Vine-Committed-Generation": String(result.committedGeneration),
+      "X-Vine-Content-Sha256": contentSha256,
+      "X-Vine-Duplicate": String(result.duplicate),
+    }));
+    response.end(control);
+    return true;
+  } catch (error) {
+    const code = typeof error?.code === "string" ? error.code : "writable-profile-request-invalid";
+    const status = code.includes("quota") || code.includes("bytes") ? 413
+      : code.includes("stale") || code.includes("conflict") ? 409
+        : code.includes("missing") || code.includes("unknown") ? 404
+          : 400;
+    sendProfileError(response, status, code, error instanceof Error ? error.message : String(error));
+    return true;
+  }
+}
+
+function initializeProfile(database, configuration) {
+  database.exec("BEGIN IMMEDIATE");
+  let committed = false;
+  try {
+    const metadata = database.prepare("SELECT * FROM profile_metadata WHERE singleton = 1").get();
+    if (metadata === undefined) {
+      database
+        .prepare(`
+          INSERT INTO profile_metadata(
+            singleton, schema_version, title_fingerprint, profile_id, root_path_a, quota_bytes
+          ) VALUES (1, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          databaseSchemaVersion,
+          configuration.titleFingerprint,
+          configuration.profileId,
+          configuration.rootPathA,
+          configuration.quotaBytes,
+        );
+      const insertPath = database.prepare(
+        "INSERT INTO writable_paths(object_id, relative_path_a) VALUES (?, ?)",
+      );
+      const seed = database.prepare(
+        "INSERT INTO files(object_id, generation, byte_length, sha256, content) VALUES (?, 1, ?, ?, ?)",
+      );
+      let seededBytes = 0;
+      for (const file of configuration.files) {
+        insertPath.run(file.objectId, file.relativePathA);
+        if (file.seedBytes !== null) {
+          seededBytes += file.seedBytes.length;
+          if (seededBytes > configuration.quotaBytes) {
+            throw profileError(
+              "writable-profile-seed-quota-exceeded",
+              "initial profile seed exceeds its quota",
+            );
+          }
+          seed.run(file.objectId, file.seedBytes.length, sha256(file.seedBytes), file.seedBytes);
+        }
+      }
+    } else {
+      assertMetadata(metadata, configuration);
+      const storedPaths = database
+        .prepare("SELECT object_id, relative_path_a FROM writable_paths ORDER BY object_id")
+        .all();
+      if (
+        storedPaths.length !== configuration.files.length ||
+        storedPaths.some((stored, index) => {
+          const expected = [...configuration.files].sort((a, b) => a.objectId - b.objectId)[index];
+          return (
+            stored.object_id !== expected.objectId ||
+            !Buffer.from(stored.relative_path_a).equals(expected.relativePathA)
+          );
+        })
+      ) {
+        throw profileError(
+          "writable-profile-path-identity-mismatch",
+          "existing database writable paths differ from the requested profile",
+        );
+      }
+    }
+    database.exec("COMMIT");
+    committed = true;
+  } finally {
+    if (!committed) {
+      database.exec("ROLLBACK");
+    }
+  }
+}
+
+function normalizeConfiguredFile(file) {
+  assertInteger(file.objectId, "writable object ID", 1, 0xffff_ffff);
+  const relativePathA = boundedBytes(file.relativePathA, "writable relative path", 32 * 1024);
+  if (relativePathA.length === 0 || relativePathA.includes(0)) {
+    throw profileError(
+      "writable-profile-relative-path-invalid",
+      "writable relative path must be nonempty and NUL-free",
+    );
+  }
+  const seedBytes = file.seedBytes === undefined || file.seedBytes === null
+    ? null
+    : boundedBytes(file.seedBytes, "writable seed", writableProfileMaximumBytes);
+  return { objectId: file.objectId, relativePathA, seedBytes };
+}
+
+function windowsPathIdentity(bytes) {
+  return Buffer.from(
+    [...bytes].map((byte) => (byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte)),
+  ).toString("base64");
+}
+
+function normalizeCommitRequest(profile, request, content) {
+  assertText(request.requestKey, "commit request key", 256);
+  if (
+    request.titleFingerprint !== profile.titleFingerprint ||
+    request.profileId !== profile.profileId
+  ) {
+    throw profileError(
+      "writable-profile-commit-profile-mismatch",
+      "commit title or profile identity does not match the database",
+    );
+  }
+  assertInteger(request.objectId, "commit object ID", 1, 0xffff_ffff);
+  assertInteger(request.baseGeneration, "commit base generation", 0, maximumGeneration - 1);
+  assertInteger(request.byteLength, "commit byte length", 0, profile.quotaBytes);
+  const configured = profile.files.find((file) => file.objectId === request.objectId);
+  if (configured === undefined) {
+    throw profileError(
+      "writable-profile-commit-object-unknown",
+      "commit object is not in the writable allowlist",
+    );
+  }
+  if (
+    request.relativePathA !== undefined &&
+    !boundedBytes(request.relativePathA, "commit relative path", 32 * 1024).equals(
+      configured.relativePathA,
+    )
+  ) {
+    throw profileError(
+      "writable-profile-commit-path-mismatch",
+      "commit path does not match the writable object identity",
+    );
+  }
+  const bytes = boundedBytes(content, "commit content", profile.quotaBytes);
+  if (bytes.length !== request.byteLength || !isSha256(request.sha256) || sha256(bytes) !== request.sha256) {
+    throw profileError(
+      "writable-profile-commit-content-mismatch",
+      "commit bytes do not match the declared length and SHA-256",
+    );
+  }
+  return { ...request, content: bytes };
+}
+
+function assertMetadata(metadata, configuration) {
+  if (
+    metadata.schema_version !== databaseSchemaVersion ||
+    metadata.title_fingerprint !== configuration.titleFingerprint ||
+    metadata.profile_id !== configuration.profileId ||
+    !Buffer.from(metadata.root_path_a).equals(configuration.rootPathA) ||
+    metadata.quota_bytes !== configuration.quotaBytes
+  ) {
+    throw profileError(
+      "writable-profile-database-identity-mismatch",
+      "existing writable database metadata differs from the requested profile",
+    );
+  }
+}
+
+function assertStoredFile(file, content) {
+  if (
+    file.byte_length !== content.length ||
+    !isSha256(file.sha256) ||
+    sha256(content) !== file.sha256 ||
+    !Number.isSafeInteger(file.generation) ||
+    file.generation <= 0
+  ) {
+    throw profileError(
+      "writable-profile-database-content-invalid",
+      "stored writable bytes fail their generation, length, or hash invariant",
+    );
+  }
+}
+
+function assertDuplicateCommit(stored, request) {
+  if (
+    stored.object_id !== request.objectId ||
+    stored.base_generation !== request.baseGeneration ||
+    stored.byte_length !== request.byteLength ||
+    stored.sha256 !== request.sha256
+  ) {
+    throw profileError(
+      "writable-profile-request-key-conflict",
+      "durable request key was reused for different commit content",
+    );
+  }
+}
+
+function boundedBytes(value, label, maximum) {
+  const bytes = Buffer.from(value);
+  if (bytes.length > maximum) {
+    throw profileError("writable-profile-bytes-invalid", `${label} exceeds ${maximum} bytes`);
+  }
+  return bytes;
+}
+
+function assertText(value, label, maximum) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+    throw profileError("writable-profile-text-invalid", `${label} is empty or too long`);
+  }
+}
+
+function assertInteger(value, label, minimum, maximum) {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw profileError(
+      "writable-profile-integer-invalid",
+      `${label} is outside ${minimum}..${maximum}`,
+    );
+  }
+}
+
+function isSha256(value) {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+function sha256(bytes) {
+  return crypto.createHash("sha256").update(bytes).digest("hex");
+}
+
+function profileHeaders(profile, headers = {}) {
+  return {
+    "Cache-Control": "no-store",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Vine-Title-Fingerprint": profile.titleFingerprint,
+    "X-Vine-Profile-Id": profile.profileId,
+    ...headers,
+  };
+}
+
+function requiredHeader(request, name, maximumLength) {
+  const value = request.headers[name];
+  if (typeof value !== "string" || value.length === 0 || value.length > maximumLength) {
+    throw profileError(
+      "writable-profile-header-invalid",
+      `required ${name} header is missing or too long`,
+    );
+  }
+  return value;
+}
+
+function parseSafeInteger(value, label, minimum, maximum = Number.MAX_SAFE_INTEGER) {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) {
+    throw profileError("writable-profile-integer-invalid", `${label} is not canonical decimal`);
+  }
+  const parsed = Number(value);
+  assertInteger(parsed, label, minimum, maximum);
+  return parsed;
+}
+
+function parseBoundedBigInt(value, label) {
+  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/u.test(value)) {
+    throw profileError("writable-profile-integer-invalid", `${label} is not canonical decimal`);
+  }
+  const parsed = BigInt(value);
+  if (parsed > 0xffff_ffff_ffff_ffffn) {
+    throw profileError("writable-profile-integer-invalid", `${label} exceeds unsigned 64-bit`);
+  }
+  return parsed;
+}
+
+async function readRequestBytes(request, maximumBytes) {
+  const declared = request.headers["content-length"];
+  if (declared !== undefined) {
+    parseSafeInteger(String(declared), "request content length", 0, maximumBytes);
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.from(chunk);
+    total += bytes.length;
+    if (total > maximumBytes) {
+      throw profileError(
+        "writable-profile-request-bytes-exceeded",
+        "writable profile request body exceeds the profile quota",
+      );
+    }
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks, total);
+}
+
+function encodeCommitResponse(result) {
+  const control = Buffer.alloc(32);
+  const words = [
+    1,
+    result.objectId,
+    result.baseGeneration >>> 0,
+    Math.floor(result.baseGeneration / 0x1_0000_0000),
+    result.committedGeneration >>> 0,
+    Math.floor(result.committedGeneration / 0x1_0000_0000),
+    result.win32Error,
+    0,
+  ];
+  words.forEach((word, index) => control.writeUInt32LE(word, index * 4));
+  return control;
+}
+
+function sendProfileError(response, status, code, message) {
+  const body = Buffer.from(`${JSON.stringify({ code, message })}\n`);
+  response.writeHead(status, {
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": String(body.length),
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Vine-Error-Code": code,
+  });
+  response.end(body);
+}
+
+function profileError(code, message) {
+  return Object.assign(new Error(message), { code });
+}

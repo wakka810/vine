@@ -19,9 +19,17 @@ import {
 import {
   decodeSourceReadRequest,
   encodeSourceReadResponse,
+  profileReadService,
   readSourceSnapshot,
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
+import {
+  commitWritableProfile,
+  openWritableProfile,
+  readWritableProfile,
+  snapshotWritableProfile,
+  writableProfileCommitService,
+} from "./writable-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commandArguments = process.argv.slice(2);
@@ -272,70 +280,6 @@ assert(
     ),
   "--source-manifest is reserved for source-reading capabilities",
 );
-if (
-  [
-    "kernel32-source-file-read",
-    "user32-create-window-ex-a",
-    "user32-get-system-metrics-small-icon-height",
-    "user32-get-system-metrics-small-icon-width",
-    "user32-load-image-a-small-icon",
-    "user32-send-message-a-small-icon",
-    "user32-set-window-pos-initial-placement",
-    "d3d9-root-factory-and-identity",
-    "d3d9-get-adapter-display-mode",
-    "d3d9-get-adapter-identifier",
-    "d3d9-get-device-caps",
-    "d3d9-check-device-type",
-    "d3d9-check-device-format",
-    "kernel32-load-library-a",
-    "user32-get-client-rect",
-    "gdi-window-dc-fill",
-    "user32-set-window-long-a",
-    "user32-set-window-pos-activation",
-    "user32-monitor-from-window",
-    "d3d9-get-adapter-count",
-    "d3d9-get-adapter-monitor",
-    "d3d9-create-device",
-    "d3d9-create-texture",
-    "d3d9-get-surface-level",
-    "d3d9-surface-get-dc",
-    "winmm-time-get-time",
-    "d3d9-initial-textures",
-    "d3d9-initial-vertex-buffer",
-    "d3d9-initial-render-states",
-    "d3d9-raster-status",
-    "kernel32-query-performance-frequency",
-    "user32-get-monitor-info-a",
-    "dinput8-api-contract",
-    "dinput8-enum-devices",
-    "dsound-root-and-cooperative-level",
-    "dsound-initial-buffers",
-    "dsound-buffer-lock-unlock-play",
-    "user32-set-timer",
-    "kernel32-create-thread",
-    "kernel32-set-thread-priority",
-    "gdi-screen-dc",
-    "gdi-font-enumeration",
-    "gdi-font-creation",
-    "gdi-compatible-dc",
-    "gdi-dib-lifecycle",
-    "gdi-outline-text-metrics",
-    "gdi-text-raster",
-    "gdiplus-startup",
-    "kernel32-virtual-alloc",
-    "imm32-default-ime-context",
-  ].includes(
-    genericRuntimeCapability,
-  ) &&
-  sourceManifestPath === null
-) {
-  sourceManifestPath = path.join(
-    root,
-    "fixtures",
-    "source-snapshots",
-    "bgi-gdb-v1.json",
-  );
-}
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-virtual-alloc" ||
@@ -2106,6 +2050,8 @@ const runtimeFrame = {
   pageFaultCompletion: 17,
   hostRequest: 18,
   hostCompletion: 19,
+  threadExit: 20,
+  threadExitCompletion: 21,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -4641,14 +4587,55 @@ function buildFirstTrapReport({
 async function run() {
   requireFile(wasmPath, "npm run prepare:engine");
   requireFile(bgiPath, "the primary title must be installed at its configured path");
-  const sourceRegistration = sourceFileReadEnabled
+  const bgiGdbPath = path.join(path.dirname(bgiPath), "BGI.gdb");
+  const bgiGdbBefore = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
+  const sourceRegistration = sourceManifestPath !== null
     ? await registerSourceSnapshot({
         manifestPath: sourceManifestPath,
-        objectFiles: { 1: path.join(path.dirname(bgiPath), "BGI.gdb") },
+        objectFiles: { 1: bgiGdbPath },
       })
     : null;
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
+  const writableProfile = sourceFileReadEnabled && sourceRegistration === null
+    ? openWritableProfile({
+        databasePath: path.join(
+          root,
+          ".work",
+          "private-profiles",
+          expected.source.sha256,
+          "default.sqlite",
+        ),
+        titleFingerprint: expected.source.sha256,
+        profileId: "default",
+        rootPathA: Buffer.from("C:\\Vine\0", "binary"),
+        quotaBytes: 16 * 1024 * 1024,
+        files: [
+          {
+            objectId: 1,
+            relativePathA: Buffer.from("BGI.gdb", "ascii"),
+            seedBytes: fs.existsSync(bgiGdbPath)
+              ? fs.readFileSync(bgiGdbPath)
+              : null,
+          },
+        ],
+      })
+    : null;
+  const writableProfileManifestPath = writableProfile === null
+    ? null
+    : path.join(
+        root,
+        ".work",
+        "private-profiles",
+        expected.source.sha256,
+        `snapshot-${process.pid}.json`,
+      );
+  if (writableProfileManifestPath !== null) {
+    fs.writeFileSync(
+      writableProfileManifestPath,
+      `${JSON.stringify(snapshotWritableProfile(writableProfile))}\n`,
+    );
+  }
   const runtimeBindingArguments = declaredDispatches.flatMap(({ module, symbol }) => [
     "--bind-name",
     module,
@@ -4688,6 +4675,9 @@ async function run() {
       : ["--runtime-capability", genericRuntimeCapability]),
     ...(runtimePolicyPath === null ? [] : ["--runtime-policy", runtimePolicyPath]),
     ...(sourceManifestPath === null ? [] : ["--source-manifest", sourceManifestPath]),
+    ...(writableProfileManifestPath === null
+      ? []
+      : ["--writable-profile", writableProfileManifestPath]),
     "--trap-unsupported-imports",
     "--install-callback-return-sentinel",
     "--install-process-entry-return-sentinel",
@@ -4784,6 +4774,7 @@ async function run() {
         protocolReader,
         runtimeReady,
         sourceRegistration,
+        writableProfile,
       });
       child.stdin.end();
       const processExit = await exit;
@@ -5370,6 +5361,16 @@ async function run() {
     if (!sessionCompleted && child.exitCode === null) {
       child.kill();
     }
+    writableProfile?.close();
+    if (writableProfileManifestPath !== null) {
+      fs.rmSync(writableProfileManifestPath, { force: true });
+    }
+    const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
+    assert.deepEqual(
+      bgiGdbAfter,
+      bgiGdbBefore,
+      "distribution BGI.gdb changed outside the writable profile",
+    );
   }
 }
 
@@ -5381,6 +5382,7 @@ async function runGenericRuntimeReentry({
   protocolReader,
   runtimeReady,
   sourceRegistration,
+  writableProfile,
 }) {
   validateGenericRuntimeReady(runtimeReady, offer);
   if (sourceRegistration === null) {
@@ -5397,6 +5399,16 @@ async function runGenericRuntimeReentry({
       assert.deepEqual(runtimeReady.sourceSnapshot.files[String(descriptor.objectId)], descriptor);
     }
   }
+  if (writableProfile === null) {
+    assert.equal(runtimeReady.writableProfile, undefined);
+  } else {
+    const profile = snapshotWritableProfile(writableProfile);
+    assert.equal(runtimeReady.writableProfile.titleFingerprint, profile.titleFingerprint);
+    assert.equal(runtimeReady.writableProfile.profileId, profile.profileId);
+    assert.deepEqual(runtimeReady.writableProfile.rootPathA, profile.rootPathA);
+    assert.equal(runtimeReady.writableProfile.quotaBytes, profile.quotaBytes);
+    assert.equal(Object.keys(runtimeReady.writableProfile.files).length, profile.files.length);
+  }
   let generation = runtimeReady.memory.acknowledgedGeneration;
   let continuation = execution;
   const occurrences = new Map();
@@ -5404,12 +5416,66 @@ async function runGenericRuntimeReentry({
   const writebacks = [];
   const hostDeltas = [];
   const sourceReads = [];
+  const writableCommits = [];
+  const writableProfileSessionKey = crypto.randomUUID();
   const stackGrowths = [];
   const heapPageMaterializations = [];
   const callbackEvents = [];
   const activeCallbacks = [];
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
+  let currentThreadId = runtimeReady.currentThreadId;
+  const threadContexts = new Map([[currentThreadId, saveGenericCpuContext(context)]]);
+  const registeredThreadIds = [currentThreadId];
+  const executedThreadIds = [currentThreadId];
+  const threadExits = [];
+  let contextSwitches = 0;
+  const threadExecutionSnapshot = () => ({
+    registeredThreadIds: [...registeredThreadIds],
+    executedThreadIds: [...executedThreadIds],
+    contextSwitches,
+    threadExits: structuredClone(threadExits),
+  });
+  const registerCreatedThread = (created) => {
+    const { thread, schedulerState } = created;
+    const bootstrap = thread?.guestBootstrap;
+    assert(
+      Number.isInteger(created.handle) &&
+        created.handle > 0 &&
+        Number.isInteger(thread?.id) &&
+        thread.id > 0 &&
+        !threadContexts.has(thread.id) &&
+        thread.lifecycle?.state === "running" &&
+        bootstrap?.threadId === thread.id &&
+        bootstrap.initialStackPointer === thread.stack?.initialStackPointer &&
+        bootstrap.fsBase === thread.environment?.tebAddress &&
+        bootstrap.returnSentinel === thread.stack?.returnSentinel &&
+        (schedulerState?.state === "runnable" ||
+          (schedulerState?.state === "suspended" && schedulerState.count > 0)),
+      "CreateThread returned inconsistent CPU bootstrap metadata",
+    );
+    threadContexts.set(
+      thread.id,
+      createGenericThreadCpuContext(context.threadContextTemplate, bootstrap),
+    );
+    registeredThreadIds.push(thread.id);
+  };
+  const selectThread = (selection, saveCurrent) => {
+    assert(
+      selection?.previousThreadId === currentThreadId &&
+        selection.threadId !== currentThreadId &&
+        selection.state?.state === "runnable",
+      "Rust returned an invalid API-boundary thread selection",
+    );
+    const selectedContext = threadContexts.get(selection.threadId);
+    assert(selectedContext !== undefined, "selected guest thread has no CPU context");
+    if (saveCurrent) {
+      threadContexts.set(currentThreadId, saveGenericCpuContext(context));
+    }
+    restoreGenericCpuContext(context, selectedContext);
+    currentThreadId = selection.threadId;
+    contextSwitches += 1;
+  };
 
   const callLimit = setWindowPosInitialPlacementEnabled
     ? 32_768
@@ -5418,15 +5484,20 @@ async function runGenericRuntimeReentry({
       : 256;
   for (let iteration = 1; iteration <= callLimit; iteration += 1) {
     const sequence = supportedCalls.length + 1;
+    if (!executedThreadIds.includes(currentThreadId)) {
+      executedThreadIds.push(currentThreadId);
+    }
     const terminal = continuation.terminal;
     const ownedTerminal =
       terminal.kind === "owned-import-thunk" ||
       terminal.kind === "owned-dynamic-export-thunk" ||
       terminal.kind === "owned-com-method";
     const callbackReturnTerminal = terminal.kind === "callback-return-sentinel";
+    const threadReturnTerminal = terminal.kind === "process-entry-return-sentinel";
     if (!ownedTerminal) {
       assert(
         callbackReturnTerminal ||
+          (threadReturnTerminal && currentThreadId !== runtimeReady.currentThreadId) ||
           (initializeCriticalSectionEnabled && terminal.kind === "page-fault"),
         `generic runtime reached non-owned terminal at call ${sequence}, ` +
           `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
@@ -5603,6 +5674,73 @@ async function runGenericRuntimeReentry({
         instructionCount: continuation.instructionCount,
         result: callbackResult,
       });
+      continuation = executeToNextOwnedTrap(
+        offer,
+        context,
+        continuation.instructionCount,
+      );
+      continue;
+    }
+
+    if (threadReturnTerminal) {
+      const exitedThreadId = currentThreadId;
+      const exitCode = continuation.finalState.eax >>> 0;
+      await writeRuntimeJsonFrame(child.stdin, runtimeFrame.threadExit, {
+        schema: "vine.v86-generic-runtime-thread-exit",
+        schemaVersion: 1,
+        generation,
+        threadId: exitedThreadId,
+        exitCode,
+      });
+      let response = await readRuntimeFrame(
+        protocolReader,
+        null,
+        "generic guest thread exit",
+      );
+      if (response.kind === runtimeFrame.hostDelta) {
+        const delta = decodeRuntimeHostDelta(response.control, response.payload);
+        assert.equal(delta.fromGeneration, generation);
+        applyRuntimeHostDelta(context, delta);
+        generation = delta.generation;
+        hostDeltas.push({
+          sequence,
+          source: "guest-thread-exit",
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          mappingOperations: delta.mappingOperations.length,
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          controlBytes: response.control.length,
+          payloadBytes: response.payload.length,
+          payloadSha256: sha256(response.payload),
+          cacheEffects: delta.cacheEffects,
+        });
+        await writeRuntimeFrame(
+          child.stdin,
+          runtimeFrame.acknowledgement,
+          encodeGeneration(generation),
+          Buffer.alloc(0),
+        );
+        response = await readRuntimeFrame(
+          protocolReader,
+          runtimeFrame.threadExitCompletion,
+          "generic guest thread exit completion",
+        );
+      } else {
+        assert.equal(response.kind, runtimeFrame.threadExitCompletion);
+      }
+      assert.equal(response.payload.length, 0);
+      const completion = JSON.parse(response.control.toString("utf8"));
+      assert.equal(completion.schema, "vine.v86-generic-runtime-thread-exit-completion");
+      assert.equal(completion.schemaVersion, 1);
+      assert.equal(completion.threadId, exitedThreadId);
+      assert.equal(completion.exitCode, exitCode);
+      assert.deepEqual(completion.schedulerState, { state: "terminated", exitCode });
+      assert.equal(completion.memory.generation, generation);
+      assert.equal(completion.memory.acknowledgedGeneration, generation);
+      threadContexts.delete(exitedThreadId);
+      threadExits.push({ threadId: exitedThreadId, exitCode });
+      assert(completion.threadSelection, "guest thread exit left no executable runtime lane");
+      selectThread(completion.threadSelection, false);
       continuation = executeToNextOwnedTrap(
         offer,
         context,
@@ -5852,10 +5990,12 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         sourceReads,
+        ...(writableCommits.length === 0 ? {} : { writableCommits }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
+        threadExecution: threadExecutionSnapshot(),
         finalGeneration: generation,
         fault: {
           schema: "vine.v86-generic-runtime-execution-fault",
@@ -5909,14 +6049,17 @@ async function runGenericRuntimeReentry({
 
     let response = await readRuntimeFrame(protocolReader, null, "generic API response");
     while (response.kind === runtimeFrame.hostRequest) {
-      response = await completeSourceHostRequest({
+      response = await completeStorageHostRequest({
         child,
         protocolReader,
         response,
         endpoint,
         generation,
         sourceRegistration,
+        writableProfile,
+        writableProfileSessionKey,
         sourceReads,
+        writableCommits,
         sequence,
       });
     }
@@ -6020,10 +6163,12 @@ async function runGenericRuntimeReentry({
         writebacks,
         hostDeltas,
         sourceReads,
+        ...(writableCommits.length === 0 ? {} : { writableCommits }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
+        threadExecution: threadExecutionSnapshot(),
         finalGeneration: generation,
         fault,
         terminal: continuation,
@@ -6075,10 +6220,16 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (completionFrame.createdThread !== undefined) {
+      registerCreatedThread(completionFrame.createdThread);
+    }
     if (endpoint.kind === "com-method") {
       restoreGenericComCompletion(context, continuation.finalState, completionFrame.completion);
     } else {
       restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
+    }
+    if (completionFrame.threadSelection !== undefined) {
+      selectThread(completionFrame.threadSelection, true);
     }
     let next;
     try {
@@ -6113,18 +6264,23 @@ async function runGenericRuntimeReentry({
   );
 }
 
-async function completeSourceHostRequest({
+async function completeStorageHostRequest({
   child,
   protocolReader,
   response,
   endpoint,
   generation,
   sourceRegistration,
+  writableProfile,
+  writableProfileSessionKey,
   sourceReads,
+  writableCommits,
   sequence,
 }) {
-  assert(sourceRegistration !== null, "runtime emitted a source request without registration");
-  assert.equal(response.payload.length, 0);
+  assert(
+    sourceRegistration !== null || writableProfile !== null,
+    "runtime emitted storage I/O without a registered backing",
+  );
   const metadata = JSON.parse(response.control.toString("utf8"));
   assert.equal(metadata.schema, "vine.v86-generic-runtime-host-request");
   assert.equal(metadata.schemaVersion, 1);
@@ -6133,19 +6289,88 @@ async function completeSourceHostRequest({
   assert.equal(metadata.endpoint.endpoint.address, endpoint.address);
   assert.equal(metadata.endpoint.endpoint.module.toLowerCase(), endpoint.module.toLowerCase());
   assert.equal(metadata.endpoint.endpoint.symbol.kind, "name");
-  assert.equal(metadata.endpoint.endpoint.symbol.name, "ReadFile");
   assert.equal(metadata.memory.generation, generation);
   assert.equal(metadata.memory.acknowledgedGeneration, generation);
   assert.deepEqual(metadata.schedulerState, {
     state: "waiting-host",
     requestId: metadata.requestId,
   });
+  if (metadata.service === writableProfileCommitService) {
+    assert.notEqual(writableProfile, null, "writable commit has no profile database");
+    assert(
+      metadata.endpoint.endpoint.symbol.name === "CloseHandle" ||
+        metadata.endpoint.endpoint.symbol.name === "FlushFileBuffers",
+      "writable commit belongs to an unexpected API",
+    );
+    assert.equal(metadata.arguments.length, 7);
+    const [
+      version,
+      objectId,
+      baseLow,
+      baseHigh,
+      byteLengthLow,
+      byteLengthHigh,
+      closeAfterCommit,
+    ] = metadata.arguments;
+    assert.equal(version, 1);
+    assert(closeAfterCommit === 0 || closeAfterCommit === 1);
+    const baseGeneration = Number(BigInt(baseLow) | (BigInt(baseHigh) << 32n));
+    const byteLength = Number(BigInt(byteLengthLow) | (BigInt(byteLengthHigh) << 32n));
+    assert(Number.isSafeInteger(baseGeneration));
+    assert(Number.isSafeInteger(byteLength));
+    assert.equal(response.payload.length, byteLength);
+    const profile = snapshotWritableProfile(writableProfile);
+    const file = profile.files.find((candidate) => candidate.objectId === objectId);
+    assert.notEqual(file, undefined, "writable commit object is not allowlisted");
+    assert.equal(file.generation, baseGeneration);
+    const contentSha256 = sha256(response.payload);
+    const result = commitWritableProfile(
+      writableProfile,
+      {
+        requestKey: `${writableProfileSessionKey}:${metadata.requestId}`,
+        titleFingerprint: profile.titleFingerprint,
+        profileId: profile.profileId,
+        objectId,
+        relativePathA: file.relativePathA,
+        baseGeneration,
+        byteLength,
+        sha256: contentSha256,
+      },
+      response.payload,
+    );
+    const requestIdentity = Buffer.alloc(8);
+    requestIdentity.writeBigUInt64LE(BigInt(metadata.requestId));
+    const control = encodeWritableCommitResponse(result);
+    await writeRuntimeFrame(
+      child.stdin,
+      runtimeFrame.hostCompletion,
+      Buffer.concat([requestIdentity, control]),
+      Buffer.alloc(0),
+    );
+    writableCommits.push({
+      sequence,
+      requestId: String(metadata.requestId),
+      objectId,
+      baseGeneration,
+      committedGeneration: result.committedGeneration,
+      byteLength,
+      contentSha256,
+      closeAfterCommit: closeAfterCommit === 1,
+      duplicate: result.duplicate,
+    });
+    return readRuntimeFrame(protocolReader, null, "generic writable commit completion");
+  }
+
+  assert.equal(response.payload.length, 0);
+  assert.equal(metadata.endpoint.endpoint.symbol.name, "ReadFile");
   const request = decodeSourceReadRequest(
     String(metadata.requestId),
     metadata.service,
     metadata.arguments,
   );
-  const sourceResponse = readSourceSnapshot(sourceRegistration, request);
+  const sourceResponse = metadata.service === profileReadService
+    ? readWritableProfile(writableProfile, request)
+    : readSourceSnapshot(sourceRegistration, request);
   const encoded = encodeSourceReadResponse(sourceResponse);
   const requestIdentity = Buffer.alloc(8);
   requestIdentity.writeBigUInt64LE(BigInt(request.requestId));
@@ -6166,6 +6391,22 @@ async function completeSourceHostRequest({
     payloadSha256: sha256(encoded.payload),
   });
   return readRuntimeFrame(protocolReader, null, "generic source read completion");
+}
+
+function encodeWritableCommitResponse(result) {
+  const control = Buffer.alloc(32);
+  const words = [
+    1,
+    result.objectId,
+    result.baseGeneration >>> 0,
+    Math.floor(result.baseGeneration / 0x1_0000_0000),
+    result.committedGeneration >>> 0,
+    Math.floor(result.committedGeneration / 0x1_0000_0000),
+    result.win32Error,
+    0,
+  ];
+  words.forEach((word, index) => control.writeUInt32LE(word, index * 4));
+  return control;
 }
 
 function buildGenericCallRecord(
@@ -6314,6 +6555,7 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(
     ready.implementedApiContracts,
     declaredDispatches.length +
+      (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
         : imm32ContextEnabled
@@ -19565,6 +19807,7 @@ function buildGenericRuntimeReentryReport({
         : { enabledCapability: genericRuntimeCapability }),
     },
     process: runtimeReady,
+    threadExecution: genericResult.threadExecution,
     reflection: {
       pages: offer.reflection.pages.length,
       generation: offer.reflection.invalidation.generation,
@@ -19605,9 +19848,12 @@ function buildGenericRuntimeReentryReport({
             create: createThreadCall,
             resume: resumeThreadCall,
             creationDelta: createThreadDelta,
-            schedulingPolicy: "synchronous-resume-preserves-caller-until-block-or-explicit-schedule",
-            nodeExecutedThreadIds: [8_192],
-            nodeContextSwitches: 0,
+            schedulingPolicy:
+              "synchronous-resume-preserves-caller-until-runnable-contention-api-boundary-quantum-64-expires",
+            nodeRegisteredThreadIds: genericResult.threadExecution.registeredThreadIds,
+            nodeExecutedThreadIds: genericResult.threadExecution.executedThreadIds,
+            nodeContextSwitches: genericResult.threadExecution.contextSwitches,
+            nodeThreadExits: genericResult.threadExecution.threadExits,
           },
         }
       : {}),
@@ -20424,6 +20670,30 @@ async function prepareV86(offer) {
       (bytes[3] << 24)
     ) >>> 0;
   };
+  const readableVirtualByteLength = (address, maximumBytes) => {
+    checkedGuestEnd(address, 0, "readable virtual prefix");
+    assert(
+      Number.isInteger(maximumBytes) && maximumBytes >= 0,
+      "readable virtual prefix bound is invalid",
+    );
+    let readableBytes = 0;
+    while (readableBytes < maximumBytes) {
+      const current = address + readableBytes;
+      if (current >= 0x1_0000_0000) {
+        break;
+      }
+      const virtualBase = (current & ~(page.size - 1)) >>> 0;
+      const mapping = mappings.get(virtualBase);
+      if (mapping === undefined || !mapping.protection.read) {
+        break;
+      }
+      readableBytes += Math.min(
+        maximumBytes - readableBytes,
+        page.size - (current & (page.size - 1)),
+      );
+    }
+    return readableBytes;
+  };
   const applyDirtyPage = (dirty, label) => {
     assert.equal(dirty.address & (page.size - 1), 0, `${label} address is not page aligned`);
     assert.equal(dirty.bytes.length, page.size, `${label} is not one guest page`);
@@ -20471,6 +20741,7 @@ async function prepareV86(offer) {
   words[stateWord.controlRegisterBase] |= 0x80010001;
   words[stateWord.controlRegisterBase + 3] = pageDirectory;
   words[stateWord.controlRegisterBase + 4] |= 0x200;
+  const threadContextTemplate = Uint32Array.from(words);
   assert.equal(wasm.vine_cpu_state_restore(), 0);
   assert.equal(allocations.length, dispatchGetProcAddress ? 394 : 393);
   assert.deepEqual([...pageTables.keys()], [1, 64, 508, 511]);
@@ -20499,6 +20770,8 @@ async function prepareV86(offer) {
     preflightVirtualRange,
     readVirtualBytes,
     readVirtualU32,
+    readableVirtualByteLength,
+    threadContextTemplate,
     wasm,
   };
 }
@@ -24811,6 +25084,54 @@ async function dispatchSeventeenthEncodePointerCall({
   };
 }
 
+function saveGenericCpuContext(context) {
+  context.wasm.vine_cpu_state_save();
+  return Uint32Array.from(
+    new Uint32Array(
+      context.wasm.memory.buffer,
+      context.wasm.vine_cpu_state_ptr(),
+      context.wasm.vine_cpu_state_size() / 4,
+    ),
+  );
+}
+
+function restoreGenericCpuContext(context, saved) {
+  assert(saved instanceof Uint32Array);
+  assert.equal(saved.byteLength, context.wasm.vine_cpu_state_size());
+  assert.equal(saved[stateWord.magic], 0x56494e45);
+  assert.equal(saved[stateWord.version], context.wasm.vine_cpu_state_version());
+  const live = new Uint32Array(
+    context.wasm.memory.buffer,
+    context.wasm.vine_cpu_state_ptr(),
+    context.wasm.vine_cpu_state_size() / 4,
+  );
+  live.set(saved);
+  assert.equal(context.wasm.vine_cpu_state_restore(), 0);
+}
+
+function createGenericThreadCpuContext(template, bootstrap) {
+  assert(template instanceof Uint32Array);
+  for (const [label, value] of [
+    ["entry point", bootstrap.entryPoint],
+    ["initial stack pointer", bootstrap.initialStackPointer],
+    ["FS base", bootstrap.fsBase],
+  ]) {
+    assert(
+      Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff,
+      `thread ${label} is outside the u32 guest address space`,
+    );
+  }
+  const words = Uint32Array.from(template);
+  words.fill(0, stateWord.eax, stateWord.eax + 8);
+  words[stateWord.esp] = bootstrap.initialStackPointer >>> 0;
+  words[stateWord.instructionPointer] = bootstrap.entryPoint >>> 0;
+  words[stateWord.previousInstructionPointer] = bootstrap.entryPoint >>> 0;
+  words[stateWord.flags] = 2;
+  words[stateWord.inHalt] = 0;
+  words[stateWord.segmentOffsetBase + segmentIndex.fs] = bootstrap.fsBase >>> 0;
+  return words;
+}
+
 function captureCpuState(context, reason) {
   context.wasm.vine_cpu_state_save();
   const words = Uint32Array.from(
@@ -26336,12 +26657,7 @@ function classifyTerminal(
   if (state.reason === stopReason.invalidOpcode) {
     const thunk = thunksByAddress.get(state.instructionPointer);
     if (thunk !== undefined && state.previousInstructionPointer === thunk.address) {
-      const stackWords = [];
-      for (let index = 0; index < 8; index += 1) {
-        stackWords.push(
-          context.readVirtualU32(state.esp + index * 4, `trap stack word ${index}`),
-        );
-      }
+      const stackWords = readTrapStackPrefix(context, state.esp, "trap");
       return {
         kind: "owned-import-thunk",
         thunk,
@@ -26351,12 +26667,7 @@ function classifyTerminal(
     }
     const endpoint = dynamicExportsByAddress.get(state.instructionPointer);
     if (endpoint !== undefined && state.previousInstructionPointer === endpoint.address) {
-      const stackWords = [];
-      for (let index = 0; index < 8; index += 1) {
-        stackWords.push(
-          context.readVirtualU32(state.esp + index * 4, `dynamic trap stack word ${index}`),
-        );
-      }
+      const stackWords = readTrapStackPrefix(context, state.esp, "dynamic trap");
       return {
         kind: "owned-dynamic-export-thunk",
         endpoint,
@@ -26378,12 +26689,7 @@ function classifyTerminal(
         marker[4] === 0x4f &&
         marker[5] === 0x4d
       ) {
-        const stackWords = [];
-        for (let index = 0; index < 8; index += 1) {
-          stackWords.push(
-            context.readVirtualU32(state.esp + index * 4, `COM trap stack word ${index}`),
-          );
-        }
+        const stackWords = readTrapStackPrefix(context, state.esp, "COM trap");
         return {
           kind: "owned-com-method",
           endpointAddress: state.instructionPointer,
@@ -26429,6 +26735,16 @@ function classifyTerminal(
     instructionPointer: state.instructionPointer,
     previousInstructionPointer: state.previousInstructionPointer,
   };
+}
+
+function readTrapStackPrefix(context, stackPointer, label) {
+  const maximumWords = 8;
+  const readableBytes = context.readableVirtualByteLength(stackPointer, maximumWords * 4);
+  const wordCount = Math.floor(readableBytes / 4);
+  assert(wordCount >= 1, `${label} has no readable return address`);
+  return Array.from({ length: wordCount }, (_, index) =>
+    context.readVirtualU32(stackPointer + index * 4, `${label} stack word ${index}`),
+  );
 }
 
 run().catch((error) => {
