@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 5,
   "status": "passed",
-  "recordedAt": "2026-07-25T14:36:22.956Z",
+  "recordedAt": "2026-07-25T18:37:41.316Z",
   "repository": {
-    "implementationCommit": "c457615b9cd871b386fef13b0b7c5c944bdd09b5",
-    "implementationTree": "db596372eec326a2f590514b46c3df0233f4806d",
-    "headCommit": "c457615b9cd871b386fef13b0b7c5c944bdd09b5",
+    "implementationCommit": "960c59eb33c9f52c2023fd7a925b3cea4969a65e",
+    "implementationTree": "49c386f053a9823a3979a6d59ac4eb7a3024d8f6",
+    "headCommit": "960c59eb33c9f52c2023fd7a925b3cea4969a65e",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -45,7 +45,7 @@
     "node": "v24.18.0",
     "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
     "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
-    "chrome": "150.0.7871.182",
+    "chrome": "150.0.7871.187",
     "llvm": {
       "clang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
       "wasmClang": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)",
@@ -87,7 +87,7 @@
       "instructions": 11973553,
       "finalGeneration": 37349,
       "memoryContentSha256": "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
-      "wasmBridgeCalls": 55828,
+      "wasmBridgeCalls": 55829,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
@@ -177,8 +177,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 44233,
-      "sha256": "927179884333c818c5dbbbb5de5cde4b89527754628050ff9c6527e3185d8a0f"
+      "bytes": 44208,
+      "sha256": "74ba64ab43938b1af16b2d7279843be8b11faaac862613b679be7e934e870411"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -193,12 +193,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "2d09ed9d10af7a3849d4e4deb20ecb89fba4156d7c2cf4ba103891103063fd40"
+      "sha256": "a12c2a34ced79cacd1b6a2786e663aae13e65226d20f9c18e36c63f7fcbba91c"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4442831,
-      "sha256": "333cc336158c3daad5d01c9a02071ac402cf00efda607c798e54ddcb815ee2e2"
+      "bytes": 4455869,
+      "sha256": "e40e127a2ba54841d76da51bd94640baa5fcdb51c334208dabd3d630a46215c3"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -230,5 +230,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "7d3569d11f27aedd01af06ff46f63f33afdfcd62e4a0e8b1ed61d31e7034a1c1"
   },
-  "payloadSha256": "5b3976800a633b6958dd6f09edfe133cbd58bdf0113c712322cd44cae89e66c4"
+  "payloadSha256": "852cc3f53d3b1162f44b9401e4ba266d02aecf4eeb8e0138a33b1fd4d0a7d695"
 }
