@@ -4974,3 +4974,28 @@ Verificationはinstruction 11,973,878、owned endpoint ID 144／address `0x7F000
 これはunsupported faultではない。Current handlerはdeterministic logical fast-forwardであり、browser wall-clock
 pacing、APC、cross-thread waiter、pending cancelをclaimしない。詳細は
 [bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md)を正とする。
+
+## 146. BGI logical file-drop acceptance
+
+Focused `drag-accept-files` observationを、他のhookを無効にした同一profileで独立に2回取得した。
+Primary raw traceは23,308 bytes／77 lines／SHA-256
+`939c2094e929ba80e867ec73586e41b0d411d6f657def08d11c44212795ae412`、summaryは14,754 bytes／SHA-256
+`97b082b95f58eff078da27360a054dfc8f3dde0671877de0c752bbb50a7e7754`である。Confirmation raw traceは
+23,236 bytes／77 lines／SHA-256
+`05924e0335698b3081a79b36d62f0a9a9f3c519e673d61a63229b2fad52b1834`、summaryは14,754 bytes／SHA-256
+`1ec8cd27a53165fd871d075610f7608e693e297c6aeadc37d1a924f66a225ead`である。各runは1 API pairがbalanced、
+diagnostics／hook errorsは0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。Source executableは
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+のままである。
+
+BGI callerはRVA `0x0005F272`へ戻るcallで、作成済みmain HWNDとFALSEを渡す。Entry／exit LastErrorは0、
+VOID resultはconsumerに読まれない。`x86-live-window-drag-accept-files-v1` oracleは同じlive HWNDへTRUE、
+FALSEを順に渡し、`GWL_EXSTYLE`の`WS_EX_ACCEPTFILES` bitがset／clearされ、最終状態がinitial stateへ戻ることを
+固定する。Sentinel `0x55667788`／`0x7A6B5C4D`は両call後に0となるため、WindowsはこのAPIのsuccess時LastErrorを
+preserveせずclearする。Native HWND数値はartifact identityでありVineのlogical handleへimportしない。
+
+Runtimeは`RuntimeUser32`のeffective extended styleを唯一のacceptance authorityとし、FALSEのidempotent callでは
+generationを進めない。Shell32 dispatcherはx86 stdcall 2 arguments、callee cleanup、VOID／EAX preserve、
+LastError 0を固定する。Browser resource、DOM drag event、`HDROP`、`WM_DROPFILES`、file permission、VFS importは
+このevidenceからclaimしない。詳細は
+[bgi-shell32-drag-accept-files.md](bgi-shell32-drag-accept-files.md)を正とする。

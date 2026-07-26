@@ -61,11 +61,12 @@ declare global {
 
 const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), { type: "module" });
 const statusOutput = requiredElement<HTMLOutputElement>("#status");
+const searchParameters = new URL(location.href).searchParams;
 const requestedDurationMilliseconds = Number(
-  new URL(location.href).searchParams.get("durationMs") ?? 60_000,
+  searchParameters.get("durationMs") ?? 60_000,
 );
 const sampleIntervalMilliseconds = Number(
-  new URL(location.href).searchParams.get("sampleIntervalMs") ?? 5_000,
+  searchParameters.get("sampleIntervalMs") ?? 5_000,
 );
 invariant(
   Number.isFinite(requestedDurationMilliseconds) && requestedDurationMilliseconds >= 10_000,
@@ -155,12 +156,16 @@ void runBenchmark();
 async function runBenchmark(): Promise<void> {
   try {
     const checkpoint = await fetchJson("./current-checkpoint.json");
-    const expected = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+    const candidateProfile = searchParameters.get("profile");
+    const expected =
+      candidateProfile === null
+        ? checkpoint.browserCheckpoint.bgiRuntimeEvidence
+        : candidateExpectedEvidence();
     const capabilityProfile = parseCapabilityProfile(
-      expected.checkpointCompletion?.capability,
+      candidateProfile ?? checkpoint.activeRuntimeCheckpoint.profile,
     );
     invariant(
-      expected.checkpointCompletion == null || capabilityProfile !== undefined,
+      capabilityProfile !== undefined,
       "BGI benchmark checkpoint profile is unsupported",
     );
     while (performance.now() - startedAt < requestedDurationMilliseconds) {
@@ -221,6 +226,34 @@ async function runBenchmark(): Promise<void> {
   }
 }
 
+function candidateExpectedEvidence(): any {
+  return {
+    guestInstructions: requiredIntegerSearchParameter("guestInstructions"),
+    supportedCalls: requiredIntegerSearchParameter("supportedCalls"),
+    sourceReadCompletions: requiredIntegerSearchParameter("sourceReadCompletions"),
+    nextApi: requiredSearchParameter("nextApi"),
+    nextEndpoint: {},
+    nextFaultCode: requiredSearchParameter("nextFaultCode"),
+    callSemanticsAlgorithm: requiredSearchParameter("callSemanticsAlgorithm"),
+    callSemanticsSha256: requiredSearchParameter("callSemanticsSha256"),
+    memoryContentSha256: requiredSearchParameter("memoryContentSha256"),
+    wasmBridgeCalls: requiredIntegerSearchParameter("wasmBridgeCalls"),
+    checkpointCompletion: null,
+  };
+}
+
+function requiredSearchParameter(name: string): string {
+  const value = searchParameters.get(name);
+  invariant(value !== null && value.length > 0, `missing benchmark ${name}`);
+  return value;
+}
+
+function requiredIntegerSearchParameter(name: string): number {
+  const value = Number(requiredSearchParameter(name));
+  invariant(Number.isSafeInteger(value) && value >= 0, `invalid benchmark ${name}`);
+  return value;
+}
+
 function releaseCompletedSessionPayload(report: SessionReport): void {
   report.supportedCalls.length = 0;
   report.sourceReads.length = 0;
@@ -249,7 +282,8 @@ function runSession(
       policyUrl: "./private/kernel32-policy.json",
       instructionBudget: 16_384,
       watchdogInstructionLimit: 20_000_000,
-      watchdogWallMilliseconds: 20_000,
+      watchdogWallMilliseconds:
+        capabilityProfile === "shell32-drag-accept-files" ? 180_000 : 20_000,
       pageLifecycle: pageLifecycle.snapshot(),
     },
   } satisfies MainToWorkerMessage);
@@ -264,7 +298,8 @@ function parseCapabilityProfile(value: unknown): BgiCapabilityProfile | undefine
     value === "primary-main-loop-progression" ||
     value === "kernel32-leave-critical-section" ||
     value === "kernel32-enter-critical-section-continuation" ||
-    value === "kernel32-leave-critical-section-continuation"
+    value === "kernel32-leave-critical-section-continuation" ||
+    value === "shell32-drag-accept-files"
     ? value
     : undefined;
 }

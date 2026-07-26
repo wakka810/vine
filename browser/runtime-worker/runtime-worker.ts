@@ -59,10 +59,14 @@ import {
   recoverableCommitHttpError,
   writableCommitFailureControl,
 } from "./profile-storage.js";
-import { TimerPacingService } from "./timer-pacing.js";
+import {
+  TaskTimerPacingDriver,
+  TimerPacingService,
+} from "./timer-pacing.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
+const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const yieldChannel = new MessageChannel();
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -71,6 +75,14 @@ yieldChannel.port1.addEventListener("message", () => {
   resolve();
 });
 yieldChannel.port1.start();
+const timerPacingChannel = new MessageChannel();
+const timerPacingDriver = new TaskTimerPacingDriver({
+  now: () => performance.now(),
+  postTask: () => timerPacingChannel.port2.postMessage(null),
+  subscribe: (callback) =>
+    timerPacingChannel.port1.addEventListener("message", callback),
+});
+timerPacingChannel.port1.start();
 
 interface HostRequestMetadata {
   kind: "host-request";
@@ -596,6 +608,7 @@ class BrowserRuntimeSession {
     criticalSectionAddress: number;
   } | null = null;
   #bgiCheckpointPending = false;
+  #synchronousApiBoundariesSinceYield = 0;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -642,6 +655,7 @@ class BrowserRuntimeSession {
     supportedCalls: [] as SessionReport["supportedCalls"],
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
+    dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -650,12 +664,7 @@ class BrowserRuntimeSession {
     this.#sessionId = sessionId;
     this.#configuration = configuration;
     this.#timerPacing = new TimerPacingService(
-      {
-        now: () => performance.now(),
-        setTimeout: (callback, delayMilliseconds) =>
-          worker.setTimeout(callback, delayMilliseconds),
-        clearTimeout: (handle) => worker.clearTimeout(handle),
-      },
+      timerPacingDriver,
       configuration.pageLifecycle,
     );
   }
@@ -1749,6 +1758,7 @@ class BrowserRuntimeSession {
           );
         }
         await yieldToWorkerLoop();
+        this.#synchronousApiBoundariesSinceYield = 0;
         if (this.#terminal || this.#stopping) {
           throw new SessionStopped("session ended during a budget yield");
         }
@@ -1851,8 +1861,28 @@ class BrowserRuntimeSession {
         });
         this.#dispatchCom(address, slice.context.esp);
       }
-      await yieldToWorkerLoop();
+      if (this.#shouldYieldAfterSynchronousApiBoundary()) {
+        await yieldToWorkerLoop();
+      }
     }
+  }
+
+  #shouldYieldAfterSynchronousApiBoundary(): boolean {
+    if (
+      this.#configuration.workload !== "private-bgi" ||
+      this.#configuration.mode !== "success"
+    ) {
+      return true;
+    }
+    this.#synchronousApiBoundariesSinceYield += 1;
+    if (
+      this.#synchronousApiBoundariesSinceYield <
+      BGI_SYNCHRONOUS_API_YIELD_INTERVAL
+    ) {
+      return false;
+    }
+    this.#synchronousApiBoundariesSinceYield = 0;
+    return true;
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
@@ -1880,6 +1910,7 @@ class BrowserRuntimeSession {
           metadata.requestId,
           metadata.service === "runtime.timer-delay.v1",
         );
+        this.#synchronousApiBoundariesSinceYield = 0;
         break;
       }
       case "guest-callback": {
@@ -2152,7 +2183,9 @@ class BrowserRuntimeSession {
       completion.implementationId === "user32.create-window-ex-a.v1" ||
       completion.implementationId === "user32.set-window-pos.v1" ||
       completion.implementationId === "user32.set-window-pos.v2" ||
-      completion.implementationId === "user32.set-window-long-a.gwl-style.v1";
+      completion.implementationId === "user32.set-window-long-a.gwl-style.v1" ||
+      completion.implementationId ===
+        "shell32.drag-accept-files.logical-window-style-v1";
     invariant(
       isLogicalWindowCompletion === (metadata.window !== undefined),
       "BGI logical window completion metadata mismatch",
@@ -2258,6 +2291,71 @@ class BrowserRuntimeSession {
         ? {}
         : { virtualMemory: metadata.virtualMemory }),
     };
+    if (
+      completion.implementationId ===
+      "shell32.drag-accept-files.logical-window-style-v1"
+    ) {
+      invariant(
+        this.#report.dragAcceptFiles === null,
+        "DragAcceptFiles completed more than once",
+      );
+      invariant(
+        endpoint.module.toLowerCase() === "shell32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "DragAcceptFiles",
+        "DragAcceptFiles endpoint identity changed",
+      );
+      const [windowHandle, rawAccept] = call.arguments;
+      invariant(
+        call.arguments.length === 2 &&
+          typeof windowHandle === "number" &&
+          Number.isInteger(windowHandle) &&
+          typeof rawAccept === "number" &&
+          Number.isInteger(rawAccept),
+        "DragAcceptFiles arguments are malformed",
+      );
+      invariant(
+        completion.eax.action === "preserve" &&
+          completion.lastError === 0 &&
+          guestWrites.length === 0,
+        "DragAcceptFiles ABI completion changed",
+      );
+      const window = metadata.window;
+      invariant(
+        window !== undefined &&
+          window.handle === windowHandle &&
+          window.lifecycle.state === "created",
+        "DragAcceptFiles omitted its created logical window",
+      );
+      invariant(
+        ((window.effectiveExtendedStyle & 0x0000_0010) !== 0) ===
+          (rawAccept !== 0),
+        "DragAcceptFiles effective window style disagrees with its BOOL argument",
+      );
+      this.#report.dragAcceptFiles = {
+        call: {
+          sequence,
+          module: endpoint.module,
+          symbol: "DragAcceptFiles",
+          occurrence: 1,
+          trapInstructionCount: this.#report.instructions,
+          arguments: [windowHandle, rawAccept],
+          result: { action: "preserve" },
+          implementationId:
+            "shell32.drag-accept-files.logical-window-style-v1",
+          returnAddress: completion.instructionPointer,
+          stackPointerBefore: frame.stackPointer,
+          stackPointerAfter: completion.stackPointer,
+          lastError: 0,
+          guestWrites: [],
+          window: structuredClone(window),
+        },
+        windowAuthority: "runtime-user32-logical-window",
+        acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles",
+        browserResourceCreated: false,
+        wmDropFilesImplemented: false,
+      };
+    }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -2846,7 +2944,8 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile ===
         "kernel32-enter-critical-section-continuation" ||
       this.#configuration.capabilityProfile ===
-        "kernel32-leave-critical-section-continuation"
+        "kernel32-leave-critical-section-continuation" ||
+      this.#configuration.capabilityProfile === "shell32-drag-accept-files"
     ) {
       this.#mainLoopThreadSelections.push({
         sequence: this.#nextBgiCallSequence,
@@ -3856,6 +3955,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             supportedCalls: [],
             sourceReads: [],
             writableCommits: [],
+            dragAcceptFiles: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

@@ -14,14 +14,15 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-leave-critical-section-continuation`: 18737 calls across 112 endpoint contracts / 110 APIs, memory generation 36750 |
+| Runtime diagnostics | `shell32-drag-accept-files`: 89283 calls across 113 endpoint contracts / 111 APIs, memory generation 168414 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (107 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-blocked` (14 sessions) |
+| Active blocker | `shell32-drag-accept-files-browser-throughput-threshold-v1`: `minimum-completed-sessions`; Profile a correctness-preserving Rust/Wasm dispatch fast path or make an explicit versioned performance-contract decision, then rerun the unchanged 180-second gate and advance to MessageBoxA only when all thresholds pass. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `kernel32-leave-critical-section-continuation` completed 1 critical-section continuation release by instruction 11974905; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11974948 (`main-thread-critical-section-continuation-release-complete`) |
+| Next structured stop | `USER32.dll!MessageBoxA(0x48010001, 0x006ff3a8, 0x100dcbe0, 0x00001010)` at instruction 15610457: `endpoint-contract-missing` |
 
-The active semantic report is 423,046 bytes with SHA-256
-`def7ba3032a078aa8279c1eb0dff02c00ccad4cb891488914a9968bc198ef402`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 426,498 bytes with SHA-256
+`7ab576ff627a437796e3b687ae8ccbbb83d07134467d41e7b8513cb6140d0501`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -149,6 +150,7 @@ The active semantic report is 423,046 bytes with SHA-256
 - `IMM32.dll!ImmAssociateContext`
 - `KERNEL32.dll!SetWaitableTimer`
 - `KERNEL32.dll!WaitForSingleObjectEx`
+- `SHELL32.dll!DragAcceptFiles`
 
 ### Reproduce Current Checkpoint
 

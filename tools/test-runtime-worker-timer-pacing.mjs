@@ -18,7 +18,38 @@ await build({
   platform: "node",
   target: "node22",
 });
-const { TimerPacingService } = await import(`${pathToFileURL(output).href}?v=${Date.now()}`);
+const { TaskTimerPacingDriver, TimerPacingService } = await import(
+  `${pathToFileURL(output).href}?v=${Date.now()}`,
+);
+
+class FakeTaskSource {
+  nowMilliseconds = 0;
+  pendingTasks = 0;
+  callback = null;
+
+  now() {
+    return this.nowMilliseconds;
+  }
+
+  postTask() {
+    this.pendingTasks += 1;
+  }
+
+  subscribe(callback) {
+    assert.equal(this.callback, null);
+    this.callback = callback;
+  }
+
+  elapse(milliseconds) {
+    this.nowMilliseconds += milliseconds;
+  }
+
+  runTask() {
+    assert(this.pendingTasks > 0);
+    this.pendingTasks -= 1;
+    this.callback();
+  }
+}
 
 class FakeTimerDriver {
   nowMilliseconds = 0;
@@ -73,6 +104,31 @@ function request(requestId, delayMilliseconds, completed) {
     delayMilliseconds,
     complete: () => completed.push(requestId),
   };
+}
+
+{
+  const source = new FakeTaskSource();
+  const driver = new TaskTimerPacingDriver(source);
+  const completed = [];
+  const first = driver.setTimeout(() => completed.push("first"), 5);
+  const second = driver.setTimeout(() => completed.push("second"), 5);
+  assert.equal(source.pendingTasks, 1);
+  source.runTask();
+  assert.equal(source.pendingTasks, 1);
+  source.elapse(4);
+  source.runTask();
+  assert.deepEqual(completed, []);
+  source.elapse(1);
+  driver.clearTimeout(second);
+  source.runTask();
+  assert.deepEqual(completed, ["first"]);
+  assert.equal(source.pendingTasks, 0);
+  assert.throws(
+    () => driver.setTimeout(() => {}, 11),
+    /outside the bounded 0\.\.10ms policy/u,
+  );
+  assert.equal(first, 1);
+  assert.equal(second, 2);
 }
 
 {

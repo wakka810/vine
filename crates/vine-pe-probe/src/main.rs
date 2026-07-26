@@ -53,22 +53,22 @@ use vine_core::{
     dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
     dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
     dispatch_gdiplus_api_with_policy, dispatch_imm32_api_with_policy, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_user32_api_with_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
-    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, get_current_process_id_contract,
-    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
-    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
-    heap_create_contract, heap_set_information_contract, imm32_contract_for_endpoint,
-    install_callback_return_sentinel, install_controlled_initial_stack,
-    install_controlled_process_environment,
+    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_shell32_api,
+    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
+    encode_pointer_contract, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
+    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
+    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
+    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
+    imm32_contract_for_endpoint, install_callback_return_sentinel,
+    install_controlled_initial_stack, install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
     install_controlled_process_environment_with_parameters, install_dynamic_export_thunk,
     install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
     kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    query_performance_counter_contract, tls_alloc_contract, tls_set_value_contract,
-    user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    query_performance_counter_contract, shell32_contract_for_endpoint, tls_alloc_contract,
+    tls_set_value_contract, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 #[derive(Debug)]
@@ -84,6 +84,7 @@ struct Arguments {
     checkpoint_session: Option<RuntimeCheckpointSelection>,
     generic_runtime_reentry: bool,
     generic_runtime_capability: Option<GenericRuntimeCapability>,
+    generic_runtime_trap_limit: usize,
     kernel32_policy: Option<Kernel32CompatibilityPolicy>,
     source_manifest: Option<RuntimeSourceSnapshotManifest>,
     writable_profile: Option<RuntimeWritableProfileManifest>,
@@ -122,6 +123,7 @@ const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
+const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 131_072;
 const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
@@ -236,6 +238,7 @@ enum GenericRuntimeCapability {
     Imm32Context,
     SetWaitableTimer,
     WaitForSingleObjectEx,
+    DragAcceptFiles,
 }
 
 struct GenericRuntimeProcess {
@@ -2305,6 +2308,7 @@ fn run_v86_reflection_session(
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
     let generic_runtime_capability = arguments.generic_runtime_capability;
+    let generic_runtime_trap_limit = arguments.generic_runtime_trap_limit;
     let ansi_command_line_enabled = arguments
         .kernel32_policy
         .as_ref()
@@ -2625,6 +2629,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::Imm32Context
                     | GenericRuntimeCapability::SetWaitableTimer
                     | GenericRuntimeCapability::WaitForSingleObjectEx
+                    | GenericRuntimeCapability::DragAcceptFiles
             )
         ) {
             let loader = kernel32_policy
@@ -2930,6 +2935,7 @@ fn run_v86_reflection_session(
             &mut memory,
             generic_runtime,
             generic_runtime_capability,
+            generic_runtime_trap_limit,
             kernel32_policy.ok_or_else(usage_error)?,
             callback_return_sentinel
                 .as_ref()
@@ -3265,6 +3271,9 @@ fn generic_runtime_contract_for_endpoint(
     if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
+    if let Some(contract) = shell32_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
+        return Ok(Some(contract));
+    }
     if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone()).map_err(api_fault)? {
         return Ok(Some(contract));
     }
@@ -3282,13 +3291,19 @@ fn run_v86_generic_runtime_session(
     memory: &mut GuestMemory,
     mut process: GenericRuntimeProcess,
     enabled_capability: Option<GenericRuntimeCapability>,
+    trap_limit: usize,
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let wait_for_single_object_ex_enabled = matches!(
+    let drag_accept_files_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::WaitForSingleObjectEx)
+        Some(GenericRuntimeCapability::DragAcceptFiles)
     );
+    let wait_for_single_object_ex_enabled = drag_accept_files_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::WaitForSingleObjectEx)
+        );
     let set_waitable_timer_enabled = wait_for_single_object_ex_enabled
         || matches!(
             enabled_capability,
@@ -4118,6 +4133,8 @@ fn run_v86_generic_runtime_session(
             gdiplus_startup_enabled
         } else if endpoint.module.eq_ignore_ascii_case("imm32.dll") {
             imm32_context_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("shell32.dll") {
+            drag_accept_files_enabled
         } else if endpoint.matches(
             "kernel32.dll",
             &ApiSymbol::Name {
@@ -4349,7 +4366,7 @@ fn run_v86_generic_runtime_session(
         },
     )?;
 
-    for _ in 0..GENERIC_RUNTIME_TRAP_LIMIT {
+    for _ in 0..trap_limit {
         let writeback_frame = read_runtime_frame(input)?;
         require_runtime_frame_kind(&writeback_frame, RUNTIME_FRAME_CPU_WRITEBACK)?;
         let writeback_receipt = memory
@@ -4883,6 +4900,8 @@ fn run_v86_generic_runtime_session(
                             dispatch_imm32_api_with_policy(&imm32_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("shell32.dll") {
+                            dispatch_shell32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
                             dispatch_winmm_api_with_policy(&winmm_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
@@ -5162,25 +5181,28 @@ fn run_v86_generic_runtime_session(
                             } else {
                                 None
                             };
-                        let window =
-                            if completion.implementation_id == SET_WINDOW_LONG_A_IMPLEMENTATION {
-                                let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                                    LoaderError::runtime_defect(
-                                        "runtime-reentry",
-                                        "set-window-long-a-window-argument-missing",
-                                        "SetWindowLongA completion has no logical HWND argument",
-                                    )
-                                })?;
-                                Some(
-                                    session
-                                        .runtime()
-                                        .window(handle)
-                                        .map_err(runtime_state_error)?
-                                        .clone(),
+                        let window = if matches!(
+                            completion.implementation_id.as_str(),
+                            SET_WINDOW_LONG_A_IMPLEMENTATION
+                                | vine_core::DRAG_ACCEPT_FILES_IMPLEMENTATION
+                        ) {
+                            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                                LoaderError::runtime_defect(
+                                    "runtime-reentry",
+                                    "window-state-completion-argument-missing",
+                                    "window-state completion has no logical HWND argument",
                                 )
-                            } else {
-                                None
-                            };
+                            })?;
+                            Some(
+                                session
+                                    .runtime()
+                                    .window(handle)
+                                    .map_err(runtime_state_error)?
+                                    .clone(),
+                            )
+                        } else {
+                            None
+                        };
                         let window_timer = if completion.implementation_id
                             == SET_TIMER_IMPLEMENTATION
                         {
@@ -6121,7 +6143,7 @@ fn run_v86_generic_runtime_session(
     Err(LoaderError::resource_limit(
         "runtime-reentry",
         "generic-runtime-trap-limit-exceeded",
-        "generic runtime re-entry exceeded its bounded trap limit",
+        format!("generic runtime re-entry exceeded its bounded {trap_limit}-trap limit"),
     ))
 }
 
@@ -13373,6 +13395,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     let mut v86_reflection_session = false;
     let mut generic_runtime_reentry = false;
     let mut generic_runtime_capability = None;
+    let mut generic_runtime_trap_limit = None;
     let mut runtime_policy = None;
     let mut source_manifest = None;
     let mut writable_profile = None;
@@ -13616,15 +13639,25 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-leave-critical-section-continuation" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
-                "primary-main-loop-progression" => {
-                    GenericRuntimeCapability::WaitForSingleObjectEx
-                }
+                "primary-main-loop-continuation" => GenericRuntimeCapability::WaitForSingleObjectEx,
+                "primary-main-loop-progression" => GenericRuntimeCapability::WaitForSingleObjectEx,
+                "shell32-drag-accept-files" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {
+                return Err(usage_error());
+            }
+        } else if argument == "--generic-runtime-trap-limit" {
+            let value = arguments.next().ok_or_else(usage_error)?;
+            let value = value.into_string().map_err(|_| usage_error())?;
+            let value = value.parse::<usize>().map_err(|_| usage_error())?;
+            if value == 0
+                || value > GENERIC_RUNTIME_MAX_TRAP_LIMIT
+                || generic_runtime_trap_limit.replace(value).is_some()
+            {
                 return Err(usage_error());
             }
         } else if argument == "--runtime-policy" {
@@ -13738,6 +13771,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
     if generic_runtime_capability.is_some() && !generic_runtime_reentry {
         return Err(usage_error());
     }
+    if generic_runtime_trap_limit.is_some() && !generic_runtime_reentry {
+        return Err(usage_error());
+    }
     if generic_runtime_reentry != runtime_policy.is_some() {
         return Err(usage_error());
     }
@@ -13793,6 +13829,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
         checkpoint_session,
         generic_runtime_reentry,
         generic_runtime_capability,
+        generic_runtime_trap_limit: generic_runtime_trap_limit
+            .unwrap_or(GENERIC_RUNTIME_TRAP_LIMIT),
         kernel32_policy,
         source_manifest,
         writable_profile,

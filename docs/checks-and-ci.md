@@ -124,11 +124,13 @@ remain recorded. These qualification limits do not alter the 17 workload
 thresholds.
 
 `threshold-blocked` and `environment-blocked` remain required failure
-outcomes, not soft passes. The current continuation workload passed all 17
-unchanged thresholds and the environment qualification in a valid rerun; the
-earlier external-CPU blocker is now historical. Downstream primary execution
-may proceed from the manifested `LeaveCriticalSection` endpoint. Exact current
-artifact and report identities remain manifest-owned.
+outcomes, not soft passes. The current `DragAcceptFiles` workload passes
+semantic equivalence but fails the unchanged minimum-session and session-P95
+thresholds in a valid environment after bounded browser scheduling
+remediation. The earlier external-CPU run is invalid-environment diagnostic
+evidence and is not counted as a confirmation. Downstream primary execution
+remains paused at the manifested `MessageBoxA` endpoint. Exact current artifact,
+report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:
 

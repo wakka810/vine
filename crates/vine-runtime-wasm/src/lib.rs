@@ -34,12 +34,13 @@ use vine_core::{
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
     dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, imm32_contract_for_endpoint,
-    install_controlled_initial_stack, install_controlled_process_environment_with_command_line,
-    install_dynamic_export_thunks, install_initial_thread_stack, install_runtime_return_sentinels,
-    install_thread_stack_at, kernel32_contract_for_endpoint, materialize_pe32_image,
-    ole32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    dispatch_shell32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
+    dsound_contract_for_endpoint, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
+    imm32_contract_for_endpoint, install_controlled_initial_stack,
+    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
+    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
+    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
+    shell32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -1299,6 +1300,8 @@ impl BrowserRuntime {
                             dispatch_imm32_api_with_policy(imm32_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
                             dispatch_ole32_api(contract, frame, session)
+                        } else if contract.endpoint.module.eq_ignore_ascii_case("shell32.dll") {
+                            dispatch_shell32_api(contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
                             dispatch_winmm_api_with_policy(winmm_policy, contract, frame, session)
                         } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
@@ -1613,9 +1616,16 @@ impl BrowserRuntime {
                             metadata["windowClass"] =
                                 json!(self.runtime.window_class(atom).map_err(error_string)?);
                         }
-                        if completion.implementation_id == "user32.set-window-long-a.gwl-style.v1" {
+                        if matches!(
+                            completion.implementation_id.as_str(),
+                            "user32.set-window-long-a.gwl-style.v1"
+                                | "shell32.drag-accept-files.logical-window-style-v1"
+                        ) {
                             let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                                "SetWindowLongA completion has no logical HWND argument".to_owned()
+                                format!(
+                                    "{} completion has no logical HWND argument",
+                                    completion.implementation_id
+                                )
                             })?;
                             metadata["window"] =
                                 json!(self.runtime.window(handle).map_err(error_string)?);
@@ -2884,6 +2894,9 @@ fn bgi_contract_for_endpoint(
         return Ok(Some(contract));
     }
     if let Some(contract) = user32_contract_for_endpoint(endpoint.clone())? {
+        return Ok(Some(contract));
+    }
+    if let Some(contract) = shell32_contract_for_endpoint(endpoint.clone())? {
         return Ok(Some(contract));
     }
     if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone())? {

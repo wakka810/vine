@@ -71,6 +71,7 @@ SUPPORTED_OBSERVATIONS = (
     "system-default-lang-id",
     "drive-type",
     "swap-mouse-button",
+    "drag-accept-files",
     "time-get-dev-caps",
     "time-get-time",
     "query-performance-frequency",

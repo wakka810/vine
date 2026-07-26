@@ -182,6 +182,21 @@ following release uses the same address and selected main thread, and carries
 Rust-owned synchronization transactions; they do not move recursion,
 ownership, guest bytes, or lifecycle state into TypeScript.
 
+Protocol version 20 adds the `shell32-drag-accept-files` profile and a compact
+typed `dragAcceptFiles` observation. The Worker verifies one reached stdcall,
+EAX preservation, LastError, zero guest writes, created logical-window
+lifecycle, and the effective `WS_EX_ACCEPTFILES` bit. It records that no
+browser resource or `WM_DROPFILES` path was created. The style bit and window
+generation remain private `RuntimeUser32` authority.
+
+The browser delay adapter now uses one `MessageChannel`-driven deadline queue
+instead of creating a clamped timeout task for every one-millisecond pacing
+request. Synchronous API-boundary yields may be coalesced only to the bounded
+64-boundary scheduler quantum. Pending host waits, timer completions,
+cancellation, and watchdog checks retain immediate task boundaries, so this is
+a host scheduling optimization rather than a change to guest-visible time or
+thread selection.
+
 ## Execution engine contract
 
 Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86

@@ -27,6 +27,7 @@ pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
 pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
 pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
+pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
 pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -430,6 +431,14 @@ pub struct RuntimeSetWindowStyleResult {
     pub changed: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowFileDropAcceptanceResult {
+    pub previous_accepts_files: bool,
+    pub accepts_files: bool,
+    pub changed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case")]
 pub enum RuntimeWindowCreationCallbackAction {
@@ -583,6 +592,20 @@ enum RuntimeWindowStyleUpdateDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeWindowFileDropAcceptanceDisposition {
+    Unchanged {
+        window: RuntimeWindow,
+        accepts_files: bool,
+    },
+    Update {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        previous_accepts_files: bool,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeSetWindowPosCallbackDisposition {
     Validate {
         window: RuntimeWindow,
@@ -671,6 +694,12 @@ pub(super) struct RuntimeWindowSmallIconPlan {
 pub(super) struct RuntimeWindowStyleUpdatePlan {
     expected_generation: u64,
     disposition: RuntimeWindowStyleUpdateDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWindowFileDropAcceptancePlan {
+    expected_generation: u64,
+    disposition: RuntimeWindowFileDropAcceptanceDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2454,6 +2483,130 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn plan_window_file_drop_acceptance(
+        &self,
+        window_handle: u32,
+        accepts_files: bool,
+    ) -> Result<RuntimeWindowFileDropAcceptancePlan, RuntimeStateError> {
+        let previous = self.window(window_handle)?.clone();
+        if previous.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-file-drop-lifecycle-state-invalid",
+                "logical file-drop acceptance requires a created window",
+            ));
+        }
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        let previous_accepts_files = previous.creation.effective_extended_style
+            & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
+            != 0;
+        let disposition = if previous_accepts_files == accepts_files {
+            RuntimeWindowFileDropAcceptanceDisposition::Unchanged {
+                window: previous,
+                accepts_files,
+            }
+        } else {
+            let mut next = previous.clone();
+            if accepts_files {
+                next.creation.effective_extended_style |=
+                    RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
+            } else {
+                next.creation.effective_extended_style &=
+                    !RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
+            }
+            RuntimeWindowFileDropAcceptanceDisposition::Update {
+                previous,
+                next: Box::new(next),
+                previous_accepts_files,
+                next_generation: self.next_generation()?,
+            }
+        };
+        Ok(RuntimeWindowFileDropAcceptancePlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_window_file_drop_acceptance(
+        &self,
+        plan: &RuntimeWindowFileDropAcceptancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-file-drop-plan-stale",
+                "User32 state changed after logical file-drop acceptance planning",
+            ));
+        }
+        let (previous, next, accepts_files) = match &plan.disposition {
+            RuntimeWindowFileDropAcceptanceDisposition::Unchanged {
+                window,
+                accepts_files,
+            } => (window, window, *accepts_files),
+            RuntimeWindowFileDropAcceptanceDisposition::Update { previous, next, .. } => (
+                previous,
+                next.as_ref(),
+                next.creation.effective_extended_style & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
+                    != 0,
+            ),
+        };
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+            || next.lifecycle != RuntimeWindowLifecycle::Created
+            || (next.creation.effective_extended_style & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
+                != 0)
+                != accepts_files
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-file-drop-plan-stale",
+                "logical window identity or file-drop acceptance changed after planning",
+            ));
+        }
+        validate_window_creation_request(&next.creation)?;
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_creation_references(&next.creation)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        self.validate_window_icon_reference(next.small_icon)
+    }
+
+    pub(super) fn commit_window_file_drop_acceptance(
+        &mut self,
+        plan: RuntimeWindowFileDropAcceptancePlan,
+    ) -> Result<RuntimeWindowFileDropAcceptanceResult, RuntimeStateError> {
+        self.preflight_window_file_drop_acceptance(&plan)?;
+        match plan.disposition {
+            RuntimeWindowFileDropAcceptanceDisposition::Unchanged { accepts_files, .. } => {
+                Ok(RuntimeWindowFileDropAcceptanceResult {
+                    previous_accepts_files: accepts_files,
+                    accepts_files,
+                    changed: false,
+                })
+            }
+            RuntimeWindowFileDropAcceptanceDisposition::Update {
+                next,
+                previous_accepts_files,
+                next_generation,
+                ..
+            } => {
+                let next = *next;
+                let accepts_files = next.creation.effective_extended_style
+                    & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
+                    != 0;
+                let result = RuntimeWindowFileDropAcceptanceResult {
+                    previous_accepts_files,
+                    accepts_files,
+                    changed: true,
+                };
+                self.generation = next_generation;
+                let replaced = self.windows.insert(next.id, next);
+                debug_assert!(replaced.is_some());
+                Ok(result)
+            }
+        }
+    }
+
     pub(super) fn preview_set_window_pos(
         &self,
         owner_thread_id: RuntimeThreadId,
@@ -4089,6 +4242,96 @@ mod tests {
                     0x90ca_0000,
                     0x0400_0000,
                 )
+                .unwrap_err()
+                .code,
+            "window-handle-unknown"
+        );
+        assert_eq!(user32, before_unknown);
+    }
+
+    #[test]
+    fn file_drop_acceptance_uses_effective_extended_style_and_is_failure_atomic() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        assert_eq!(
+            user32
+                .window(window_handle)
+                .unwrap()
+                .creation
+                .effective_extended_style
+                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
+            0
+        );
+
+        let enable = user32
+            .plan_window_file_drop_acceptance(window_handle, true)
+            .unwrap();
+        let duplicate = enable.clone();
+        assert_eq!(
+            user32.commit_window_file_drop_acceptance(enable).unwrap(),
+            RuntimeWindowFileDropAcceptanceResult {
+                previous_accepts_files: false,
+                accepts_files: true,
+                changed: true,
+            }
+        );
+        assert_ne!(
+            user32
+                .window(window_handle)
+                .unwrap()
+                .creation
+                .effective_extended_style
+                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
+            0
+        );
+        let before_duplicate = user32.clone();
+        assert_eq!(
+            user32
+                .commit_window_file_drop_acceptance(duplicate)
+                .unwrap_err()
+                .code,
+            "window-file-drop-plan-stale"
+        );
+        assert_eq!(user32, before_duplicate);
+
+        let repeated = user32
+            .plan_window_file_drop_acceptance(window_handle, true)
+            .unwrap();
+        let before_repeated = user32.clone();
+        assert_eq!(
+            user32.commit_window_file_drop_acceptance(repeated).unwrap(),
+            RuntimeWindowFileDropAcceptanceResult {
+                previous_accepts_files: true,
+                accepts_files: true,
+                changed: false,
+            }
+        );
+        assert_eq!(user32, before_repeated);
+
+        let disable = user32
+            .plan_window_file_drop_acceptance(window_handle, false)
+            .unwrap();
+        assert_eq!(
+            user32.commit_window_file_drop_acceptance(disable).unwrap(),
+            RuntimeWindowFileDropAcceptanceResult {
+                previous_accepts_files: true,
+                accepts_files: false,
+                changed: true,
+            }
+        );
+        assert_eq!(
+            user32
+                .window(window_handle)
+                .unwrap()
+                .creation
+                .effective_extended_style
+                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
+            0
+        );
+
+        let before_unknown = user32.clone();
+        assert_eq!(
+            user32
+                .plan_window_file_drop_acceptance(window_handle + 2, true)
                 .unwrap_err()
                 .code,
             "window-handle-unknown"

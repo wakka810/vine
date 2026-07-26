@@ -700,6 +700,14 @@ planではguest-visible stateを変更しない。Workerが受け取るCreateWin
 read-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。General resize、z-order、
 cross-thread／multi-window activationは別contractである。
 
+Reached `DragAcceptFiles`はShell32固有の第二window stateを作らず、既存`RuntimeUser32` window recordの
+effective extended styleにある`WS_EX_ACCEPTFILES` bitを唯一のacceptance authorityとする。Dispatcherは
+live `created` HWND、style generation、requested booleanをpreflightし、owner-local planをstale-check後に
+targeted commitする。同じ値のrepeatはgenerationを進めず、unknown／stale／wrong-lifecycle handleはstyle、
+allocator、guest bytes、LastErrorを部分更新しない。Workerはimmutable snapshotだけを観測し、DOM drag
+resourceやfile permissionを作らない。`WM_DROPFILES`／`HDROP`／VFS importは、browser inputとfile permissionを
+logical message／storageへ接続する別のsubsystem gatewayである。
+
 - Rust User32／window subsystemがlogical window tree、z-order、focus、capture、invalid regionを所有する
 - Runtime WorkerはCanvas／DOM等のbrowser resourceと明示的なnon-owning associationだけを所有する
 - Main thread は DOM event を timestamp 付きで normalized input event にする

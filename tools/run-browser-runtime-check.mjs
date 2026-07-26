@@ -45,19 +45,27 @@ const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
 const bgiProfileOverride = optionValue("--bgi-profile");
 const bgiPolicyOverride = optionValue("--bgi-policy");
+const bgiBenchmarkConfigurationOverride = optionValue("--bgi-benchmark-config");
 assert(
   (bgiProfileOverride === null && bgiPolicyOverride === null) ||
-    (bgiMode && bgiBenchmarkMilliseconds === 0),
-  "BGI profile overrides require a non-benchmark BGI check",
+    (bgiMode &&
+      (bgiBenchmarkMilliseconds === 0 ||
+        bgiBenchmarkConfigurationOverride !== null)),
+  "benchmark profile overrides require an explicit benchmark configuration",
 );
 assert.equal(
   bgiProfileOverride === null,
   bgiPolicyOverride === null,
   "--bgi-profile and --bgi-policy must be provided together",
 );
+assert(
+  bgiBenchmarkConfigurationOverride === null ||
+    (bgiBenchmarkMilliseconds > 0 && bgiProfileOverride !== null),
+  "--bgi-benchmark-config requires benchmark profile and policy overrides",
+);
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v19";
+const runtimeProtocol = "vine.browser-runtime-worker.v20";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -87,7 +95,8 @@ const bgiOracleReportPath = path.join(
 );
 const bgiBenchmarkConfigurationPath = path.join(
   root,
-  checkpoint.browserCheckpoint.bgiBenchmarkEvidence.configuration,
+  bgiBenchmarkConfigurationOverride ??
+    checkpoint.browserCheckpoint.bgiBenchmarkEvidence.configuration,
 );
 const browserPerformanceEnvironmentPolicyPath = path.join(
   root,
@@ -541,7 +550,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   try {
     await client.send("Runtime.enable");
     await client.send("Page.enable");
-    const evidence = await waitForBgiCheckpoint(client);
+    const evidence = await waitForBgiCheckpoint(
+      client,
+      scenario === "success" && bgiProfile === "shell32-drag-accept-files"
+        ? 180_000
+        : 30_000,
+    );
     assert.equal(evidence.scenario, scenario);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
@@ -569,6 +583,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
+        "shell32-drag-accept-files",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -585,6 +600,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
+        "shell32-drag-accept-files",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -600,8 +616,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
+        "shell32-drag-accept-files",
       ].includes(bgiProfile) && scenario === "success"
-        ? bgiProfile === "primary-main-loop-progression" ||
+        ? bgiProfile === "shell32-drag-accept-files"
+          ? 1_030
+          : bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
           bgiProfile === "kernel32-enter-critical-section-continuation" ||
           bgiProfile === "kernel32-leave-critical-section-continuation"
@@ -649,9 +668,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         evidence.report.checkpointCompletion !== null,
         capabilityCheckpoint,
       );
-      if (capabilityCheckpoint) {
+      if (
+        capabilityCheckpoint ||
+        bgiProfile === "shell32-drag-accept-files"
+      ) {
         const pacingCount =
-          bgiProfile === "primary-main-loop-progression" ||
+          bgiProfile === "shell32-drag-accept-files"
+            ? 4_706
+            : bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
           bgiProfile === "kernel32-enter-critical-section-continuation" ||
           bgiProfile === "kernel32-leave-critical-section-continuation"
@@ -667,6 +691,36 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           boundedCatchUps: 0,
           pending: 0,
         });
+      }
+      if (bgiProfile === "shell32-drag-accept-files") {
+        const dragAcceptFiles = evidence.report.dragAcceptFiles;
+        assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
+        assert.equal(dragAcceptFiles.call.sequence, 89_249);
+        assert.equal(dragAcceptFiles.call.trapInstructionCount, 15_601_759);
+        assert.deepEqual(dragAcceptFiles.call.arguments, [0x4801_0001, 0]);
+        assert.deepEqual(dragAcceptFiles.call.result, { action: "preserve" });
+        assert.equal(dragAcceptFiles.call.returnAddress, 0x1005_f272);
+        assert.equal(
+          dragAcceptFiles.call.stackPointerAfter -
+            dragAcceptFiles.call.stackPointerBefore,
+          12,
+        );
+        assert.equal(dragAcceptFiles.call.lastError, 0);
+        assert.deepEqual(dragAcceptFiles.call.guestWrites, []);
+        assert.equal(dragAcceptFiles.call.window.handle, 0x4801_0001);
+        assert.equal(
+          dragAcceptFiles.call.window.effectiveExtendedStyle,
+          0x0004_0100,
+        );
+        assert.equal(
+          dragAcceptFiles.call.window.effectiveExtendedStyle & 0x0000_0010,
+          0,
+        );
+        assert.equal(dragAcceptFiles.call.window.lifecycle.state, "created");
+        assert.equal(dragAcceptFiles.browserResourceCreated, false);
+        assert.equal(dragAcceptFiles.wmDropFilesImplemented, false);
+      } else {
+        assert.equal(evidence.report.dragAcceptFiles, null);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -793,10 +847,34 @@ async function runBgiBenchmark(
   baseUrl,
   durationMilliseconds,
   sampleIntervalMilliseconds,
+  candidateWorkload = null,
 ) {
-  const benchmarkUrl =
-    `${baseUrl}bgi-benchmark.html?durationMs=${durationMilliseconds}` +
-    `&sampleIntervalMs=${sampleIntervalMilliseconds}`;
+  const searchParameters = new URLSearchParams({
+    durationMs: String(durationMilliseconds),
+    sampleIntervalMs: String(sampleIntervalMilliseconds),
+  });
+  if (candidateWorkload !== null) {
+    for (const field of [
+      "profile",
+      "guestInstructions",
+      "supportedCalls",
+      "sourceReadCompletions",
+      "nextApi",
+      "nextFaultCode",
+      "callSemanticsAlgorithm",
+      "callSemanticsSha256",
+      "memoryContentSha256",
+      "wasmBridgeCalls",
+    ]) {
+      assert(
+        candidateWorkload[field] !== null &&
+          candidateWorkload[field] !== undefined,
+        `candidate benchmark workload is missing ${field}`,
+      );
+      searchParameters.set(field, String(candidateWorkload[field]));
+    }
+  }
+  const benchmarkUrl = `${baseUrl}bgi-benchmark.html?${searchParameters}`;
   const target = await createDebugTarget(browserWebSocketUrl, "about:blank");
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   let workerSessionId = null;
@@ -1120,6 +1198,19 @@ function normalizeHeapPageMaterialization(materialization) {
   };
 }
 
+function normalizeDragAcceptFiles(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    ...snapshot,
+    call: {
+      ...snapshot.call,
+      module: snapshot.call.module.toLowerCase(),
+    },
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1149,6 +1240,11 @@ function validateBgiEquivalence(browser, oracle) {
     browser.report.supportedCallSemanticsSha256,
     oracle.supportedCallSemanticsSha256,
     "Chrome Worker call semantics digest differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeDragAcceptFiles(browser.report.dragAcceptFiles),
+    normalizeDragAcceptFiles(oracle.dragAcceptFiles),
+    "Chrome Worker DragAcceptFiles evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(
@@ -1302,6 +1398,17 @@ function validateBgiEquivalence(browser, oracle) {
       );
     }
     return;
+  }
+  if (oracle.dragAcceptFiles !== undefined) {
+    assert.equal(
+      browser.report.timerPacing.requests,
+      oracle.waitableTimerWait.pacingRequestCount,
+      "Chrome Worker pacing request count differs from the long Node oracle",
+    );
+    assert.equal(browser.report.timerPacing.completions, browser.report.timerPacing.requests);
+    assert.equal(browser.report.timerPacing.pending, 0);
+    assert.equal(browser.report.timerPacing.cancellations, 0);
+    assert.equal(browser.report.timerPacing.staleCallbacks, 0);
   }
   assert.equal(browserCheckpoint, null);
   assert(browserStop !== null, "Chrome Worker omitted its structured stop");
@@ -1763,14 +1870,24 @@ if (serveOnly) {
             : checkpoint.nextStructuredStop.kind === "com-method"
               ? `${checkpoint.nextStructuredStop.interface}::${checkpoint.nextStructuredStop.method}`
               : checkpoint.nextStructuredStop.api;
-        assert.deepEqual(configuration.workload, {
-          profile: checkpoint.activeRuntimeCheckpoint.profile,
-          guestInstructions: checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,
-          supportedCalls: checkpoint.browserCheckpoint.bgiRuntimeEvidence.supportedCalls,
-          sourceReadCompletions:
-            checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceReadCompletions,
-          nextApi,
-        });
+        if (bgiBenchmarkConfigurationOverride === null) {
+          assert.deepEqual(configuration.workload, {
+            profile: checkpoint.activeRuntimeCheckpoint.profile,
+            guestInstructions:
+              checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,
+            supportedCalls:
+              checkpoint.browserCheckpoint.bgiRuntimeEvidence.supportedCalls,
+            sourceReadCompletions:
+              checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceReadCompletions,
+            nextApi,
+          });
+        } else {
+          assert.equal(
+            configuration.workload.profile,
+            bgiProfile,
+            "candidate benchmark profile differs from its versioned configuration",
+          );
+        }
         assert.equal(
           bgiBenchmarkMilliseconds,
           configuration.durationMilliseconds,
@@ -1798,6 +1915,9 @@ if (serveOnly) {
             url,
             bgiBenchmarkMilliseconds,
             configuration.sampleIntervalMilliseconds,
+            bgiBenchmarkConfigurationOverride === null
+              ? null
+              : configuration.workload,
           );
         } finally {
           performanceEnvironment = await environmentMonitor.stop();
@@ -1949,7 +2069,7 @@ if (serveOnly) {
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
           schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 5,
+          schemaVersion: 6,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,

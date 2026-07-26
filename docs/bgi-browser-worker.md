@@ -71,15 +71,23 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is
-`kernel32-leave-critical-section-continuation` and uses protocol
-`vine.browser-runtime-worker.v19`. It carries the typed release completion
-(`criticalSectionAddress`, `releaseThreadId`, and `lastError`) in addition to
-the common sequence, instruction, endpoint, and memory-digest fields. The
-Worker verifies the adjacent selected-main-thread release, reacquisition, and
-release operations all use the same address. The browser transports this
-metadata; Rust remains the sole synchronization authority. Protocol version
-18's typed acquisition completion remains the frozen predecessor contract.
+The active private profile is `shell32-drag-accept-files` and uses protocol
+`vine.browser-runtime-worker.v20`. It carries one compact typed
+`dragAcceptFiles` snapshot containing the reached call, immutable logical
+window, effective extended style, Rust authority labels, and explicit browser
+resource／`WM_DROPFILES` non-claims. Node and Chrome normalize only module-name
+case; arguments, ABI result, LastError, guest writes, window identity,
+lifecycle, style, terminal endpoint, semantic digest, and memory digest must
+match exactly. The browser transports this metadata; Rust remains the sole
+window and file-drop acceptance authority. Protocol version 19's typed
+critical-section release remains the frozen predecessor contract.
+
+The semantic gate passes independently from the repeated workload gate. The
+active 180-second workload fails its unchanged minimum-session and session-P95
+thresholds in a valid environment after bounded scheduling remediation.
+Consequently the semantic checkpoint cannot advance to the next endpoint.
+Exact measurements, discarded invalid-environment evidence, protected
+invariants, and the resume condition remain manifest-owned.
 
 ## Reproduction
 
@@ -101,3 +109,6 @@ fingerprint before and after execution.
 - Unsupported behavior remains an explicit structured stop. A normal capability
   completion requires a versioned count and next-endpoint contract; reaching a
   later API by itself does not establish subsystem completeness.
+- `DragAcceptFiles` changes only the logical acceptance bit. Browser drag
+  events, `HDROP`, `WM_DROPFILES`, file permission, and VFS import remain
+  unimplemented.

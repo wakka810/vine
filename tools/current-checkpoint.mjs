@@ -159,41 +159,88 @@ export function validateCurrentCheckpoint(manifest) {
   const leaveCriticalSectionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "kernel32-leave-critical-section-continuation";
+  const dragAcceptFilesActive =
+    root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
   const mainLoopContinuationActive =
     primaryMainLoopProgressionActive ||
     leaveCriticalSectionActive ||
     enterCriticalSectionContinuationActive ||
-    leaveCriticalSectionContinuationActive;
-  const timerCycleCount = mainLoopContinuationActive ? 7 : 3;
-  const timerSetSequences = mainLoopContinuationActive
-    ? "18681,18689,18697,18705,18713,18721,18729"
-    : "18681,18689,18697";
-  const timerSetInstructionCounts = mainLoopContinuationActive
-    ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
-    : "11973553,11973700,11973847";
-  const timerWaitSequences = mainLoopContinuationActive
-    ? "18682,18690,18698,18706,18714,18722,18730"
-    : "18682,18690,18698";
-  const timerWaitInstructionCounts = mainLoopContinuationActive
-    ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
-    : "11973559,11973706,11973853";
-  const timerGenerations = mainLoopContinuationActive
-    ? "1,2,3,4,5,6,7"
-    : "1,2,3";
-  const timerDeadlines = mainLoopContinuationActive
-    ? "5000,10000,15000,20000,25000,30000,35000"
-    : "5000,10000,15000";
-  const timerPacingRequestIds = mainLoopContinuationActive
-    ? "3,4,5,6,7,8,9"
-    : "3,4,5";
-  const timerPacingRegistrationIds = mainLoopContinuationActive
-    ? "1,2,3,4,5,6,7"
-    : "1,2,3";
-  const timerPacingClockGenerations = mainLoopContinuationActive
-    ? "0,1,2,3,4,5,6"
-    : "0,1,2";
-  const profileExpectations = leaveCriticalSectionContinuationActive
+    leaveCriticalSectionContinuationActive ||
+    dragAcceptFilesActive;
+  const timerCycleCount = dragAcceptFilesActive
+    ? 4_706
+    : mainLoopContinuationActive
+      ? 7
+      : 3;
+  const timerSetSequences = dragAcceptFilesActive
+    ? "18681,89217"
+    : mainLoopContinuationActive
+      ? "18681,18689,18697,18705,18713,18721,18729"
+      : "18681,18689,18697";
+  const timerSetInstructionCounts = dragAcceptFilesActive
+    ? "11973553,15600688"
+    : mainLoopContinuationActive
+      ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
+      : "11973553,11973700,11973847";
+  const timerWaitSequences = dragAcceptFilesActive
+    ? "18682,89218"
+    : mainLoopContinuationActive
+      ? "18682,18690,18698,18706,18714,18722,18730"
+      : "18682,18690,18698";
+  const timerWaitInstructionCounts = dragAcceptFilesActive
+    ? "11973559,15600694"
+    : mainLoopContinuationActive
+      ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
+      : "11973559,11973706,11973853";
+  const timerGenerations = dragAcceptFilesActive
+    ? "1,4706"
+    : mainLoopContinuationActive
+      ? "1,2,3,4,5,6,7"
+      : "1,2,3";
+  const timerDeadlines = dragAcceptFilesActive
+    ? "5000,23530000"
+    : mainLoopContinuationActive
+      ? "5000,10000,15000,20000,25000,30000,35000"
+      : "5000,10000,15000";
+  const timerPacingRequestIds = dragAcceptFilesActive
+    ? "3,4708"
+    : mainLoopContinuationActive
+      ? "3,4,5,6,7,8,9"
+      : "3,4,5";
+  const timerPacingRegistrationIds = dragAcceptFilesActive
+    ? "1,4706"
+    : mainLoopContinuationActive
+      ? "1,2,3,4,5,6,7"
+      : "1,2,3";
+  const timerPacingClockGenerations = dragAcceptFilesActive
+    ? "0,4705"
+    : mainLoopContinuationActive
+      ? "0,1,2,3,4,5,6"
+      : "0,1,2";
+  const timerNextRegistrationIds = dragAcceptFilesActive
+    ? "2,4707"
+    : mainLoopContinuationActive
+      ? "2,3,4,5,6,7,8"
+      : "2,3,4";
+  const profileExpectations = dragAcceptFilesActive
     ? {
+        benchmarkObservation: "current-shell32-drag-accept-files-observation",
+        browserMappingDeltas: 78_501,
+        browserMappingDirtyPages: 80_168,
+        browserSuccessExecutionTransitions: 285_545,
+        latestSchema: "vine.v86-bgi-shell32-drag-accept-files.v1",
+        latestWritebackBatches: 89_339,
+        latestWritebackDirtyPages: 122_724,
+        latestWritebackChangedBytes: 3_608_013,
+        latestHostDeltaBatches: 78_501,
+        latestFinalMemoryGeneration: 168_414,
+        semanticCallDigestSha256:
+          "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+        memoryContentSha256:
+          "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+      }
+    : leaveCriticalSectionContinuationActive
+      ? {
         benchmarkObservation:
           "current-critical-section-continuation-release-observation",
         browserMappingDeltas: 17_384,
@@ -282,9 +329,10 @@ export function validateCurrentCheckpoint(manifest) {
           memoryContentSha256:
             "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
         };
-  const timerRepeatedOnes = Array(timerCycleCount).fill(1).join(",");
-  const timerRepeatedTwos = Array(timerCycleCount).fill(2).join(",");
-  const timerRepeatedZeroes = Array(timerCycleCount).fill(0).join(",");
+  const timerEvidenceEntries = dragAcceptFilesActive ? 2 : timerCycleCount;
+  const timerRepeatedOnes = Array(timerEvidenceEntries).fill(1).join(",");
+  const timerRepeatedTwos = Array(timerEvidenceEntries).fill(2).join(",");
+  const timerRepeatedZeroes = Array(timerEvidenceEntries).fill(0).join(",");
   const expectedRootKeys = [
     "schema",
     "schemaVersion",
@@ -592,8 +640,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v19") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v19");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v20") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v20");
   }
   if (
     browser.executionEngineProfile !==
@@ -1274,6 +1322,14 @@ export function validateCurrentCheckpoint(manifest) {
     "waitForSingleObjectExBrowserPacingCancellations",
     "waitForSingleObjectExBrowserPacingStaleCallbacks",
     "waitForSingleObjectExBrowserPacingPending",
+    "dragAcceptFilesCompletions",
+    "dragAcceptFilesSequence",
+    "dragAcceptFilesInstructionCount",
+    "dragAcceptFilesLastError",
+    "dragAcceptFilesGuestWriteBytes",
+    "dragAcceptFilesWindowId",
+    "dragAcceptFilesNodeCompletions",
+    "dragAcceptFilesChromeCompletions",
     "successExecutionTransitionCount",
   ]) {
     requireInteger(
@@ -1333,12 +1389,13 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
-    bgiBrowserEvidence.evidenceLevel !== "summary" ||
+    bgiBrowserEvidence.evidenceLevel !==
+      (dragAcceptFilesActive ? "compact" : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !== 21 ||
-    bgiMappingOperations.commit !== 71 ||
+    bgiMappingOperations.commit !== (dragAcceptFilesActive ? 72 : 71) ||
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
@@ -1355,7 +1412,7 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (mainLoopContinuationActive ? 2 : 1) ||
+      (dragAcceptFilesActive ? 1_030 : mainLoopContinuationActive ? 2 : 1) ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
@@ -2117,7 +2174,7 @@ export function validateCurrentCheckpoint(manifest) {
       timerGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExWaitState !== "signaled" ||
     bgiBrowserEvidence.waitForSingleObjectExNextRegistrationIds?.join(",") !==
-      (mainLoopContinuationActive ? "2,3,4,5,6,7,8" : "2,3,4") ||
+      timerNextRegistrationIds ||
     bgiBrowserEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     bgiBrowserEvidence.waitForSingleObjectExClockAuthority !==
@@ -2170,6 +2227,43 @@ export function validateCurrentCheckpoint(manifest) {
       true
   ) {
     errors.push("browser BGI waitable-timer wait evidence is invalid");
+  }
+  if (
+    dragAcceptFilesActive &&
+    (bgiBrowserEvidence.dragAcceptFilesCompletions !== 1 ||
+      bgiBrowserEvidence.dragAcceptFilesSequence !== 89_249 ||
+      bgiBrowserEvidence.dragAcceptFilesInstructionCount !== 15_601_759 ||
+      bgiBrowserEvidence.dragAcceptFilesArguments?.join(",") !==
+        "0x48010001,0x00000000" ||
+      bgiBrowserEvidence.dragAcceptFilesReturnAddress !== "0x1005f272" ||
+      bgiBrowserEvidence.dragAcceptFilesResult !== "void-eax-preserved" ||
+      bgiBrowserEvidence.dragAcceptFilesLastError !== 0 ||
+      bgiBrowserEvidence.dragAcceptFilesGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.dragAcceptFilesImplementationId !==
+        "shell32.drag-accept-files.logical-window-style-v1" ||
+      bgiBrowserEvidence.dragAcceptFilesStateAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      bgiBrowserEvidence.dragAcceptFilesWindowId !== 1 ||
+      bgiBrowserEvidence.dragAcceptFilesWindowHandleNamespace !==
+        "vine.logical-window.v1" ||
+      bgiBrowserEvidence.dragAcceptFilesWindowLifecycle !== "created" ||
+      bgiBrowserEvidence.dragAcceptFilesEffectiveExtendedStyle !==
+        "0x00040100" ||
+      bgiBrowserEvidence.dragAcceptFilesAcceptsFiles !== false ||
+      bgiBrowserEvidence.dragAcceptFilesMutation !==
+        "owner-plan-stale-check-targeted-commit" ||
+      bgiBrowserEvidence.dragAcceptFilesIdempotentUpdatePreservesGeneration !==
+        true ||
+      bgiBrowserEvidence.dragAcceptFilesFailureAtomicity !== true ||
+      bgiBrowserEvidence.dragAcceptFilesBrowserOwnsLogicalWindowState !== false ||
+      bgiBrowserEvidence.dragAcceptFilesBrowserResourceCreated !== false ||
+      bgiBrowserEvidence.dragAcceptFilesWmDropFilesImplemented !== false ||
+      bgiBrowserEvidence.dragAcceptFilesNodeCompletions !== 1 ||
+      bgiBrowserEvidence.dragAcceptFilesChromeCompletions !== 1 ||
+      bgiBrowserEvidence.dragAcceptFilesNodeChromeOrderedSemanticsMatched !==
+        true)
+  ) {
+    errors.push("browser BGI DragAcceptFiles evidence is invalid");
   }
   requireSha256(
     bgiBrowserEvidence.createThreadCreationDeltaPayloadSha256,
@@ -2818,7 +2912,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schema !== "vine.browser-bgi-benchmark-report" ||
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
-      "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json" ||
+      (dragAcceptFilesActive
+        ? "fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json"
+        : "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json") ||
     bgiBenchmarkEvidence.runtimeProfile !==
       root.activeRuntimeCheckpoint?.profile ||
     bgiBenchmarkEvidence.observationStatus !==
@@ -2859,13 +2955,24 @@ export function validateCurrentCheckpoint(manifest) {
     (browser.bgiBenchmark === "threshold-passed" && benchmarkFailureIds.length !== 0) ||
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
     (benchmarkEnvironmentBlocked && benchmarkFailureIds.length !== 0) ||
-    bgiBenchmarkEvidence.runtimeCoreWasmBytes !== 4_565_781 ||
+    bgiBenchmarkEvidence.runtimeCoreWasmBytes !==
+      (dragAcceptFilesActive ? 4_574_225 : 4_565_781) ||
     bgiBenchmarkEvidence.runtimeCoreWasmSha256 !==
-      "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5" ||
+      (dragAcceptFilesActive
+        ? "55c01dbcf3e4a88bf13051924fe61c94f28c9b4801308e77a2b00544cec1e9d1"
+        : "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5") ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
       bgiBrowserEvidence.executionEngineLinearMemoryBytes
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
+  }
+  if (
+    browser.bgiBenchmark === "threshold-passed" &&
+    browser.bgiBenchmarkBlocker !== undefined
+  ) {
+    errors.push(
+      "passed browser benchmark must not retain a structured performance blocker",
+    );
   }
   if (benchmarkEnvironmentBlocked) {
     const benchmarkBlocker = requireRecord(
@@ -3086,15 +3193,263 @@ export function validateCurrentCheckpoint(manifest) {
       );
     }
   } else if (
+    dragAcceptFilesActive &&
+    (browser.bgiBenchmark === "threshold-blocked" ||
+      browser.bgiBenchmarkBlocker !== undefined)
+  ) {
+    const benchmarkBlocker = requireRecord(
+      browser.bgiBenchmarkBlocker,
+      "browserCheckpoint.bgiBenchmarkBlocker",
+      errors,
+    );
+    for (const field of [
+      "schema",
+      "id",
+      "kind",
+      "reason",
+      "status",
+      "blockedWork",
+      "exactReproduction",
+      "requiredAuthority",
+      "resumeCondition",
+    ]) {
+      requireString(
+        benchmarkBlocker[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.${field}`,
+        errors,
+      );
+    }
+    requireInteger(
+      benchmarkBlocker.schemaVersion,
+      "browserCheckpoint.bgiBenchmarkBlocker.schemaVersion",
+      errors,
+    );
+    const minimumSessionFailure = requireRecord(
+      benchmarkBlocker.firstFailure,
+      "browserCheckpoint.bgiBenchmarkBlocker.firstFailure",
+      errors,
+    );
+    const sessionLatencyFailure = requireRecord(
+      benchmarkBlocker.confirmationFailure,
+      "browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure",
+      errors,
+    );
+    for (const [label, failure] of [
+      ["firstFailure", minimumSessionFailure],
+      ["confirmationFailure", sessionLatencyFailure],
+    ]) {
+      requireString(
+        failure.thresholdId,
+        `browserCheckpoint.bgiBenchmarkBlocker.${label}.thresholdId`,
+        errors,
+      );
+      requireString(
+        failure.comparison,
+        `browserCheckpoint.bgiBenchmarkBlocker.${label}.comparison`,
+        errors,
+      );
+      requireFiniteNumber(
+        failure.observed,
+        `browserCheckpoint.bgiBenchmarkBlocker.${label}.observed`,
+        errors,
+      );
+      requireFiniteNumber(
+        failure.threshold,
+        `browserCheckpoint.bgiBenchmarkBlocker.${label}.threshold`,
+        errors,
+      );
+    }
+    const benchmarkBlockerEvidence = requireRecord(
+      benchmarkBlocker.evidence,
+      "browserCheckpoint.bgiBenchmarkBlocker.evidence",
+      errors,
+    );
+    for (const field of [
+      "benchmarkReport",
+      "invalidEnvironmentReport",
+      "invalidEnvironmentReason",
+      "host",
+      "cpu",
+      "chromeVersion",
+      "nodeVersion",
+    ]) {
+      requireString(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "benchmarkReportBytes",
+      "environmentSamples",
+      "passingThresholds",
+      "thresholdEvaluations",
+      "completedSessions",
+      "failedSessions",
+      "heartbeatSamples",
+      "mainHeapSamples",
+      "workerHeapSamples",
+      "runtimeCoreLinearMemoryBytes",
+      "executionEngineLinearMemoryBytes",
+      "wasmBridgeCallsPerSession",
+      "invalidEnvironmentReportBytes",
+      "invalidEnvironmentCompletedSessions",
+      "logicalCpus",
+      "environmentUpdaterEvents",
+      "environmentSustainedExcursions",
+      "environmentQosChangesAfterWarmup",
+    ]) {
+      requireInteger(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "sessionP95Milliseconds",
+      "sliceP99Milliseconds",
+      "heartbeatP99Milliseconds",
+      "maximumHeartbeatGapMilliseconds",
+      "totalCpuMeanPercent",
+      "totalCpuMaximumPercent",
+      "externalCpuMeanPercent",
+      "externalCpuMaximumPercent",
+      "initialCandidateP95Milliseconds",
+      "baselineBrowserElapsedMilliseconds",
+      "optimizedBrowserElapsedMilliseconds",
+      "zeroDelayDiagnosticElapsedMilliseconds",
+      "invalidEnvironmentP95Milliseconds",
+    ]) {
+      requireFiniteNumber(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    for (const field of [
+      "benchmarkReportSha256",
+      "invalidEnvironmentReportSha256",
+    ]) {
+      requireSha256(
+        benchmarkBlockerEvidence[field],
+        `browserCheckpoint.bgiBenchmarkBlocker.evidence.${field}`,
+        errors,
+      );
+    }
+    const attemptedOptions = requireStringArray(
+      benchmarkBlocker.attemptedOptions,
+      "browserCheckpoint.bgiBenchmarkBlocker.attemptedOptions",
+      errors,
+    );
+    const protectedInvariants = requireStringArray(
+      benchmarkBlocker.protectedInvariants,
+      "browserCheckpoint.bgiBenchmarkBlocker.protectedInvariants",
+      errors,
+    );
+    if (
+      browser.bgiBenchmark !== "threshold-blocked" ||
+      benchmarkBlocker.schema !== "vine.structured-blocker" ||
+      benchmarkBlocker.schemaVersion !== 5 ||
+      benchmarkBlocker.id !==
+        "shell32-drag-accept-files-browser-throughput-threshold-v1" ||
+      benchmarkBlocker.kind !== "feasibility-blocker" ||
+      benchmarkBlocker.reason !==
+        "browser-session-throughput-and-p95-latency-exceed-versioned-threshold-after-bounded-timer-pacing-remediation" ||
+      benchmarkBlocker.status !== "blocked" ||
+      benchmarkBlocker.blockedWork !==
+        "accept-shell32-drag-accept-files-and-advance-to-user32-message-box-a" ||
+      benchmarkBlocker.exactReproduction !==
+        "npm run check:runtime:bgi-browser-benchmark:prepared" ||
+      benchmarkFailureIds.join(",") !==
+        "minimum-completed-sessions,maximum-p95-session-milliseconds" ||
+      minimumSessionFailure.thresholdId !== benchmarkFailureIds[0] ||
+      minimumSessionFailure.observed !==
+        bgiBenchmarkEvidence.completedSessions ||
+      minimumSessionFailure.comparison !== ">=" ||
+      minimumSessionFailure.threshold !== 24 ||
+      sessionLatencyFailure.thresholdId !== benchmarkFailureIds[1] ||
+      sessionLatencyFailure.observed !==
+        bgiBenchmarkEvidence.sessionP95Milliseconds ||
+      sessionLatencyFailure.comparison !== "<=" ||
+      sessionLatencyFailure.threshold !== 8_000 ||
+      benchmarkBlockerEvidence.benchmarkReport !==
+        ".work/browser-runtime/bgi-browser-benchmark-report-drag-accept-files-message-task-valid-threshold-failure-r2.json" ||
+      benchmarkBlockerEvidence.benchmarkReportBytes !==
+        bgiBenchmarkEvidence.reportBytes ||
+      benchmarkBlockerEvidence.benchmarkReportSha256 !==
+        bgiBenchmarkEvidence.reportSha256 ||
+      benchmarkBlockerEvidence.environmentSamples !==
+        bgiBenchmarkEvidence.environmentSamples ||
+      benchmarkBlockerEvidence.passingThresholds !==
+        bgiBenchmarkEvidence.thresholdEvaluationCount -
+          bgiBenchmarkEvidence.thresholdFailures ||
+      benchmarkBlockerEvidence.thresholdEvaluations !==
+        bgiBenchmarkEvidence.thresholdEvaluationCount ||
+      benchmarkBlockerEvidence.completedSessions !==
+        bgiBenchmarkEvidence.completedSessions ||
+      benchmarkBlockerEvidence.failedSessions !==
+        bgiBenchmarkEvidence.failedSessions ||
+      benchmarkBlockerEvidence.sessionP95Milliseconds !==
+        bgiBenchmarkEvidence.sessionP95Milliseconds ||
+      benchmarkBlockerEvidence.sliceP99Milliseconds !==
+        bgiBenchmarkEvidence.sliceP99Milliseconds ||
+      benchmarkBlockerEvidence.heartbeatP99Milliseconds !==
+        bgiBenchmarkEvidence.heartbeatP99Milliseconds ||
+      benchmarkBlockerEvidence.maximumHeartbeatGapMilliseconds !==
+        bgiBenchmarkEvidence.maximumHeartbeatGapMilliseconds ||
+      benchmarkBlockerEvidence.mainHeapSamples !==
+        bgiBenchmarkEvidence.mainHeapSamples ||
+      benchmarkBlockerEvidence.workerHeapSamples !==
+        bgiBenchmarkEvidence.workerHeapSamples ||
+      benchmarkBlockerEvidence.runtimeCoreLinearMemoryBytes !==
+        bgiBenchmarkEvidence.runtimeCoreLinearMemoryBytes ||
+      benchmarkBlockerEvidence.executionEngineLinearMemoryBytes !==
+        bgiBenchmarkEvidence.executionEngineLinearMemoryBytes ||
+      benchmarkBlockerEvidence.wasmBridgeCallsPerSession !==
+        bgiBenchmarkEvidence.wasmBridgeCallsPerSession ||
+      benchmarkBlockerEvidence.invalidEnvironmentReport !==
+        ".work/browser-runtime/bgi-browser-benchmark-report-drag-accept-files-message-task-invalid-environment-r1.json" ||
+      benchmarkBlockerEvidence.invalidEnvironmentReportBytes !== 2_272_012 ||
+      benchmarkBlockerEvidence.invalidEnvironmentReportSha256 !==
+        "8ecd55a4d132e53169fce5767b085d3bbbc7ca11033e9acd7b8cd509cc225605" ||
+      benchmarkBlockerEvidence.invalidEnvironmentReason !==
+        "sustained-external-cpu" ||
+      benchmarkBlockerEvidence.invalidEnvironmentCompletedSessions !== 12 ||
+      benchmarkBlockerEvidence.invalidEnvironmentP95Milliseconds !==
+        16_552.305000007153 ||
+      benchmarkBlockerEvidence.initialCandidateP95Milliseconds !==
+        77_652.04 ||
+      benchmarkBlockerEvidence.baselineBrowserElapsedMilliseconds !==
+        73_204.855 ||
+      benchmarkBlockerEvidence.optimizedBrowserElapsedMilliseconds !==
+        bgiBrowserEvidence.elapsedMilliseconds ||
+      benchmarkBlockerEvidence.zeroDelayDiagnosticElapsedMilliseconds !==
+        8_856.53 ||
+      benchmarkBlockerEvidence.environmentUpdaterEvents !== 0 ||
+      benchmarkBlockerEvidence.environmentSustainedExcursions !== 0 ||
+      benchmarkBlockerEvidence.environmentQosChangesAfterWarmup !== 0 ||
+      benchmarkBlockerEvidence.host !== "win32 10.0.26200 x64" ||
+      benchmarkBlockerEvidence.cpu !==
+        "AMD Ryzen 7 8840U w/ Radeon 780M Graphics" ||
+      benchmarkBlockerEvidence.logicalCpus !== 16 ||
+      benchmarkBlockerEvidence.chromeVersion !==
+        bgiBenchmarkEvidence.chromeVersion ||
+      benchmarkBlockerEvidence.nodeVersion !== "v24.18.0" ||
+      attemptedOptions.length < 6 ||
+      protectedInvariants.length < 5 ||
+      benchmarkBlocker.requiredAuthority !==
+        "profiled-correctness-preserving-rust-wasm-dispatch-fast-path-or-versioned-performance-contract-decision" ||
+      !benchmarkBlocker.resumeCondition.includes("unchanged 180-second gate") ||
+      !benchmarkBlocker.resumeCondition.includes("MessageBoxA")
+    ) {
+      errors.push(
+        "browser BGI DragAcceptFiles structured performance blocker is invalid",
+      );
+    }
+  } else if (
     browser.bgiBenchmark === "threshold-blocked" ||
     browser.bgiBenchmarkBlocker !== undefined
   ) {
-    if (
-      browser.bgiBenchmark === "threshold-passed" &&
-      browser.bgiBenchmarkBlocker !== undefined
-    ) {
-      errors.push("passed browser benchmark must not retain a structured performance blocker");
-    }
     const benchmarkBlocker = requireRecord(
       browser.bgiBenchmarkBlocker,
       "browserCheckpoint.bgiBenchmarkBlocker",
@@ -12466,7 +12821,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority" ||
+      (dragAcceptFilesActive
+        ? "Rust-owned DragAcceptFiles over logical-window extended-style authority with failure-atomic plan/commit"
+        : "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority") ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
@@ -12535,6 +12892,91 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.browserOwnsLogicalWindowState !== false
   ) {
     errors.push("latest logical window creation evidence is invalid");
+  }
+  if (dragAcceptFilesActive) {
+    for (const field of [
+      "nativeDragAcceptFilesPrimaryTraceSha256",
+      "nativeDragAcceptFilesPrimarySummarySha256",
+      "nativeDragAcceptFilesConfirmationTraceSha256",
+      "nativeDragAcceptFilesConfirmationSummarySha256",
+    ]) {
+      requireSha256(
+        latestEvidence[field],
+        `activeRuntimeCheckpoint.latestEvidence.${field}`,
+        errors,
+      );
+    }
+    if (
+      latestEvidence.nativeDragAcceptFilesPrimaryTraceBytes !== 23_308 ||
+      latestEvidence.nativeDragAcceptFilesPrimaryTraceLines !== 77 ||
+      latestEvidence.nativeDragAcceptFilesPrimaryTraceSha256 !==
+        "939c2094e929ba80e867ec73586e41b0d411d6f657def08d11c44212795ae412" ||
+      latestEvidence.nativeDragAcceptFilesPrimarySummaryBytes !== 14_754 ||
+      latestEvidence.nativeDragAcceptFilesPrimarySummarySha256 !==
+        "97b082b95f58eff078da27360a054dfc8f3dde0671877de0c752bbb50a7e7754" ||
+      latestEvidence.nativeDragAcceptFilesPrimaryBalancedApiPairs !== 1 ||
+      latestEvidence.nativeDragAcceptFilesConfirmationTraceBytes !== 23_236 ||
+      latestEvidence.nativeDragAcceptFilesConfirmationTraceLines !== 77 ||
+      latestEvidence.nativeDragAcceptFilesConfirmationTraceSha256 !==
+        "05924e0335698b3081a79b36d62f0a9a9f3c519e673d61a63229b2fad52b1834" ||
+      latestEvidence.nativeDragAcceptFilesConfirmationSummaryBytes !== 14_754 ||
+      latestEvidence.nativeDragAcceptFilesConfirmationSummarySha256 !==
+        "1ec8cd27a53165fd871d075610f7608e693e297c6aeadc37d1a924f66a225ead" ||
+      latestEvidence.nativeDragAcceptFilesConfirmationBalancedApiPairs !== 1 ||
+      latestEvidence.nativeDragAcceptFilesTraceDiagnostics !== 0 ||
+      latestEvidence.nativeDragAcceptFilesProfile !==
+        "x86-bgi-drag-accept-files-v1" ||
+      latestEvidence.nativeDragAcceptFilesOracleProfile !==
+        "x86-live-window-drag-accept-files-v1" ||
+      latestEvidence.nativeDragAcceptFilesCallerRva !== "0x0005f272" ||
+      latestEvidence.nativeDragAcceptFilesAccept !== false ||
+      latestEvidence.nativeDragAcceptFilesLastErrorBefore !== 0 ||
+      latestEvidence.nativeDragAcceptFilesLastErrorAfter !== 0 ||
+      latestEvidence.nativeDragAcceptFilesVoidResultConsumed !== false ||
+      latestEvidence.nativeDragAcceptFilesOracleInitialAcceptsFiles !== false ||
+      latestEvidence.nativeDragAcceptFilesOracleAcceptValues?.join(",") !==
+        "true,false" ||
+      latestEvidence.nativeDragAcceptFilesOracleSentinelLastErrors?.join(",") !==
+        "1432778632,2053856333" ||
+      latestEvidence.nativeDragAcceptFilesOracleObservedLastErrors?.join(",") !==
+        "0,0" ||
+      latestEvidence.nativeDragAcceptFilesOracleObservedStates?.join(",") !==
+        "true,false" ||
+      latestEvidence.nativeDragAcceptFilesOracleFinalAcceptsFiles !== false ||
+      latestEvidence.nativeDragAcceptFilesOracleClearsSentinelLastError !== true ||
+      latestEvidence.nativeDragAcceptFilesExecutableHashUnchanged !== true ||
+      latestEvidence.dragAcceptFilesImplemented !== true ||
+      latestEvidence.dragAcceptFilesSequence !== 89_249 ||
+      latestEvidence.dragAcceptFilesInstructionCount !== 15_601_759 ||
+      latestEvidence.dragAcceptFilesArguments?.join(",") !==
+        "0x48010001,0x00000000" ||
+      latestEvidence.dragAcceptFilesReturnAddress !== "0x1005f272" ||
+      latestEvidence.dragAcceptFilesResult !== "void-eax-preserved" ||
+      latestEvidence.dragAcceptFilesLastError !== 0 ||
+      latestEvidence.dragAcceptFilesGuestWriteBytes !== 0 ||
+      latestEvidence.dragAcceptFilesImplementationId !==
+        "shell32.drag-accept-files.logical-window-style-v1" ||
+      latestEvidence.dragAcceptFilesStateAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.dragAcceptFilesWindowId !== 1 ||
+      latestEvidence.dragAcceptFilesWindowHandleNamespace !==
+        "vine.logical-window.v1" ||
+      latestEvidence.dragAcceptFilesWindowLifecycle !== "created" ||
+      latestEvidence.dragAcceptFilesEffectiveExtendedStyle !== "0x00040100" ||
+      latestEvidence.dragAcceptFilesAcceptsFiles !== false ||
+      latestEvidence.dragAcceptFilesMutation !==
+        "owner-plan-stale-check-targeted-commit" ||
+      latestEvidence.dragAcceptFilesIdempotentUpdatePreservesGeneration !== true ||
+      latestEvidence.dragAcceptFilesFailureAtomicity !== true ||
+      latestEvidence.dragAcceptFilesBrowserOwnsLogicalWindowState !== false ||
+      latestEvidence.dragAcceptFilesBrowserResourceCreated !== false ||
+      latestEvidence.dragAcceptFilesWmDropFilesImplemented !== false ||
+      latestEvidence.dragAcceptFilesNodeCompletions !== 1 ||
+      latestEvidence.dragAcceptFilesChromeCompletions !== 1 ||
+      latestEvidence.dragAcceptFilesNodeChromeOrderedSemanticsMatched !== true
+    ) {
+      errors.push("latest DragAcceptFiles evidence is invalid");
+    }
   }
   requireInteger(
     latestEvidence.finalMemoryGeneration,

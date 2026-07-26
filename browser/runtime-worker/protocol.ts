@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 19 as const;
+export const protocolVersion = 20 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -11,7 +11,8 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-progression"
   | "kernel32-leave-critical-section"
   | "kernel32-enter-critical-section-continuation"
-  | "kernel32-leave-critical-section-continuation";
+  | "kernel32-leave-critical-section-continuation"
+  | "shell32-drag-accept-files";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -420,6 +421,28 @@ export interface SessionReport {
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
   writableCommits: RuntimeWritableCommitSnapshot[];
+  dragAcceptFiles: {
+    call: {
+      sequence: number;
+      module: string;
+      symbol: "DragAcceptFiles";
+      occurrence: 1;
+      trapInstructionCount: number;
+      arguments: [number, number];
+      result: { action: "preserve" };
+      implementationId: "shell32.drag-accept-files.logical-window-style-v1";
+      returnAddress: number;
+      stackPointerBefore: number;
+      stackPointerAfter: number;
+      lastError: 0;
+      guestWrites: [];
+      window: RuntimeWindowSnapshot;
+    };
+    windowAuthority: "runtime-user32-logical-window";
+    acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles";
+    browserResourceCreated: false;
+    wmDropFilesImplemented: false;
+  } | null;
   firstUnsupported: {
     capabilityCluster: string;
     endpoint: unknown;

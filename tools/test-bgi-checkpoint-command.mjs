@@ -168,6 +168,10 @@ for (const arguments_ of [
   assert.throws(() => planBgiCheckpointCommand(arguments_, manifest, root));
 }
 assert.equal(bgiProfileOutputDirectory("user32-message"), "v86-bgi-message");
+assert.equal(
+  bgiProfileOutputDirectory("shell32-drag-accept-files"),
+  "v86-bgi-drag-accept-files",
+);
 assert.equal(bgiProfileOutputDirectory("ole32-com"), "v86-bgi-com");
 assert.equal(bgiProfileOutputDirectory("winmm-audio"), "v86-bgi-audio");
 assert.equal(bgiProfileOutputDirectory("gdi-window-dc-fill"), "v86-bgi-window-dc-fill");

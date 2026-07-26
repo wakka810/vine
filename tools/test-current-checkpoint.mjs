@@ -43,6 +43,13 @@ if (manifest.browserCheckpoint.bgiBenchmark === "environment-blocked") {
   );
   assert.ok(manifest.browserCheckpoint.bgiBenchmarkBlocker);
   assert.ok(rendered.includes("| Active blocker |"));
+} else if (manifest.browserCheckpoint.bgiBenchmark === "threshold-blocked") {
+  assert.equal(
+    manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
+    "valid",
+  );
+  assert.ok(manifest.browserCheckpoint.bgiBenchmarkBlocker);
+  assert.ok(rendered.includes("| Active blocker |"));
 } else {
   assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
   assert.ok(!rendered.includes("| Active blocker |"));
@@ -175,7 +182,7 @@ assert.ok(
 );
 
 const failedBgiBenchmark = structuredClone(manifest);
-failedBgiBenchmark.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures = 2;
+failedBgiBenchmark.browserCheckpoint.bgiBenchmarkEvidence.thresholdFailures += 1;
 assert.ok(
   validateCurrentCheckpoint(failedBgiBenchmark).some((error) =>
     error.includes("benchmark evidence"),
@@ -189,8 +196,33 @@ assert.ok(
     error.includes(
       manifest.browserCheckpoint.bgiBenchmark === "environment-blocked"
         ? "performance-environment blocker"
-        : "passed browser benchmark",
+        : manifest.browserCheckpoint.bgiBenchmark === "threshold-blocked"
+          ? "DragAcceptFiles structured performance blocker"
+          : "passed browser benchmark",
     ),
+  ),
+);
+
+const relaxedStructuredBenchmarkThreshold = structuredClone(manifest);
+if (
+  relaxedStructuredBenchmarkThreshold.browserCheckpoint.bgiBenchmark ===
+  "threshold-blocked"
+) {
+  relaxedStructuredBenchmarkThreshold.browserCheckpoint.bgiBenchmarkBlocker.confirmationFailure.threshold =
+    20_000;
+  assert.ok(
+    validateCurrentCheckpoint(relaxedStructuredBenchmarkThreshold).some((error) =>
+      error.includes("DragAcceptFiles structured performance blocker"),
+    ),
+  );
+}
+
+const browserOwnedDragAcceptance = structuredClone(manifest);
+browserOwnedDragAcceptance.browserCheckpoint.bgiRuntimeEvidence.dragAcceptFilesBrowserOwnsLogicalWindowState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedDragAcceptance).some((error) =>
+    error.includes("DragAcceptFiles evidence"),
   ),
 );
 
@@ -206,7 +238,7 @@ const clearedActiveBlocker = structuredClone(manifest);
 clearedActiveBlocker.activeBlocker = null;
 assert.deepEqual(validateCurrentCheckpoint(clearedActiveBlocker), []);
 assert.ok(
-  manifest.browserCheckpoint.bgiBenchmark === "environment-blocked" ||
+  manifest.browserCheckpoint.bgiBenchmark !== "threshold-passed" ||
     !renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"),
 );
 

@@ -4037,6 +4037,13 @@ swapMouseButtonSelection.find(
 ).selectedObservations = ["swap-mouse-button"];
 assert.doesNotThrow(() => summarizeTrace(encode(swapMouseButtonSelection)));
 
+const dragAcceptFilesSelection = structuredClone(events);
+dragAcceptFilesSelection[0].arguments.observations = ["drag-accept-files"];
+dragAcceptFilesSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["drag-accept-files"];
+assert.doesNotThrow(() => summarizeTrace(encode(dragAcceptFilesSelection)));
+
 const timeGetDevCapsSelection = structuredClone(events);
 timeGetDevCapsSelection[0].arguments.observations = ["time-get-dev-caps"];
 timeGetDevCapsSelection.find(

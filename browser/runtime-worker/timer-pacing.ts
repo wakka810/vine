@@ -11,6 +11,88 @@ export interface TimerPacingDriver {
   clearTimeout(handle: number): void;
 }
 
+export interface TimerPacingTaskSource {
+  now(): number;
+  postTask(): void;
+  subscribe(callback: () => void): void;
+}
+
+interface PendingTaskTimer {
+  callback: () => void;
+  deadlineMilliseconds: number;
+}
+
+export class TaskTimerPacingDriver implements TimerPacingDriver {
+  readonly #source: TimerPacingTaskSource;
+  readonly #pending = new Map<number, PendingTaskTimer>();
+  #nextHandle = 1;
+  #taskPosted = false;
+
+  constructor(source: TimerPacingTaskSource) {
+    this.#source = source;
+    source.subscribe(() => this.#runTask());
+  }
+
+  now(): number {
+    return this.#source.now();
+  }
+
+  setTimeout(callback: () => void, delayMilliseconds: number): number {
+    if (
+      !Number.isFinite(delayMilliseconds) ||
+      delayMilliseconds < 0 ||
+      delayMilliseconds > 10
+    ) {
+      throw new Error("task timer delay is outside the bounded 0..10ms policy");
+    }
+    const handle = this.#nextHandle;
+    this.#nextHandle += 1;
+    if (!Number.isSafeInteger(this.#nextHandle)) {
+      throw new Error("task timer handle space is exhausted");
+    }
+    this.#pending.set(handle, {
+      callback,
+      deadlineMilliseconds: this.now() + delayMilliseconds,
+    });
+    this.#postTask();
+    return handle;
+  }
+
+  clearTimeout(handle: number): void {
+    this.#pending.delete(handle);
+  }
+
+  #postTask(): void {
+    if (this.#taskPosted || this.#pending.size === 0) {
+      return;
+    }
+    this.#taskPosted = true;
+    this.#source.postTask();
+  }
+
+  #runTask(): void {
+    if (!this.#taskPosted) {
+      throw new Error("task timer received an unowned task");
+    }
+    this.#taskPosted = false;
+    const now = this.now();
+    const due = [...this.#pending.entries()]
+      .filter(([, timer]) => timer.deadlineMilliseconds <= now)
+      .sort(
+        (left, right) =>
+          left[1].deadlineMilliseconds - right[1].deadlineMilliseconds ||
+          left[0] - right[0],
+      );
+    for (const [handle, timer] of due) {
+      if (!this.#pending.delete(handle)) {
+        continue;
+      }
+      timer.callback();
+    }
+    this.#postTask();
+  }
+}
+
 export interface TimerPacingRequest {
   requestId: string;
   threadId: number;

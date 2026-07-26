@@ -103,7 +103,8 @@ worker.postMessage({
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget: scenario === "watchdog" ? 4 : 16_384,
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
-    watchdogWallMilliseconds: 20_000,
+    watchdogWallMilliseconds:
+      capabilityProfile === "shell32-drag-accept-files" ? 180_000 : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
 } satisfies MainToWorkerMessage);
@@ -157,7 +158,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
     value === "primary-main-loop-progression" ||
     value === "kernel32-leave-critical-section" ||
     value === "kernel32-enter-critical-section-continuation" ||
-    value === "kernel32-leave-critical-section-continuation"
+    value === "kernel32-leave-critical-section-continuation" ||
+    value === "shell32-drag-accept-files"
     ? value
     : undefined;
 }

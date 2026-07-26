@@ -191,6 +191,8 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-enter-critical-section-continuation",
         "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
+        "primary-main-loop-continuation",
+        "shell32-drag-accept-files",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -291,6 +293,8 @@ assert(
       "kernel32-enter-critical-section-continuation",
       "kernel32-leave-critical-section-continuation",
       "primary-main-loop-progression",
+      "primary-main-loop-continuation",
+      "shell32-drag-accept-files",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -304,6 +308,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-enter-critical-section-continuation" ||
     genericRuntimeCapability === "kernel32-leave-critical-section-continuation" ||
     genericRuntimeCapability === "primary-main-loop-progression" ||
+    genericRuntimeCapability === "primary-main-loop-continuation" ||
+    genericRuntimeCapability === "shell32-drag-accept-files" ||
     genericRuntimeCapability === "kernel32-leave-critical-section"
       ? "kernel32-wait-for-single-object-ex-v1.json"
       : genericRuntimeCapability === "kernel32-set-waitable-timer"
@@ -492,8 +498,16 @@ const leaveCriticalSectionContinuationEnabled =
   genericRuntimeCapability === "kernel32-leave-critical-section-continuation";
 const mainLoopProgressionCheckpointEnabled =
   genericRuntimeCapability === "primary-main-loop-progression";
+const primaryMainLoopContinuationEnabled =
+  genericRuntimeCapability === "primary-main-loop-continuation";
+const dragAcceptFilesEnabled =
+  genericRuntimeCapability === "shell32-drag-accept-files";
+const primaryMainLoopContinuationWorkloadEnabled =
+  primaryMainLoopContinuationEnabled || dragAcceptFilesEnabled;
+const primaryMainLoopContinuationTrapLimit = 131_072;
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
+  primaryMainLoopContinuationWorkloadEnabled ||
   leaveCriticalSectionCheckpointEnabled ||
   enterCriticalSectionContinuationEnabled ||
   leaveCriticalSectionContinuationEnabled;
@@ -794,6 +808,10 @@ const outputDirectory = path.join(
   genericRuntimeCapability !== null
       ? leaveCriticalSectionContinuationEnabled
       ? "v86-bgi-leave-critical-section-continuation"
+      : dragAcceptFilesEnabled
+      ? "v86-bgi-drag-accept-files"
+      : primaryMainLoopContinuationEnabled
+      ? "v86-bgi-primary-main-loop-continuation"
       : enterCriticalSectionContinuationEnabled
       ? "v86-bgi-enter-critical-section-continuation"
       : leaveCriticalSectionCheckpointEnabled
@@ -4740,6 +4758,12 @@ async function run() {
     ...(genericRuntimeCapability === null
       ? []
       : ["--runtime-capability", genericRuntimeCapability]),
+    ...(primaryMainLoopContinuationWorkloadEnabled
+      ? [
+          "--generic-runtime-trap-limit",
+          primaryMainLoopContinuationTrapLimit.toString(),
+        ]
+      : []),
     ...(runtimePolicyPath === null ? [] : ["--runtime-policy", runtimePolicyPath]),
     ...(sourceManifestPath === null ? [] : ["--source-manifest", sourceManifestPath]),
     ...(writableProfileManifestPath === null
@@ -4874,6 +4898,10 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (dragAcceptFilesEnabled) {
+        validateDragAcceptFilesResult(genericResult);
+      } else if (primaryMainLoopContinuationEnabled) {
+        validatePrimaryMainLoopContinuationResult(genericResult);
       } else if (enterCriticalSectionContinuationEnabled) {
         validateEnterCriticalSectionContinuationResult(genericResult);
       } else if (leaveCriticalSectionCheckpointEnabled) {
@@ -5105,6 +5133,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : dragAcceptFilesEnabled
+          ? "bgi Shell32 DragAcceptFiles"
+          : primaryMainLoopContinuationEnabled
+          ? "bgi primary main-loop continuation"
           : leaveCriticalSectionContinuationEnabled
           ? "bgi primary LeaveCriticalSection continuation"
           : leaveCriticalSectionCheckpointEnabled
@@ -5348,6 +5380,9 @@ async function run() {
                 "kernel32-enter-critical-section-continuation"
               ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
             : genericResult.checkpointCompletion.capability ===
+                "primary-main-loop-continuation"
+              ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
+            : genericResult.checkpointCompletion.capability ===
                 "primary-main-loop-progression"
               ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
               : genericResult.checkpointCompletion.capability ===
@@ -5550,6 +5585,8 @@ async function runGenericRuntimeReentry({
   let checkpointCompletion = null;
   let enterCriticalSectionContinuationRelease = null;
   let leaveCriticalSectionContinuationAcquisition = null;
+  let primaryMainLoopWorkerCycle = null;
+  let primaryMainLoopSelectedThreadCycle = null;
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
   let currentThreadId = runtimeReady.currentThreadId;
@@ -5565,6 +5602,53 @@ async function runGenericRuntimeReentry({
     contextSwitches,
     threadExits: structuredClone(threadExits),
   });
+  const primaryContinuationSnapshot = () => {
+    if (!primaryMainLoopContinuationWorkloadEnabled) {
+      return {};
+    }
+    const traversalSelections = threadSelections.filter(
+      (selection) => selection.indexedCriticalSectionTraversal !== undefined,
+    );
+    const traversalBoundary = (selection) =>
+      selection === undefined
+        ? null
+        : {
+            selectionSequence: selection.sequence,
+            instructionCount: selection.instructionCount,
+            ...selection.indexedCriticalSectionTraversal,
+          };
+    const firstTraversal = traversalSelections[0];
+    const lastTraversal = traversalSelections.at(-1);
+    return {
+      schedulerContinuation: {
+        selectionCount: threadSelections.length,
+        firstSelections: structuredClone(threadSelections.slice(0, 9)),
+        lastSelection:
+          threadSelections.length === 0
+            ? null
+            : structuredClone(threadSelections.at(-1)),
+        indexedCriticalSectionTraversal:
+          firstTraversal === undefined
+            ? null
+            : {
+                observationCount: traversalSelections.length,
+                objectAddress:
+                  firstTraversal.indexedCriticalSectionTraversal.objectAddress,
+                entryCount:
+                  firstTraversal.indexedCriticalSectionTraversal.entryCount,
+                first: traversalBoundary(firstTraversal),
+                last: traversalBoundary(lastTraversal),
+              },
+        selectedThreadCycle:
+          primaryMainLoopSelectedThreadCycle === null
+            ? null
+            : structuredClone(primaryMainLoopSelectedThreadCycle),
+        ...(evidenceLevel === "full"
+          ? { threadSelections: structuredClone(threadSelections) }
+          : {}),
+      },
+    };
+  };
   const registerCreatedThread = (created) => {
     const { thread, schedulerState } = created;
     const bootstrap = thread?.guestBootstrap;
@@ -5606,8 +5690,10 @@ async function runGenericRuntimeReentry({
     contextSwitches += 1;
   };
 
-  const callLimit = setWindowPosInitialPlacementEnabled
-    ? 32_768
+  const callLimit = primaryMainLoopContinuationWorkloadEnabled
+    ? primaryMainLoopContinuationTrapLimit
+    : setWindowPosInitialPlacementEnabled
+      ? 32_768
     : initializeCriticalSectionEnabled
       ? 4096
       : 256;
@@ -5721,6 +5807,7 @@ async function runGenericRuntimeReentry({
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
         threadExecution: threadExecutionSnapshot(),
+        ...primaryContinuationSnapshot(),
         finalGeneration: generation,
         fault: null,
         checkpointCompletion,
@@ -6176,6 +6263,7 @@ async function runGenericRuntimeReentry({
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
         threadExecution: threadExecutionSnapshot(),
+        ...primaryContinuationSnapshot(),
         finalGeneration: generation,
         fault: {
           schema: "vine.v86-generic-runtime-execution-fault",
@@ -6351,6 +6439,7 @@ async function runGenericRuntimeReentry({
         callbackEvents,
         activeCallbackDepth: activeCallbacks.length,
         threadExecution: threadExecutionSnapshot(),
+        ...primaryContinuationSnapshot(),
         finalGeneration: generation,
         fault,
         terminal: continuation,
@@ -6500,6 +6589,53 @@ async function runGenericRuntimeReentry({
         previousThreadId: completionFrame.threadSelection.previousThreadId,
         threadId: completionFrame.threadSelection.threadId,
         state: structuredClone(completionFrame.threadSelection.state),
+        ...(primaryMainLoopContinuationWorkloadEnabled
+          ? {
+              previousThreadTrapContext: {
+                threadId: currentThreadId,
+                instructionPointer:
+                  continuation.finalState.instructionPointer,
+                stackPointer: continuation.finalState.esp,
+                basePointer: continuation.finalState.ebp,
+                stackWords: Array.from(
+                  {
+                    length:
+                      context.readableVirtualByteLength(
+                        continuation.finalState.esp,
+                        32 * 4,
+                      ) / 4,
+                  },
+                  (_, index) =>
+                    context.readVirtualU32(
+                      continuation.finalState.esp + index * 4,
+                      `primary main-loop selection stack word ${index}`,
+                  ),
+                ),
+              },
+              previousThreadCompletedCall: {
+                module: call.module,
+                symbol: call.symbol,
+                implementationId: call.implementationId,
+                arguments: [...call.arguments],
+                result: structuredClone(call.result),
+                returnAddress: call.returnAddress,
+                lastError: call.lastError,
+              },
+              ...(call.returnAddress === 0x1000_77ba
+                ? {
+                    indexedCriticalSectionTraversal: {
+                      objectAddress: continuation.finalState.ebx,
+                      index: continuation.finalState.edi,
+                      entryCount: context.readVirtualU32(
+                        continuation.finalState.ebx + 0x0c,
+                        "primary indexed critical-section entry count",
+                      ),
+                      criticalSectionAddress: call.arguments[0],
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       });
       selectThread(completionFrame.threadSelection, true);
       if (
@@ -6520,6 +6656,96 @@ async function runGenericRuntimeReentry({
           memoryContentSha256: "",
         };
       }
+    }
+    if (
+      primaryMainLoopContinuationWorkloadEnabled &&
+      primaryMainLoopSelectedThreadCycle === null &&
+      primaryMainLoopWorkerCycle === null &&
+      threadSelections.length === 3 &&
+      currentThreadId !== runtimeReady.currentThreadId &&
+      call.implementationId === "kernel32.leave-critical-section.v1"
+    ) {
+      const acquisition = supportedCalls.at(-2);
+      assert(
+        acquisition?.sequence === threadSelections.at(-1).sequence + 1 &&
+          acquisition.implementationId ===
+            "kernel32.enter-critical-section.v1" &&
+          acquisition.arguments[0] === call.arguments[0],
+        "selected worker did not complete the expected critical-section roundtrip",
+      );
+      primaryMainLoopWorkerCycle = {
+        threadSelections: structuredClone(threadSelections),
+        criticalSectionRoundtrip: {
+          threadId: currentThreadId,
+          criticalSectionAddress: call.arguments[0],
+          acquisition: {
+            sequence: acquisition.sequence,
+            returnAddress: acquisition.returnAddress,
+            lastError: acquisition.lastError,
+          },
+          release: {
+            sequence,
+            returnAddress: call.returnAddress,
+            lastError: call.lastError,
+          },
+        },
+      };
+    }
+    if (
+      primaryMainLoopWorkerCycle !== null &&
+      call.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1"
+    ) {
+      assert.equal(
+        currentThreadId,
+        primaryMainLoopWorkerCycle.criticalSectionRoundtrip.threadId,
+        "selected worker timer arm ran on a different thread",
+      );
+      assert.equal(
+        primaryMainLoopWorkerCycle.timerArm,
+        undefined,
+        "selected worker armed more than one timer before waiting",
+      );
+      primaryMainLoopWorkerCycle.timerArm = {
+        sequence,
+        handle: call.arguments[0],
+        dueTimeAddress: call.arguments[1],
+        periodMilliseconds: call.arguments[2],
+        completionRoutine: call.arguments[3],
+        completionArgument: call.arguments[4],
+        resume: call.arguments[5],
+        lastError: call.lastError,
+      };
+    }
+    if (
+      primaryMainLoopWorkerCycle?.timerArm !== undefined &&
+      call.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+    ) {
+      assert.equal(
+        currentThreadId,
+        primaryMainLoopWorkerCycle.criticalSectionRoundtrip.threadId,
+        "selected worker timer wait ran on a different thread",
+      );
+      assert.equal(
+        call.arguments[0],
+        primaryMainLoopWorkerCycle.timerArm.handle,
+        "selected worker waited on a different timer",
+      );
+      primaryMainLoopSelectedThreadCycle = {
+        criticalSectionRoundtrip:
+          primaryMainLoopWorkerCycle.criticalSectionRoundtrip,
+        timerArm: primaryMainLoopWorkerCycle.timerArm,
+        timerWait: {
+          sequence,
+          handle: call.arguments[0],
+          timeoutMilliseconds: call.arguments[1],
+          alertable: call.arguments[2],
+          result: structuredClone(call.result),
+          lastError: call.lastError,
+        },
+      };
+      primaryMainLoopWorkerCycle = null;
     }
     if (
       leaveCriticalSectionCheckpointEnabled &&
@@ -7033,6 +7259,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : dragAcceptFilesEnabled
+          ? 98
         : waitForSingleObjectExEnabled
           ? 97
         : setWaitableTimerEnabled
@@ -17260,6 +17488,182 @@ function validateLeaveCriticalSectionContinuationResult(result) {
   );
 }
 
+function validatePrimaryMainLoopContinuationResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 89_248);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_030);
+  assert.equal(result.schedulerContinuation.firstSelections.length, 9);
+  assert.equal(result.schedulerContinuation.lastSelection.sequence, 89_225);
+  assert(result.schedulerContinuation.selectedThreadCycle);
+  assert.deepEqual(
+    result.schedulerContinuation.indexedCriticalSectionTraversal,
+    {
+      observationCount: 512,
+      objectAddress: 0x2000_2648,
+      entryCount: 16_384,
+      first: {
+        selectionSequence: 19_072,
+        instructionCount: 13_751_701,
+        objectAddress: 0x2000_2648,
+        index: 20,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2000_2da8,
+      },
+      last: {
+        selectionSequence: 89_152,
+        instructionCount: 15_599_477,
+        objectAddress: 0x2000_2648,
+        index: 16_372,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2012_24a8,
+      },
+    },
+  );
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_030,
+    threadExits: [],
+  });
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.fault.capabilityCluster, "shell32-api-contract");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 294,
+    address: 0x7f00_1250,
+    module: "shell32.dll",
+    symbol: { kind: "name", name: "DragAcceptFiles" },
+    iatAddress: 0x100d_1338,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "8cf67483097a1ba1323037dd20b25e1e7183b4becea56276dec6c08ef0ae9ce7",
+  );
+  assert.equal(result.terminal.instructionCount, 15_601_759);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_f272);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x4801_0001, 0],
+  );
+}
+
+function validateDragAcceptFilesResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 89_283);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_030);
+  assert.equal(result.schedulerContinuation.firstSelections.length, 9);
+  assert.equal(result.schedulerContinuation.lastSelection.sequence, 89_225);
+  assert(result.schedulerContinuation.selectedThreadCycle);
+  assert.deepEqual(
+    result.schedulerContinuation.indexedCriticalSectionTraversal,
+    {
+      observationCount: 512,
+      objectAddress: 0x2000_2648,
+      entryCount: 16_384,
+      first: {
+        selectionSequence: 19_072,
+        instructionCount: 13_751_701,
+        objectAddress: 0x2000_2648,
+        index: 20,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2000_2da8,
+      },
+      last: {
+        selectionSequence: 89_152,
+        instructionCount: 15_599_477,
+        objectAddress: 0x2000_2648,
+        index: 16_372,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2012_24a8,
+      },
+    },
+  );
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_030,
+    threadExits: [],
+  });
+
+  const dragAcceptFilesCalls = result.supportedCalls.filter(
+    (candidate) =>
+      candidate.implementationId ===
+      "shell32.drag-accept-files.logical-window-style-v1",
+  );
+  assert.equal(dragAcceptFilesCalls.length, 1);
+  const [call] = dragAcceptFilesCalls;
+  assert.equal(call.sequence, 89_249);
+  assert.equal(call.module.toLowerCase(), "shell32.dll");
+  assert.equal(call.symbol, "DragAcceptFiles");
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 15_601_759);
+  assert.deepEqual(call.arguments, [0x4801_0001, 0]);
+  assert.deepEqual(call.result, { action: "preserve" });
+  assert.equal(
+    call.implementationId,
+    "shell32.drag-accept-files.logical-window-style-v1",
+  );
+  assert.equal(call.returnAddress, 0x1005_f272);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 12);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.window.handle, 0x4801_0001);
+  assert.equal(call.window.effectiveExtendedStyle, 0x0004_0100);
+  assert.equal(call.window.effectiveExtendedStyle & 0x0000_0010, 0);
+  assert.equal(call.window.lifecycle.state, "created");
+  assert.equal(result.writebacks.length, 89_339);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    122_724,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    3_608_013,
+  );
+  assert.equal(result.hostDeltas.length, 78_501);
+  assert.equal(result.finalGeneration, 168_414);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 221,
+    address: 0x7f00_0dc0,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "MessageBoxA" },
+    iatAddress: 0x100d_144c,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+  );
+  assert.equal(result.terminal.instructionCount, 15_610_457);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_6b0d);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 5),
+    [0x4801_0001, 0x006f_f3a8, 0x100d_cbe0, 0x1010],
+  );
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -21006,7 +21410,11 @@ function buildGenericRuntimeReentryReport({
       "SetWaitableTimer report summary has no arm completion",
     );
     if (mainLoopProgressionEnabled) {
-      assert.equal(setWaitableTimerCalls.length, 7);
+      if (primaryMainLoopContinuationWorkloadEnabled) {
+        assert.equal(setWaitableTimerCalls.length, 4_707);
+      } else {
+        assert.equal(setWaitableTimerCalls.length, 7);
+      }
     } else {
       assert.equal(
         setWaitableTimerCalls.length,
@@ -21024,7 +21432,11 @@ function buildGenericRuntimeReentryReport({
     : [];
   if (waitForSingleObjectExEnabled) {
     if (mainLoopProgressionEnabled) {
-      assert.equal(waitForSingleObjectExCalls.length, 7);
+      if (primaryMainLoopContinuationWorkloadEnabled) {
+        assert.equal(waitForSingleObjectExCalls.length, 4_706);
+      } else {
+        assert.equal(waitForSingleObjectExCalls.length, 7);
+      }
     } else {
       assert.equal(
         waitForSingleObjectExCalls.length,
@@ -21054,10 +21466,44 @@ function buildGenericRuntimeReentryReport({
       "WaitForSingleObjectEx pacing request identities are not unique",
     );
   }
+  const dragAcceptFilesCalls = dragAcceptFilesEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "shell32.drag-accept-files.logical-window-style-v1",
+      )
+    : [];
+  if (dragAcceptFilesEnabled) {
+    assert.equal(
+      dragAcceptFilesCalls.length,
+      1,
+      "DragAcceptFiles report summary requires one primary call",
+    );
+  }
+  const repeatedCallEvidence = (calls) =>
+    primaryMainLoopContinuationWorkloadEnabled && evidenceLevel === "summary"
+      ? {
+          callCount: calls.length,
+          firstCall: calls[0] ?? null,
+          lastCall: calls.at(-1) ?? null,
+        }
+      : { calls };
+  const repeatedPacingEvidence =
+    primaryMainLoopContinuationWorkloadEnabled && evidenceLevel === "summary"
+      ? {
+          pacingRequestCount: genericResult.timerPacing.length,
+          firstPacingRequest: genericResult.timerPacing[0] ?? null,
+          lastPacingRequest: genericResult.timerPacing.at(-1) ?? null,
+        }
+      : { pacingRequests: genericResult.timerPacing };
   return {
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : dragAcceptFilesEnabled
+        ? "vine.v86-bgi-shell32-drag-accept-files"
+        : primaryMainLoopContinuationEnabled
+        ? "vine.v86-bgi-primary-main-loop-continuation"
         : leaveCriticalSectionContinuationEnabled
         ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
         : enterCriticalSectionContinuationEnabled
@@ -21314,6 +21760,9 @@ function buildGenericRuntimeReentryReport({
     },
     process: runtimeReady,
     threadExecution: genericResult.threadExecution,
+    ...(primaryMainLoopContinuationWorkloadEnabled
+      ? { schedulerContinuation: genericResult.schedulerContinuation }
+      : {}),
     reflection: {
       pages: offer.reflection.pages.length,
       generation: offer.reflection.invalidation.generation,
@@ -21459,6 +21908,17 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
+    ...(dragAcceptFilesEnabled
+      ? {
+          dragAcceptFiles: {
+            call: dragAcceptFilesCalls[0],
+            windowAuthority: "runtime-user32-logical-window",
+            acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles",
+            browserResourceCreated: false,
+            wmDropFilesImplemented: false,
+          },
+        }
+      : {}),
     ...(imm32ContextEnabled
       ? {
           imm32Context: {
@@ -21476,7 +21936,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           waitableTimerArm: {
             call: setWaitableTimerCall,
-            calls: setWaitableTimerCalls,
+            ...repeatedCallEvidence(setWaitableTimerCalls),
             stateAuthority: "runtime-timers-and-typed-object-table",
             clockAuthorityUsed: waitForSingleObjectExEnabled,
             browserTimerCreated: false,
@@ -21487,7 +21947,7 @@ function buildGenericRuntimeReentryReport({
     ...(waitForSingleObjectExEnabled
       ? {
           waitableTimerWait: {
-            calls: waitForSingleObjectExCalls,
+            ...repeatedCallEvidence(waitForSingleObjectExCalls),
             stateAuthority: "runtime-timers-scheduler-and-typed-object-table",
             clockAuthority: "runtime-timers-logical-clock",
             timeoutMode: "finite-zero-through-ten-milliseconds",
@@ -21495,7 +21955,7 @@ function buildGenericRuntimeReentryReport({
             apcDeliveryImplemented: false,
             pacingService: timerPacingService,
             pacingPayloadVersion: 1,
-            pacingRequests: genericResult.timerPacing,
+            ...repeatedPacingEvidence,
             logicalCompletionAuthority: "rust-runtime",
             nodeTimerCreated: false,
             browserTimerRequired: true,
@@ -21557,6 +22017,9 @@ function buildGenericRuntimeReentryReport({
                 : genericResult.checkpointCompletion.capability ===
                       "kernel32-enter-critical-section-continuation"
                   ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
+                      "primary-main-loop-continuation"
+                  ? "BGI completed the next scheduler quantum and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "primary-main-loop-progression"
                   ? "BGI completed one API-boundary scheduler roundtrip and stopped before dispatching the reselected main thread"

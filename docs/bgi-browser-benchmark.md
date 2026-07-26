@@ -2,29 +2,30 @@
 
 ## Status
 
-- Status: accepted threshold pass in a valid environment
-- Workload: `kernel32-leave-critical-section-continuation` private BGI generic session
+- Status: structured threshold blocker in a valid environment
+- Workload: `shell32-drag-accept-files` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
-  [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
-- Accepted performance evidence: current manifest report identity
+  [`fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json`](../fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json)
+- Performance evidence and blocker: current manifest report identity
 
-This observation repeats the complete reached waitable-timer pacing and
-main-loop progression path in one Chrome Dedicated Worker. Every session starts
-a fresh Rust runtime and v86 mirror, executes seven bounded
-`SetWaitableTimer`／`WaitForSingleObjectEx` pairs, records the
+This observation repeats the reached waitable-timer pacing, main-loop
+progression, and `DragAcceptFiles` leaf in one Chrome Dedicated Worker. Every
+session starts a fresh Rust runtime and v86 mirror, executes the reached
+logical timer cycles, records the
 `8192 -> 8193 -> 8192` Rust scheduler round trip, completes one
 `LeaveCriticalSection` release and the immediately following
 `EnterCriticalSection` acquisition and `LeaveCriticalSection` release on
-thread `8192`, and stops at the next `KERNEL32.dll!EnterCriticalSection`. Rust
-remains authority for the logical
+thread `8192`, applies the reached FALSE file-drop acceptance flag to the
+logical window, and stops at `USER32.dll!MessageBoxA`. Rust remains authority for the logical
 clock, timer state, wait result, scheduler owner, synchronization state, guest
-memory, and terminal endpoint. The browser owns only cancellable delay
-resources.
+memory, logical-window style, and terminal endpoint. The browser owns only
+cancellable delay resources.
 
-Protocol version 19 carries the typed continuation release in addition to the
+Protocol version 20 carries a compact typed `dragAcceptFiles` observation in addition to the
 full-width request, registration, arm-generation, clock-generation, and
-owner-thread identities. The benchmark checks the
+owner-thread identities. It explicitly records that no browser resource or
+`WM_DROPFILES` path is created. The benchmark checks the
 manifest-selected call count, instruction stop, canonical semantic digest,
 memory digest, completion count, next endpoint, pending-work cleanup, and
 runtime-resource metrics on every repetition. The final memory identity is
@@ -51,7 +52,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current workload
-and environment decisions are both `passed`／`valid`.
+and environment decisions are `failed`／`valid`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -72,25 +73,38 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The current continuation workload passed all 17 versioned workload thresholds
-with zero semantic failures across 107 sessions. Session P95 was 1,842.600 ms,
-maximum-slice P99 was 2.250 ms, and heartbeat P99 was 6.070 ms. Its unchanged
-environment qualification was also `valid`, so the report is accepted as the
-current performance evidence. Earlier invalid-environment reports remain
-historical diagnostics; they show why external CPU excursions are not silently
-accepted and why no threshold or runtime authority was changed.
+The current `DragAcceptFiles` workload completed 14 sessions with zero semantic
+failures in a `valid` environment. Fifteen of 17 versioned thresholds passed.
+The minimum-session threshold failed at 14 against 24, and session P95 failed
+at 15,868.955 ms against 8,000 ms. Maximum-slice P99 was 2.635 ms, heartbeat
+P99 was 15.955 ms, and the maximum heartbeat gap was 31.285 ms, so the failure
+is throughput／latency rather than main-thread responsiveness or semantic
+divergence.
 
-The preceding `kernel32-leave-critical-section` workload remains historical
-accepted evidence: it passed both workload and environment decisions before
-the active profile advanced. It does not substitute for the continuation
-profile's historical environment qualification.
+The bounded remediation replaced one-millisecond timeout churn with a
+`MessageChannel` deadline driver and coalesced only synchronous API-boundary
+yields at a quantum of 64. The ordinary semantic run improved from about
+73.2 seconds to about 15.3 seconds while preserving exact Node／Chrome
+semantic and memory digests. A zero-delay run was diagnostic only and was
+restored before acceptance measurement. The unchanged gate therefore remains
+blocked pending a profiled correctness-preserving Rust／Wasm dispatch fast
+path or an explicit versioned performance-contract decision.
+
+One preceding measurement completed 12 sessions but was classified
+`invalid-environment` for sustained external CPU and discarded. It is not a
+confirmation, pass, or reason to alter the thresholds.
+
+The preceding `kernel32-leave-critical-section-continuation` workload remains
+historical accepted evidence: it passed both workload and environment
+decisions before the active profile advanced. It does not substitute for the
+larger active workload.
 
 ### Historical accepted DirectInput observation
 
 The earlier DirectInput enumeration workload completed without semantic
 failure and passed all 17 thresholds in a valid environment. Its exact workload,
 artifact, distribution, and report identities remain historical evidence; they
-do not substitute for the current waitable-timer pacing gate.
+do not substitute for the active timer-heavy `DragAcceptFiles` gate.
 
 ### Historical heartbeat investigation
 
@@ -342,7 +356,7 @@ never falls back to installed Chrome.
 ## Non-claims
 
 - Three minutes of repeated startup is not a full-play or long-idle soak.
-- The reached timer path covers three relative one-shot arms and bounded finite
+- The reached timer path covers the profiled relative one-shot arms and bounded finite
   alertable waits. It does not establish `INFINITE`, APC delivery,
   `WAIT_IO_COMPLETION`, general host-elapsed time, arbitrary due times,
   periodic timers, multiple waiters, or fairness.

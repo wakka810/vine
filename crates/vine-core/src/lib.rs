@@ -22,6 +22,7 @@ mod module_images;
 mod ole32;
 mod pe32;
 mod runtime;
+mod shell32;
 mod snapshot;
 mod user32;
 mod win32;
@@ -266,10 +267,10 @@ pub use runtime::{
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WINDOW_CLASS_ATOM_BASE,
     RUNTIME_WINDOW_CLASS_LIMIT, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
-    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT,
-    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
-    RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
+    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
+    RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING,
+    RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
+    RUNTIME_WINDOW_STYLE_VISIBLE, RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
     RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES, RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES,
     RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION,
     RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_PROFILE_FILE_LIMIT,
@@ -357,15 +358,19 @@ pub use runtime::{
     RuntimeWindowClassIconReference, RuntimeWindowClassId, RuntimeWindowClassModule,
     RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowIconReference,
-    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
-    RuntimeWindowProcedureCallingConvention, RuntimeWindowTimer, RuntimeWindowTimerId,
-    RuntimeWindowTimerRegistrationResult, RuntimeWritableCommitCompletion,
+    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowGeometry,
+    RuntimeWindowIconReference, RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA,
+    RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention, RuntimeWindowTimer,
+    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult, RuntimeWritableCommitCompletion,
     RuntimeWritableCommitHostResponse, RuntimeWritableCommitRequest, RuntimeWritableFile,
     RuntimeWritableFileManifest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
     RuntimeWritableReadResult, RuntimeWritableWriteResult, SchedulerThreadState,
     TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
     validate_process_address_mapping_allocation,
+};
+pub use shell32::{
+    DRAG_ACCEPT_FILES_IMPLEMENTATION, dispatch_shell32_api, drag_accept_files_contract,
+    shell32_contract_for_endpoint,
 };
 pub use snapshot::{ModuleIdentity, ModuleSnapshot};
 pub use user32::{

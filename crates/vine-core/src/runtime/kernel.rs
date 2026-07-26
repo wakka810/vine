@@ -174,8 +174,9 @@ use super::user32::{
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowStyleResult,
     RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
     RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowId,
-    RuntimeWindowLifecycle, RuntimeWindowProcedure,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest,
+    RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId, RuntimeWindowLifecycle,
+    RuntimeWindowProcedure,
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{
@@ -5177,6 +5178,18 @@ impl RuntimeKernel {
             retained_style_mask,
         )?;
         self.user32.commit_window_style_update(plan)
+    }
+
+    pub(crate) fn set_window_file_drop_acceptance(
+        &mut self,
+        window_handle: u32,
+        accepts_files: bool,
+    ) -> Result<RuntimeWindowFileDropAcceptanceResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_window_file_drop_acceptance(window_handle, accepts_files)?;
+        self.user32.commit_window_file_drop_acceptance(plan)
     }
 
     pub(crate) fn acquire_window_dc(

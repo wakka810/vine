@@ -26,6 +26,9 @@ const focusedSetWindowLongAObservation =
 const focusedSetWindowPosSizeObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-pos-size");
+const focusedDragAcceptFilesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("drag-accept-files");
 const focusedSetTimerObservation =
   selectedObservations.size === 1 && selectedObservations.has("set-timer");
 const focusedCreateThreadObservation =
@@ -217,6 +220,8 @@ let swapMouseButtonRestoreActive = false;
 let swapMouseButtonConsumerRecorded = false;
 let swapMouseButtonCompletionRecorded = false;
 const swapMouseButtonMainModuleCalls = [];
+let dragAcceptFilesCompletion = null;
+let dragAcceptFilesCompletionRecorded = false;
 let timeGetDevCapsOracleScheduled = false;
 let timeGetDevCapsOracleCall = null;
 let timePeriodOracleCall = null;
@@ -3079,6 +3084,7 @@ const hooks = {
     ["CreateWindowExA", [null, "ansi", "ansi"]],
     ["CreateWindowExW", [null, "utf16", "utf16"]],
   ],
+  "shell32.dll": [],
   "imm32.dll": [],
   "gdi32.dll": [
     ["BitBlt", []],
@@ -3388,6 +3394,9 @@ if (selectedObservations.has("enum-display-monitors")) {
 if (selectedObservations.has("swap-mouse-button")) {
   hooks["user32.dll"].push(["SwapMouseButton", [null]]);
 }
+if (selectedObservations.has("drag-accept-files")) {
+  hooks["shell32.dll"].push(["DragAcceptFiles", [null, null]]);
+}
 if (selectedObservations.has("time-get-dev-caps")) {
   hooks["winmm.dll"].push(
     ["timeGetDevCaps", [null, null]],
@@ -3397,6 +3406,13 @@ if (selectedObservations.has("time-get-dev-caps")) {
 }
 if (selectedObservations.has("com-initialization")) {
   hooks["ole32.dll"].push(["CoUninitialize", []]);
+}
+if (focusedDragAcceptFilesObservation) {
+  for (const moduleName of Object.keys(hooks)) {
+    if (moduleName !== "shell32.dll") {
+      hooks[moduleName] = [];
+    }
+  }
 }
 const idirect3d9Methods = [
   [0, "QueryInterface", 2],
@@ -12455,6 +12471,87 @@ function maybeCompleteSetWindowLongAObservation() {
   }
 }
 
+function maybeCompleteDragAcceptFilesObservation() {
+  if (
+    dragAcceptFilesCompletionRecorded ||
+    dragAcceptFilesCompletion === null
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteDragAcceptFilesObservation, 10);
+    return;
+  }
+  try {
+    const shell32 = Process.getModuleByName("SHELL32.dll");
+    const user32 = Process.getModuleByName("USER32.dll");
+    const kernel32 = Process.getModuleByName("KERNEL32.dll");
+    const dragAddress = findExport(shell32, "DragAcceptFiles");
+    const getWindowLongAddress = findExport(user32, "GetWindowLongA");
+    const setLastErrorAddress = findExport(kernel32, "SetLastError");
+    if (
+      dragAddress === null ||
+      getWindowLongAddress === null ||
+      setLastErrorAddress === null
+    ) {
+      throw new Error("DragAcceptFiles oracle exports are unavailable");
+    }
+    const dragAcceptFiles = new SystemFunction(
+      dragAddress,
+      "void",
+      ["pointer", "uint32"],
+      "stdcall",
+    );
+    const getWindowLongA = new NativeFunction(
+      getWindowLongAddress,
+      "int32",
+      ["pointer", "int32"],
+      "stdcall",
+    );
+    const setLastError = new NativeFunction(
+      setLastErrorAddress,
+      "void",
+      ["uint32"],
+      "stdcall",
+    );
+    const window = ptr(dragAcceptFilesCompletion.window);
+    const acceptsFiles = () =>
+      (getWindowLongA(window, -20) >>> 0 & 0x0000_0010) !== 0;
+    const initialState = acceptsFiles();
+    const invoke = (accept, sentinel) => {
+      setLastError(sentinel);
+      const outcome = dragAcceptFiles(window, accept ? 1 : 0);
+      return {
+        accept,
+        sentinel,
+        lastError: Number(outcome.lastError) >>> 0,
+        stateAfter: acceptsFiles(),
+      };
+    };
+    const calls = [
+      invoke(true, 0x5566_7788),
+      invoke(false, 0x7a6b_5c4d),
+    ];
+    if (acceptsFiles() !== initialState) {
+      calls.push(invoke(initialState, 0x1234_5678));
+    }
+    dragAcceptFilesCompletion.oracle = {
+      profile: "x86-live-window-drag-accept-files-v1",
+      initialState,
+      calls,
+      finalState: acceptsFiles(),
+      allLastErrorsPreserved: calls.every(
+        (call) => call.lastError === call.sentinel,
+      ),
+    };
+  } catch (error) {
+    dragAcceptFilesCompletion.oracle = { error: error.message };
+    emit("drag-accept-files-oracle-error", { error: error.message });
+  }
+  dragAcceptFilesCompletionRecorded = true;
+  emit("drag-accept-files-complete", dragAcceptFilesCompletion);
+}
+
 function attachHook(module, name, decoders) {
   const address = findExport(module, name);
   if (address === null) {
@@ -12544,6 +12641,10 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             swapMouseButtonRestoreActive));
+      const tracesDragAcceptFiles =
+        selectedObservations.has("drag-accept-files") &&
+        name === "DragAcceptFiles" &&
+        isMainModuleCaller;
       const focusedTimeGetDevCapsObservation =
         selectedObservations.has("time-get-dev-caps") &&
         name === "timeGetDevCaps" &&
@@ -12715,6 +12816,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("swap-mouse-button") &&
         name === "SwapMouseButton" &&
         !focusedSwapMouseButtonObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("drag-accept-files") &&
+        name === "DragAcceptFiles" &&
+        !tracesDragAcceptFiles
       ) {
         this.traceFrame = null;
         return;
@@ -13496,6 +13605,17 @@ function attachHook(module, name, decoders) {
         : null;
       this.traceSwapMouseButtonMainModuleCaller =
         this.traceSwapMouseButton !== null && isMainModuleCaller;
+      this.traceDragAcceptFiles = tracesDragAcceptFiles
+        ? {
+            window: args[0].toString(),
+            accept: args[1].toUInt32(),
+            lastErrorBefore: Number(this.lastError) >>> 0,
+            immediateConsumer: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              24,
+            ),
+          }
+        : null;
       const recordsTimeGetDevCapsConsumer =
         focusedTimeGetDevCapsObservation &&
         isMainModuleCaller &&
@@ -13701,6 +13821,11 @@ function attachHook(module, name, decoders) {
           ? {
               lastErrorBefore: Number(this.lastError) >>> 0,
               swapMouseButton: this.traceSwapMouseButton,
+            }
+        : this.traceDragAcceptFiles !== null
+          ? {
+              lastErrorBefore: this.traceDragAcceptFiles.lastErrorBefore,
+              dragAcceptFiles: this.traceDragAcceptFiles,
             }
         : this.traceTimeGetDevCaps !== null
           ? {
@@ -14440,6 +14565,14 @@ function attachHook(module, name, decoders) {
                     : swapMouseButtonGetSystemMetrics(23) !== 0,
               },
             }),
+        ...(this.traceDragAcceptFiles === null
+          ? {}
+          : {
+              dragAcceptFiles: {
+                ...this.traceDragAcceptFiles,
+                result: null,
+              },
+            }),
         ...(this.traceTimeGetDevCaps === null
           ? {}
           : {
@@ -14488,6 +14621,18 @@ function attachHook(module, name, decoders) {
         },
         lastError,
       );
+      if (this.traceDragAcceptFiles !== null) {
+        dragAcceptFilesCompletion = {
+          callId: this.traceFrame.callId,
+          caller: this.traceFrame.caller,
+          window: this.traceDragAcceptFiles.window,
+          accept: this.traceDragAcceptFiles.accept,
+          lastErrorBefore: this.traceDragAcceptFiles.lastErrorBefore,
+          lastError: Number(lastError) >>> 0,
+          immediateConsumer: this.traceDragAcceptFiles.immediateConsumer,
+        };
+        setImmediate(maybeCompleteDragAcceptFilesObservation);
+      }
       if (
         directInput8Create !== null &&
         result.toInt32() >= 0 &&
