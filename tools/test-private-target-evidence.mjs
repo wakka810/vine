@@ -11,6 +11,7 @@ import {
   validatePrivateTargetEvidenceDescendantPaths,
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
+import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
 import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -49,6 +50,59 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
   bytes,
   sha256: digest,
 });
+
+const firstPacingRequest = { requestId: "3", sequence: 18_682 };
+const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
+assert.deepEqual(
+  projectWaitableTimerPacingRequests({
+    pacingRequests: [firstPacingRequest, lastPacingRequest],
+  }),
+  {
+    totalCount: 2,
+    sampledRequests: [firstPacingRequest, lastPacingRequest],
+  },
+);
+assert.deepEqual(
+  projectWaitableTimerPacingRequests({
+    pacingRequestCount: 4_706,
+    firstPacingRequest,
+    lastPacingRequest,
+  }),
+  {
+    totalCount: 4_706,
+    sampledRequests: [firstPacingRequest, lastPacingRequest],
+  },
+);
+assert.deepEqual(
+  projectWaitableTimerPacingRequests({
+    pacingRequestCount: 1,
+    firstPacingRequest,
+    lastPacingRequest: structuredClone(firstPacingRequest),
+  }),
+  {
+    totalCount: 1,
+    sampledRequests: [firstPacingRequest],
+  },
+);
+assert.throws(
+  () =>
+    projectWaitableTimerPacingRequests({
+      pacingRequests: [],
+      pacingRequestCount: 0,
+      firstPacingRequest: null,
+      lastPacingRequest: null,
+    }),
+  /exactly one full or compact pacing shape/u,
+);
+assert.throws(
+  () =>
+    projectWaitableTimerPacingRequests({
+      pacingRequestCount: 1,
+      firstPacingRequest,
+      lastPacingRequest,
+    }),
+  /matching first and last samples/u,
+);
 
 assert.equal(
   formatRuntimeEndpointSymbol({ name: "DirectSoundCreate8" }),

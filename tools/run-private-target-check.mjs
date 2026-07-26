@@ -14,6 +14,7 @@ import {
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
 } from "./private-target-evidence.mjs";
+import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
 import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -266,6 +267,10 @@ function assertReportSemantics({
   const expectedNext = checkpoint.nextStructuredStop;
   const expectedPacingCount =
     expectedBrowser.waitForSingleObjectExPacingRequestIds.length;
+  const nodePacing = projectWaitableTimerPacingRequests(
+    nodeReport.waitableTimerWait,
+  );
+  const nodePacingRequests = nodePacing.sampledRequests;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
   assert.deepEqual(nodeReport.source, sourceIdentity, "Node source fingerprint mismatch");
   assert.deepEqual(browserReport.source, sourceIdentity, "browser source fingerprint mismatch");
@@ -312,50 +317,45 @@ function assertReportSemantics({
     nodeReport.waitableTimerWait.pacingPayloadVersion,
     expectedBrowser.waitForSingleObjectExPacingPayloadVersion,
   );
+  assert.equal(
+    nodePacing.totalCount,
+    expectedBrowser.waitForSingleObjectExCompletions,
+  );
+  assert.equal(nodePacingRequests.length, expectedPacingCount);
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.requestId),
+    nodePacingRequests.map((request) => request.requestId),
     expectedBrowser.waitForSingleObjectExPacingRequestIds,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map(
-      (request) => request.registrationId,
-    ),
+    nodePacingRequests.map((request) => request.registrationId),
     expectedBrowser.waitForSingleObjectExPacingRegistrationIds,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map(
-      (request) => request.delayMilliseconds,
-    ),
+    nodePacingRequests.map((request) => request.delayMilliseconds),
     expectedBrowser.waitForSingleObjectExPacingDelayMilliseconds,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.timerId),
+    nodePacingRequests.map((request) => request.timerId),
     expectedBrowser.waitForSingleObjectExPacingTimerIds,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map(
-      (request) => request.targetTime100ns,
-    ),
+    nodePacingRequests.map((request) => request.targetTime100ns),
     expectedBrowser.waitForSingleObjectExPacingTargetTimes100ns,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map(
-      (request) => request.timerClockGeneration,
-    ),
+    nodePacingRequests.map((request) => request.timerClockGeneration),
     expectedBrowser.waitForSingleObjectExPacingClockGenerations,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map(
-      (request) => request.armGeneration,
-    ),
+    nodePacingRequests.map((request) => request.armGeneration),
     expectedBrowser.waitForSingleObjectExPacingArmGenerations,
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.outcome),
+    nodePacingRequests.map((request) => request.outcome),
     Array(expectedPacingCount).fill(expectedBrowser.waitForSingleObjectExPacingOutcome),
   );
   assert.deepEqual(
-    nodeReport.waitableTimerWait.pacingRequests.map((request) => request.pacing),
+    nodePacingRequests.map((request) => request.pacing),
     Array(expectedPacingCount).fill(expectedBrowser.waitForSingleObjectExNodePacingMode),
   );
   assert.equal(
