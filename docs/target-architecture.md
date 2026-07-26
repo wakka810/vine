@@ -697,7 +697,14 @@ same-depth replacementの`WM_SETFOCUS`をpreflightした後にfocus relationをc
 external thread IDはopaque host identityのためlogical relationへimportしない。Callback scratch、frame stack、
 operation／relation generation、window lifecycleを全てpreflightし、callback result failureやstale／duplicate
 planではguest-visible stateを変更しない。Workerが受け取るCreateWindow／SetWindowPos final window snapshotは
-read-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。General resize、z-order、
+read-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。
+
+Primaryのbounded resizeは同じoperation boundaryを延長し、`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE ->
+WM_SIZE -> WM_WINDOWPOSCHANGED`をsame-depth replacementで進める。NCCALCSIZE scratchは3 RECTとrelocated
+WINDOWPOS pointerを持ち、`DefWindowProcA`はnew client RECTだけをguest memoryへ返す。NCCALCSIZE completion時に
+`RuntimeUser32`のouter／client geometryと`RuntimeGdi`のwindow surface resizeを両方preflightしてからcommitする。
+Surfaceが存在すればidentityを保持し、reached `NOCOPYBITS` policyに従ってfill historyをclearする。Live window HDC、
+stale generation、source geometry mismatchは両ownerを変更せず拒否する。General resize、z-order、content preservation、
 cross-thread／multi-window activationは別contractである。
 
 Reached `DragAcceptFiles`はShell32固有の第二window stateを作らず、既存`RuntimeUser32` window recordの
@@ -835,6 +842,10 @@ content generationを`RuntimeGdi`、pixel bytesを`GuestMemory`へ一意に置�
 before-imageとwritable rangeをpreflightしてmemory writeとcontent-generation advanceを一つのtransactionでcommitする。
 Browser／host font rasterizationやbitmap resourceを第二のauthorityにしない。Mapping、clip、ROP、一般text
 rasterizationは必要な到達caseごとにruntime modelへ追加する。
+Reached window surface resizeでは`RuntimeGdi`がopaque planにold／new geometry、surface identity、generation、
+live-HDC absenceを固定する。Kernelは対応するUSER32 planとjoint preflightし、どちらも以後失敗しないcommitだけを
+実行する。Surface不在はno-op、存在時はidentity保持とfill-history clearであり、browser resource IDやpixel bytesを
+暗黙に作らない。
 Canvas textの結果をWindows GDIと同一と仮定せず、glyph rasterizationとfont substitutionの選択をADRにする。
 
 ### 13.3 DirectDraw frontend

@@ -250,19 +250,19 @@ export function validateCurrentCheckpoint(manifest) {
   const profileExpectations = archiveSourceReadActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 78_585,
-        browserMappingDirtyPages: 80_492,
-        browserSuccessExecutionTransitions: 285_958,
+        browserMappingDeltas: 78_589,
+        browserMappingDirtyPages: 80_498,
+        browserSuccessExecutionTransitions: 285_968,
         latestSchema: "vine.v86-bgi-kernel32-archive-source-read.v1",
-        latestWritebackBatches: 89_444,
-        latestWritebackDirtyPages: 122_908,
-        latestWritebackChangedBytes: 3_622_341,
-        latestHostDeltaBatches: 78_585,
-        latestFinalMemoryGeneration: 168_609,
+        latestWritebackBatches: 89_449,
+        latestWritebackDirtyPages: 122_914,
+        latestWritebackChangedBytes: 3_622_432,
+        latestHostDeltaBatches: 78_589,
+        latestFinalMemoryGeneration: 168_620,
         semanticCallDigestSha256:
-          "c4e32952ed36c7d0580356e82d2e56ba93b143a390cd6f36a77925a366602732",
+          "120707c8b95c82678df838c5e7fb59bfa411266484b441bb26ae6deb710cda2b",
         memoryContentSha256:
-          "233209a71d74ab8893e91efc9404c8d493d1ea438beba06ae626013b6cbb2deb",
+          "be9494858dd1c5e3abe610d299f2bd5e14b2cfaafb577dded80ed9f76b2b2420",
       }
     : dragAcceptFilesActive
     ? {
@@ -1484,8 +1484,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.sourceReadCompletions !==
       (archiveSourceReadActive ? 5 : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 20 ||
-    bgiBrowserEvidence.callbackReplacements !== 10 ||
+    bgiBrowserEvidence.callbackEntries !== 23 ||
+    bgiBrowserEvidence.callbackReplacements !== 12 ||
     bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
     bgiBrowserEvidence.logicalWindowCompletions !== 5 ||
     bgiBrowserEvidence.logicalWindowHandle !== "0x48010001" ||
@@ -3972,7 +3972,7 @@ export function validateCurrentCheckpoint(manifest) {
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
-      "runtime::gdi::tests::device_context_acquisitions_are_distinct_and_release_is_relation_checked,runtime::gdi::tests::stock_brush_and_surface_fill_preserve_failure_atomicity,runtime::gdi::tests::device_context_serialization_preserves_window_shape_and_types_graphics_targets,runtime::gdi::tests::screen_device_context_acquisitions_are_distinct_typed_and_relation_checked,runtime::gdi::tests::graphics_surface_dc_is_single_outstanding_and_guards_com_retirement,runtime::gdi::tests::graphics_surface_dc_capacity_failure_preserves_allocator_state,runtime::gdi::tests::font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans,runtime::gdi::tests::compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically,runtime::gdi::tests::compatible_memory_dc_multi_object_preflight_preserves_all_allocators" ||
+      "runtime::gdi::tests::device_context_acquisitions_are_distinct_and_release_is_relation_checked,runtime::gdi::tests::stock_brush_and_surface_fill_preserve_failure_atomicity,runtime::gdi::tests::device_context_serialization_preserves_window_shape_and_types_graphics_targets,runtime::gdi::tests::screen_device_context_acquisitions_are_distinct_typed_and_relation_checked,runtime::gdi::tests::graphics_surface_dc_is_single_outstanding_and_guards_com_retirement,runtime::gdi::tests::graphics_surface_dc_capacity_failure_preserves_allocator_state,runtime::gdi::tests::font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans,runtime::gdi::tests::compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically,runtime::gdi::tests::compatible_memory_dc_multi_object_preflight_preserves_all_allocators,runtime::gdi::tests::window_surface_resize_preserves_identity_clears_content_and_rejects_live_dc" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdiplus::"))
       .join(",") !==
@@ -3992,6 +3992,10 @@ export function validateCurrentCheckpoint(manifest) {
             "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures" &&
           test !==
             "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks" &&
+          test !==
+            "user32_dispatcher::set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc" &&
+          test !==
+            "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit" &&
           test !==
             "d3d9_dispatcher::create_device_rejects_invalid_or_unavailable_requests_without_partial_state" &&
           test !==
@@ -4021,6 +4025,16 @@ export function validateCurrentCheckpoint(manifest) {
       (test) =>
         test ===
           "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+          "user32_dispatcher::set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+          "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit",
     ).length !== 1 ||
     representativeAtomicTests.filter(
       (test) =>
@@ -6430,7 +6444,7 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     gdi.schema !== "vine.runtime-gdi-frontend.v6" ||
     gdi.status !==
-      "window-screen-memory-font-enumeration-font-object-dib-lifecycle-and-graphics-surface-dc-slices-implemented-and-verified" ||
+      "window-screen-memory-font-enumeration-font-object-dib-lifecycle-graphics-surface-dc-and-bounded-window-surface-resize-slices-implemented-and-verified" ||
     gdi.stateOwner !== "runtime/gdi.rs::RuntimeGdi" ||
     gdi.aggregateCoordinator !== "runtime/kernel.rs::RuntimeKernel" ||
     gdi.mutableCollectionVisibility !== "private" ||
@@ -6521,6 +6535,18 @@ export function validateCurrentCheckpoint(manifest) {
     gdi.stockObjectLifetime !== "process-shared-until-teardown" ||
     gdi.surfaceIdentity !== "one-logical-surface-per-window" ||
     gdiSurfaceGeometry.join(",") !== "800,600" ||
+    gdi.windowSurfaceResizeImplemented !== true ||
+    gdi.windowSurfaceResizeVariant !==
+      "primary-client-800x600-to-1280x720-nocopybits" ||
+    gdi.windowSurfaceResizeIdentity !==
+      "preserve-existing-logical-surface-id-or-no-op-when-absent" ||
+    gdi.windowSurfaceResizeContentPolicy !==
+      "clear-bounded-fill-history-and-increment-surface-generation" ||
+    gdi.windowSurfaceResizeLiveDcPolicy !== "reject-before-mutation" ||
+    gdi.windowSurfaceResizeTransaction !==
+      "opaque-plan-stale-check-preflighted-infallible-commit" ||
+    gdi.windowSurfaceResizeCoordinator !==
+      "runtime/kernel.rs::RuntimeKernel-after-wm-nccalcsize" ||
     gdi.surfaceFillHistoryBounded !== true ||
     gdi.surfaceGeneration !== 1 ||
     gdi.graphicsSurfaceFillAuthority !==
@@ -7402,11 +7428,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 19 ||
+    user32Policy.schemaVersion !== 21 ||
     user32Policy.id !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-v19" ||
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v19" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v21" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -7502,9 +7528,9 @@ export function validateCurrentCheckpoint(manifest) {
       "defwindowproc-wm-seticon-owner-plan-targeted-commit" ||
     user32Policy.sendMessageAFailureAtomicity !== true ||
     user32Policy.setWindowPosProfileId !==
-      "initial-offscreen-show-hide-same-geometry-activation-v2" ||
+      "initial-offscreen-show-hide-same-geometry-activation-resize-v3" ||
     setWindowPosVariants.join(",") !==
-      "initial-offscreen-show,initial-hide-preserve-position,same-geometry-activation" ||
+      "initial-offscreen-show,initial-hide-preserve-position,same-geometry-activation,primary-1286x749-client-1280x720-resize" ||
     user32Policy.setWindowPosInsertAfter !== "0xfffffffe" ||
     user32Policy.setWindowPosInitialShowScreenMultiplier !== 8 ||
     user32Policy.setWindowPosInitialShowFlags !== 1_369 ||
@@ -7515,11 +7541,23 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.setWindowPosActivationFlags !== 266 ||
     user32Policy.setWindowPosActivationInternalFlags !== 3 ||
     user32Policy.setWindowPosActivationInsertAfter !== "0x00000000" ||
+    user32Policy.setWindowPosResizeOuterGeometry?.join(",") !== "1286,749" ||
+    user32Policy.setWindowPosResizeClientGeometry?.join(",") !== "1280,720" ||
+    user32Policy.setWindowPosResizeNccalcWindowPosFlags !== "0x0000190e" ||
+    user32Policy.setWindowPosResizeChangedFlags !== "0x0000110e" ||
+    user32Policy.setWindowPosResizeCommitPoint !==
+      "after-wm-nccalcsize-before-wm-size" ||
+    user32Policy.setWindowPosResizeSurfacePolicy !==
+      "preserve-logical-surface-identity-clear-fill-history-nocopybits" ||
+    user32Policy.setWindowPosResizeCrossSubsystemAtomicity !==
+      "user32-and-gdi-preflight-before-infallible-targeted-commit" ||
+    user32Policy.setWindowPosResizeLiveWindowDcPolicy !==
+      "reject-before-user32-or-gdi-mutation" ||
     user32Policy.setWindowPosActivateAppOtherThreadId !== 0 ||
     user32Policy.setWindowPosImeSetContextFlags !== "0xc000000f" ||
     user32Policy.setWindowPosImeNotifyCommand !== 2 ||
     user32Policy.setWindowPosCallbackContract !==
-      "initial-wm-windowposchanged-depth-two-wm-move-same-depth-wm-geticon-or-activation-two-wm-windowposchanging-wm-activateapp-wm-ncactivate-wm-activate-depth-three-ime-and-focus" ||
+      "initial-wm-windowposchanged-depth-two-wm-move-same-depth-wm-geticon-or-activation-two-wm-windowposchanging-wm-activateapp-wm-ncactivate-wm-activate-depth-three-ime-and-focus-or-resize-wm-windowposchanging-wm-nccalcsize-wm-size-wm-windowposchanged" ||
     user32Policy.setWindowPosMutation !==
       "owner-operation-generation-callback-plan-targeted-commit" ||
     user32Policy.setWindowPosActivationAuthority !==
@@ -7655,6 +7693,7 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.windowActivationRelationsImplemented !== true ||
     user32Policy.generalWindowActivationImplemented !== false ||
     user32Policy.multiWindowActivationImplemented !== false ||
+    user32Policy.boundedPrimaryWindowResizeImplemented !== true ||
     user32Policy.generalWindowResizeImplemented !== false ||
     user32Policy.generalWindowZOrderImplemented !== false ||
     user32Policy.setTimerProfileId !== "main-window-id-1-20ms-timerproc-v1" ||
@@ -7885,6 +7924,10 @@ export function validateCurrentCheckpoint(manifest) {
     "nativeSetWindowPosConfirmationTraceSha256",
     "nativeSetWindowPosActivationPrimaryTraceSha256",
     "nativeSetWindowPosActivationConfirmationTraceSha256",
+    "nativeSetWindowPosResizePrimaryTraceSha256",
+    "nativeSetWindowPosResizePrimarySummarySha256",
+    "nativeSetWindowPosResizeConfirmationTraceSha256",
+    "nativeSetWindowPosResizeConfirmationSummarySha256",
     "nativeMonitorFromWindowOracleSourceSha256",
     "nativeMonitorFromWindowOracleExecutableSha256",
     "nativeD3d9GetAdapterCountTraceSha256",
@@ -8898,6 +8941,55 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeSetWindowPosActivationConsumer !==
       "bool-overwritten-by-immediate-helper-call" ||
     latestEvidence.nativeSetWindowPosActivationExecutableHashUnchanged !== true ||
+    latestEvidence.nativeSetWindowPosResizePrimaryTraceBytes !== 79_078 ||
+    latestEvidence.nativeSetWindowPosResizePrimaryTraceLines !== 92 ||
+    latestEvidence.nativeSetWindowPosResizePrimaryTraceSha256 !==
+      "311da5561cecb67836cfdce773cfca084e3388aa0394d19c6e5c05178b6bf080" ||
+    latestEvidence.nativeSetWindowPosResizePrimarySummaryBytes !== 15_755 ||
+    latestEvidence.nativeSetWindowPosResizePrimarySummarySha256 !==
+      "e67cce9f835c65816c5a81f9d2bfa85c9772b644670c24280d5a2f9ef66ebc45" ||
+    latestEvidence.nativeSetWindowPosResizePrimaryBalancedApiPairs !== 9 ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationTraceBytes !== 79_365 ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationTraceLines !== 93 ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationTraceSha256 !==
+      "259a6669030c8e2cd8203a2dbb0b423ba9760115c0d81de68f343c29fba1a555" ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationSummaryBytes !== 15_929 ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationSummarySha256 !==
+      "fba73c1f2384a8bc340e29982b3625ac43d9c0406818a95c28053af15f21fa1b" ||
+    latestEvidence.nativeSetWindowPosResizeConfirmationBalancedApiPairs !== 9 ||
+    latestEvidence.nativeSetWindowPosResizeTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSetWindowPosResizeProfile !==
+      "x86-bgi-first-set-window-pos-resize-v1" ||
+    latestEvidence.nativeSetWindowPosResizeCallsPerTrace !== 1 ||
+    latestEvidence.nativeSetWindowPosResizeCallerRva !== "0x0005cb4b" ||
+    latestEvidence.nativeSetWindowPosResizeArguments?.join(",") !==
+      "window,hwnd-notopmost,0,0,1286,749,0x0000010a" ||
+    latestEvidence.nativeSetWindowPosResizeResult !== 1 ||
+    latestEvidence.nativeSetWindowPosResizeEntryLastError !== 0 ||
+    latestEvidence.nativeSetWindowPosResizeExitLastError !== 0 ||
+    latestEvidence.nativeSetWindowPosResizeInvalidWindowResult !== 0 ||
+    latestEvidence.nativeSetWindowPosResizeInvalidWindowLastError !== 1_400 ||
+    latestEvidence.nativeSetWindowPosResizeBeforeGeometry?.join(",") !==
+      "15360,8640,806,629,15363,8666,800,600" ||
+    latestEvidence.nativeSetWindowPosResizeAfterGeometry?.join(",") !==
+      "15360,8640,1286,749,15363,8666,1280,720" ||
+    latestEvidence.nativeSetWindowPosResizeCallbackMessages?.join(",") !==
+      "70,131,5,71" ||
+    latestEvidence.nativeSetWindowPosResizeCallbackResults?.join(",") !==
+      "0,0,0,0" ||
+    latestEvidence.nativeSetWindowPosResizeNccalcInputRects?.join(",") !==
+      "15360,8640,16646,9389,15360,8640,16166,9269,15363,8666,16163,9266" ||
+    latestEvidence.nativeSetWindowPosResizeNccalcOutputFirstRect?.join(",") !==
+      "15363,8666,16643,9386" ||
+    latestEvidence.nativeSetWindowPosResizeNccalcWindowPosFlags !== "0x0000190e" ||
+    latestEvidence.nativeSetWindowPosResizeChangedFlags !== "0x0000110e" ||
+    latestEvidence.nativeSetWindowPosResizeOldGeometryThroughNccalc !== true ||
+    latestEvidence.nativeSetWindowPosResizeNewGeometryAtSize !== true ||
+    latestEvidence.nativeSetWindowPosResizeMoveMessageAbsent !== true ||
+    latestEvidence.nativeSetWindowPosResizeRelationsStyleVisibilityPreserved !== true ||
+    latestEvidence.nativeSetWindowPosResizeConsumer !==
+      "bool-overwritten-by-immediate-helper-call" ||
+    latestEvidence.nativeSetWindowPosResizeExecutableHashUnchanged !== true ||
     latestEvidence.setWindowPosImplemented !== true ||
     latestEvidence.setWindowPosCallCount !== 3 ||
     latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408,17831" ||
@@ -8908,7 +9000,7 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosResults?.join(",") !== "1,1,1" ||
     latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0,0" ||
     latestEvidence.setWindowPosGuestWrites !== 0 ||
-    latestEvidence.setWindowPosImplementationId !== "user32.set-window-pos.v2" ||
+    latestEvidence.setWindowPosImplementationId !== "user32.set-window-pos.v3" ||
     latestEvidence.setWindowPosStateOwner !==
       "runtime/user32.rs::RuntimeUser32" ||
     latestEvidence.setWindowPosWindowId !== 1 ||
@@ -8950,6 +9042,45 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosActivationForegroundWindowHandle !== "0x48010001" ||
     latestEvidence.setWindowPosActivationHostZOrderIdentityImported !== false ||
     latestEvidence.setWindowPosActivationExternalThreadIdentityImported !== false ||
+    latestEvidence.setWindowPosResizeReached !== true ||
+    latestEvidence.setWindowPosResizeOuterCompletionPending !== true ||
+    latestEvidence.setWindowPosResizeSequence !== 89_387 ||
+    latestEvidence.setWindowPosResizeOccurrence !== 4 ||
+    latestEvidence.setWindowPosResizeInstructionCount !== 15_951_782 ||
+    latestEvidence.setWindowPosResizeArguments?.join(",") !==
+      "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000506,0x000002ed,0x0000010a" ||
+    latestEvidence.setWindowPosResizeReturnAddress !== "0x1005cb4b" ||
+    latestEvidence.setWindowPosResizeImplementationId !==
+      "user32.set-window-pos.v3" ||
+    latestEvidence.setWindowPosResizePolicySchemaVersion !== 21 ||
+    latestEvidence.setWindowPosResizePolicyId !==
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21" ||
+    latestEvidence.setWindowPosResizeProfileId !==
+      "initial-offscreen-show-hide-same-geometry-activation-resize-v3" ||
+    latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !== "21,22,23" ||
+    latestEvidence.setWindowPosResizeCallbackMessages?.join(",") !== "70,131,5" ||
+    latestEvidence.setWindowPosResizeCompletedCallbackResults?.join(",") !== "0,0" ||
+    latestEvidence.setWindowPosResizeCallbackReturnInstructionCounts?.join(",") !==
+      "15951884,15951937" ||
+    latestEvidence.setWindowPosResizeActiveCallbackDepth !== 1 ||
+    latestEvidence.setWindowPosResizeScratchAddress !== "0x00501000" ||
+    latestEvidence.setWindowPosResizeScratchBytes !== 80 ||
+    latestEvidence.setWindowPosResizeScratchWindowPosPointerOffset !== 48 ||
+    latestEvidence.setWindowPosResizeScratchWindowPosTargetOffset !== 52 ||
+    latestEvidence.setWindowPosResizeNccalcOutputHex !==
+      "033c0000da21000003410000aa240000003c0000c0210000263f000035240000033c0000da210000233f0000322400003410500001000148feffffff003c0000c021000006050000ed0200000e190000" ||
+    latestEvidence.setWindowPosResizeCommittedGeometry?.join(",") !==
+      "15360,8640,1286,749,15363,8666,1280,720" ||
+    latestEvidence.setWindowPosResizeActiveWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosResizeFocusWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosResizeForegroundWindowHandle !== "0x48010001" ||
+    latestEvidence.setWindowPosResizeGdiSurfaceIdentityPreserved !== true ||
+    latestEvidence.setWindowPosResizeGdiFillHistoryCleared !== true ||
+    latestEvidence.setWindowPosResizeNocopybitsApplied !== true ||
+    latestEvidence.setWindowPosResizeUser32GdiCommitPoint !==
+      "after-wm-nccalcsize-before-wm-size" ||
+    latestEvidence.setWindowPosResizeLiveWindowDcAtomicRejectionVerified !== true ||
+    latestEvidence.setWindowPosBoundedPrimaryResizeImplemented !== true ||
     latestEvidence.setWindowPosGeneralResizeImplemented !== false ||
     latestEvidence.setWindowPosGeneralZOrderImplemented !== false ||
     latestEvidence.setWindowPosMultiWindowActivationImplemented !== false ||

@@ -171,9 +171,9 @@ use super::user32::{
     RuntimeLoadIconAResult, RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
     RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowStyleResult,
-    RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
-    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeSetWindowStyleResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
+    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowCreationRequest,
     RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId, RuntimeWindowLifecycle,
     RuntimeWindowProcedure,
@@ -6659,6 +6659,17 @@ impl RuntimeKernel {
         let plan = self
             .user32
             .plan_set_window_pos_callback(operation, message, result)?;
+        if operation.variant == RuntimeSetWindowPosVariant::Resize
+            && message == RuntimeSetWindowPosCallbackMessage::NonClientCalculate
+        {
+            self.gdi.plan_window_surface_resize(
+                operation.window_id,
+                operation.previous_geometry.client_width,
+                operation.previous_geometry.client_height,
+                operation.next_geometry.client_width,
+                operation.next_geometry.client_height,
+            )?;
+        }
         Ok(self.user32.set_window_pos_callback_action(&plan).clone())
     }
 
@@ -6673,7 +6684,23 @@ impl RuntimeKernel {
         let plan = self
             .user32
             .plan_set_window_pos_callback(operation, message, result)?;
-        self.user32.commit_set_window_pos_callback(plan)
+        if operation.variant != RuntimeSetWindowPosVariant::Resize
+            || message != RuntimeSetWindowPosCallbackMessage::NonClientCalculate
+        {
+            return self.user32.commit_set_window_pos_callback(plan);
+        }
+
+        let gdi_plan = self.gdi.plan_window_surface_resize(
+            operation.window_id,
+            operation.previous_geometry.client_width,
+            operation.previous_geometry.client_height,
+            operation.next_geometry.client_width,
+            operation.next_geometry.client_height,
+        )?;
+        self.user32.preflight_set_window_pos_callback(&plan)?;
+        self.gdi.preflight_window_surface_resize(&gdi_plan)?;
+        self.gdi.commit_preflighted_window_surface_resize(gdi_plan);
+        Ok(self.user32.commit_preflighted_set_window_pos_callback(plan))
     }
 
     pub(crate) fn preview_set_window_pos_focus(

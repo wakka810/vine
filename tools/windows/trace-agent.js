@@ -25,7 +25,8 @@ const focusedSetWindowLongAObservation =
   selectedObservations.has("set-window-long-a");
 const focusedSetWindowPosSizeObservation =
   selectedObservations.size === 1 &&
-  selectedObservations.has("set-window-pos-size");
+  (selectedObservations.has("set-window-pos-size") ||
+    selectedObservations.has("set-window-pos-resize"));
 const focusedDragAcceptFilesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("drag-accept-files");
@@ -6691,6 +6692,10 @@ function attachBgiMainWindowProcedureHook() {
         this.lParam !== 0
           ? snapshotWindowPosition(ptr(this.lParam))
           : null;
+      this.nccalcSizeBefore =
+        this.message === 0x0083 && this.wParam === 1 && this.lParam !== 0
+          ? snapshotNccalcSizeParams(ptr(this.lParam))
+          : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.stateAtEntry =
         this.recordSetWindowPos && setWindowPosWindowStateSnapshot !== null
@@ -6716,6 +6721,7 @@ function attachBgiMainWindowProcedureHook() {
             wParam: this.wParam,
             lParam: this.lParam,
             windowPosition: this.windowPosition,
+            nccalcSizeBefore: this.nccalcSizeBefore,
             stateAtEntry: this.stateAtEntry,
           },
         },
@@ -6729,13 +6735,17 @@ function attachBgiMainWindowProcedureHook() {
       const lastError = Number(this.lastError) >>> 0;
       const resultValue = result.toString();
       const resultU32 = result.toUInt32();
+      const nccalcSizeAfter =
+        this.nccalcSizeBefore === null
+          ? null
+          : snapshotNccalcSizeParams(ptr(this.lParam));
       finishCall(
         this.traceFrame,
         {
           module: Process.mainModule.name,
           api: "MainWindowProc",
           result: resultValue,
-          windowProcedure: { result: resultValue, resultU32 },
+          windowProcedure: { result: resultValue, resultU32, nccalcSizeAfter },
         },
         this.lastError,
       );
@@ -6748,6 +6758,8 @@ function attachBgiMainWindowProcedureHook() {
         wParam: this.wParam,
         lParam: this.lParam,
         windowPosition: this.windowPosition,
+        nccalcSizeBefore: this.nccalcSizeBefore,
+        nccalcSizeAfter,
         stateAtEntry: this.stateAtEntry,
         result: resultValue,
         resultU32,
@@ -6814,6 +6826,10 @@ function attachSetWindowPosDefaultProcedureHook(module) {
       this.message = args[1].toUInt32();
       this.wParam = args[2].toUInt32();
       this.lParam = args[3].toUInt32();
+      this.nccalcSizeBefore =
+        this.message === 0x0083 && this.wParam === 1 && this.lParam !== 0
+          ? snapshotNccalcSizeParams(ptr(this.lParam))
+          : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.stateAtEntry =
         setWindowPosWindowStateSnapshot === null
@@ -6837,6 +6853,7 @@ function attachSetWindowPosDefaultProcedureHook(module) {
             message: this.message,
             wParam: this.wParam,
             lParam: this.lParam,
+            nccalcSizeBefore: this.nccalcSizeBefore,
             stateAtEntry: this.stateAtEntry,
           },
         },
@@ -6850,13 +6867,21 @@ function attachSetWindowPosDefaultProcedureHook(module) {
       const lastError = Number(this.lastError) >>> 0;
       const resultValue = result.toString();
       const resultU32 = result.toUInt32();
+      const nccalcSizeAfter =
+        this.nccalcSizeBefore === null
+          ? null
+          : snapshotNccalcSizeParams(ptr(this.lParam));
       finishCall(
         this.traceFrame,
         {
           module: module.name,
           api: name,
           result: resultValue,
-          setWindowPosDefaultProcedure: { result: resultValue, resultU32 },
+          setWindowPosDefaultProcedure: {
+            result: resultValue,
+            resultU32,
+            nccalcSizeAfter,
+          },
         },
         this.lastError,
       );
@@ -6869,6 +6894,8 @@ function attachSetWindowPosDefaultProcedureHook(module) {
         message: this.message,
         wParam: this.wParam,
         lParam: this.lParam,
+        nccalcSizeBefore: this.nccalcSizeBefore,
+        nccalcSizeAfter,
         stateAtEntry: this.stateAtEntry,
         result: resultValue,
         resultU32,
@@ -7050,20 +7077,34 @@ function attachSetWindowPosHook(module) {
       const initialPlacementCall =
         selectedObservations.has("set-window-pos") &&
         (caller.rva === 0x00067f88 || caller.rva === 0x00067f9f);
-      const sizedCall =
-        selectedObservations.has("set-window-pos-size") &&
+      const nonzeroSizeCall =
+        focusedSetWindowPosSizeObservation &&
         this.width > 0 &&
         this.height > 0 &&
         (this.flags & 0x0000_0001) === 0;
+      const sizedStateBefore = nonzeroSizeCall
+        ? snapshotWindowState(this.windowHandlePointer)
+        : null;
+      const requestedResize =
+        sizedStateBefore?.windowRect != null &&
+        (sizedStateBefore.windowRect.right - sizedStateBefore.windowRect.left !==
+          this.width ||
+          sizedStateBefore.windowRect.bottom - sizedStateBefore.windowRect.top !==
+            this.height);
+      const sizedCall =
+        nonzeroSizeCall &&
+        (selectedObservations.has("set-window-pos-size") || requestedResize);
       if (!initialPlacementCall && !sizedCall) {
         this.traceFrame = null;
         return;
       }
-      this.observation = sizedCall ? "set-window-pos-size" : "set-window-pos";
+      this.observation = sizedCall
+        ? selectedObservations.has("set-window-pos-resize")
+          ? "set-window-pos-resize"
+          : "set-window-pos-size"
+        : "set-window-pos";
       this.lastErrorBefore = Number(this.lastError) >>> 0;
-      this.stateBefore = sizedCall
-        ? snapshotWindowState(this.windowHandlePointer)
-        : null;
+      this.stateBefore = sizedCall ? sizedStateBefore : null;
       this.lastError = this.lastErrorBefore;
       this.immediateConsumer = {
         apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -7126,7 +7167,8 @@ function attachSetWindowPosHook(module) {
       const resultValue = result.toString();
       const resultU32 = result.toUInt32();
       this.stateAfter =
-        this.observation === "set-window-pos-size"
+        this.observation === "set-window-pos-size" ||
+        this.observation === "set-window-pos-resize"
           ? snapshotWindowState(this.windowHandlePointer)
           : null;
       this.lastError = lastError;
@@ -7165,7 +7207,10 @@ function attachSetWindowPosHook(module) {
           stateAfter: this.stateAfter,
           immediateConsumer: this.immediateConsumer,
         });
-        if (this.observation === "set-window-pos-size") {
+        if (
+          this.observation === "set-window-pos-size" ||
+          this.observation === "set-window-pos-resize"
+        ) {
           scheduleSetWindowPosSizeOracle(module, {
             insertAfter: this.insertAfter,
             x: this.x,
@@ -9025,6 +9070,33 @@ function maybeCompleteGetMonitorInfoAObservation() {
   });
   if (stopOnEvent === "get-monitor-info-a-complete") {
     recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function snapshotNccalcSizeParams(address) {
+  const raw = snapshotBoundedRawBytes(address, 52);
+  if (raw.error !== undefined) {
+    return { address: address.toString(), profile: "x86-nccalcsize-params-v1", raw };
+  }
+  try {
+    const windowPositionPointer = address.add(48).readPointer();
+    return {
+      address: address.toString(),
+      profile: "x86-nccalcsize-params-v1",
+      raw,
+      rectangles: [0, 16, 32].map((offset) => snapshotRect(address.add(offset))),
+      windowPositionPointer: windowPositionPointer.toString(),
+      windowPosition: windowPositionPointer.isNull()
+        ? null
+        : snapshotWindowPosition(windowPositionPointer),
+    };
+  } catch (error) {
+    return {
+      address: address.toString(),
+      profile: "x86-nccalcsize-params-v1",
+      raw,
+      error: error.message,
+    };
   }
 }
 
@@ -18506,10 +18578,15 @@ function maybeCompleteSendMessageAObservation() {
 }
 
 function maybeCompleteSetWindowPosObservation() {
-  const sizeObservation = selectedObservations.has("set-window-pos-size");
+  const resizeObservation = selectedObservations.has("set-window-pos-resize");
+  const sizeObservation =
+    selectedObservations.has("set-window-pos-size") || resizeObservation;
+  const selectedSizeObservation = resizeObservation
+    ? "set-window-pos-resize"
+    : "set-window-pos-size";
   const selectedMainCalls = sizeObservation
     ? setWindowPosMainModuleCalls.filter(
-        (call) => call.observation === "set-window-pos-size",
+        (call) => call.observation === selectedSizeObservation,
       )
     : setWindowPosMainModuleCalls.filter(
         (call) => call.observation === "set-window-pos",
@@ -18528,13 +18605,17 @@ function maybeCompleteSetWindowPosObservation() {
   }
   setWindowPosCompletionRecorded = true;
   const selectedCallIds = new Set(selectedMainCalls.map((call) => call.callId));
-  const completionKind = sizeObservation
-    ? "set-window-pos-size-complete"
-    : "set-window-pos-complete";
+  const completionKind = resizeObservation
+    ? "set-window-pos-resize-complete"
+    : sizeObservation
+      ? "set-window-pos-size-complete"
+      : "set-window-pos-complete";
   emit(completionKind, {
-    profile: sizeObservation
-      ? "x86-bgi-first-set-window-pos-size-v1"
-      : "x86-bgi-set-window-pos-initial-placement-v1",
+    profile: resizeObservation
+      ? "x86-bgi-first-set-window-pos-resize-v1"
+      : sizeObservation
+        ? "x86-bgi-first-set-window-pos-size-v1"
+        : "x86-bgi-set-window-pos-initial-placement-v1",
     quiescenceMilliseconds: 0,
     mainModuleCalls: selectedMainCalls.map((call) => ({ ...call })),
     windowProcedureCalls: setWindowPosWindowProcedureCalls
@@ -21633,7 +21714,8 @@ Process.attachModuleObserver({
     if (
       module.name.toLowerCase() === "user32.dll" &&
       (selectedObservations.has("set-window-pos") ||
-        selectedObservations.has("set-window-pos-size"))
+        selectedObservations.has("set-window-pos-size") ||
+        selectedObservations.has("set-window-pos-resize"))
     ) {
       try {
         attachSetWindowPosHook(module);

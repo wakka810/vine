@@ -32,7 +32,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 20;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 21;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -40,7 +40,7 @@ pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1"
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
-pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v2";
+pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v3";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const SET_TIMER_IMPLEMENTATION: &str = "user32.set-timer.live-window-callback-registration.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
@@ -64,11 +64,13 @@ const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
 const WM_TIMER: u32 = 0x0113;
 const WM_MOVE: u32 = 0x0003;
+const WM_SIZE: u32 = 0x0005;
 const WM_ACTIVATE: u32 = 0x0006;
 const WM_SETFOCUS: u32 = 0x0007;
 const WM_ACTIVATEAPP: u32 = 0x001c;
 const WM_WINDOWPOSCHANGING: u32 = 0x0046;
 const WM_WINDOWPOSCHANGED: u32 = 0x0047;
+const WM_NCCALCSIZE: u32 = 0x0083;
 const WM_NCACTIVATE: u32 = 0x0086;
 const WM_GETICON: u32 = 0x007f;
 const WM_IME_SETCONTEXT: u32 = 0x0281;
@@ -153,6 +155,12 @@ pub struct User32SetWindowPosPolicy {
     pub activation_flags: u32,
     pub activation_internal_flags: u32,
     pub activation_insert_after: u32,
+    pub resize_outer_width: u32,
+    pub resize_outer_height: u32,
+    pub resize_client_width: u32,
+    pub resize_client_height: u32,
+    pub resize_nccalc_window_pos_flags: u32,
+    pub resize_changed_flags: u32,
     pub activate_app_other_thread_id: u32,
     pub ime_set_context_flags: u32,
     pub ime_notify_command: u32,
@@ -291,11 +299,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v20() -> Self {
+    pub fn controlled_v21() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-v20"
+            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -345,7 +353,8 @@ impl User32CompatibilityPolicy {
                 l_param: 0,
             }),
             set_window_pos: Some(User32SetWindowPosPolicy {
-                profile_id: "initial-offscreen-show-hide-same-geometry-activation-v2".to_owned(),
+                profile_id:
+                    "initial-offscreen-show-hide-same-geometry-activation-resize-v3".to_owned(),
                 insert_after: HWND_NOTOPMOST,
                 initial_show_screen_multiplier: 8,
                 initial_show_flags: 0x0000_0559,
@@ -356,6 +365,12 @@ impl User32CompatibilityPolicy {
                 activation_flags: 0x0000_010a,
                 activation_internal_flags: 0x0000_0003,
                 activation_insert_after: 0,
+                resize_outer_width: 1_286,
+                resize_outer_height: 749,
+                resize_client_width: 1_280,
+                resize_client_height: 720,
+                resize_nccalc_window_pos_flags: 0x0000_190e,
+                resize_changed_flags: 0x0000_110e,
                 activate_app_other_thread_id: 0,
                 ime_set_context_flags: 0xc000_000f,
                 ime_notify_command: 2,
@@ -570,6 +585,14 @@ impl User32CompatibilityPolicy {
                 || profile.activation_flags != 0x0000_010a
                 || profile.activation_internal_flags != 0x0000_0003
                 || profile.activation_insert_after != 0
+                || profile.resize_outer_width == 0
+                || profile.resize_outer_height == 0
+                || profile.resize_client_width == 0
+                || profile.resize_client_height == 0
+                || profile.resize_client_width >= profile.resize_outer_width
+                || profile.resize_client_height >= profile.resize_outer_height
+                || profile.resize_nccalc_window_pos_flags != 0x0000_190e
+                || profile.resize_changed_flags != 0x0000_110e
                 || profile.activate_app_other_thread_id != 0
                 || profile.ime_set_context_flags != 0xc000_000f
                 || profile.ime_notify_command != 2
@@ -767,6 +790,30 @@ impl User32CompatibilityPolicy {
                     "user32-compatibility-policy",
                     "user32-set-window-pos-profile-invalid",
                     "User32 SetWindowPos offscreen placement must fit signed x86 coordinates",
+                ));
+            }
+            let create = self.create_window_ex_a.as_ref().ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-set-window-pos-profile-invalid",
+                    "User32 SetWindowPos resize requires the controlled window creation profile",
+                )
+            })?;
+            if profile.resize_outer_width == create.outer_width
+                || profile.resize_outer_height == create.outer_height
+                || profile
+                    .resize_outer_width
+                    .checked_sub(profile.resize_client_width)
+                    != create.outer_width.checked_sub(create.client_width)
+                || profile
+                    .resize_outer_height
+                    .checked_sub(profile.resize_client_height)
+                    != create.outer_height.checked_sub(create.client_height)
+            {
+                return Err(ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-set-window-pos-profile-invalid",
+                    "User32 SetWindowPos resize must change both outer dimensions while preserving the controlled non-client extents",
                 ));
             }
         }
@@ -2139,6 +2186,23 @@ fn handle_set_window_pos(
             true,
             position_policy.activation_flags,
         )
+    } else if flags == position_policy.activation_flags
+        && x == 0
+        && y == 0
+        && width == position_policy.resize_outer_width
+        && height == position_policy.resize_outer_height
+    {
+        let mut geometry = window.creation.geometry;
+        geometry.width = position_policy.resize_outer_width;
+        geometry.height = position_policy.resize_outer_height;
+        geometry.client_width = position_policy.resize_client_width;
+        geometry.client_height = position_policy.resize_client_height;
+        (
+            RuntimeSetWindowPosVariant::Resize,
+            geometry,
+            true,
+            position_policy.activation_flags,
+        )
     } else {
         let (code, message) = if width != 0 || height != 0 {
             (
@@ -2165,6 +2229,8 @@ fn handle_set_window_pos(
             callback_insert_after: position_policy.insert_after,
             activation_insert_after: position_policy.activation_insert_after,
             activation_internal_flags: position_policy.activation_internal_flags,
+            resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
+            resize_changed_flags: position_policy.resize_changed_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let class = session
@@ -2176,6 +2242,9 @@ fn handle_set_window_pos(
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
         }
         RuntimeSetWindowPosVariant::ActivateSameGeometry => {
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
+        }
+        RuntimeSetWindowPosVariant::Resize => {
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
         }
     };
@@ -2344,8 +2413,13 @@ fn set_window_pos_callback_request(
             "logical window procedure does not use the required four-u32 stdcall ABI",
         ));
     }
-    let (message_id, w_param, l_param, scratch) = match message {
+    let (message_id, w_param, l_param, scratch, scratch_pointer_relocations) = match message {
         RuntimeSetWindowPosCallbackMessage::WindowPositionChanged => {
+            let flags = if operation.variant == RuntimeSetWindowPosVariant::Resize {
+                operation.resize_changed_flags
+            } else {
+                operation.callback_flags
+            };
             let scratch = window_pos_callback_scratch(
                 operation.window_handle,
                 operation.callback_insert_after,
@@ -2353,19 +2427,21 @@ fn set_window_pos_callback_request(
                 operation.next_geometry.y,
                 operation.next_geometry.width,
                 operation.next_geometry.height,
-                operation.callback_flags,
+                flags,
             )?;
             (
                 WM_WINDOWPOSCHANGED,
                 0,
                 GuestCallbackArgument::ScratchPointer { offset: 0 },
                 scratch,
+                Vec::new(),
             )
         }
         RuntimeSetWindowPosCallbackMessage::GetSmallIcon => (
             WM_GETICON,
             ICON_SMALL2,
             GuestCallbackArgument::U32(0),
+            Vec::new(),
             Vec::new(),
         ),
         RuntimeSetWindowPosCallbackMessage::WindowPositionChanging => (
@@ -2381,6 +2457,24 @@ fn set_window_pos_callback_request(
                 operation.next_geometry.height,
                 operation.callback_flags,
             )?,
+            Vec::new(),
+        ),
+        RuntimeSetWindowPosCallbackMessage::NonClientCalculate => (
+            WM_NCCALCSIZE,
+            1,
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+            resize_nccalc_callback_scratch(operation)?,
+            vec![GuestCallbackScratchPointerRelocation {
+                write_offset: 48,
+                target_offset: 52,
+            }],
+        ),
+        RuntimeSetWindowPosCallbackMessage::Size => (
+            WM_SIZE,
+            0,
+            GuestCallbackArgument::U32(window_creation_size_l_param(&operation.next_geometry)?),
+            Vec::new(),
+            Vec::new(),
         ),
         RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging => (
             WM_WINDOWPOSCHANGING,
@@ -2395,16 +2489,29 @@ fn set_window_pos_callback_request(
                 0,
                 operation.activation_internal_flags,
             )?,
+            Vec::new(),
         ),
-        RuntimeSetWindowPosCallbackMessage::ActivateApplication => {
-            (WM_ACTIVATEAPP, 1, GuestCallbackArgument::U32(0), Vec::new())
-        }
-        RuntimeSetWindowPosCallbackMessage::NonClientActivate => {
-            (WM_NCACTIVATE, 1, GuestCallbackArgument::U32(0), Vec::new())
-        }
-        RuntimeSetWindowPosCallbackMessage::Activate => {
-            (WM_ACTIVATE, 1, GuestCallbackArgument::U32(0), Vec::new())
-        }
+        RuntimeSetWindowPosCallbackMessage::ActivateApplication => (
+            WM_ACTIVATEAPP,
+            1,
+            GuestCallbackArgument::U32(0),
+            Vec::new(),
+            Vec::new(),
+        ),
+        RuntimeSetWindowPosCallbackMessage::NonClientActivate => (
+            WM_NCACTIVATE,
+            1,
+            GuestCallbackArgument::U32(0),
+            Vec::new(),
+            Vec::new(),
+        ),
+        RuntimeSetWindowPosCallbackMessage::Activate => (
+            WM_ACTIVATE,
+            1,
+            GuestCallbackArgument::U32(0),
+            Vec::new(),
+            Vec::new(),
+        ),
     };
     Ok(GuestCallbackRequest {
         target: class.registration.window_procedure.address,
@@ -2415,10 +2522,64 @@ fn set_window_pos_callback_request(
             l_param,
         ],
         scratch,
-        scratch_pointer_relocations: Vec::new(),
+        scratch_pointer_relocations,
         return_sentinel,
         completion_policy: GuestCallbackCompletionPolicy::SetWindowPos { operation, message },
     })
+}
+
+fn resize_nccalc_callback_scratch(
+    operation: RuntimeSetWindowPosOperation,
+) -> Result<Vec<u8>, ApiFault> {
+    let rect = |geometry: RuntimeWindowGeometry, client: bool| -> Result<[i32; 4], ApiFault> {
+        let (x, y, width, height) = if client {
+            (
+                geometry.client_x,
+                geometry.client_y,
+                geometry.client_width,
+                geometry.client_height,
+            )
+        } else {
+            (geometry.x, geometry.y, geometry.width, geometry.height)
+        };
+        let right = x.checked_add_unsigned(width).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-nccalc-right-overflow",
+                "validated resize rectangle right edge overflowed",
+            )
+        })?;
+        let bottom = y.checked_add_unsigned(height).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-nccalc-bottom-overflow",
+                "validated resize rectangle bottom edge overflowed",
+            )
+        })?;
+        Ok([x, y, right, bottom])
+    };
+    let mut scratch = Vec::with_capacity(80);
+    for rectangle in [
+        rect(operation.next_geometry, false)?,
+        rect(operation.previous_geometry, false)?,
+        rect(operation.previous_geometry, true)?,
+    ] {
+        for value in rectangle {
+            scratch.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    scratch.extend_from_slice(&0_u32.to_le_bytes());
+    scratch.extend_from_slice(&window_pos_callback_scratch(
+        operation.window_handle,
+        operation.callback_insert_after,
+        operation.next_geometry.x,
+        operation.next_geometry.y,
+        operation.next_geometry.width,
+        operation.next_geometry.height,
+        operation.resize_nccalc_window_pos_flags,
+    )?);
+    debug_assert_eq!(scratch.len(), 80);
+    Ok(scratch)
 }
 
 fn window_pos_callback_scratch(
@@ -3343,6 +3504,9 @@ fn handle_def_window_proc_a(
                 session,
             );
         }
+        if matches!(message, WM_NCCALCSIZE | WM_SIZE) {
+            return handle_def_window_proc_resize(policy, contract, frame, session);
+        }
         if matches!(
             message,
             WM_WINDOWPOSCHANGING
@@ -3412,6 +3576,34 @@ fn handle_def_window_proc_window_position(
             "WINDOWPOS logical HWND or insert-after identity does not match the active window",
         ));
     }
+    if words[6] == position_policy.resize_changed_flags {
+        let geometry = window.creation.geometry;
+        if words
+            != [
+                handle,
+                position_policy.insert_after,
+                geometry.x as u32,
+                geometry.y as u32,
+                position_policy.resize_outer_width,
+                position_policy.resize_outer_height,
+                position_policy.resize_changed_flags,
+            ]
+            || geometry.width != position_policy.resize_outer_width
+            || geometry.height != position_policy.resize_outer_height
+            || geometry.client_width != position_policy.resize_client_width
+            || geometry.client_height != position_policy.resize_client_height
+        {
+            return Err(ApiFault::invalid_call(
+                "user32-windows",
+                "def-window-proc-resize-changed-payload-mismatch",
+                "resize WM_WINDOWPOSCHANGED does not match the committed logical geometry",
+            ));
+        }
+        require_window_activation_relations(session, handle, true, true, true, contract)?;
+        return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+            ApiReturnValue::U32(0),
+        )));
+    }
     let callback_geometry = RuntimeWindowGeometry {
         x: words[2] as i32,
         y: words[3] as i32,
@@ -3480,6 +3672,8 @@ fn handle_def_window_proc_window_position(
             callback_insert_after: position_policy.insert_after,
             activation_insert_after: position_policy.activation_insert_after,
             activation_internal_flags: position_policy.activation_internal_flags,
+            resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
+            resize_changed_flags: position_policy.resize_changed_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if !notify_move {
@@ -3510,6 +3704,154 @@ fn handle_def_window_proc_window_position(
         frame: frame.clone(),
     })?;
     Ok(ApiHandlerResult::GuestCallback(request))
+}
+
+fn handle_def_window_proc_resize(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let position_policy = policy.set_window_pos.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "def-window-proc-resize-policy-missing",
+            "validated resize default processing has no SetWindowPos policy",
+        )
+    })?;
+    let handle = required_argument(contract, frame, 0, "window handle")?;
+    let message = required_argument(contract, frame, 1, "message")?;
+    let w_param = required_argument(contract, frame, 2, "wParam")?;
+    let l_param = required_argument(contract, frame, 3, "lParam")?;
+    let window = session
+        .runtime()
+        .window(handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .clone();
+    if window.creation.owner_thread_id != session.runtime().current_thread_id() {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "def-window-proc-resize-window-state-invalid",
+            "resize default processing requires the created owner-thread window",
+        ));
+    }
+    if window.lifecycle != RuntimeWindowLifecycle::Created {
+        return handle_def_window_proc_a_immediate(policy, contract, frame, session)
+            .map(ApiHandlerResult::Immediate);
+    }
+    require_window_activation_relations(session, handle, true, true, true, contract)?;
+
+    match message {
+        WM_NCCALCSIZE => {
+            if w_param != 1 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-resize-nccalc-wparam-unsupported",
+                    "resize WM_NCCALCSIZE requires the reached TRUE wParam",
+                ));
+            }
+            let mut next_geometry = window.creation.geometry;
+            next_geometry.width = position_policy.resize_outer_width;
+            next_geometry.height = position_policy.resize_outer_height;
+            next_geometry.client_width = position_policy.resize_client_width;
+            next_geometry.client_height = position_policy.resize_client_height;
+            let operation = session
+                .runtime()
+                .preview_set_window_pos(RuntimeSetWindowPosRequest {
+                    window_handle: handle,
+                    variant: RuntimeSetWindowPosVariant::Resize,
+                    next_geometry,
+                    next_visible: true,
+                    next_topmost: false,
+                    callback_flags: position_policy.activation_flags,
+                    callback_insert_after: position_policy.insert_after,
+                    activation_insert_after: position_policy.activation_insert_after,
+                    activation_internal_flags: position_policy.activation_internal_flags,
+                    resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
+                    resize_changed_flags: position_policy.resize_changed_flags,
+                })
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            let mut expected = resize_nccalc_callback_scratch(operation)?;
+            let window_pos_address = l_param.checked_add(52).ok_or_else(|| {
+                ApiFault::invalid_call(
+                    "user32-windows",
+                    "def-window-proc-resize-nccalc-pointer-overflow",
+                    "resize NCCALCSIZE_PARAMS WINDOWPOS pointer overflowed x86 address space",
+                )
+            })?;
+            expected[48..52].copy_from_slice(&window_pos_address.to_le_bytes());
+            let before = session
+                .memory()
+                .read(GuestAddress(l_param), expected.len())
+                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            if before != expected {
+                return Err(ApiFault::invalid_call(
+                    "user32-windows",
+                    "def-window-proc-resize-nccalc-payload-mismatch",
+                    "resize NCCALCSIZE_PARAMS does not match the pending logical geometry",
+                ));
+            }
+            let geometry = operation.next_geometry;
+            let client_right = geometry
+                .client_x
+                .checked_add_unsigned(geometry.client_width)
+                .ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "user32-windows",
+                        "def-window-proc-resize-client-right-overflow",
+                        "validated resize client right edge overflowed",
+                    )
+                })?;
+            let client_bottom = geometry
+                .client_y
+                .checked_add_unsigned(geometry.client_height)
+                .ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "user32-windows",
+                        "def-window-proc-resize-client-bottom-overflow",
+                        "validated resize client bottom edge overflowed",
+                    )
+                })?;
+            let bytes = [
+                geometry.client_x,
+                geometry.client_y,
+                client_right,
+                client_bottom,
+            ]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect();
+            Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::U32(0))
+                    .with_guest_write(GuestAddress(l_param), bytes),
+            ))
+        }
+        WM_SIZE => {
+            let geometry = window.creation.geometry;
+            let expected = window_creation_size_l_param(&geometry)?;
+            if w_param != 0
+                || l_param != expected
+                || geometry.width != position_policy.resize_outer_width
+                || geometry.height != position_policy.resize_outer_height
+                || geometry.client_width != position_policy.resize_client_width
+                || geometry.client_height != position_policy.resize_client_height
+            {
+                return Err(ApiFault::invalid_call(
+                    "user32-windows",
+                    "def-window-proc-resize-size-payload-mismatch",
+                    "resize WM_SIZE does not match the committed logical client geometry",
+                ));
+            }
+            Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
+                ApiReturnValue::U32(0),
+            )))
+        }
+        _ => Err(ApiFault::runtime_defect(
+            "user32-windows",
+            "def-window-proc-resize-message-invalid",
+            "resize default handler received an unrelated message",
+        )),
+    }
 }
 
 fn handle_def_window_proc_activation(
@@ -3576,12 +3918,24 @@ fn handle_def_window_proc_activation(
                     0,
                     position_policy.activation_internal_flags,
                 ];
+            let resize = words
+                == [
+                    handle,
+                    position_policy.insert_after,
+                    0,
+                    0,
+                    position_policy.resize_outer_width,
+                    position_policy.resize_outer_height,
+                    position_policy.activation_flags,
+                ];
             if first {
                 require_window_activation_relations(
                     session, handle, false, false, false, contract,
                 )?;
             } else if internal {
                 require_window_activation_relations(session, handle, true, false, true, contract)?;
+            } else if resize {
+                require_window_activation_relations(session, handle, true, true, true, contract)?;
             } else {
                 return Err(ApiFault::invalid_call(
                     "user32-windows",
@@ -5332,7 +5686,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v20();
+        let policy = User32CompatibilityPolicy::controlled_v21();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -5379,7 +5733,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v21();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -5391,14 +5745,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v21();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v21();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -5409,21 +5763,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v21();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v21();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v21();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -5434,7 +5788,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v21();
         invalid_timer
             .set_timer
             .as_mut()
@@ -5445,14 +5799,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v21();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v21();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -5463,7 +5817,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v21();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -5474,7 +5828,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v21();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -5485,7 +5839,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v21();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -5497,7 +5851,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v21();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -5508,7 +5862,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v21();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -5519,7 +5873,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v21();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -5530,7 +5884,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v20();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v21();
         invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

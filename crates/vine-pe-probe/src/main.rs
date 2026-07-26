@@ -3605,7 +3605,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v20();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v21();
     if !matches!(
         user32_capability,
         Some(

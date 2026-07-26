@@ -285,6 +285,7 @@ pub enum RuntimeSetWindowPosVariant {
     InitialShow,
     InitialHide,
     ActivateSameGeometry,
+    Resize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -293,6 +294,8 @@ pub enum RuntimeSetWindowPosCallbackMessage {
     WindowPositionChanged,
     GetSmallIcon,
     WindowPositionChanging,
+    NonClientCalculate,
+    Size,
     ActivationWindowPositionChanging,
     ActivateApplication,
     NonClientActivate,
@@ -317,6 +320,8 @@ pub struct RuntimeSetWindowPosRequest {
     pub callback_insert_after: u32,
     pub activation_insert_after: u32,
     pub activation_internal_flags: u32,
+    pub resize_nccalc_window_pos_flags: u32,
+    pub resize_changed_flags: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -338,6 +343,8 @@ pub struct RuntimeSetWindowPosOperation {
     pub callback_insert_after: u32,
     pub activation_insert_after: u32,
     pub activation_internal_flags: u32,
+    pub resize_nccalc_window_pos_flags: u32,
+    pub resize_changed_flags: u32,
     pub small_icon_handle: u32,
 }
 
@@ -2615,7 +2622,11 @@ impl RuntimeUser32 {
         self.resolve_window_procedure(request.window_handle, owner_thread_id)?;
         let window = self.window(request.window_handle)?;
         self.validate_window_icon_reference(window.small_icon)?;
-        if request.callback_flags == 0 {
+        if request.callback_flags == 0
+            || (request.variant == RuntimeSetWindowPosVariant::Resize
+                && (request.resize_nccalc_window_pos_flags == 0
+                    || request.resize_changed_flags == 0))
+        {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-user32",
                 "set-window-pos-callback-flags-invalid",
@@ -2625,7 +2636,11 @@ impl RuntimeUser32 {
         let mut next_creation = window.creation.clone();
         next_creation.geometry = request.next_geometry;
         validate_window_creation_request(&next_creation)?;
-        validate_position_geometry_transition(window.creation.geometry, request.next_geometry)?;
+        validate_position_geometry_transition(
+            window.creation.geometry,
+            request.next_geometry,
+            request.variant,
+        )?;
         let small_icon_handle = window.small_icon.map_or(0, |icon| icon.handle);
         let next_effective_style = if request.next_visible {
             window.creation.effective_style | RUNTIME_WINDOW_STYLE_VISIBLE
@@ -2677,6 +2692,23 @@ impl RuntimeUser32 {
                     "same-geometry activation requires one visible inactive owner-thread window and no imported foreground identity",
                 ));
             }
+            RuntimeSetWindowPosVariant::Resize
+                if !window.visible
+                    || window.topmost
+                    || !request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry == window.creation.geometry
+                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                    || self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
+                    || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
+                    || self.foreground_window != Some(window.id) =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-resize-state-invalid",
+                    "logical resize requires one visible active, focused, foreground owner-thread window and changed bounded geometry",
+                ));
+            }
             _ => {}
         }
         Ok(RuntimeSetWindowPosOperation {
@@ -2696,6 +2728,8 @@ impl RuntimeUser32 {
             callback_insert_after: request.callback_insert_after,
             activation_insert_after: request.activation_insert_after,
             activation_internal_flags: request.activation_internal_flags,
+            resize_nccalc_window_pos_flags: request.resize_nccalc_window_pos_flags,
+            resize_changed_flags: request.resize_changed_flags,
             small_icon_handle,
         })
     }
@@ -2848,6 +2882,55 @@ impl RuntimeUser32 {
                     "same-geometry activation received an out-of-order logical window callback",
                 ));
             }
+            (
+                RuntimeSetWindowPosVariant::Resize,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "resize WINDOWPOS")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::Resize,
+                RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "WM_NCCALCSIZE")?;
+                self.window_resize_update_disposition(previous, operation)?
+            }
+            (RuntimeSetWindowPosVariant::Resize, RuntimeSetWindowPosCallbackMessage::Size) => {
+                require_set_window_pos_callback_result(result, 0, "WM_SIZE")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::Resize,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "resize WM_WINDOWPOSCHANGED")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+                }
+            }
+            (RuntimeSetWindowPosVariant::Resize, _) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "logical resize received an out-of-order window callback",
+                ));
+            }
         };
         Ok(RuntimeSetWindowPosCallbackPlan {
             expected_generation: self.generation,
@@ -2918,8 +3001,15 @@ impl RuntimeUser32 {
         plan: RuntimeSetWindowPosCallbackPlan,
     ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
         self.preflight_set_window_pos_callback(&plan)?;
+        Ok(self.commit_preflighted_set_window_pos_callback(plan))
+    }
+
+    pub(super) fn commit_preflighted_set_window_pos_callback(
+        &mut self,
+        plan: RuntimeSetWindowPosCallbackPlan,
+    ) -> RuntimeSetWindowPosCallbackAction {
         match plan.disposition {
-            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. } => Ok(action),
+            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. } => action,
             RuntimeSetWindowPosCallbackDisposition::Update {
                 next,
                 action,
@@ -2930,7 +3020,7 @@ impl RuntimeUser32 {
                 self.generation = next_generation;
                 let replaced = self.windows.insert(next.id, next);
                 debug_assert!(replaced.is_some());
-                Ok(action)
+                action
             }
             RuntimeSetWindowPosCallbackDisposition::Activate {
                 previous,
@@ -2949,7 +3039,7 @@ impl RuntimeUser32 {
                 );
                 self.foreground_window = Some(previous.id);
                 self.generation = next_generation;
-                Ok(action)
+                action
             }
         }
     }
@@ -2971,6 +3061,28 @@ impl RuntimeUser32 {
             previous,
             next: Box::new(next),
             next_generation: self.next_generation()?,
+        })
+    }
+
+    fn window_resize_update_disposition(
+        &self,
+        previous: RuntimeWindow,
+        operation: RuntimeSetWindowPosOperation,
+    ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
+        let next_generation = self.next_generation()?;
+        let mut next = previous.clone();
+        next.creation.geometry = operation.next_geometry;
+        let mut next_operation = operation;
+        next_operation.expected_generation = next_generation;
+        Ok(RuntimeSetWindowPosCallbackDisposition::Update {
+            action: RuntimeSetWindowPosCallbackAction::Continue {
+                window: next.clone(),
+                operation: next_operation,
+                next_message: RuntimeSetWindowPosCallbackMessage::Size,
+            },
+            previous,
+            next: Box::new(next),
+            next_generation,
         })
     }
 
@@ -2999,8 +3111,18 @@ impl RuntimeUser32 {
         } else {
             operation.previous_effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
         };
+        let expected_geometry = if operation.variant == RuntimeSetWindowPosVariant::Resize
+            && matches!(
+                message,
+                RuntimeSetWindowPosCallbackMessage::Size
+                    | RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+            ) {
+            operation.next_geometry
+        } else {
+            operation.previous_geometry
+        };
         if window.handle != operation.window_handle
-            || window.creation.geometry != operation.previous_geometry
+            || window.creation.geometry != expected_geometry
             || window.visible != operation.previous_visible
             || window.topmost != operation.previous_topmost
             || window.creation.effective_style != operation.previous_effective_style
@@ -3034,6 +3156,20 @@ impl RuntimeUser32 {
                     "runtime-user32",
                     "set-window-pos-activation-state-stale",
                     "logical active, focused, or foreground relation changed during window positioning",
+                ));
+            }
+        }
+        if operation.variant == RuntimeSetWindowPosVariant::Resize {
+            let owner_thread_id = window.creation.owner_thread_id;
+            let target = Some(window.id);
+            if self.active_windows.get(&owner_thread_id).copied() != target
+                || self.focused_windows.get(&owner_thread_id).copied() != target
+                || self.foreground_window != target
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-resize-state-stale",
+                    "logical active, focused, or foreground relation changed during resize",
                 ));
             }
         }
@@ -3455,22 +3591,46 @@ fn validate_window_class_name(
 fn validate_position_geometry_transition(
     previous: RuntimeWindowGeometry,
     next: RuntimeWindowGeometry,
+    variant: RuntimeSetWindowPosVariant,
 ) -> Result<(), RuntimeStateError> {
     let previous_client_offset_x = i64::from(previous.client_x) - i64::from(previous.x);
     let previous_client_offset_y = i64::from(previous.client_y) - i64::from(previous.y);
     let next_client_offset_x = i64::from(next.client_x) - i64::from(next.x);
     let next_client_offset_y = i64::from(next.client_y) - i64::from(next.y);
-    if next.width != previous.width
-        || next.height != previous.height
-        || next.client_width != previous.client_width
-        || next.client_height != previous.client_height
-        || next_client_offset_x != previous_client_offset_x
-        || next_client_offset_y != previous_client_offset_y
-    {
+    let previous_client_right_extent =
+        i64::from(previous.width) - previous_client_offset_x - i64::from(previous.client_width);
+    let previous_client_bottom_extent =
+        i64::from(previous.height) - previous_client_offset_y - i64::from(previous.client_height);
+    let next_client_right_extent =
+        i64::from(next.width) - next_client_offset_x - i64::from(next.client_width);
+    let next_client_bottom_extent =
+        i64::from(next.height) - next_client_offset_y - i64::from(next.client_height);
+    let valid = if variant == RuntimeSetWindowPosVariant::Resize {
+        next.x == previous.x
+            && next.y == previous.y
+            && next.client_x == previous.client_x
+            && next.client_y == previous.client_y
+            && next.width != previous.width
+            && next.height != previous.height
+            && next.client_width != previous.client_width
+            && next.client_height != previous.client_height
+            && next_client_offset_x == previous_client_offset_x
+            && next_client_offset_y == previous_client_offset_y
+            && next_client_right_extent == previous_client_right_extent
+            && next_client_bottom_extent == previous_client_bottom_extent
+    } else {
+        next.width == previous.width
+            && next.height == previous.height
+            && next.client_width == previous.client_width
+            && next.client_height == previous.client_height
+            && next_client_offset_x == previous_client_offset_x
+            && next_client_offset_y == previous_client_offset_y
+    };
+    if !valid {
         return Err(RuntimeStateError::invalid_input(
             "runtime-user32",
             "set-window-pos-geometry-transition-invalid",
-            "bounded no-size positioning must preserve outer/client size and non-client offsets",
+            "bounded positioning must preserve non-client extents and either preserve all sizes or perform the reached same-position resize",
         ));
     }
     Ok(())
@@ -4065,6 +4225,8 @@ mod tests {
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
+                    resize_nccalc_window_pos_flags: 0x190e,
+                    resize_changed_flags: 0x110e,
                 },
             )
             .unwrap();
@@ -4122,6 +4284,8 @@ mod tests {
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
+                    resize_nccalc_window_pos_flags: 0x190e,
+                    resize_changed_flags: 0x110e,
                 },
             )
             .unwrap();
@@ -4162,6 +4326,8 @@ mod tests {
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
+                    resize_nccalc_window_pos_flags: 0x190e,
+                    resize_changed_flags: 0x110e,
                 },
             )
             .unwrap();

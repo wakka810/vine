@@ -518,6 +518,24 @@ pub(super) struct RuntimeGetDcPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeResizeWindowSurfacePlan {
+    expected_generation: u64,
+    disposition: RuntimeResizeWindowSurfaceDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeResizeWindowSurfaceDisposition {
+    Absent {
+        window_id: RuntimeWindowId,
+    },
+    Update {
+        previous: RuntimeGdiSurface,
+        next: RuntimeGdiSurface,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeGetScreenDcPlan {
     expected_generation: u64,
     next_generation: u64,
@@ -779,6 +797,164 @@ struct RuntimeGdiObjectAllocation {
 }
 
 impl RuntimeGdi {
+    pub(super) fn plan_window_surface_resize(
+        &self,
+        window_id: RuntimeWindowId,
+        previous_width: u32,
+        previous_height: u32,
+        next_width: u32,
+        next_height: u32,
+    ) -> Result<RuntimeResizeWindowSurfacePlan, RuntimeStateError> {
+        if previous_width == 0
+            || previous_height == 0
+            || next_width == 0
+            || next_height == 0
+            || previous_width > i32::MAX as u32
+            || previous_height > i32::MAX as u32
+            || next_width > i32::MAX as u32
+            || next_height > i32::MAX as u32
+            || (previous_width == next_width && previous_height == next_height)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-gdi",
+                "window-surface-resize-geometry-invalid",
+                "logical window surface resize requires changed positive x86 dimensions",
+            ));
+        }
+
+        let disposition =
+            if let Some(surface_id) = self.window_surface_index.get(&window_id).copied() {
+                let previous = self.surfaces.get(&surface_id).cloned().ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "runtime-gdi",
+                        "window-surface-index-dangling",
+                        "logical window surface index does not resolve to a live surface",
+                    )
+                })?;
+                if previous.window_id != window_id
+                    || previous.width != previous_width
+                    || previous.height != previous_height
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-gdi",
+                        "window-surface-resize-source-mismatch",
+                        "logical GDI surface does not match the pre-resize client geometry",
+                    ));
+                }
+                self.require_no_live_window_surface_dc(window_id, Some(surface_id))?;
+                let mut next = previous.clone();
+                next.width = next_width;
+                next.height = next_height;
+                next.fills.clear();
+                next.generation = previous.generation.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-gdi",
+                        "surface-generation-exhausted",
+                        "logical GDI surface generation is exhausted",
+                    )
+                })?;
+                RuntimeResizeWindowSurfaceDisposition::Update {
+                    previous,
+                    next,
+                    next_generation: checked_next_generation(self.generation)?,
+                }
+            } else {
+                if self
+                    .surfaces
+                    .values()
+                    .any(|surface| surface.window_id == window_id)
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-gdi",
+                        "window-surface-index-missing",
+                        "logical window surface exists without its window index",
+                    ));
+                }
+                self.require_no_live_window_surface_dc(window_id, None)?;
+                RuntimeResizeWindowSurfaceDisposition::Absent { window_id }
+            };
+        Ok(RuntimeResizeWindowSurfacePlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_window_surface_resize(
+        &self,
+        plan: &RuntimeResizeWindowSurfacePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(stale_plan("window-surface-resize-plan-stale"));
+        }
+        match &plan.disposition {
+            RuntimeResizeWindowSurfaceDisposition::Absent { window_id } => {
+                if self.window_surface_index.contains_key(window_id)
+                    || self
+                        .surfaces
+                        .values()
+                        .any(|surface| surface.window_id == *window_id)
+                {
+                    return Err(stale_plan("window-surface-resize-plan-stale"));
+                }
+                self.require_no_live_window_surface_dc(*window_id, None)?;
+            }
+            RuntimeResizeWindowSurfaceDisposition::Update { previous, .. } => {
+                if self.window_surface_index.get(&previous.window_id) != Some(&previous.id)
+                    || self.surfaces.get(&previous.id) != Some(previous)
+                {
+                    return Err(stale_plan("window-surface-resize-plan-stale"));
+                }
+                self.require_no_live_window_surface_dc(previous.window_id, Some(previous.id))?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_preflighted_window_surface_resize(
+        &mut self,
+        plan: RuntimeResizeWindowSurfacePlan,
+    ) {
+        match plan.disposition {
+            RuntimeResizeWindowSurfaceDisposition::Absent { .. } => {}
+            RuntimeResizeWindowSurfaceDisposition::Update {
+                previous,
+                next,
+                next_generation,
+            } => {
+                debug_assert_eq!(self.surfaces.get(&previous.id), Some(&previous));
+                self.generation = next_generation;
+                let replaced = self.surfaces.insert(next.id, next);
+                debug_assert_eq!(replaced, Some(previous));
+            }
+        }
+    }
+
+    fn require_no_live_window_surface_dc(
+        &self,
+        window_id: RuntimeWindowId,
+        surface_id: Option<RuntimeGdiSurfaceId>,
+    ) -> Result<(), RuntimeStateError> {
+        let live = self.device_contexts.values().any(|device_context| {
+            matches!(
+                device_context.target,
+                RuntimeDeviceContextTarget::Window {
+                    window_id: target_window_id,
+                    surface_id: target_surface_id,
+                    ..
+                } if target_window_id == window_id
+                    && surface_id.is_none_or(|expected| expected == target_surface_id)
+            )
+        });
+        if live {
+            return Err(RuntimeStateError::conflict(
+                "runtime-gdi",
+                "window-surface-resize-dc-live",
+                "logical window surface cannot resize while a window device context is live",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn plan_get_dc(
         &self,
         target: RuntimeGdiWindowTarget,
@@ -3548,6 +3724,80 @@ mod tests {
             "surface-generation-exhausted"
         );
         assert_eq!(gdi, before_generation_exhaustion);
+    }
+
+    #[test]
+    fn window_surface_resize_preserves_identity_clears_content_and_rejects_live_dc() {
+        let mut absent = RuntimeGdi::default();
+        let absent_before = absent.clone();
+        let absent_plan = absent
+            .plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
+            .unwrap();
+        absent
+            .preflight_window_surface_resize(&absent_plan)
+            .unwrap();
+        absent.commit_preflighted_window_surface_resize(absent_plan);
+        assert_eq!(absent, absent_before);
+
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi
+            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
+            .unwrap();
+        let brush = gdi
+            .commit_get_stock_object(
+                gdi.plan_get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+                    .unwrap(),
+            )
+            .unwrap();
+        gdi.commit_fill_rect(
+            gdi.plan_fill_rect(
+                dc.handle,
+                RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 800,
+                    bottom: 600,
+                },
+                brush.handle,
+                target().owner_thread_id,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let before_live_dc = gdi.clone();
+        assert_eq!(
+            gdi.plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
+                .unwrap_err()
+                .code,
+            "window-surface-resize-dc-live"
+        );
+        assert_eq!(gdi, before_live_dc);
+
+        let release = gdi
+            .plan_release_dc(target().window_handle, dc.handle, target().owner_thread_id)
+            .unwrap();
+        gdi.commit_release_dc(release).unwrap();
+        let plan = gdi
+            .plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
+            .unwrap();
+        let stale = plan.clone();
+        let before_commit = gdi.clone();
+        gdi.preflight_window_surface_resize(&plan).unwrap();
+        assert_eq!(gdi, before_commit);
+        gdi.commit_preflighted_window_surface_resize(plan);
+
+        let surface = &gdi.surfaces[&dc.surface_id];
+        assert_eq!(surface.id, dc.surface_id);
+        assert_eq!(surface.window_id, target().window_id);
+        assert_eq!((surface.width, surface.height), (1_280, 720));
+        assert!(surface.fills.is_empty());
+        assert_eq!(surface.generation, 2);
+        assert_eq!(
+            gdi.preflight_window_surface_resize(&stale)
+                .unwrap_err()
+                .code,
+            "window-surface-resize-plan-stale"
+        );
     }
 
     #[test]

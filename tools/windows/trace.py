@@ -46,6 +46,7 @@ SUPPORTED_OBSERVATIONS = (
     "send-message-a",
     "set-window-pos",
     "set-window-pos-size",
+    "set-window-pos-resize",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",

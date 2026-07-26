@@ -36,6 +36,7 @@ assert.match(
 assert.match(worker, /kernel32-enter-critical-section-continuation/u);
 assert.match(worker, /kernel32-leave-critical-section-continuation/u);
 assert.match(worker, /shell32-drag-accept-files/u);
+assert.match(worker, /completion\.implementationId === "user32\.set-window-pos\.v3"/u);
 
 assert.match(fullProbe, /searchParams\.get\("evidence"\) === "full" \? "full" : "summary"/u);
 assert.match(fullProbe, /parseCapabilityProfile\(searchParams\.get\("profile"\)\)/u);

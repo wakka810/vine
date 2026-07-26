@@ -5917,6 +5917,12 @@ async function runGenericRuntimeReentry({
           instructionCount: continuation.instructionCount,
           target: entry.target,
           stackPointer: entry.stackPointer,
+          arguments: Array.from({ length: entry.argumentCount }, (_, index) =>
+            context.readVirtualU32(
+              entry.stackPointer + (index + 1) * 4,
+              `replacement callback argument ${index}`,
+            ),
+          ),
         });
         continuation = executeToNextOwnedTrap(
           offer,
@@ -6429,6 +6435,12 @@ async function runGenericRuntimeReentry({
         instructionCount: continuation.instructionCount,
         target: entry.target,
         stackPointer: entry.stackPointer,
+        arguments: Array.from({ length: entry.argumentCount }, (_, index) =>
+          context.readVirtualU32(
+            entry.stackPointer + (index + 1) * 4,
+            `callback argument ${index}`,
+          ),
+        ),
       });
       continuation = executeToNextOwnedTrap(
         offer,
@@ -7467,7 +7479,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-v20",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21",
     );
     assert.equal(
       ready.displayProfileId,
@@ -12845,7 +12857,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_612,
       arguments: [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v2",
+      implementationId: "user32.set-window-pos.v3",
       returnAddress: 0x1006_7f88,
       stackDelta: 32,
       lastError: 0,
@@ -12900,7 +12912,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_797,
       arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 0, 0, 0x059b],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v2",
+      implementationId: "user32.set-window-pos.v3",
       returnAddress: 0x1006_7f9f,
       stackDelta: 32,
       lastError: 0,
@@ -13947,7 +13959,7 @@ function validateSetWindowPosActivationResult(result) {
         instruction: 11_806_645,
         arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
         result: { action: "set", value: 1 },
-        implementationId: "user32.set-window-pos.v2",
+        implementationId: "user32.set-window-pos.v3",
       },
       ...[
         [17_832, 9, 11_806_687, [0x4801_0001, 70, 0, 0x0050_1000], 0],
@@ -17592,9 +17604,13 @@ function validatePrimaryMainLoopContinuationResult(result) {
 
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
-  assert.equal(result.activeCallbackDepth, 0);
-  assert.equal(result.supportedCalls.length, 89_386);
-  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.activeCallbackDepth, 1);
+  assert.equal(result.supportedCalls.length, 89_389);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    89_388,
+  );
+  assert.equal(result.callbackEvents.length, 45);
   assert.equal(result.stackGrowths.length, 6);
   assert.equal(result.heapPageMaterializations.length, 31);
   assert.equal(result.sourceReads.length, 5);
@@ -17714,46 +17730,130 @@ function validateArchiveSourceReadResult(result) {
     ],
   );
 
-  assert.equal(result.writebacks.length, 89_444);
+  const pendingResize = result.supportedCalls.filter(
+    (call) => call.pendingCallback === true,
+  );
+  assert.deepEqual(pendingResize, [
+    {
+      sequence: 89_387,
+      module: "USER32.dll",
+      symbol: "SetWindowPos",
+      occurrence: 4,
+      trapInstructionCount: 15_951_782,
+      arguments: [0x4801_0001, 0xffff_fffe, 0, 0],
+      pendingCallback: true,
+    },
+  ]);
+  assert.deepEqual(
+    result.callbackEvents.slice(-5).map((event) => ({
+      action: event.action,
+      sequence: event.sequence,
+      frameId: event.frameId,
+      result: event.result,
+      arguments: event.arguments,
+    })),
+    [
+      {
+        action: "enter",
+        sequence: 89_387,
+        frameId: 21,
+        result: undefined,
+        arguments: [0x4801_0001, 0x0046, 0, 0x0050_1000],
+      },
+      {
+        action: "return",
+        sequence: 89_387,
+        frameId: 21,
+        result: 0,
+        arguments: undefined,
+      },
+      {
+        action: "replace",
+        sequence: 89_387,
+        frameId: 22,
+        result: undefined,
+        arguments: [0x4801_0001, 0x0083, 1, 0x0050_1000],
+      },
+      {
+        action: "return",
+        sequence: 89_387,
+        frameId: 22,
+        result: 0,
+        arguments: undefined,
+      },
+      {
+        action: "replace",
+        sequence: 89_387,
+        frameId: 23,
+        result: undefined,
+        arguments: [0x4801_0001, 0x0005, 0, 0x02d0_0500],
+      },
+    ],
+  );
+  const resizeDefaults = result.supportedCalls.slice(-2);
+  assert.deepEqual(
+    resizeDefaults.map((call) => ({
+      sequence: call.sequence,
+      message: call.arguments[1],
+      result: call.result,
+      guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
+    })),
+    [
+      { sequence: 89_388, message: 0x0046, result: { action: "set", value: 0 }, guestWrites: [] },
+      {
+        sequence: 89_389,
+        message: 0x0083,
+        result: { action: "set", value: 0 },
+        guestWrites: [
+          {
+            address: 0x0050_1000,
+            bytes: [3, 60, 0, 0, 218, 33, 0, 0, 3, 65, 0, 0, 170, 36, 0, 0],
+          },
+        ],
+      },
+    ],
+  );
+
+  assert.equal(result.writebacks.length, 89_449);
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
       0,
     ),
-    122_908,
+    122_914,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
       0,
     ),
-    3_622_341,
+    3_622_432,
   );
-  assert.equal(result.hostDeltas.length, 78_585);
-  assert.equal(result.finalGeneration, 168_609);
+  assert.equal(result.hostDeltas.length, 78_589);
+  assert.equal(result.finalGeneration, 168_620);
   assert.equal(result.checkpointCompletion, undefined);
   assert.equal(result.fault.capabilityCluster, "user32-api-contract");
   assert.equal(result.fault.fault.class, "unsupported");
-  assert.equal(result.fault.fault.stage, "user32-windows");
-  assert.equal(result.fault.fault.code, "set-window-pos-size-unsupported");
+  assert.equal(result.fault.fault.stage, "user32-menus");
+  assert.equal(result.fault.fault.code, "get-system-menu-variant-unsupported");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.deepEqual(result.fault.endpoint.endpoint, {
-    id: 202,
-    address: 0x7f00_0c90,
+    id: 178,
+    address: 0x7f00_0b10,
     module: "user32.dll",
-    symbol: { kind: "name", name: "SetWindowPos" },
-    iatAddress: 0x100d_1400,
+    symbol: { kind: "name", name: "GetSystemMenu" },
+    iatAddress: 0x100d_13a0,
     disposition: "declared-runtime-export",
   });
   assert.equal(
     result.fault.memoryContentSha256,
-    "233209a71d74ab8893e91efc9404c8d493d1ea438beba06ae626013b6cbb2deb",
+    "be9494858dd1c5e3abe610d299f2bd5e14b2cfaafb577dded80ed9f76b2b2420",
   );
-  assert.equal(result.terminal.instructionCount, 15_951_782);
-  assert.equal(result.terminal.terminal.returnAddress, 0x1005_cb4b);
+  assert.equal(result.terminal.instructionCount, 15_952_000);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_274c);
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, 8),
-    [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 0x10a],
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x4801_0001, 0],
   );
 }
 
@@ -21445,11 +21545,14 @@ function buildGenericRuntimeReentryReport({
   sourceAfter,
   sourceBefore,
 }) {
+  const completedSupportedCalls = genericResult.supportedCalls.filter(
+    (call) => call.pendingCallback !== true,
+  );
   const semanticCallDigest = new SemanticCallDigest();
-  for (const call of genericResult.supportedCalls) {
+  for (const call of completedSupportedCalls) {
     semanticCallDigest.update(call);
   }
-  assert.equal(semanticCallDigest.count(), genericResult.supportedCalls.length);
+  assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
   const totalDirtyPages = genericResult.writebacks.reduce(
     (total, writeback) => total + writeback.dirtyPages.length,
@@ -22233,11 +22336,10 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    supportedCallCount: genericResult.supportedCalls.length,
+    supportedCallCount: completedSupportedCalls.length,
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256,
-    supportedContinuation:
-      evidenceLevel === "full" ? genericResult.supportedCalls : [],
+    supportedContinuation: evidenceLevel === "full" ? completedSupportedCalls : [],
     firstUnsupported:
       genericResult.fault === null
         ? null

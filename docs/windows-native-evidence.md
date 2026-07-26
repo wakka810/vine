@@ -4999,3 +4999,48 @@ generationを進めない。Shell32 dispatcherはx86 stdcall 2 arguments、calle
 LastError 0を固定する。Browser resource、DOM drag event、`HDROP`、`WM_DROPFILES`、file permission、VFS importは
 このevidenceからclaimしない。詳細は
 [bgi-shell32-drag-accept-files.md](bgi-shell32-drag-accept-files.md)を正とする。
+
+## 147. BGI bounded SetWindowPos resize
+
+Focused `set-window-pos-resize` observationを独立に2回取得した。Primary raw traceは79,078 bytes／92 lines／
+SHA-256 `311da5561cecb67836cfdce773cfca084e3388aa0394d19c6e5c05178b6bf080`、summaryは15,755 bytes／
+SHA-256 `e67cce9f835c65816c5a81f9d2bfa85c9772b644670c24280d5a2f9ef66ebc45`である。Confirmation raw traceは
+79,365 bytes／93 lines／SHA-256 `259a6669030c8e2cd8203a2dbb0b423ba9760115c0d81de68f343c29fba1a555`、
+summaryは15,929 bytes／SHA-256 `fba73c1f2384a8bc340e29982b3625ac43d9c0406818a95c28053af15f21fa1b`
+である。各runは9 API pairsがbalanced、sequence contiguous、diagnostics／hook errors 0である。Raw trace／summaryは
+`.work/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+BGI callerはRVA `0x0005CB4B`へ戻る
+`SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 1286, 749, 0x10A)`を一回呼ぶ。ResultはTRUE、LastErrorは
+0→0で、直後のhelperがBOOLを上書きする。Before outer／client geometryは
+`[15360,8640,806,629]`／`[15363,8666,800,600]`、afterは
+`[15360,8640,1286,749]`／`[15363,8666,1280,720]`である。Style、visibility、client origin、active／focus／
+foreground relationは変わらない。Invalid HWND `0x1234`はFALSE／`ERROR_INVALID_WINDOW_HANDLE` 1,400となる。
+Native HWNDとinternal insert-after HWNDはrunごとに変わるartifact identityでありlogical identityへimportしない。
+
+Callback orderは`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE(wParam=TRUE) -> WM_SIZE ->
+WM_WINDOWPOSCHANGED`、各WndProc／DefWindowProc resultは0で、`WM_MOVE`は発生しない。CHANGINGとNCCALCSIZE entryでは
+old geometry、WM_SIZE entryからnew geometryが可視になる。NCCALCSIZE_PARAMSはnew outer、old outer、old client-screenの
+3 RECTとWINDOWPOS pointerを持つ。WINDOWPOSは1286 x 749、flags `0x190E`で、default procedureは最初のRECTだけを
+new client-screen `[15363,8666,16643,9386]`へ変える。最終WM_WINDOWPOSCHANGED flagsは`0x110E`である。
+
+Vine policy v21はこのexact 800 x 600 clientから1280 x 720 clientへのvariantだけを許可する。Callback scratchは80 bytes、
+offset 48のpointerをoffset 52のWINDOWPOSへrelocateする。`DefWindowProcA(WM_NCCALCSIZE)`のguest writeを確認した後、
+`RuntimeKernel`はpending USER32 geometry planとGDI window-surface resize planを両方preflightし、WM_SIZEより前にcommitする。
+既存surface IDは保持し、reached `NOCOPYBITS` behaviorとしてfill historyをclearする。Surface不在はno-op、live window HDC、
+stale generation、wrong geometryはUSER32／GDIのどちらも変更せず拒否する。Controlled PE integration testは最終
+WM_WINDOWPOSCHANGEDとouter BOOL returnまで固定する。
+
+Primary Nodeは外側SetWindowPosをpendingのまま、完了したDefWindowProcA 2 callsだけをsemantic digestへ含めて
+89,388 completed calls、89,449 writebacks／122,914 dirty pages／3,622,432 changed bytes、78,589 host deltas、
+generation 168,620を通した。Chromeは90,273 slices／90,270 writebacks／124,780 pages、78,589 mapping deltas／
+80,498 dirty pages、generation 169,340、263,342 Wasm crossingsを通した。Semantic SHA-256は
+`120707c8b95c82678df838c5e7fb59bfa411266484b441bb26ae6deb710cda2b`、terminal memory SHA-256は
+`be9494858dd1c5e3abe610d299f2bd5e14b2cfaafb577dded80ed9f76b2b2420`で一致し、cancel／watchdog cleanupもcleanである。
+
+次stopはWM_SIZE callback内、instruction 15,952,000、endpoint ID 178／address `0x7F000B10`／IAT
+`0x100D13A0`／return `0x1009274C`の`USER32.dll!GetSystemMenu(0x48010001,FALSE)`で、faultは
+`get-system-menu-variant-unsupported`である。Live system-menu identity、menu item state、general resize、content copy、
+browser renderer resizeはこのcheckpointで実装済みとしない。Current artifact identityは
+[current-checkpoint.json](current-checkpoint.json)だけを正本とする。

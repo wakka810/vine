@@ -3979,6 +3979,15 @@ setWindowPosSizeSelection.find(
 ).selectedObservations = ["set-window-pos-size"];
 assert.doesNotThrow(() => summarizeTrace(encode(setWindowPosSizeSelection)));
 
+const setWindowPosResizeSelection = structuredClone(events);
+setWindowPosResizeSelection[0].arguments.observations = [
+  "set-window-pos-resize",
+];
+setWindowPosResizeSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-window-pos-resize"];
+assert.doesNotThrow(() => summarizeTrace(encode(setWindowPosResizeSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

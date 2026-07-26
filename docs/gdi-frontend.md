@@ -137,9 +137,17 @@ first rejects stale state and then performs only infallible targeted mutation;
 invalid, stale, exhausted, or unmapped inputs cannot append a fill, consume an
 identity, retire an HDC, or partially change guest memory.
 
-The current surface geometry is fixed at creation. A later window resize is a
-separate cross-subsystem design problem and currently produces an explicit
-geometry conflict instead of silently resizing or replacing the surface.
+The reached window resize is a bounded cross-subsystem operation. After the
+matching `WM_NCCALCSIZE` default procedure completes, `RuntimeKernel`
+preflights the pending `RuntimeUser32` geometry operation and a
+`RuntimeGdi` window-surface resize plan before committing either owner. An
+absent surface is a mutation-free no-op. An existing 800 by 600 surface keeps
+its logical identity, becomes 1280 by 720, clears its bounded fill history for
+the reached `NOCOPYBITS` behavior, and advances its surface and GDI
+generations. A live acquisition HDC, stale plan, wrong source geometry, or
+identity mismatch rejects both the USER32 and GDI changes before mutation.
+General resize, content preservation, and browser renderer resizing are not
+implied.
 
 For the reached D3D9 surface, `FillRect` validates the live HDC and stock brush
 in `RuntimeGdi`, then validates the live COM association, `1024x1024` bounds,
@@ -257,7 +265,8 @@ Rust model tests cover distinct window and screen acquisition identity, typed
 screen serialization, same-thread and monitor relations, shared surface and
 stock object lifetime, stale commit, capacity and generation failure, empty and
 invalid rectangles, graphics-surface HDC uniqueness, COM-retirement guarding,
-cross-owner fill preflight, and process teardown. The dispatcher integration
+cross-owner fill preflight, bounded window-surface resize identity and content
+reset, live-HDC rejection, and process teardown. The dispatcher integration
 tests cover nullable HWND ABI, LastError, guest pointer preflight, repeated
 screen release, policy/display authority, and failure atomicity. GDI32
 dispatcher tests additionally cover the exact 284-byte callback payload,
@@ -284,6 +293,12 @@ The private Node and Chrome runners compare the same immutable GDI completion
 snapshots and stop at the next owned endpoint. Browser TypeScript observes the
 snapshots but owns no Windows or GDI state.
 
+The USER32 integration suite additionally fixes the reached resize sequence
+`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE -> WM_SIZE ->
+WM_WINDOWPOSCHANGED`, verifies that geometry and surface state remain old
+through NCCALCSIZE dispatch and commit together before WM_SIZE, and proves that
+a live window HDC leaves both owners unchanged.
+
 Representative commands are:
 
 ```powershell
@@ -305,6 +320,9 @@ npm run check:runtime:bgi-browser
   dimensions／formats／palettes, file-mapped DIBs, other text, glyphs, fonts,
   positions, colors, background modes, alignment, clipping or raster formats,
   BitBlt, StretchBlt, and general GDI objects are not implemented.
+- Resize variants other than the reached 800 x 600 to 1280 x 720 client
+  transition, copy/preserve/stretch behavior, resizing with a live HDC, and a
+  browser renderer resource are not implemented.
 - The single enumerated record is not general system-font discovery and does
   not claim that a browser or host has the corresponding font installed.
 - Neither logical fill history is a raster buffer; the reached D3D9 fill does

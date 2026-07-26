@@ -204,7 +204,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v20();
+        let policy = User32CompatibilityPolicy::controlled_v21();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -295,7 +295,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v20();
+        let mut policy = User32CompatibilityPolicy::controlled_v21();
         policy
             .swap_mouse_button
             .as_mut()
@@ -392,7 +392,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v20();
+        let policy = User32CompatibilityPolicy::controlled_v21();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -547,7 +547,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v20(),
+            policy: User32CompatibilityPolicy::controlled_v21(),
         }
     }
 
@@ -793,7 +793,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v20(),
+            policy: User32CompatibilityPolicy::controlled_v21(),
         }
     }
 
@@ -994,7 +994,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v20(),
+            policy: User32CompatibilityPolicy::controlled_v21(),
         }
     }
 
@@ -1715,7 +1715,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v20();
+        let policy = User32CompatibilityPolicy::controlled_v21();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
@@ -1889,6 +1889,84 @@ impl RegisterClassFixture {
                 .small_icon
                 .map(|icon| icon.handle),
             Some(icon_handle)
+        );
+        (window_handle, icon_handle)
+    }
+
+    fn prepare_active_window_with_small_icon(&mut self) -> (u32, u32) {
+        let (window_handle, icon_handle) = self.prepare_created_window_with_small_icon();
+        assert!(matches!(
+            self.dispatch_set_window_long_a(window_handle, -16, 0x90ca_0000),
+            DispatchOutcome::Immediate(_)
+        ));
+        self.configure_set_window_pos(
+            [window_handle, 0xffff_fffe, 0, 0, 806, 629, 0x0000_010a],
+            SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+        );
+        let first = match self.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected activation callback, got {other:?}"),
+        };
+        let first_prepared = begin_fixture_callback(self, &first);
+        assert!(matches!(
+            self.dispatch_def_window_proc(window_handle, 0x0046, first_prepared.scratch_address.0),
+            DispatchOutcome::Immediate(_)
+        ));
+        let (second, second_prepared, _) =
+            replace_fixture_callback(self, first, 0, first_prepared.frame_id);
+        assert!(matches!(
+            self.dispatch_def_window_proc(window_handle, 0x0046, second_prepared.scratch_address.0),
+            DispatchOutcome::Immediate(_)
+        ));
+        let (activate_app, activate_app_prepared, _) =
+            replace_fixture_callback(self, second, 0, second_prepared.frame_id);
+        assert!(matches!(
+            self.dispatch_def_window_proc_args(window_handle, 0x001c, 1, 0),
+            DispatchOutcome::Immediate(_)
+        ));
+        let (nc_activate, nc_activate_prepared, _) =
+            replace_fixture_callback(self, activate_app, 0, activate_app_prepared.frame_id);
+        assert!(matches!(
+            self.dispatch_def_window_proc_args(window_handle, 0x0086, 1, 0),
+            DispatchOutcome::Immediate(_)
+        ));
+        let (activate, activate_prepared, _) =
+            replace_fixture_callback(self, nc_activate, 1, nc_activate_prepared.frame_id);
+        let ime = match self.dispatch_def_window_proc_args(window_handle, 0x0006, 1, 0) {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected IME activation callback, got {other:?}"),
+        };
+        let ime_prepared = begin_fixture_callback(self, &ime);
+        let notify = match self.dispatch_def_window_proc_args(window_handle, 0x0281, 1, 0xc000_000f)
+        {
+            DispatchOutcome::GuestCallback(call) => call,
+            other => panic!("expected IME notification callback, got {other:?}"),
+        };
+        let notify_prepared = begin_fixture_callback(self, &notify);
+        assert!(matches!(
+            self.dispatch_def_window_proc_args(window_handle, 0x0282, 2, 0),
+            DispatchOutcome::Immediate(_)
+        ));
+        complete_fixture_callback(self, notify, 0, notify_prepared.frame_id);
+        let (focus, focus_prepared, _) =
+            replace_fixture_callback(self, ime, 0, ime_prepared.frame_id);
+        assert!(matches!(
+            self.dispatch_def_window_proc_args(window_handle, 0x0007, 0, 0),
+            DispatchOutcome::Immediate(_)
+        ));
+        complete_fixture_callback(self, focus, 0, focus_prepared.frame_id);
+        complete_fixture_callback(self, activate, 0, activate_prepared.frame_id);
+        assert_eq!(
+            self.runtime.active_window_handle().unwrap(),
+            Some(window_handle)
+        );
+        assert_eq!(
+            self.runtime.focused_window_handle().unwrap(),
+            Some(window_handle)
+        );
+        assert_eq!(
+            self.runtime.foreground_window_handle().unwrap(),
+            Some(window_handle)
         );
         (window_handle, icon_handle)
     }
@@ -5989,6 +6067,383 @@ fn set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbac
 }
 
 #[test]
+fn set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    let previous_window = fixture.runtime.window(window_handle).unwrap().clone();
+    assert_eq!(
+        previous_window.creation.geometry,
+        RuntimeWindowGeometry {
+            x: 557,
+            y: 214,
+            width: 806,
+            height: 629,
+            client_x: 560,
+            client_y: 240,
+            client_width: 800,
+            client_height: 600,
+        }
+    );
+
+    let dc = match fixture.dispatch_get_dc(window_handle) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("expected window HDC, got {other:?}"),
+        },
+        other => panic!("expected GetDC completion, got {other:?}"),
+    };
+    let surface_id = fixture
+        .runtime
+        .gdi_device_context(dc)
+        .unwrap()
+        .window_surface_id()
+        .unwrap();
+    let brush = match fixture.dispatch_get_stock_object(4) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("expected BLACK_BRUSH, got {other:?}"),
+        },
+        other => panic!("expected GetStockObject completion, got {other:?}"),
+    };
+    fixture
+        .memory
+        .write(
+            CLIENT_RECT_OUTPUT_ADDRESS,
+            &[0_i32, 0, 800, 600]
+                .into_iter()
+                .flat_map(i32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    assert!(matches!(
+        fixture.dispatch_fill_rect(dc, CLIENT_RECT_OUTPUT_ADDRESS, brush),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(1)
+    ));
+    assert!(matches!(
+        fixture.dispatch_release_dc(window_handle, dc),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(1)
+    ));
+    let previous_surface = fixture.runtime.gdi_surfaces()[&surface_id].clone();
+    assert_eq!(
+        (previous_surface.width, previous_surface.height),
+        (800, 600)
+    );
+    assert_eq!(previous_surface.fills.len(), 1);
+
+    fixture.runtime.set_current_last_error(0x2468_ace0).unwrap();
+    fixture.configure_set_window_pos(
+        [window_handle, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+    );
+    let changing = match fixture.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected resize WM_WINDOWPOSCHANGING, got {other:?}"),
+    };
+    assert_eq!(
+        changing.request.scratch,
+        [window_handle, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a,]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    let changing_prepared = begin_fixture_callback(&mut fixture, &changing);
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(
+            window_handle,
+            0x0046,
+            changing_prepared.scratch_address.0,
+        ),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (nccalc, nccalc_prepared, changing_action) =
+        replace_fixture_callback(&mut fixture, changing, 0, changing_prepared.frame_id);
+    assert!(matches!(
+        changing_action,
+        RuntimeGuestCallbackSemanticAction::SetWindowPos(
+            RuntimeSetWindowPosCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+                ..
+            }
+        )
+    ));
+    assert_eq!(
+        nccalc.request.arguments[1],
+        GuestCallbackArgument::U32(0x0083)
+    );
+    assert_eq!(nccalc.request.arguments[2], GuestCallbackArgument::U32(1));
+    assert_eq!(nccalc.request.scratch.len(), 80);
+    assert_eq!(nccalc.request.scratch_pointer_relocations.len(), 1);
+    assert_eq!(
+        nccalc.request.scratch_pointer_relocations[0].write_offset,
+        48
+    );
+    assert_eq!(
+        nccalc.request.scratch_pointer_relocations[0].target_offset,
+        52
+    );
+    let mut expected_nccalc = [
+        557_u32,
+        214,
+        1_843,
+        963,
+        557,
+        214,
+        1_363,
+        843,
+        560,
+        240,
+        1_360,
+        840,
+        0,
+        window_handle,
+        0xffff_fffe,
+        557,
+        214,
+        1_286,
+        749,
+        0x0000_190e,
+    ]
+    .into_iter()
+    .flat_map(u32::to_le_bytes)
+    .collect::<Vec<_>>();
+    expected_nccalc[48..52]
+        .copy_from_slice(&(nccalc_prepared.scratch_address.0 + 52).to_le_bytes());
+    assert_eq!(
+        fixture
+            .memory
+            .read(nccalc_prepared.scratch_address, 80)
+            .unwrap(),
+        expected_nccalc
+    );
+    assert_eq!(
+        fixture.runtime.window(window_handle).unwrap(),
+        &previous_window
+    );
+    assert_eq!(
+        fixture.runtime.gdi_surfaces()[&surface_id],
+        previous_surface
+    );
+
+    let nccalc_default = match fixture.dispatch_def_window_proc_args(
+        window_handle,
+        0x0083,
+        1,
+        nccalc_prepared.scratch_address.0,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected resize NCCALCSIZE default result, got {other:?}"),
+    };
+    assert_eq!(nccalc_default.eax, RegisterUpdate::Set(0));
+    assert_eq!(nccalc_default.guest_writes.len(), 1);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(nccalc_prepared.scratch_address, 16)
+            .unwrap(),
+        [560_i32, 240, 1_840, 960]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        fixture.runtime.window(window_handle).unwrap(),
+        &previous_window
+    );
+    assert_eq!(
+        fixture.runtime.gdi_surfaces()[&surface_id],
+        previous_surface
+    );
+
+    let (size, size_prepared, nccalc_action) =
+        replace_fixture_callback(&mut fixture, nccalc, 0, nccalc_prepared.frame_id);
+    assert!(matches!(
+        nccalc_action,
+        RuntimeGuestCallbackSemanticAction::SetWindowPos(
+            RuntimeSetWindowPosCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosCallbackMessage::Size,
+                ..
+            }
+        )
+    ));
+    let resized_window = fixture.runtime.window(window_handle).unwrap().clone();
+    assert_eq!(
+        resized_window.creation.geometry,
+        RuntimeWindowGeometry {
+            width: 1_286,
+            height: 749,
+            client_width: 1_280,
+            client_height: 720,
+            ..previous_window.creation.geometry
+        }
+    );
+    let resized_surface = fixture.runtime.gdi_surfaces()[&surface_id].clone();
+    assert_eq!(resized_surface.id, previous_surface.id);
+    assert_eq!(
+        (resized_surface.width, resized_surface.height),
+        (1_280, 720)
+    );
+    assert!(resized_surface.fills.is_empty());
+    assert_eq!(resized_surface.generation, previous_surface.generation + 1);
+    assert_eq!(
+        size.request.arguments,
+        [window_handle, 0x0005, 0, 0x02d0_0500]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc_args(window_handle, 0x0005, 0, 0x02d0_0500),
+        DispatchOutcome::Immediate(_)
+    ));
+
+    let (changed, changed_prepared, _) =
+        replace_fixture_callback(&mut fixture, size, 0, size_prepared.frame_id);
+    assert_eq!(
+        changed.request.scratch,
+        [
+            window_handle,
+            0xffff_fffe,
+            557,
+            214,
+            1_286,
+            749,
+            0x0000_110e,
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>()
+    );
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(
+            window_handle,
+            0x0047,
+            changed_prepared.scratch_address.0,
+        ),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(0)
+    ));
+    let (completion, action) =
+        complete_fixture_callback(&mut fixture, changed, 0, changed_prepared.frame_id);
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, 0x2468_ace0);
+    assert!(matches!(
+        action,
+        Some(RuntimeGuestCallbackSemanticAction::SetWindowPos(
+            RuntimeSetWindowPosCallbackAction::Completed { .. }
+        ))
+    ));
+    assert_eq!(
+        fixture.runtime.window(window_handle).unwrap(),
+        &resized_window
+    );
+    assert_eq!(fixture.runtime.gdi_surfaces()[&surface_id], resized_surface);
+    assert!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+}
+
+#[test]
+fn set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    let dc = match fixture.dispatch_get_dc(window_handle) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("expected live window HDC, got {other:?}"),
+        },
+        other => panic!("expected GetDC completion, got {other:?}"),
+    };
+    fixture.configure_set_window_pos(
+        [window_handle, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+    );
+    let changing = match fixture.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected resize WM_WINDOWPOSCHANGING, got {other:?}"),
+    };
+    let changing_prepared = begin_fixture_callback(&mut fixture, &changing);
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(
+            window_handle,
+            0x0046,
+            changing_prepared.scratch_address.0,
+        ),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (nccalc, nccalc_prepared, _) =
+        replace_fixture_callback(&mut fixture, changing, 0, changing_prepared.frame_id);
+    assert!(matches!(
+        fixture.dispatch_def_window_proc_args(
+            window_handle,
+            0x0083,
+            1,
+            nccalc_prepared.scratch_address.0,
+        ),
+        DispatchOutcome::Immediate(_)
+    ));
+    fixture.acknowledge_pending_delta();
+    let runtime_before = fixture.runtime.clone();
+    let fault = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(nccalc, 0, &mut session)
+        {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected live-HDC resize fault, got {other:?}"),
+        }
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "window-surface-resize-dc-live");
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .creation
+            .geometry,
+        RuntimeWindowGeometry {
+            x: 557,
+            y: 214,
+            width: 806,
+            height: 629,
+            client_x: 560,
+            client_y: 240,
+            client_width: 800,
+            client_height: 600,
+        }
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .gdi_surfaces()
+            .values()
+            .map(|surface| (surface.width, surface.height))
+            .collect::<Vec<_>>(),
+        vec![(800, 600)]
+    );
+    fixture
+        .runtime
+        .pop_callback_frame(nccalc_prepared.frame_id)
+        .unwrap();
+    assert!(matches!(
+        fixture.dispatch_release_dc(window_handle, dc),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(1)
+    ));
+}
+
+#[test]
 fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_with_small_icon();
@@ -6033,6 +6488,16 @@ fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
             0x0000_010a,
             ApiFaultClass::InvalidCall,
             "set-window-pos-activation-state-invalid",
+        ),
+        (
+            0xffff_fffe,
+            0,
+            0,
+            1_286,
+            749,
+            0x0000_010a,
+            ApiFaultClass::InvalidCall,
+            "set-window-pos-resize-state-invalid",
         ),
         (
             0xffff_fffe,
