@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
+const MONITOR_SCHEMA_VERSION = 2;
+const MAXIMUM_EXTERNAL_PROCESS_ENTRIES = 8;
 
 function invariant(condition, message) {
   if (!condition) {
@@ -85,6 +88,47 @@ function maximum(values) {
 
 function mean(values) {
   return values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function summarizeExternalProcesses(samples) {
+  const summaries = new Map();
+  for (const sample of samples) {
+    for (const process of sample.externalProcesses ?? []) {
+      if (
+        typeof process.identity !== "string" ||
+        !Number.isSafeInteger(process.processId) ||
+        typeof process.name !== "string" ||
+        !finite(process.cpuPercent) ||
+        process.cpuPercent < 0
+      ) {
+        continue;
+      }
+      const summary = summaries.get(process.identity) ?? {
+        identity: process.identity,
+        processId: process.processId,
+        name: process.name,
+        executablePath: process.executablePath ?? null,
+        observedSamples: 0,
+        totalPercent: 0,
+        maximumPercent: 0,
+      };
+      summary.observedSamples += 1;
+      summary.totalPercent += process.cpuPercent;
+      summary.maximumPercent = Math.max(summary.maximumPercent, process.cpuPercent);
+      summaries.set(process.identity, summary);
+    }
+  }
+  return [...summaries.values()]
+    .sort(
+      (left, right) =>
+        right.totalPercent - left.totalPercent || left.identity.localeCompare(right.identity),
+    )
+    .slice(0, MAXIMUM_EXTERNAL_PROCESS_ENTRIES)
+    .map(({ totalPercent, ...summary }) => ({
+      ...summary,
+      meanAcrossObservationPercent: samples.length === 0 ? null : totalPercent / samples.length,
+      meanWhileObservedPercent: totalPercent / summary.observedSamples,
+    }));
 }
 
 function longestExcursion(samples, selector, threshold, startIndex) {
@@ -208,9 +252,24 @@ export function evaluateBrowserPerformanceEnvironment(policyValue, observation, 
   }
   const counterMissing = samples.filter(
     (sample) =>
+      sample.schemaVersion !== MONITOR_SCHEMA_VERSION ||
       !finite(sample.totalCpuPercent) ||
+      !finite(sample.browserCpuPercent) ||
+      !finite(sample.externalCpuPercent) ||
+      !finite(sample.externalProcessCpuPercent) ||
+      !finite(sample.unattributedExternalCpuPercent) ||
       !finite(sample.physicalDiskBytesPerSecond) ||
       !finite(sample.physicalDiskBusyPercent) ||
+      !Array.isArray(sample.externalProcesses) ||
+      sample.externalProcesses.length > MAXIMUM_EXTERNAL_PROCESS_ENTRIES ||
+      sample.externalProcesses.some(
+        (process) =>
+          typeof process.identity !== "string" ||
+          !Number.isSafeInteger(process.processId) ||
+          typeof process.name !== "string" ||
+          !finite(process.cpuPercent) ||
+          process.cpuPercent < 0,
+      ) ||
       sample.rootProcessPresent !== true,
   );
   if (counterMissing.length > Math.max(1, Math.floor(samples.length * 0.05))) {
@@ -317,6 +376,14 @@ export function evaluateBrowserPerformanceEnvironment(policyValue, observation, 
         mean: mean(values("externalCpuPercent")),
         maximum: maximum(values("externalCpuPercent")),
       },
+      externalProcessCpuPercent: {
+        mean: mean(values("externalProcessCpuPercent")),
+        maximum: maximum(values("externalProcessCpuPercent")),
+      },
+      unattributedExternalCpuPercent: {
+        mean: mean(values("unattributedExternalCpuPercent")),
+        maximum: maximum(values("unattributedExternalCpuPercent")),
+      },
       physicalDiskBytesPerSecond: {
         mean: mean(values("physicalDiskBytesPerSecond")),
         maximum: maximum(values("physicalDiskBytesPerSecond")),
@@ -333,6 +400,7 @@ export function evaluateBrowserPerformanceEnvironment(policyValue, observation, 
     excursions,
     updaterEvents,
     qosChanges: observedQosChanges,
+    externalProcessContributors: summarizeExternalProcesses(samples),
   };
 }
 
@@ -369,6 +437,12 @@ export async function startBrowserPerformanceEnvironmentMonitor({
   assert.equal(process.platform, "win32", "browser performance environment monitor is Windows-only");
   assert(Number.isSafeInteger(rootProcessId) && rootProcessId > 0, "Chrome root process ID is invalid");
   const scriptPath = path.join(root, "tools", "windows", "monitor-browser-performance-environment.ps1");
+  const monitorBytes = await readFile(scriptPath);
+  const monitor = {
+    path: path.relative(root, scriptPath).split(path.sep).join("/"),
+    bytes: monitorBytes.byteLength,
+    sha256: crypto.createHash("sha256").update(monitorBytes).digest("hex"),
+  };
   const child = spawn(
     "powershell.exe",
     [
@@ -453,9 +527,15 @@ export async function startBrowserPerformanceEnvironmentMonitor({
     }
   });
   await readyPromise;
+  invariant(ready.schemaVersion === MONITOR_SCHEMA_VERSION, "environment monitor schema is unsupported");
+  invariant(
+    ready.maximumExternalProcessEntries === MAXIMUM_EXTERNAL_PROCESS_ENTRIES,
+    "environment monitor external process bound is inconsistent",
+  );
 
   return {
     ready,
+    monitor,
     async stop() {
       if (!exited) {
         child.kill("SIGKILL");
@@ -471,7 +551,7 @@ export async function startBrowserPerformanceEnvironmentMonitor({
       }
       const observation = {
         schema: "vine.browser-performance-environment-observation",
-        schemaVersion: 1,
+        schemaVersion: MONITOR_SCHEMA_VERSION,
         ready,
         monitorExit: exitDetails,
         stderr: stderr.trim(),
@@ -479,6 +559,7 @@ export async function startBrowserPerformanceEnvironmentMonitor({
         samples,
       };
       return {
+        monitor,
         observation,
         decision: evaluateBrowserPerformanceEnvironment(
           policy,

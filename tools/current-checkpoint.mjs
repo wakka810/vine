@@ -2581,6 +2581,7 @@ export function validateCurrentCheckpoint(manifest) {
     "observationStatus",
     "chromeArtifactId",
     "environmentPolicy",
+    "environmentMonitor",
     "environmentStatus",
   ]) {
     requireString(
@@ -2611,6 +2612,9 @@ export function validateCurrentCheckpoint(manifest) {
     "thresholdFailures",
     "thresholdEvaluationCount",
     "environmentSamples",
+    "environmentObservationSchemaVersion",
+    "environmentMonitorBytes",
+    "externalProcessAttributionLimit",
     "updaterEvents",
     "sustainedEnvironmentExcursions",
     "qosChangesObserved",
@@ -2648,6 +2652,7 @@ export function validateCurrentCheckpoint(manifest) {
     "chromeArchiveSha256",
     "chromeExecutableSha256",
     "environmentPolicySha256",
+    "environmentMonitorSha256",
     "runtimeCoreWasmSha256",
     "runtimeWorkerSha256",
     "benchmarkMainSha256",
@@ -2680,6 +2685,13 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
       "fixtures/benchmarks/browser-performance-environment-windows-v1.json" ||
+    bgiBenchmarkEvidence.environmentMonitor !==
+      "tools/windows/monitor-browser-performance-environment.ps1" ||
+    bgiBenchmarkEvidence.environmentObservationSchemaVersion !== 2 ||
+    bgiBenchmarkEvidence.environmentMonitorBytes !== 21_398 ||
+    bgiBenchmarkEvidence.environmentMonitorSha256 !==
+      "1d846304ef1590e564b3c82f44c14c3e53ce51db48457bd5eadf6c24cee7c94d" ||
+    bgiBenchmarkEvidence.externalProcessAttributionLimit !== 8 ||
     (benchmarkEnvironmentBlocked
       ? bgiBenchmarkEvidence.environmentStatus !== "invalid-environment" ||
         benchmarkEnvironmentReasonIds.length === 0

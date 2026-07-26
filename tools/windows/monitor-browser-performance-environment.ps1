@@ -134,6 +134,15 @@ public sealed class VineProcessObservation
     public UInt32 PowerThrottlingStateMask { get; set; }
 }
 
+public sealed class VineProcessCpuObservation
+{
+    public Int32 ProcessId { get; set; }
+    public string Name { get; set; }
+    public string ExecutablePath { get; set; }
+    public UInt64 CreationTime100ns { get; set; }
+    public UInt64 CpuTime100ns { get; set; }
+}
+
 public static class VineProcessNative
 {
     private const UInt32 SnapshotProcesses = 0x00000002;
@@ -232,6 +241,15 @@ public static class VineProcessNative
         return ((UInt64)value.High << 32) | value.Low;
     }
 
+    private static string ExecutablePath(IntPtr process)
+    {
+        var path = new StringBuilder(32768);
+        UInt32 pathLength = (UInt32)path.Capacity;
+        return QueryFullProcessImageNameW(process, 0, path, ref pathLength)
+            ? path.ToString()
+            : null;
+    }
+
     public static VineProcessEntry[] EnumerateProcesses()
     {
         IntPtr snapshot = CreateToolhelp32Snapshot(SnapshotProcesses, 0);
@@ -307,16 +325,11 @@ public static class VineProcessNative
             {
                 return null;
             }
-            var path = new StringBuilder(32768);
-            UInt32 pathLength = (UInt32)path.Capacity;
-            string executablePath = QueryFullProcessImageNameW(process, 0, path, ref pathLength)
-                ? path.ToString()
-                : null;
             return new VineProcessObservation
             {
                 ProcessId = processId,
                 Name = name,
-                ExecutablePath = executablePath,
+                ExecutablePath = ExecutablePath(process),
                 CreationTime100ns = Combine(creation),
                 CpuTime100ns = Combine(kernel) + Combine(user),
                 IoTransferBytes = io.ReadTransferCount + io.WriteTransferCount,
@@ -324,6 +337,38 @@ public static class VineProcessNative
                 PriorityBoostDisabled = boostDisabled,
                 PowerThrottlingControlMask = power.ControlMask,
                 PowerThrottlingStateMask = power.StateMask,
+            };
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
+    }
+
+    public static VineProcessCpuObservation ObserveCpu(Int32 processId, string name)
+    {
+        IntPtr process = OpenProcess(QueryLimitedInformation, false, unchecked((UInt32)processId));
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+        try
+        {
+            FileTime creation;
+            FileTime exit;
+            FileTime kernel;
+            FileTime user;
+            if (!GetProcessTimes(process, out creation, out exit, out kernel, out user))
+            {
+                return null;
+            }
+            return new VineProcessCpuObservation
+            {
+                ProcessId = processId,
+                Name = name,
+                ExecutablePath = ExecutablePath(process),
+                CreationTime100ns = Combine(creation),
+                CpuTime100ns = Combine(kernel) + Combine(user),
             };
         }
         finally
@@ -346,6 +391,8 @@ $logicalCpus = [Environment]::ProcessorCount
 $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 $previousElapsedMilliseconds = 0.0
 $previousProcesses = @{}
+$previousExternalProcesses = @{}
+$maximumExternalProcessEntries = 8
 $sequence = 0
 $counters = [VinePdhCounters]::new()
 
@@ -353,16 +400,18 @@ try {
     $counters.Prime()
     Write-Ndjson ([ordered]@{
         kind = "ready"
-        schemaVersion = 1
+        schemaVersion = 2
         observedAtUtc = [DateTime]::UtcNow.ToString("o")
         rootProcessId = $RootProcessId
         logicalCpus = $logicalCpus
         sampleIntervalMilliseconds = $SampleIntervalMilliseconds
+        maximumExternalProcessEntries = $maximumExternalProcessEntries
         counters = @(
             "total-cpu-percent",
             "physical-disk-bytes-per-second",
             "physical-disk-busy-percent",
             "chrome-process-cpu-io-priority-power-throttling",
+            "external-process-cpu-attribution",
             "updater-process-lifecycle"
         )
     })
@@ -448,14 +497,62 @@ try {
             }
         }
 
+        $externalProcesses = @()
+        $currentExternalProcesses = @{}
+        [double]$externalProcessCpuPercent = 0.0
+        $externalProcessDeltaAvailable = $false
+        foreach ($entry in $processEntries) {
+            if ($descendantIds.Contains($entry.ProcessId)) {
+                continue
+            }
+            $observation = [VineProcessNative]::ObserveCpu($entry.ProcessId, $entry.Name)
+            if ($null -eq $observation) {
+                continue
+            }
+            $identity = "{0}:{1}" -f $observation.ProcessId, $observation.CreationTime100ns
+            $currentExternalProcesses[$identity] = $observation
+            if (-not $previousExternalProcesses.ContainsKey($identity)) {
+                continue
+            }
+            $previous = $previousExternalProcesses[$identity]
+            if ($observation.CpuTime100ns -lt $previous.CpuTime100ns) {
+                continue
+            }
+            $cpuSeconds = [double]($observation.CpuTime100ns - $previous.CpuTime100ns) / 10000000.0
+            $cpuPercent = ($cpuSeconds / $elapsedSeconds / $logicalCpus) * 100.0
+            $externalProcessCpuPercent += $cpuPercent
+            $externalProcessDeltaAvailable = $true
+            if ($cpuPercent -gt 0.0) {
+                $externalProcesses += [pscustomobject][ordered]@{
+                    identity = $identity
+                    processId = $observation.ProcessId
+                    name = $observation.Name
+                    executablePath = $observation.ExecutablePath
+                    cpuPercent = $cpuPercent
+                }
+            }
+        }
+        $externalProcesses = @(
+            $externalProcesses |
+                Sort-Object -Property cpuPercent -Descending |
+                Select-Object -First $maximumExternalProcessEntries
+        )
+
         $totalCpuPercent = $counterValues.TotalCpuPercent
         $externalCpuPercent = $null
+        $unattributedExternalCpuPercent = $null
         if ($null -ne $totalCpuPercent -and $browserDeltaAvailable) {
             $externalCpuPercent = [Math]::Max(0.0, [double]$totalCpuPercent - $browserCpuPercent)
+            if ($externalProcessDeltaAvailable) {
+                $unattributedExternalCpuPercent = [Math]::Max(
+                    0.0,
+                    $externalCpuPercent - $externalProcessCpuPercent
+                )
+            }
         }
         Write-Ndjson ([ordered]@{
             kind = "sample"
-            schemaVersion = 1
+            schemaVersion = 2
             sequence = $sequence
             observedAtUtc = [DateTime]::UtcNow.ToString("o")
             elapsedMilliseconds = $elapsedMilliseconds
@@ -463,13 +560,17 @@ try {
             totalCpuPercent = $totalCpuPercent
             browserCpuPercent = $(if ($browserDeltaAvailable) { $browserCpuPercent } else { $null })
             externalCpuPercent = $externalCpuPercent
+            externalProcessCpuPercent = $(if ($externalProcessDeltaAvailable) { $externalProcessCpuPercent } else { $null })
+            unattributedExternalCpuPercent = $unattributedExternalCpuPercent
             physicalDiskBytesPerSecond = $counterValues.PhysicalDiskBytesPerSecond
             physicalDiskBusyPercent = $counterValues.PhysicalDiskBusyPercent
             browserIoBytesPerSecond = $(if ($browserDeltaAvailable) { $browserIoBytesPerSecond } else { $null })
             browserProcesses = $browserProcesses
+            externalProcesses = $externalProcesses
             updateCandidates = $updateCandidates
         })
         $previousProcesses = $currentProcesses
+        $previousExternalProcesses = $currentExternalProcesses
         $previousElapsedMilliseconds = $elapsedMilliseconds
         $sequence += 1
     }
@@ -477,7 +578,7 @@ try {
 catch {
     Write-Ndjson ([ordered]@{
         kind = "error"
-        schemaVersion = 1
+        schemaVersion = 2
         observedAtUtc = [DateTime]::UtcNow.ToString("o")
         message = $_.Exception.Message
         category = $_.CategoryInfo.Category.ToString()

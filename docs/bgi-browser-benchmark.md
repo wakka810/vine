@@ -2,12 +2,12 @@
 
 ## Status
 
-- Status: structured performance-environment blocker
+- Status: accepted threshold pass in a valid environment
 - Workload: `runtime-waitable-timer-pacing` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
   [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
-- Accepted performance evidence: none while the environment is invalid
+- Accepted performance evidence: current manifest report identity
 
 This observation repeats the complete reached waitable-timer pacing path in one
 Chrome Dedicated Worker. Every session starts a fresh Rust runtime and v86
@@ -44,8 +44,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current workload
-decision is `passed`, but the observation is not acceptable while its
-independent environment decision is `invalid-environment`.
+and independent environment decisions are both `passed`／`valid`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -59,31 +58,30 @@ remain in the report for diagnosis but cannot be accepted. The first five
 samples cover target creation: QoS changes there remain recorded, while only
 post-warm-up transitions qualify as contamination. Canonical launch disables
 renderer backgrounding, occlusion backgrounding, and background timer
-throttling. The P99 heartbeat limit remains 25 ms.
+throttling. Environment observation schema version 2 tracks every external
+process by PID plus creation time, retains the top eight CPU contributors per
+sample, records unattributed residual CPU, and binds the executed monitor script
+by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
 The unchanged waitable-timer workload passed all 17 versioned workload
-thresholds with zero semantic failures in both full runs. The first candidate
+thresholds with zero semantic failures in the two historical invalid-
+environment runs and the accepted valid-environment run. The first candidate
 also exposed a duplicated full-memory reflection at terminal publication. A
 copy-free Rust memory summary removed that observer-only allocation and brought
 the runtime-core linear-memory observation back below its unchanged ceiling
 without changing guest bytes, scheduling semantics, or any threshold.
 
-Neither full run is acceptable performance evidence because the independent
+The first two full runs remain historical diagnostics because the independent
 environment monitor observed the policy-defined consecutive external-CPU
-excursion. The first report and the unchanged confirmation report are retained
-under ignored `.work/` paths. No unrelated process was stopped, no threshold was
-relaxed, and no invalid-environment run was promoted to accepted evidence.
-
-This is a structured performance-environment blocker. Resume by running the
-same 180-second configuration and unchanged 17 thresholds on an isolated or
-explicitly quiescent host. The checkpoint may advance to
-`KERNEL32.dll!EnterCriticalSection` only when the workload passes and the
-environment decision is `valid`. Exact report identities, observed excursions,
-artifact hashes, metrics, attempted options, protected invariants, and the
-machine-readable resume condition live only in
-[current-checkpoint.json](current-checkpoint.json).
+excursion. The original aggregate sampler could not identify the responsible
+process. The versioned replacement records bounded process attribution without
+excluding any process or relaxing a threshold. Its unchanged 180-second run
+passed both the workload and environment decisions, so the structured blocker
+is resolved and the checkpoint advances to
+`KERNEL32.dll!EnterCriticalSection`. Exact accepted metrics and report identity
+live only in [current-checkpoint.json](current-checkpoint.json).
 
 ### Historical accepted DirectInput observation
 
@@ -199,8 +197,8 @@ repository task and was not changed. The fixed duration and thresholds were
 preserved, and no rerun was used as acceptance evidence. The exact benchmark
 report and Node comparison identity, attempted options, protected invariants,
 required authority, and resume condition were structured in the then-current
-checkpoint manifest. That resolved blocker is no longer active; the current
-manifest records the distinct waitable-timer environment blocker.
+checkpoint manifest. That resolved blocker and the later waitable-timer
+environment blocker are no longer active.
 
 The user paused both external workloads. One isolated rerun used the same
 180-second fixture and unchanged thresholds, completed 45 sessions, and passed
@@ -302,14 +300,16 @@ any threshold.
 
 The runner records the host, CPU, logical-CPU count, memory, Node version, pinned
 Chrome identity, process policy, and sampled environment in each report. Current
-values and both invalid-environment report identities are stored in
-[current-checkpoint.json](current-checkpoint.json), not duplicated here.
+accepted values and report identity are stored in
+[current-checkpoint.json](current-checkpoint.json), not duplicated here. The two
+invalid-environment reports remain ignored historical diagnostics.
 
 ## Artifact identity
 
 Every report fingerprints the Rust runtime core Wasm, v86 adapter Wasm,
 Runtime Worker bundle, benchmark bundle, execution-engine profile, workload
-configuration, Chrome manifest／archive／executable, and environment policy.
+configuration, Chrome manifest／archive／executable, environment policy, and
+environment monitor script.
 Current byte counts and hashes live only in the checkpoint manifest.
 
 The private executable is never copied into the browser build or Git. The

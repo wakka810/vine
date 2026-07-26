@@ -70,16 +70,28 @@ const processState = {
 const makeSamples = () =>
   Array.from({ length: 8 }, (_, sequence) => ({
     kind: "sample",
+    schemaVersion: 2,
     sequence,
     elapsedMilliseconds: (sequence + 1) * 1_000,
     rootProcessPresent: true,
     totalCpuPercent: 10,
     browserCpuPercent: 8,
     externalCpuPercent: 2,
+    externalProcessCpuPercent: 2,
+    unattributedExternalCpuPercent: 0,
     physicalDiskBytesPerSecond: 1_000,
     physicalDiskBusyPercent: 1,
     browserIoBytesPerSecond: 100,
     browserProcesses: [{ ...processState }],
+    externalProcesses: [
+      {
+        identity: "900:1",
+        processId: 900,
+        name: "ChatGPT.exe",
+        executablePath: "C:\\Program Files\\WindowsApps\\ChatGPT.exe",
+        cpuPercent: 2,
+      },
+    ],
     updateCandidates: [],
   }));
 const syntheticPolicy = structuredClone(policy);
@@ -96,6 +108,18 @@ const valid = evaluate(makeSamples());
 assert.equal(valid.status, "valid");
 assert.deepEqual(valid.reasonIds, []);
 assert.equal(valid.sampleCoverage.observed, 8);
+assert.deepEqual(valid.externalProcessContributors, [
+  {
+    identity: "900:1",
+    processId: 900,
+    name: "ChatGPT.exe",
+    executablePath: "C:\\Program Files\\WindowsApps\\ChatGPT.exe",
+    observedSamples: 8,
+    maximumPercent: 2,
+    meanAcrossObservationPercent: 2,
+    meanWhileObservedPercent: 2,
+  },
+]);
 
 const updaterSamples = makeSamples();
 updaterSamples[2].updateCandidates.push({
@@ -109,8 +133,20 @@ assert.deepEqual(evaluate(updaterSamples).reasonIds, ["updater-process-observed"
 const cpuSamples = makeSamples();
 for (const index of [2, 3, 4]) {
   cpuSamples[index].externalCpuPercent = 20;
+  cpuSamples[index].externalProcessCpuPercent = 20;
+  cpuSamples[index].externalProcesses[0].cpuPercent = 20;
 }
 assert(evaluate(cpuSamples).reasonIds.includes("sustained-external-cpu"));
+
+const missingAttributionSamples = makeSamples();
+for (const sample of missingAttributionSamples) {
+  delete sample.externalProcessCpuPercent;
+}
+assert(
+  evaluate(missingAttributionSamples).reasonIds.includes(
+    "required-environment-counter-missing",
+  ),
+);
 
 const diskSamples = makeSamples();
 for (const index of [1, 2, 3]) {
@@ -157,13 +193,20 @@ if (process.platform === "win32") {
   });
   await new Promise((resolve) => setTimeout(resolve, 2_200));
   const live = await liveMonitor.stop();
+  assert.equal(live.observation.schemaVersion, 2);
+  assert.equal(live.monitor.path, "tools/windows/monitor-browser-performance-environment.ps1");
+  assert(live.monitor.bytes > 0);
+  assert.match(live.monitor.sha256, /^[0-9a-f]{64}$/u);
   assert(live.observation.samples.length >= 2, "live monitor did not provide two samples");
   assert(
     live.observation.samples.every(
       (sample) =>
         sample.rootProcessPresent === true &&
+        sample.schemaVersion === 2 &&
         Number.isFinite(sample.totalCpuPercent) &&
-        Number.isFinite(sample.physicalDiskBytesPerSecond),
+        Number.isFinite(sample.physicalDiskBytesPerSecond) &&
+        Array.isArray(sample.externalProcesses) &&
+        sample.externalProcesses.length <= 8,
     ),
     "live monitor omitted a required Windows counter",
   );

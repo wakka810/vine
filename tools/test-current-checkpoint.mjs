@@ -29,18 +29,14 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(manifest.browserCheckpoint.bgiBenchmark, "environment-blocked");
-assert.equal(
-  manifest.browserCheckpoint.bgiBenchmarkBlocker.kind,
-  "performance-environment-blocker",
-);
-assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmarkBlocker.id));
+assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
+assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
 assert.equal(manifest.schemaVersion, 4);
 assert.equal(manifest.activeBlocker, null);
-assert.ok(rendered.includes("| Active blocker |"));
+assert.ok(!rendered.includes("| Active blocker |"));
 assert.equal(
   manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
-  "invalid-environment",
+  "valid",
 );
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
@@ -177,7 +173,7 @@ const unexpectedStructuredBenchmarkBlocker = structuredClone(manifest);
 unexpectedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker = {};
 assert.ok(
   validateCurrentCheckpoint(unexpectedStructuredBenchmarkBlocker).some((error) =>
-    error.includes("performance-environment blocker"),
+    error.includes("passed browser benchmark"),
   ),
 );
 
@@ -193,9 +189,7 @@ const clearedActiveBlocker = structuredClone(manifest);
 clearedActiveBlocker.activeBlocker = null;
 assert.deepEqual(validateCurrentCheckpoint(clearedActiveBlocker), []);
 assert.ok(
-  renderReadmeStatus(clearedActiveBlocker).includes(
-    clearedActiveBlocker.browserCheckpoint.bgiBenchmarkBlocker.id,
-  ),
+  !renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"),
 );
 
 const mismatchedBenchmarkProfile = structuredClone(manifest);
@@ -211,6 +205,15 @@ const mismatchedRuntimeCoreArtifact = structuredClone(manifest);
 mismatchedRuntimeCoreArtifact.browserCheckpoint.bgiBenchmarkEvidence.runtimeCoreWasmBytes += 1;
 assert.ok(
   validateCurrentCheckpoint(mismatchedRuntimeCoreArtifact).some((error) =>
+    error.includes("benchmark evidence"),
+  ),
+);
+
+const mismatchedEnvironmentMonitor = structuredClone(manifest);
+mismatchedEnvironmentMonitor.browserCheckpoint.bgiBenchmarkEvidence.environmentMonitorSha256 =
+  "0".repeat(64);
+assert.ok(
+  validateCurrentCheckpoint(mismatchedEnvironmentMonitor).some((error) =>
     error.includes("benchmark evidence"),
   ),
 );

@@ -1793,6 +1793,7 @@ if (serveOnly) {
               sha256: hash(environmentPolicy.bytes),
               value: environmentPolicy.value,
             },
+            monitor: performanceEnvironment.monitor,
             decision: performanceEnvironment.decision,
             observation: performanceEnvironment.observation,
           },

@@ -1241,12 +1241,15 @@ optimizationへ進む。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-b
 `151.0.7922.34`を使い、versionだけでなくofficial archiveとexecutableのSHA-256をtracked manifestで
 固定する。実行前sampleから終了まで、別processがUpdater lifecycle、system／Chrome-tree／external CPU、
 physical disk throughput／busy、Chrome PIDごとのpriority class／priority boost／power throttlingを監視する。
+Environment observation schema version 2はexternal processをPID＋creation timeで追跡し、CPU delta上位8件と
+process counterで説明できない残差を各sampleへ保存する。Benchmark reportは実行したmonitor scriptのbytes／
+SHA-256も固定し、aggregate external CPUだけを残す再現不能な診断を禁止する。
 監視欠測、Updater、versionedな持続CPU／disk excursion、同一processのQoS変化はworkload threshold failureと
 混ぜず`invalid-environment`として破棄する。Heartbeat P99 25 msを含む17 thresholdは不変である。
-Current waitable-timer pacing workloadは17 thresholdをすべて通過した一方、初回とunchanged
-confirmationがともにsustained external CPUで`invalid-environment`となった。Semantic checkpointは
-保持するがperformance acceptanceとprivate evidence更新は行わず、同じfixtureがvalid environmentで
-通過することを次のcheckpoint受け入れ条件とする。Exact current値はmanifestだけを正本とする。
+Current waitable-timer pacing workloadの先行二runは17 thresholdをすべて通過した一方、sustained
+external CPUで`invalid-environment`となった。Process attribution追加後の同一fixture／thresholdによる
+再実行は17／17 workload threshold、environment qualificationともに通過したため、旧blockerを解除して
+`EnterCriticalSection`を次のstructured stopとする。Exact current値はmanifestだけを正本とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

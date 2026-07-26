@@ -128,7 +128,11 @@ On Windows the runner starts a separate low-overhead environment sampler before
 the workload and keeps it active until the 180-second execution ends. The
 versioned policy records system and Chrome-tree CPU, physical-disk throughput／
 busy time, Chrome process priority／priority boost／power-throttling state, and
-Updater lifecycle. Missing coverage, a sustained external CPU／disk excursion,
+Updater lifecycle. Observation schema version 2 also attributes external
+process CPU by PID plus creation time, retains only the bounded top eight
+contributors per sample, and records the residual not explained by process CPU
+counters. The report binds the exact monitor script by bytes and SHA-256.
+Missing coverage, a sustained external CPU／disk excursion,
 an Updater process, or a post-warm-up same-process QoS change classifies the
 report as `invalid-environment`; it is discarded rather than counted as a
 workload pass or failure. Target-creation QoS changes in the first five samples
@@ -139,9 +143,9 @@ thresholds.
 current manifest is `threshold-passed`, retains no active blocker, and records
 the fixed Chrome artifact, environment qualification, all 17 evaluations, and
 accepted report identity.
-The current performance-clock workload passed the same 180-second gate without
-changing the 17 workload thresholds; downstream work therefore proceeds to the
-manifested User32 stop.
+The current waitable-timer pacing workload passed the same 180-second gate in a
+valid environment without changing the 17 workload thresholds; downstream work
+therefore proceeds to the manifested `EnterCriticalSection` stop.
 
 The canonical commit-bound private target gate is:
 

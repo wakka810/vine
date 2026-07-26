@@ -16,8 +16,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `kernel32-wait-for-single-object-ex`: 18698 calls across 112 endpoint contracts / 110 APIs, memory generation 36680 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `environment-blocked` (102 sessions) |
-| Active blocker | `waitable-timer-pacing-performance-environment-v1`: `sustained-external-cpu`; Run the unchanged 180-second gate on an isolated or explicitly quiescent host and accept kernel32-enter-critical-section only after all 17 workload thresholds pass with a valid performance environment. |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (106 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `kernel32-wait-for-single-object-ex` completed 3 recurring waits by instruction 11973853; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11973878 (`waitable-timer-pacing-complete`) |
 

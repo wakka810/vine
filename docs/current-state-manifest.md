@@ -57,10 +57,13 @@ completion、最終memory digest、structured stop、cancel／watchdog teardown�
 `browserCheckpoint.bgiBenchmark`は別のversioned 3分 workload gateのoutcomeである。
 `threshold-passed`はsession／slice分布、main／Worker memory slope、linear memory、Wasm crossingの
 全threshold合格、`threshold-blocked`はfailure IDを伴う未完了checkpointを表す。Versioned BGI
-workloadはtimer clamp非依存のWorker yieldを使う。どちらのstatusも
+workloadはtimer clamp非依存のWorker yieldを使う。`environment-blocked`はworkload thresholdを
+通過してもversioned host qualificationがinvalidな未完了checkpointを表す。Environment observation
+schema、monitor scriptのbytes／SHA-256、PID＋creation-time identityによるbounded external-process
+CPU attributionはbenchmark evidenceへ結び付ける。どのstatusも
 full play、title output、long-idle steady memoryを含めない。
 
-`threshold-blocked`では`browserCheckpoint.bgiBenchmarkBlocker`を必須とする。Blockerはschema／ID、
+`threshold-blocked`または`environment-blocked`では`browserCheckpoint.bgiBenchmarkBlocker`を必須とする。Blockerはschema／ID、
 exact reproduction、first failure、report identity、試した切り分け、保持するinvariant、新しい権限、
 再開条件を持ち、benchmark evidenceのfailure ID／observed valueと一致しなければならない。外部processを
 停止する権限がない場合はその事実を隠さず、同一fixture／duration／thresholdのisolated rerunを再開条件にする。
