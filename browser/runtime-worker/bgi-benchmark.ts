@@ -159,7 +159,7 @@ async function runBenchmark(): Promise<void> {
     const candidateProfile = searchParameters.get("profile");
     const expected =
       candidateProfile === null
-        ? checkpoint.browserCheckpoint.bgiRuntimeEvidence
+        ? checkpointExpectedEvidence(checkpoint.browserCheckpoint.bgiRuntimeEvidence)
         : candidateExpectedEvidence();
     const capabilityProfile = parseCapabilityProfile(
       candidateProfile ?? checkpoint.activeRuntimeCheckpoint.profile,
@@ -224,6 +224,13 @@ async function runBenchmark(): Promise<void> {
     window.clearInterval(memorySampler);
     worker.terminate();
   }
+}
+
+function checkpointExpectedEvidence(evidence: any): any {
+  return {
+    ...evidence,
+    nextApi: evidence.nextApi ?? evidence.nextEndpoint,
+  };
 }
 
 function candidateExpectedEvidence(): any {

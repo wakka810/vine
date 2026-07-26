@@ -33,10 +33,10 @@ use vine_core::{
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
     dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
-    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_policy, dispatch_ole32_api,
-    dispatch_shell32_api, dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy,
-    dsound_contract_for_endpoint, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
-    imm32_contract_for_endpoint, install_controlled_initial_stack,
+    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
+    dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
+    gdiplus_contract_for_endpoint, imm32_contract_for_endpoint, install_controlled_initial_stack,
     install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
     install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
     kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
@@ -347,7 +347,6 @@ struct BrowserMappingFixture {
     backing_page: Option<GuestRange>,
 }
 
-#[derive(Clone)]
 enum BrowserRuntimeTarget {
     ControlledFixture,
     ControlledSourceRead {
@@ -1256,7 +1255,7 @@ impl BrowserRuntime {
             argument_bytes,
         };
         let callback_sentinel = self.callback_sentinel;
-        let target = self.target.clone();
+        let target = &self.target;
         let dispatcher = &self.dispatcher;
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         let outcome =
@@ -1311,7 +1310,7 @@ impl BrowserRuntime {
                         } else if contract.endpoint.module.eq_ignore_ascii_case("dsound.dll") {
                             dispatch_dsound_api(contract, frame, session)
                         } else {
-                            dispatch_kernel32_api_with_policy(
+                            dispatch_kernel32_api_with_prevalidated_policy(
                                 kernel32_policy,
                                 contract,
                                 frame,
@@ -1391,7 +1390,12 @@ impl BrowserRuntime {
                         }
                     }
                     BrowserRuntimeTarget::ControlledSourceRead { kernel32_policy } => {
-                        dispatch_kernel32_api_with_policy(kernel32_policy, contract, frame, session)
+                        dispatch_kernel32_api_with_prevalidated_policy(
+                            kernel32_policy,
+                            contract,
+                            frame,
+                            session,
+                        )
                     }
                 },
             );
@@ -1448,7 +1452,7 @@ impl BrowserRuntime {
                             "kind": "api-complete",
                             "endpoint": endpoint,
                             "completion": completion,
-                            "memory": self.memory.stats(),
+                            "memory": self.memory.synchronization_state(),
                         });
                         if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
                             metadata["currentDirectory"] = json!({
@@ -1688,7 +1692,7 @@ impl BrowserRuntime {
                             "endpoint": endpoint,
                             "capabilityCluster": runtime_capability_cluster(&endpoint),
                             "fault": fault,
-                            "memory": self.memory.stats(),
+                            "memory": self.memory.synchronization_state(),
                             "memoryContentSha256": reflection.content_sha256,
                         }),
                         None,
@@ -1708,7 +1712,7 @@ impl BrowserRuntime {
             "kind": "com-endpoint-resolution",
             "endpointAddress": endpoint_address,
             "live": live,
-            "memory": self.memory.stats(),
+            "memory": self.memory.synchronization_state(),
         }))
     }
 
@@ -1780,7 +1784,7 @@ impl BrowserRuntime {
                         "kind": "com-complete",
                         "completion": cpu_resume,
                         "call": completion,
-                        "memory": self.memory.stats(),
+                        "memory": self.memory.synchronization_state(),
                     }),
                     delta,
                 ))
@@ -1816,7 +1820,7 @@ impl BrowserRuntime {
                         },
                         "capabilityCluster": capability_cluster,
                         "fault": fault,
-                        "memory": self.memory.stats(),
+                        "memory": self.memory.synchronization_state(),
                         "memoryContentSha256": reflection.content_sha256,
                     }),
                     None,
@@ -1826,7 +1830,7 @@ impl BrowserRuntime {
     }
 
     fn pending_delta(&mut self) -> Result<Option<MemoryDeltaBuffers>, String> {
-        if self.memory.stats().pending_invalidation.is_none() {
+        if !self.memory.has_pending_delta() {
             return Ok(None);
         }
         self.memory
@@ -2033,7 +2037,7 @@ impl BrowserRuntime {
             "completion": completion,
             "waitableTimer": waitable_timer,
             "waitableTimerPacing": wait_result,
-            "memory": self.memory.stats(),
+            "memory": self.memory.synchronization_state(),
         }))
     }
 
@@ -2107,7 +2111,7 @@ impl BrowserRuntime {
                 "endpoint": endpoint,
                 "completion": completion,
                 "sourceRead": source_completion,
-                "memory": self.memory.stats(),
+                "memory": self.memory.synchronization_state(),
             }),
             delta,
         ))
@@ -2217,7 +2221,7 @@ impl BrowserRuntime {
             "endpoint": endpoint,
             "completion": completion,
             "writableCommit": writable_completion,
-            "memory": self.memory.stats(),
+            "memory": self.memory.synchronization_state(),
         }))
     }
 
@@ -2288,7 +2292,7 @@ impl BrowserRuntime {
                     "remainingDepth": remaining_depth,
                     "endpoint": endpoint,
                     "completion": completion,
-                    "memory": self.memory.stats(),
+                    "memory": self.memory.synchronization_state(),
                 });
                 match semantic_action {
                     Some(vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(

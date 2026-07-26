@@ -219,20 +219,17 @@
   },
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
-    "status": "threshold-blocked",
-    "configuration": "fixtures/benchmarks/bgi-browser-archive-source-read-v1.json",
+    "status": "threshold-passed",
+    "configuration": "fixtures/benchmarks/bgi-browser-archive-source-read-v2.json",
     "benchmarkClassification": "repeated-distribution-threshold",
-    "decisionStatus": "failed",
-    "decisionReason": "2-of-17-versioned-thresholds-failed",
+    "decisionStatus": "passed",
+    "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
-    "durationMilliseconds": 180922,
-    "completedSessions": 14,
+    "durationMilliseconds": 181231,
+    "completedSessions": 17,
     "failedSessions": 0,
-    "thresholdFailureIds": [
-      "minimum-completed-sessions",
-      "maximum-p95-session-milliseconds"
-    ],
-    "reportSha256": "c885cc87bee9eaa06e25aa088c73a4201203e31d5b3f9b6488f06432caab59b2"
+    "thresholdFailureIds": [],
+    "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "ef3202c890c52b3c189a23437c87400ca31d04e0d9cf82b95766f11baa71ca15"
+  "payloadSha256": "35d2bd295a47fdfa8b8edf6ce80b4c3c63b2ea0da126fc220a7fc4c08982b1a8"
 }

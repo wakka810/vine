@@ -45,6 +45,7 @@ const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
+const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
 const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
 const bgiProfileOverride = optionValue("--bgi-profile");
@@ -66,6 +67,10 @@ assert(
   bgiBenchmarkConfigurationOverride === null ||
     (bgiBenchmarkMilliseconds > 0 && bgiProfileOverride !== null),
   "--bgi-benchmark-config requires benchmark profile and policy overrides",
+);
+assert(
+  !bgiCpuProfile || bgiBenchmarkMilliseconds > 0,
+  "--bgi-cpu-profile requires a BGI benchmark",
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
@@ -932,6 +937,7 @@ async function runBgiBenchmark(
   const target = await createDebugTarget(browserWebSocketUrl, "about:blank");
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   let workerSessionId = null;
+  let workerCpuProfileActive = false;
   const workerHeapSamples = [];
   try {
     client.on("Target.attachedToTarget", ({ sessionId, targetInfo }) => {
@@ -952,6 +958,14 @@ async function runBgiBenchmark(
       await wait(100);
     }
     assert(workerSessionId !== null, "BGI benchmark Worker target was not discoverable");
+    if (bgiCpuProfile) {
+      await client.sendToSession(workerSessionId, "Profiler.enable");
+      await client.sendToSession(workerSessionId, "Profiler.setSamplingInterval", {
+        interval: 100,
+      });
+      await client.sendToSession(workerSessionId, "Profiler.start");
+      workerCpuProfileActive = true;
+    }
     const deadline = Date.now() + durationMilliseconds + 60_000;
     let nextHeapSampleAt = 0;
     let snapshot = null;
@@ -959,6 +973,23 @@ async function runBgiBenchmark(
       snapshot = await evaluate(client, `window.__vineBgiBenchmark?.snapshot()`);
       if (snapshot?.status === "failed") {
         throw new Error(`BGI benchmark failed: ${snapshot.error}`);
+      }
+      if (
+        workerCpuProfileActive &&
+        snapshot?.completedSessions >= 1
+      ) {
+        const { profile } = await client.sendToSession(
+          workerSessionId,
+          "Profiler.stop",
+          {},
+          30_000,
+        );
+        workerCpuProfileActive = false;
+        await writeFile(
+          path.join(assetsRoot, "bgi-browser-cpu-profile.json"),
+          `${JSON.stringify(profile)}\n`,
+        );
+        await client.sendToSession(workerSessionId, "Profiler.disable");
       }
       if (snapshot?.status === "passed") {
         assert(snapshot.result.completedSessions > 0, "BGI benchmark completed no sessions");
@@ -984,6 +1015,13 @@ async function runBgiBenchmark(
     }
     throw new Error(`BGI benchmark timed out: ${JSON.stringify(snapshot)}`);
   } finally {
+    if (workerSessionId !== null && workerCpuProfileActive) {
+      try {
+        await client.sendToSession(workerSessionId, "Profiler.stop", {}, 30_000);
+      } catch {
+        // The benchmark Worker may have terminated before a complete session.
+      }
+    }
     if (workerSessionId !== null) {
       try {
         await client.send("Target.detachFromTarget", { sessionId: workerSessionId });
@@ -1932,22 +1970,19 @@ if (serveOnly) {
         const configuration = JSON.parse(configurationBytes);
         assert.equal(configuration.schema, "vine.bgi-browser-benchmark");
         assert.equal(configuration.schemaVersion, 1);
-        const nextApi =
-          checkpoint.nextStructuredStop.kind === "capability-checkpoint"
-            ? checkpoint.nextStructuredStop.nextEndpoint.api
-            : checkpoint.nextStructuredStop.kind === "com-method"
-              ? `${checkpoint.nextStructuredStop.interface}::${checkpoint.nextStructuredStop.method}`
-              : checkpoint.nextStructuredStop.api;
         if (bgiBenchmarkConfigurationOverride === null) {
+          const evidence = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
           assert.deepEqual(configuration.workload, {
             profile: checkpoint.activeRuntimeCheckpoint.profile,
-            guestInstructions:
-              checkpoint.browserCheckpoint.bgiRuntimeEvidence.guestInstructions,
-            supportedCalls:
-              checkpoint.browserCheckpoint.bgiRuntimeEvidence.supportedCalls,
-            sourceReadCompletions:
-              checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceReadCompletions,
-            nextApi,
+            guestInstructions: evidence.guestInstructions,
+            supportedCalls: evidence.supportedCalls,
+            sourceReadCompletions: evidence.sourceReadCompletions,
+            nextApi: evidence.nextEndpoint,
+            nextFaultCode: evidence.nextFaultCode,
+            callSemanticsAlgorithm: evidence.callSemanticsAlgorithm,
+            callSemanticsSha256: evidence.callSemanticsSha256,
+            memoryContentSha256: evidence.memoryContentSha256,
+            wasmBridgeCalls: evidence.wasmBridgeCalls,
           });
         } else {
           assert.equal(

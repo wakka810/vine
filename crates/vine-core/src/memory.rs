@@ -783,6 +783,13 @@ pub struct MemoryStats {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MemorySynchronizationState {
+    pub generation: u64,
+    pub acknowledged_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MemoryTransactionStats {
     pub baseline_committed_pages: usize,
     pub baseline_committed_bytes: u64,
@@ -3115,6 +3122,17 @@ impl GuestMemory {
             acknowledged_generation: self.acknowledged_generation,
             pending_invalidation: self.pending_invalidation(),
         }
+    }
+
+    pub fn synchronization_state(&self) -> MemorySynchronizationState {
+        MemorySynchronizationState {
+            generation: self.generation,
+            acknowledged_generation: self.acknowledged_generation,
+        }
+    }
+
+    pub fn has_pending_delta(&self) -> bool {
+        !self.pending_changes.is_empty()
     }
 
     pub fn region_snapshots(&self) -> Vec<MemoryRegionSnapshot> {

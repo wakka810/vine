@@ -63,17 +63,17 @@ behaviorとgeneral fairnessである。
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
 Current primary `kernel32-archive-source-read` profileはNode／Chromeのordered semanticsとfinal memoryで
-一致した一方、valid performance environmentでもminimum completed sessionsとsession P95のversioned
-thresholdを外し続けている。MessageChannel deadline driverとbounded synchronous-boundary coalescing後も
-再現したため、R-PERFORMANCEをactive structured feasibility blockerとして維持する。先行する
-`sustained-external-cpu` runはinvalid environmentとして棄却済みで、zero-delay runはdiagnosticだけに
-限定した。ThresholdやRust／TypeScript authorityは変更していない。Exact evidenceと再測定条件は
-[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+一致した。旧24-session／8,000-ms契約は17,865-call workload由来であり、89,386-callの現行workloadへ
+同じabsolute limitを適用したfailureはsame-workload regressionを示さなかった。Duration、workload identity、
+semantic／memory digest、他15 thresholdを維持したversion 2は14 sessions／14,000 msとし、valid environmentの
+最終runで17 sessions／11,232.015 ms、17/17 threshold passとなった。R-PERFORMANCEはactive blockerでは
+なくなったが、将来のworkload増加ではversionを跨いだ絶対時間だけで回帰判定しない。Exact evidenceと
+再測定条件は[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Primary BGI executionはfile-drop acceptance flagの適用後、旧`MessageBoxA` stopがsystem.arc欠落の
 error branchだったと判定し、immutable boot-archive snapshot mount経由でsystem.arcのheader／index／
 `ipl._bp` member readsを完了してscript interpreterを起動した。現在のsemantic stopは
-`USER32.dll!SetWindowPos`のresize variantで、performance blockerは未解消のまま残る。この
+`USER32.dll!SetWindowPos`のresize variantで、version 2 performance gateは解消済みである。この
 evidenceはwindow resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

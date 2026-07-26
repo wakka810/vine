@@ -16,8 +16,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `kernel32-archive-source-read`: 89386 calls across 113 endpoint contracts / 111 APIs, memory generation 168609 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-blocked` (14 sessions) |
-| Active blocker | `kernel32-archive-source-read-browser-throughput-threshold-v1`: `minimum-completed-sessions`; Profile a correctness-preserving Rust/Wasm dispatch fast path or make an explicit versioned performance-contract decision, then rerun the unchanged 180-second gate and advance to the SetWindowPos resize stop only when all thresholds pass. |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00000000, 0x00000000, 0x00000506, 0x000002ed, 0x0000010a)` at instruction 15951782: `set-window-pos-size-unsupported` |
 

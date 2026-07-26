@@ -2967,7 +2967,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.schemaVersion !== 3 ||
     bgiBenchmarkEvidence.configuration !==
       (archiveSourceReadActive
-        ? "fixtures/benchmarks/bgi-browser-archive-source-read-v1.json"
+        ? "fixtures/benchmarks/bgi-browser-archive-source-read-v2.json"
         : dragAcceptFilesActive
           ? "fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json"
           : "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json") ||
@@ -3012,11 +3012,17 @@ export function validateCurrentCheckpoint(manifest) {
     (browser.bgiBenchmark === "threshold-blocked" && benchmarkFailureIds.length === 0) ||
     (benchmarkEnvironmentBlocked && benchmarkFailureIds.length !== 0) ||
     bgiBenchmarkEvidence.runtimeCoreWasmBytes !==
-      (dragAcceptFilesActive || archiveSourceReadActive ? 4_574_225 : 4_565_781) ||
+      (archiveSourceReadActive
+        ? 4_560_864
+        : dragAcceptFilesActive
+          ? 4_574_225
+          : 4_565_781) ||
     bgiBenchmarkEvidence.runtimeCoreWasmSha256 !==
-      (dragAcceptFilesActive || archiveSourceReadActive
-        ? "55c01dbcf3e4a88bf13051924fe61c94f28c9b4801308e77a2b00544cec1e9d1"
-        : "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5") ||
+      (archiveSourceReadActive
+        ? "8a1c9775762a1e794f220582098b23411955e309efc875419a19af90feccbdad"
+        : dragAcceptFilesActive
+          ? "55c01dbcf3e4a88bf13051924fe61c94f28c9b4801308e77a2b00544cec1e9d1"
+          : "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5") ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
       bgiBrowserEvidence.executionEngineLinearMemoryBytes
   ) {

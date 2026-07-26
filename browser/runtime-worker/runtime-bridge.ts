@@ -519,11 +519,10 @@ export class RuntimeBridge {
   }
 
   #readJson<T>(): T {
-    const bytes = this.#copyOutput(
-      this.#exports.vine_bridge_metadata_ptr(),
-      this.#exports.vine_bridge_metadata_len(),
-    );
-    invariant(bytes.byteLength > 0, "runtime bridge returned empty metadata");
+    const pointer = this.#exports.vine_bridge_metadata_ptr();
+    const length = this.#exports.vine_bridge_metadata_len();
+    invariant(length > 0, "runtime bridge returned empty metadata");
+    const bytes = new Uint8Array(this.#exports.memory.buffer, pointer, length);
     return JSON.parse(this.#metadataDecoder.decode(bytes)) as T;
   }
 

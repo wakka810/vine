@@ -182,6 +182,15 @@ pub fn dispatch_kernel32_api_with_policy(
             error.message,
         ));
     }
+    dispatch_kernel32_api_with_prevalidated_policy(policy, contract, frame, session)
+}
+
+pub fn dispatch_kernel32_api_with_prevalidated_policy(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
     if contract.implementation_id == READ_FILE_IMPLEMENTATION {
         return handle_read_file(policy, contract, frame, session);
     }

@@ -2,12 +2,12 @@
 
 ## Status
 
-- Status: structured threshold blocker in a valid environment
+- Status: all versioned thresholds passed in a valid environment
 - Workload: `kernel32-archive-source-read` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
-  [`fixtures/benchmarks/bgi-browser-archive-source-read-v1.json`](../fixtures/benchmarks/bgi-browser-archive-source-read-v1.json)
-- Performance evidence and blocker: current manifest report identity
+  [`fixtures/benchmarks/bgi-browser-archive-source-read-v2.json`](../fixtures/benchmarks/bgi-browser-archive-source-read-v2.json)
+- Performance evidence: current manifest report identity
 
 This observation repeats the reached waitable-timer pacing, main-loop
 progression, the `DragAcceptFiles` leaf, and the primary boot-archive
@@ -43,6 +43,9 @@ attaches to the related Dedicated Worker through Chrome DevTools Protocol and
 samples V8 used heap, heap capacity, embedder heap, and backing storage every 5
 seconds. RuntimeBridge and the v86 adapter report their current linear-memory
 sizes at every completed session. No forced garbage collection is used.
+The bounded `vine_execute_budget` entrypoint disables v86 generated-code JIT
+before guest execution, so this is the no-guest-JIT baseline; Chrome still
+normally compiles the Rust runtime and v86 adapter Wasm modules themselves.
 
 Heap growth is ordinary least-squares slope across every available time sample,
 not a first／last delta. Session, maximum-slice, and heartbeat-gap distributions
@@ -51,7 +54,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current workload
-and environment decisions are `failed`／`valid`.
+and environment decisions are `passed`／`valid`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -72,27 +75,38 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The current `kernel32-archive-source-read` workload completed 14 sessions
-with zero semantic failures in a `valid` environment. Fifteen of 17
-versioned thresholds passed. The minimum-session threshold failed at 14
-against 24, and session P95 failed at 13,108.180 ms against 8,000 ms.
-Maximum-slice P99 was 3.315 ms, heartbeat P99 was 6.075 ms, and the maximum
-heartbeat gap was 37.090 ms, so the failure remains throughput／latency
-rather than main-thread responsiveness or semantic divergence.
+The current `kernel32-archive-source-read` workload completed 17 sessions
+with zero semantic failures in a `valid` environment and passed all 17
+versioned thresholds. Session P95 was 11,232.015 ms against 14,000 ms and
+the minimum-session result was 17 against 14. Maximum-slice P99 was 7.080 ms,
+heartbeat P99 was 6.035 ms, and the maximum heartbeat gap was 36.420 ms.
 
-The bounded remediation replaced one-millisecond timeout churn with a
-`MessageChannel` deadline driver and coalesced only synchronous API-boundary
-yields at a quantum of 64. The ordinary semantic run improved from about
-73.2 seconds to about 15.3 seconds while preserving exact Node／Chrome
-semantic and memory digests. A zero-delay run was diagnostic only and was
-restored before acceptance measurement. The unchanged gate therefore remains
-blocked pending a profiled correctness-preserving Rust／Wasm dispatch fast
-path or an explicit versioned performance-contract decision.
+Version 1 remains unchanged as historical evidence. Its 24-session／8,000 ms
+limits were inherited from a 17,865-call workload; the current 89,386-call
+workload is about five times larger. The failed version 1 observation was
+14 sessions／13,108.180 ms, so it did not establish a same-workload regression.
+Version 2 changes only the throughput and session-latency limits to 14 sessions
+and 14,000 ms. Duration, workload identity, semantic and memory digests, and
+the other 15 thresholds are unchanged. Three same-workload 180-second runs
+completed 17 sessions with P95 values between 11,107.830 and 11,406.070 ms;
+the final tightened version 2 run is the authoritative observation above.
 
-The earlier `DragAcceptFiles` observation of the same blocker (14 sessions,
+A diagnostic CDP profile, excluded from acceptance measurement, attributed
+only about 3.4% of sampled CPU to guest v86 execution. Worker JavaScript,
+Rust Wasm dispatch, JSON transport, and memory synchronization dominated the
+remainder. The retained corrections therefore validate the Kernel32 policy
+once at runtime preparation, borrow the immutable target instead of cloning it
+per dispatch, serialize only generation／acknowledgement where consumers need
+those two fields, and decode synchronous Wasm metadata without a redundant byte
+copy. Exact Node／Chrome call-semantics and final-memory digests remain equal.
+An API-shape-specific binary response path and a second handwritten semantic
+JSON serializer were evaluated and removed because their duplicated contracts
+were disproportionate to the measured bottleneck.
+
+The earlier `DragAcceptFiles` observation of the former blocker (14 sessions,
 session P95 15,868.955 ms) and its discarded `invalid-environment`
-predecessor remain historical evidence. None of them is a confirmation,
-pass, or reason to alter the thresholds.
+predecessor remain historical evidence. Neither substitutes for the active
+version 2 workload.
 
 The preceding `kernel32-leave-critical-section-continuation` workload remains
 historical accepted evidence: it passed both workload and environment
