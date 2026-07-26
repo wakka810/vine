@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-26T08:24:59.094Z",
+  "recordedAt": "2026-07-26T11:58:20.461Z",
   "repository": {
-    "implementationCommit": "cbfccf76cda304a2449d6c79e1a62d15ad217180",
-    "implementationTree": "27221852850cc7bd2c58c7c892390781d062ed74",
-    "headCommit": "cbfccf76cda304a2449d6c79e1a62d15ad217180",
+    "implementationCommit": "47360b790c4f742c00da90823bdf509d235a1015",
+    "implementationTree": "a8b35d5013891ee8a54b5d2a7b991664dc797acc",
+    "headCommit": "47360b790c4f742c00da90823bdf509d235a1015",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-leave-critical-section-continuation",
-    "runtimeProfile": "kernel32-leave-critical-section-continuation",
+    "runtimeCheckpoint": "shell32-drag-accept-files",
+    "runtimeProfile": "shell32-drag-accept-files",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-wait-for-single-object-ex-v1",
     "policySource": "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-kernel32-leave-critical-section-continuation",
+    "nodeReportSchema": "vine.v86-bgi-shell32-drag-accept-files",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v19",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v20",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -68,76 +68,30 @@
   "semantic": {
     "outcome": "passed",
     "node": {
-      "outcome": "checkpoint-complete",
-      "implementedApiContracts": 112,
-      "supportedCalls": 18737,
-      "callSemanticsSha256": "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
-      "instructions": 11974948,
-      "finalGeneration": 36750,
-      "memoryContentSha256": "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
-      "checkpointCompletion": {
-        "capability": "kernel32-leave-critical-section-continuation",
-        "implementationId": "kernel32.leave-critical-section.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 18737,
-        "lastCompletionInstructionCount": 11974905,
-        "criticalSectionAddress": 269474252,
-        "releaseThreadId": 8192,
-        "lastError": 0,
-        "instructionCount": 11974948,
-        "nextEndpoint": {
-          "id": 144,
-          "address": 2130708720,
-          "module": "KERNEL32.dll",
-          "symbol": {
-            "kind": "name",
-            "name": "EnterCriticalSection"
-          }
-        },
-        "memoryContentSha256": "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc"
-      },
-      "writebackBatches": 18793,
-      "dirtyPages": 37790,
-      "changedBytes": 2933180,
-      "hostDeltaBatches": 17384
+      "outcome": "structured-stop",
+      "implementedApiContracts": 113,
+      "supportedCalls": 89283,
+      "callSemanticsSha256": "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+      "instructions": 15610457,
+      "finalGeneration": 168414,
+      "memoryContentSha256": "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+      "writebackBatches": 89339,
+      "dirtyPages": 122724,
+      "changedBytes": 3608013,
+      "hostDeltaBatches": 78501
     },
     "browser": {
-      "outcome": "checkpoint-complete",
-      "supportedCalls": 18737,
-      "callSemanticsSha256": "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
-      "instructions": 11974948,
-      "finalGeneration": 37449,
-      "memoryContentSha256": "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
-      "checkpointCompletion": {
-        "capability": "kernel32-leave-critical-section-continuation",
-        "implementationId": "kernel32.leave-critical-section.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 18737,
-        "lastCompletionInstructionCount": 11974905,
-        "criticalSectionAddress": 269474252,
-        "releaseThreadId": 8192,
-        "lastError": 0,
-        "instructionCount": 11974948,
-        "nextEndpoint": {
-          "address": 2130708720,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292264,
-          "id": 144,
-          "module": "kernel32.dll",
-          "symbol": {
-            "kind": "name",
-            "name": "EnterCriticalSection"
-          }
-        },
-        "memoryContentSha256": "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc"
-      },
-      "wasmBridgeCalls": 55993,
+      "outcome": "structured-stop",
+      "supportedCalls": 89283,
+      "callSemanticsSha256": "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+      "instructions": 15610457,
+      "finalGeneration": 169115,
+      "memoryContentSha256": "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+      "wasmBridgeCalls": 263007,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 58464,
+          "transitionCount": 285545,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -183,29 +137,24 @@
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
-      "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-leave-critical-section-continuation",
+      "kind": "api-endpoint",
+      "nextCheckpoint": "user32-message-box-a",
       "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-      "instructionCount": 11974948,
-      "capabilityCluster": "kernel32-leave-critical-section-continuation",
-      "reason": "main-thread-critical-section-continuation-release-complete",
-      "completion": {
-        "capability": "kernel32-leave-critical-section-continuation",
-        "implementationId": "kernel32.leave-critical-section.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 18737,
-        "lastCompletionInstructionCount": 11974905,
-        "criticalSectionAddress": 269474252,
-        "releaseThreadId": 8192,
-        "lastError": 0
-      },
-      "nextEndpoint": {
-        "endpointKind": "runtime-system-export",
-        "endpointId": 144,
-        "api": "kernel32.dll!EnterCriticalSection",
-        "endpointAddress": "0x7f0008f0"
-      }
+      "instructionCount": 15610457,
+      "capabilityCluster": "user32-api-contract",
+      "reason": "endpoint-contract-missing",
+      "endpointKind": "runtime-system-export",
+      "endpointId": 221,
+      "api": "USER32.dll!MessageBoxA",
+      "arguments": [
+        "0x48010001",
+        "0x006ff3a8",
+        "0x100dcbe0",
+        "0x00001010"
+      ],
+      "endpointAddress": "0x7f000dc0",
+      "iatAddress": "0x100d144c",
+      "returnAddress": "0x10066b0d"
     },
     "cleanup": {
       "pendingHostCalls": 0,
@@ -220,14 +169,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-leave-critical-section-continuation/report.json",
-      "bytes": 423046,
-      "sha256": "def7ba3032a078aa8279c1eb0dff02c00ccad4cb891488914a9968bc198ef402"
+      "path": ".work/v86-bgi-drag-accept-files/report.json",
+      "bytes": 426498,
+      "sha256": "7ab576ff627a437796e3b687ae8ccbbb83d07134467d41e7b8513cb6140d0501"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 46171,
-      "sha256": "87d36c0da0d431b3ac877a01711848681957c3aef64a120486a2dcc3f1522117"
+      "bytes": 947049,
+      "sha256": "cc0d6d785b04de659b903400ca6ec33401f7fc63ed850cc2ddd0679816df8b3e"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -242,12 +191,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "a23d5b280630dade5ecc3899c37c9ce4ba77f637902b4c3608e54d3ac5d22f2e"
+      "sha256": "62b4063f5b49cac38b7a73e5d60eadee7daceb96329518983cbb3ae8b2a98140"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4565781,
-      "sha256": "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5"
+      "bytes": 4574225,
+      "sha256": "55c01dbcf3e4a88bf13051924fe61c94f28c9b4801308e77a2b00544cec1e9d1"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -267,17 +216,20 @@
   },
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
-    "status": "threshold-passed",
-    "configuration": "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json",
+    "status": "threshold-blocked",
+    "configuration": "fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json",
     "benchmarkClassification": "repeated-distribution-threshold",
-    "decisionStatus": "passed",
-    "decisionReason": "all-17-versioned-thresholds-passed",
+    "decisionStatus": "failed",
+    "decisionReason": "2-of-17-versioned-thresholds-failed",
     "thresholdEvaluationCount": 17,
-    "durationMilliseconds": 180621,
-    "completedSessions": 107,
+    "durationMilliseconds": 192647,
+    "completedSessions": 14,
     "failedSessions": 0,
-    "thresholdFailureIds": [],
-    "reportSha256": "dad10193c0dbd4a99d943b7a96e12f15940bc14372f59ca5f43119180124e16a"
+    "thresholdFailureIds": [
+      "minimum-completed-sessions",
+      "maximum-p95-session-milliseconds"
+    ],
+    "reportSha256": "f55de5a281384c106ee10e49ef7ad95ea317e4a7dd592c8fb1eea9f4f0aff61c"
   },
-  "payloadSha256": "d52a4c7331f71b66562c24ad92d48dd003d62a69787f107be95b0b87dd2a093a"
+  "payloadSha256": "944162c7bdbeed41a2a4da5cdec88763a5602399d6240387360a2d65f9654649"
 }
