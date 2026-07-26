@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: semantic checkpoint verified; performance environment blocked
+- Status: semantic checkpoint and performance gate verified
 - Date: 2026-07-26
 - Runtime-kernel checkpoint: `kernel32-enter-critical-section-continuation`
 - Previous checkpoint: [`kernel32-leave-critical-section`](bgi-leave-critical-section.md)
@@ -46,28 +46,25 @@ metadata. Exact call counts, report identities, generations, semantic digest,
 and memory digest remain manifest-owned in
 [current-checkpoint.json](current-checkpoint.json).
 
-## Performance blocker
+## Performance gate
 
-The unchanged 180-second Chrome for Testing workload completed every session
-semantically and passed all 17 versioned workload thresholds. It is not
-accepted performance evidence because the Windows environment monitor
-classified the run as `invalid-environment` for
-`sustained-external-cpu`. Two post-cleanup confirmations reproduced the same
-environment reason after verified agent-owned stale searches were stopped.
+The unchanged 180-second Chrome for Testing workload completed 99 sessions
+with zero semantic failures, passed all 17 versioned workload thresholds, and
+was classified as `valid` by the Windows environment monitor. The accepted
+report identity, artifact hashes, sample coverage, and exact distributions are
+recorded in [current-checkpoint.json](current-checkpoint.json).
 
-The structured blocker, both report identities, measured environment
-excursions, attempted isolation steps, protected invariants, and resume
-condition are recorded in [current-checkpoint.json](current-checkpoint.json).
-The exact reproduction is:
+Earlier invalid-environment runs remain historical diagnostics. They recorded
+`sustained-external-cpu` after the workload thresholds had passed; no threshold
+or source/runtime authority was changed. The valid rerun was performed with
+the same fixture, duration, pinned Chrome artifact, and threshold values:
 
 ```powershell
 npm run check:runtime:bgi-browser-benchmark:prepared
 ```
 
-Acceptance requires one valid-environment run with the same fixture,
-180-second duration, and all 17 thresholds unchanged. Ambient user processes
-are not stopped without authority, and an invalid environment is not promoted
-to a pass merely because workload thresholds succeeded.
+An invalid environment is still not promoted to a pass merely because workload
+thresholds succeed; future reruns retain the same independent qualification.
 
 ## Ownership and invariants
 
@@ -97,7 +94,7 @@ npm run check:runtime:bgi-browser
   contention, waiter ordering, deletion, abandonment, or fairness evidence.
 - The following release is an owned endpoint identity, not a completed
   continuation checkpoint.
-- Workload threshold success in an invalid host environment is diagnostic
-  evidence only.
+- Earlier workload threshold success in an invalid host environment remains
+  diagnostic evidence only.
 - This does not establish full message/input flow, rendering, audio,
   save/restart/load, representative flow, or full-play acceptance.

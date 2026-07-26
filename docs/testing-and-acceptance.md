@@ -1250,10 +1250,11 @@ SHA-256も固定し、aggregate external CPUだけを残す再現不能な診断
 通過し、main-thread releaseまでのsemantic checkpointを閉じた。Active continuation profileはRust
 schedulerの`8192 -> 8193 -> 8192`選択後、同じcritical-sectionをmain threadがreleaseして直後に
 reacquireすることをNode／Chromeで一致させ、次の`LeaveCriticalSection` endpointで停止する。
-同profileの180秒gateは17／17 workload thresholdを通過した一方、agent-owned stale searchを除去した
-二回の確認でも`sustained-external-cpu`により`invalid-environment`となった。このためthresholdや
-authorityを変更せずperformance-environment blockerを保持し、valid environmentでのunchanged gateを
-再開条件とする。Exact current値、report identity、attempted optionsはmanifestだけを正本とする。
+同profileの180秒gateは99 sessions、semantic failure 0、17／17 workload threshold、
+environment qualification `valid`を得た。先行する`sustained-external-cpu` invalid runは履歴diagnostic
+として保持し、thresholdやauthorityを変更していない。これによりperformance-environment blockerを
+解除し、次の`LeaveCriticalSection` endpointからprimary executionを継続できる。Exact current値、
+report identity、attempted optionsはmanifestだけを正本とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

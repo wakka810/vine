@@ -56,8 +56,9 @@ artifact identities are recorded only in the manifest.
 
 The follow-on continuation checkpoint now consumes the endpoint recorded here,
 verifies the same-address main-thread reacquisition, and stops at the next
-`LeaveCriticalSection`. Its performance gate has a separate structured
-environment blocker and does not invalidate this frozen semantic evidence.
+`LeaveCriticalSection`. Its performance gate later passed in a valid
+environment; the earlier structured environment blocker remains historical
+diagnostic evidence and does not invalidate this frozen semantic evidence.
 
 ## Ownership and invariants
 

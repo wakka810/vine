@@ -123,14 +123,12 @@ workload pass or failure. Target-creation QoS changes in the first five samples
 remain recorded. These qualification limits do not alter the 17 workload
 thresholds.
 
-`threshold-blocked` and `environment-blocked` remain required failure outcomes,
-not soft passes. The current workload passed all 17 unchanged thresholds, but
-two post-cleanup confirmations were still invalidated by
-`sustained-external-cpu`. The manifest therefore retains a structured
-performance-environment blocker with the fixed Chrome artifact, both report
-identities, attempted isolation, required authority, and resume condition.
-Downstream primary execution does not advance beyond the manifested
-`LeaveCriticalSection` endpoint until the unchanged 180-second gate is valid.
+`threshold-blocked` and `environment-blocked` remain required failure
+outcomes, not soft passes. The current continuation workload passed all 17
+unchanged thresholds and the environment qualification in a valid rerun; the
+earlier external-CPU blocker is now historical. Downstream primary execution
+may proceed from the manifested `LeaveCriticalSection` endpoint. Exact current
+artifact and report identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:
 

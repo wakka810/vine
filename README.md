@@ -16,8 +16,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Active scenario | `logical-window-and-message-flow` |
 | Runtime diagnostics | `kernel32-enter-critical-section-continuation`: 18736 calls across 112 endpoint contracts / 110 APIs, memory generation 36748 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `environment-blocked` (101 sessions) |
-| Active blocker | `bgi-enter-critical-section-continuation-performance-environment-20260726`: `sustained-external-cpu`; Run the unchanged 180-second gate in a valid environment for kernel32-enter-critical-section-continuation, keep all 17 thresholds unchanged, then clear this blocker and continue from the manifested LeaveCriticalSection endpoint. |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (99 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `kernel32-enter-critical-section-continuation` completed 1 critical-section continuation acquisition by instruction 11974730; verification stopped at `kernel32.dll!LeaveCriticalSection` on instruction 11974905 (`main-thread-critical-section-continuation-acquisition-complete`) |
 

@@ -62,18 +62,17 @@ behaviorとgeneral fairnessである。
 | R-PERFORMANCE | Ambient host loadまたはtitle workload growthでversioned latency／memory thresholdを外れ、clean oracleを判定できない | Fixed fixture／duration／threshold、repeated distribution、same-host bounded comparison、structured blocker | 外部workloadを勝手に停止せずisolated hostで同条件を再実行する。再現時だけprofileに基づくbounded optimizationを行う |
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
-Current primary continuation workloadは全versioned workload thresholdを通過したが、
-performance environmentは繰り返し`sustained-external-cpu`でinvalidとなった。Workload
-failureへ誤分類せず、同じfixture／duration／thresholdをisolated intervalで再実行する
-performance-environment blockerとして保持する。利用者processを無断停止せず、Exact evidenceと
-resume conditionは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+Current primary continuation workloadは全versioned workload thresholdを通過し、
+performance environmentもvalidと判定された。先行する`sustained-external-cpu` invalid runは
+再現性と切り分けのhistorical diagnosticとして保持し、thresholdやauthorityを変更していない。
+Exact evidenceと再測定条件は[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Primary BGI execution now records the Rust-owned `8192 -> 8193 -> 8192`
 API-boundary scheduler round trip after the bounded timer waits, then verifies
 an adjacent main-thread `LeaveCriticalSection`／`EnterCriticalSection` pair on
 the same address before the following release endpoint. Semantic progression
-is complete at that boundary, but downstream primary execution waits for a
-valid performance environment. This evidence does not close cross-thread
+is complete at that boundary, and downstream primary execution may continue
+from the following `LeaveCriticalSection` endpoint. This evidence does not close cross-thread
 contention, full message/input flow, or graphics／audio milestones.
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

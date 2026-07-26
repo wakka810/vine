@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: workload thresholds passed; performance environment blocked
+- Status: accepted threshold pass in a valid environment
 - Workload: `kernel32-enter-critical-section-continuation` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
@@ -49,8 +49,7 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current workload
-decision is `passed`, while the environment decision is
-`invalid-environment`.
+and environment decisions are both `passed`／`valid`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -72,24 +71,16 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 ## Result
 
 The current continuation workload passed all 17 versioned workload thresholds
-with zero semantic failures. The environment monitor nevertheless observed the
-policy-defined consecutive external-CPU excursion, so the report is not
-accepted as a performance pass. After two verified stale agent-owned search
-processes were stopped, two unchanged prepared confirmations reproduced
-`sustained-external-cpu`; neither report is converted into a pass.
-
-The active structured blocker records both report identities, the environment
-sample evidence, attempted isolation, protected invariants, required authority,
-and the unchanged-gate resume condition in
-[current-checkpoint.json](current-checkpoint.json). Acceptance requires the
-same 180-second fixture and all 17 thresholds to pass in a valid environment.
-No threshold, runtime authority, source file, or browser artifact is changed to
-resolve ambient load.
+with zero semantic failures across 99 sessions. Its unchanged environment
+qualification was also `valid`, so the report is accepted as the current
+performance evidence. Earlier invalid-environment reports remain historical
+diagnostics; they show why external CPU excursions are not silently accepted
+and why no threshold or runtime authority was changed.
 
 The preceding `kernel32-leave-critical-section` workload remains historical
 accepted evidence: it passed both workload and environment decisions before
 the active profile advanced. It does not substitute for the continuation
-profile's current environment qualification.
+profile's historical environment qualification.
 
 ### Historical accepted DirectInput observation
 
