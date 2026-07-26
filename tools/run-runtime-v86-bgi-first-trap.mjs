@@ -195,6 +195,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
         "kernel32-sleep-zero",
+        "kernel32-global-memory-status",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -299,6 +300,7 @@ assert(
       "shell32-drag-accept-files",
       "kernel32-archive-source-read",
       "kernel32-sleep-zero",
+      "kernel32-global-memory-status",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -307,7 +309,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-sleep-zero"
+    genericRuntimeCapability === "kernel32-global-memory-status"
+      ? "kernel32-global-memory-status-v1.json"
+      : genericRuntimeCapability === "kernel32-sleep-zero"
       ? "kernel32-sleep-zero-v1.json"
       : genericRuntimeCapability === "kernel32-wait-for-single-object-ex" ||
     genericRuntimeCapability === "kernel32-enter-critical-section" ||
@@ -509,7 +513,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const globalMemoryStatusCheckpointEnabled =
+  genericRuntimeCapability === "kernel32-global-memory-status";
 const sleepZeroCheckpointEnabled =
+  globalMemoryStatusCheckpointEnabled ||
   genericRuntimeCapability === "kernel32-sleep-zero";
 const archiveSourceReadEnabled =
   sleepZeroCheckpointEnabled ||
@@ -820,7 +827,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? sleepZeroCheckpointEnabled
+      ? globalMemoryStatusCheckpointEnabled
+      ? "v86-bgi-global-memory-status"
+      : sleepZeroCheckpointEnabled
       ? "v86-bgi-sleep-zero"
       : archiveSourceReadEnabled
       ? "v86-bgi-archive-source-read"
@@ -4937,6 +4946,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (globalMemoryStatusCheckpointEnabled) {
+        validateGlobalMemoryStatusResult(genericResult);
       } else if (sleepZeroCheckpointEnabled) {
         validateSleepZeroResult(genericResult);
       } else if (archiveSourceReadEnabled) {
@@ -5176,6 +5187,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : globalMemoryStatusCheckpointEnabled
+          ? "bgi deterministic x86 GlobalMemoryStatus"
           : sleepZeroCheckpointEnabled
           ? "bgi Sleep(0) cooperative scheduler yield"
           : archiveSourceReadEnabled
@@ -7341,6 +7354,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : globalMemoryStatusCheckpointEnabled
+        ? 100
         : sleepZeroCheckpointEnabled
         ? 99
         : archiveSourceReadEnabled
@@ -17710,6 +17725,84 @@ function validateSleepZeroResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f674]);
 }
 
+function validateGlobalMemoryStatusResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 107_787);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    107_787,
+  );
+  assert.equal(result.callbackEvents.length, 48);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 5);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.global-memory-status.x86-deterministic.v1",
+  );
+  assert.equal(calls.length, 1, "GlobalMemoryStatus completion count changed");
+  const call = calls[0];
+  assert.equal(call.sequence, 107_757);
+  assert.equal(call.symbol, "GlobalMemoryStatus");
+  assert.equal(call.occurrence, 1);
+  assert.deepEqual(call.arguments, [0x006f_f674]);
+  assert.deepEqual(call.result, { action: "preserve" });
+  assert.equal(call.trapInstructionCount, 16_384_108);
+  assert.equal(call.returnAddress, 0x1008_1fae);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006f_f674);
+  assert.deepEqual(call.guestWrites[0].bytes, [
+    0x20, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0xff, 0xff, 0xff, 0x7f,
+    0xff, 0xff, 0xff, 0x7f,
+    0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff,
+    0x00, 0x00, 0xfe, 0x7f,
+    0x00, 0x00, 0x00, 0x60,
+  ]);
+  assert.deepEqual(call.guestWrites[0].result, {
+    bytesWritten: 32,
+    dirtyPages: 1,
+    invalidation: {
+      generation: 201_036,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    },
+  });
+  assert.equal(result.schedulerContinuation.selectionCount, 1_512);
+  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_512,
+    threadExits: [],
+  });
+  assert.equal(result.finalGeneration, 201_089);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 22,
+    address: 0x7f00_0150,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "GetFileAttributesA" },
+    iatAddress: 0x100d_1100,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+  );
+  assert.equal(result.terminal.instructionCount, 16_396_079);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_1c80);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f048]);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -22037,6 +22130,19 @@ function buildGenericRuntimeReentryReport({
       "each reached Sleep(0) must select the runnable competitor",
     );
   }
+  const globalMemoryStatusCall = globalMemoryStatusCheckpointEnabled
+    ? genericResult.supportedCalls.find(
+        (call) =>
+          call.implementationId ===
+          "kernel32.global-memory-status.x86-deterministic.v1",
+      )
+    : null;
+  if (globalMemoryStatusCheckpointEnabled) {
+    assert(
+      globalMemoryStatusCall,
+      "GlobalMemoryStatus report summary has no primary completion",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -22086,6 +22192,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : globalMemoryStatusCheckpointEnabled
+        ? "vine.v86-bgi-kernel32-global-memory-status"
         : sleepZeroCheckpointEnabled
         ? "vine.v86-bgi-kernel32-sleep-zero"
         : archiveSourceReadEnabled
@@ -22536,6 +22644,18 @@ function buildGenericRuntimeReentryReport({
               sleepZeroCalls.length -
               genericResult.schedulerContinuation.yieldCurrentThread.selectionCount,
             hostWaitCreated: false,
+          },
+        }
+      : {}),
+    ...(globalMemoryStatusCheckpointEnabled
+      ? {
+          globalMemoryStatus: {
+            call: globalMemoryStatusCall,
+            stateAuthority: "kernel32-compatibility-policy",
+            virtualSpanAuthority: "kernel32-system-info-policy",
+            hostMemoryImported: false,
+            browserMemoryImported: false,
+            allocatorQuotaAuthority: false,
           },
         }
       : {}),

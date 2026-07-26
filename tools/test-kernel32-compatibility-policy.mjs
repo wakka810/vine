@@ -50,6 +50,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json",
   "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
   "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
+  "fixtures/runtime-policies/kernel32-global-memory-status-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -142,6 +143,19 @@ for (const relative of policyFiles) {
       allocationGranularity: 65536,
       processorLevel: 6,
       processorRevision: 0,
+    });
+  }
+  const memoryStatus = policy.memoryStatus ?? null;
+  if (memoryStatus !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert(systemInfo !== null);
+    assert.deepEqual(memoryStatus, {
+      memoryLoadPercent: 0,
+      totalPhysicalBytes: 0x7fff_ffff,
+      availablePhysicalBytes: 0x7fff_ffff,
+      totalPageFileBytes: 0xffff_ffff,
+      availablePageFileBytes: 0xffff_ffff,
+      availableVirtualBytes: 0x6000_0000,
     });
   }
   const virtualAlloc = policy.virtualAlloc ?? null;
@@ -253,7 +267,10 @@ for (const relative of policyFiles) {
   assert.equal(typeof sleepZero, "boolean");
   if (sleepZero) {
     assert.equal(policy.schemaVersion, 2);
-    assert.equal(policy.id, "kernel32-sleep-zero-v1");
+    assert(
+      policy.id === "kernel32-sleep-zero-v1" ||
+        policy.id === "kernel32-global-memory-status-v1",
+    );
   }
   const loadLibraryA = policy.loadLibraryA ?? null;
   if (loadLibraryA !== null) {
@@ -322,6 +339,7 @@ assert.deepEqual(
 );
 assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
 assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
+assert.deepEqual(activePolicy.memoryStatus ?? null, summary.memoryStatus ?? null);
 assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);
 assert.deepEqual(activePolicy.osVersionInfoA, summary.osVersionInfoA);
 

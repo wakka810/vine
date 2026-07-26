@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 21 as const;
+export const protocolVersion = 22 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -14,7 +14,8 @@ export type BgiCapabilityProfile =
   | "kernel32-leave-critical-section-continuation"
   | "shell32-drag-accept-files"
   | "kernel32-archive-source-read"
-  | "kernel32-sleep-zero";
+  | "kernel32-sleep-zero"
+  | "kernel32-global-memory-status";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -42,6 +43,22 @@ export interface RuntimeSleepZeroCallSnapshot {
   lastError: number;
   guestWrites: [];
   executionBoundary: "yield-current-thread";
+}
+
+export interface RuntimeGlobalMemoryStatusCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "GlobalMemoryStatus";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number];
+  result: { action: "preserve" };
+  implementationId: "kernel32.global-memory-status.x86-deterministic.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: 0;
+  guestWrites: [{ address: number; bytes: number[] }];
 }
 
 export interface PageLifecycleSnapshot {
@@ -477,6 +494,14 @@ export interface SessionReport {
     };
     noCompetitorCompletions: number;
     hostWaitCreated: false;
+  } | null;
+  globalMemoryStatus: {
+    call: RuntimeGlobalMemoryStatusCallSnapshot;
+    stateAuthority: "kernel32-compatibility-policy";
+    virtualSpanAuthority: "kernel32-system-info-policy";
+    hostMemoryImported: false;
+    browserMemoryImported: false;
+    allocatorQuotaAuthority: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

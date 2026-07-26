@@ -78,8 +78,11 @@ error branchだったと判定し、immutable boot-archive snapshot mount経由�
 `USER32.dll!SetWindowPos` resizeは、USER32 geometryとGDI window surfaceをNCCALCSIZE completionで
 failure-atomicに更新し、`WM_SIZE`内の`GetSystemMenu(hwnd,FALSE) -> EnableMenuItem(SC_CLOSE,0)`と最終
 `WM_WINDOWPOSCHANGED`まで完了した。Logical HMENUはwindow-owned identityとしてRustに置き、専用menu generationにより
-外側resize planをstaleにしない。現在のsemantic stopは`KERNEL32.dll!Sleep(0)`である。これは既存scheduler authorityへ
-接続するbounded yield contractとして分類し、host wall-clock sleepやbrowser timerをguest-visible authorityへimportしない。
+外側resize planをstaleにしない。続く`Sleep(0)`は既存scheduler authorityへ接続するbounded yieldとして閉じ、
+`GlobalMemoryStatus`は既存system-information policyから分離しないdeterministic x86 snapshotとして閉じた。Host
+wall-clock、browser timer、host／browser memory pressure、runtime allocator quotaはguest-visible authorityへimportしない。
+現在のsemantic stopはimmutable source pathを照会する`KERNEL32.dll!GetFileAttributesA`であり、既存VFS ownerへ
+接続するfile gatewayとして分類する。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

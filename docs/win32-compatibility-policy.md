@@ -500,6 +500,18 @@ topology. Public tests use a synthetic multi-bit mask and distinct processor
 level／revision, then cover NULL, read-only, and cross-page output rejection
 without partial writes.
 
+`GlobalMemoryStatus` uses one VOID one-argument semantic handler and a checked
+32-byte x86 `MEMORYSTATUS` output. The optional `memoryStatus` profile owns the
+bounded load, physical, page-file, and available-virtual fields; total virtual
+bytes are derived from the inclusive `systemInfo` application span instead of
+being duplicated. The active profile uses the native legacy 32-bit saturation
+values consumed by the primary caller, but imports neither host nor browser
+memory pressure and does not define runtime allocator quota. The handler
+preflights the complete destination and commits exactly once while preserving
+EAX and LastError. NULL, read-only, cross-page, disabled, and malformed-policy
+paths are mutation-free. Detailed consumer and non-claim evidence is in
+[bgi-global-memory-status.md](bgi-global-memory-status.md).
+
 `GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
 in/out contract bounded from the four-byte size field through the 156-byte
 extended layout. Exact sizes 148 and 156 read the full caller span, merge the

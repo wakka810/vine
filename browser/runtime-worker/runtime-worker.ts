@@ -659,6 +659,7 @@ class BrowserRuntimeSession {
     writableCommits: [] as SessionReport["writableCommits"],
     dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
     sleepZero: null as SessionReport["sleepZero"],
+    globalMemoryStatus: null as SessionReport["globalMemoryStatus"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -688,7 +689,9 @@ class BrowserRuntimeSession {
         workload === "controlled-source-read" ||
         (workload === "private-bgi" &&
           (this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
-            this.#configuration.capabilityProfile === "kernel32-sleep-zero"));
+            this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+            this.#configuration.capabilityProfile ===
+              "kernel32-global-memory-status"));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -2451,7 +2454,9 @@ class BrowserRuntimeSession {
       "kernel32.sleep-zero.yield-current-thread.v1"
     ) {
       invariant(
-        this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+        (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-global-memory-status") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "Sleep",
@@ -2503,6 +2508,69 @@ class BrowserRuntimeSession {
         this.#report.sleepZero.callCount = occurrence;
         this.#report.sleepZero.lastCall = sleepCall;
       }
+    }
+    if (
+      completion.implementationId ===
+      "kernel32.global-memory-status.x86-deterministic.v1"
+    ) {
+      invariant(
+        this.#configuration.capabilityProfile ===
+          "kernel32-global-memory-status" &&
+          this.#report.globalMemoryStatus === null &&
+          endpoint.module.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GlobalMemoryStatus",
+        "GlobalMemoryStatus completed outside its capability profile or more than once",
+      );
+      const [output] = call.arguments;
+      const expectedBytes = [
+        0x20, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0xff, 0xff, 0xff, 0x7f,
+        0xff, 0xff, 0xff, 0x7f,
+        0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff,
+        0x00, 0x00, 0xfe, 0x7f,
+        0x00, 0x00, 0x00, 0x60,
+      ];
+      invariant(
+        call.arguments.length === 1 &&
+          typeof output === "number" &&
+          Number.isInteger(output) &&
+          output !== 0 &&
+          completion.eax.action === "preserve" &&
+          completion.lastError === 0 &&
+          guestWrites.length === 1 &&
+          guestWrites[0]?.write.address === output &&
+          guestWrites[0].write.bytes.length === expectedBytes.length &&
+          guestWrites[0].write.bytes.every(
+            (byte, index) => byte === expectedBytes[index],
+          ),
+        "GlobalMemoryStatus ABI or deterministic output changed",
+      );
+      this.#report.globalMemoryStatus = {
+        call: {
+          sequence,
+          module: endpoint.module,
+          symbol: "GlobalMemoryStatus",
+          occurrence: 1,
+          trapInstructionCount: this.#report.instructions,
+          arguments: [output],
+          result: { action: "preserve" },
+          implementationId:
+            "kernel32.global-memory-status.x86-deterministic.v1",
+          returnAddress: completion.instructionPointer,
+          stackPointerBefore: frame.stackPointer,
+          stackPointerAfter: completion.stackPointer,
+          lastError: 0,
+          guestWrites: [{ address: output, bytes: [...expectedBytes] }],
+        },
+        stateAuthority: "kernel32-compatibility-policy",
+        virtualSpanAuthority: "kernel32-system-info-policy",
+        hostMemoryImported: false,
+        browserMemoryImported: false,
+        allocatorQuotaAuthority: false,
+      };
     }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
@@ -3077,7 +3145,9 @@ class BrowserRuntimeSession {
     if (executionBoundary === "yield-current-thread") {
       const sleepZero = this.#report.sleepZero;
       invariant(
-        this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+        (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-global-memory-status") &&
           sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
@@ -3114,7 +3184,8 @@ class BrowserRuntimeSession {
         "kernel32-leave-critical-section-continuation" ||
       this.#configuration.capabilityProfile === "shell32-drag-accept-files" ||
       this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
-      this.#configuration.capabilityProfile === "kernel32-sleep-zero"
+      this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+      this.#configuration.capabilityProfile === "kernel32-global-memory-status"
     ) {
       const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
@@ -4006,7 +4077,9 @@ class BrowserRuntimeSession {
     );
     this.#report.supportedCallSemanticsSha256 = this.#semanticCallDigest.digestHex();
     if (
-      this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+      (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-global-memory-status") &&
       terminal.outcome === "structured-stop"
     ) {
       const sleepZero = this.#report.sleepZero;
@@ -4017,6 +4090,15 @@ class BrowserRuntimeSession {
             sleepZero.schedulerSelections.selectionCount +
               sleepZero.noCompetitorCompletions,
         "Sleep(0) report omitted an execution-boundary outcome",
+      );
+    }
+    if (
+      this.#configuration.capabilityProfile === "kernel32-global-memory-status" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      invariant(
+        this.#report.globalMemoryStatus !== null,
+        "GlobalMemoryStatus report omitted its deterministic completion",
       );
     }
     if (this.#configuration.evidenceLevel === "full") {
@@ -4170,6 +4252,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             writableCommits: [],
             dragAcceptFiles: null,
             sleepZero: null,
+            globalMemoryStatus: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

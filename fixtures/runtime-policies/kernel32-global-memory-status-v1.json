@@ -1,0 +1,148 @@
+{
+  "schema": "vine.kernel32-compatibility-policy",
+  "schemaVersion": 2,
+  "id": "kernel32-global-memory-status-v1",
+  "standardHandleSelectors": [4294967286, 4294967285, 4294967284],
+  "standardHandleFileTypes": [
+    { "selector": 4294967286, "fileType": 2 },
+    { "selector": 4294967285, "fileType": 3 },
+    { "selector": 4294967284, "fileType": 3 }
+  ],
+  "setHandleCounts": [32],
+  "ansiCommandLine": true,
+  "wideEnvironmentStrings": true,
+  "wideCharToMultiByte": {
+    "activeCodePage": 932,
+    "maximumSourceCodeUnits": 65536
+  },
+  "multiByteToWideChar": {
+    "allowActiveCodePageSelector": true,
+    "allowedFlags": [0, 1],
+    "maximumSourceBytes": 65536
+  },
+  "setCurrentDirectoryA": {
+    "processImageDirectoryOnly": true,
+    "maximumPathBytes": 32768
+  },
+  "sourceFiles": {
+    "allowedDesiredAccess": [2147483648, 1073741824],
+    "allowedShareModes": [1, 0],
+    "allowedCreationDispositions": [3, 4, 2],
+    "allowedFlagsAndAttributes": [134217760],
+    "maximumPathBytes": 32768,
+    "maximumReadBytes": 1048576,
+    "maximumWriteBytes": 1048576
+  },
+  "loadLibraryA": {
+    "maximumModuleNameBytes": 260,
+    "runtimeSystemModules": [
+      {
+        "canonicalName": "d3dx9_43.dll",
+        "exports": ["D3DXCreateEffect"]
+      }
+    ]
+  },
+  "getDriveTypeA": {
+    "processImageDriveOnly": true,
+    "maximumPathBytes": 32768
+  },
+  "createMutexA": {
+    "allowNamed": true,
+    "allowUnnamed": false,
+    "maximumNameBytes": 32768
+  },
+  "createWaitableTimerA": {
+    "allowManualReset": true,
+    "allowAutoReset": false,
+    "allowUnnamed": true
+  },
+  "setWaitableTimer": {
+    "minimumRelativeDueTime100ns": 1,
+    "maximumRelativeDueTime100ns": 100000,
+    "allowOneShot": true,
+    "allowCompletionRoutine": false,
+    "allowResume": false
+  },
+  "waitForSingleObjectEx": {
+    "maximumTimeoutMilliseconds": 10,
+    "allowAlertable": true,
+    "allowNonalertable": false,
+    "waitableTimerOnly": true
+  },
+  "sleepZero": true,
+  "getStringTypeW": {
+    "allowedInfoTypes": [1],
+    "maximumSourceCodeUnits": 65536
+  },
+  "lcMapStringW": {
+    "allowedLocales": [1041],
+    "allowedFlags": [256, 512],
+    "maximumSourceCodeUnits": 65536
+  },
+  "getModuleFileNameA": {
+    "mainModuleOnly": true,
+    "maximumCapacityBytes": 32768
+  },
+  "activeCodePageInfo": {
+    "maxCharSize": 2,
+    "defaultChar": [63, 0],
+    "leadByte": [129, 159, 224, 252, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "systemDefaultLangId": 1041,
+  "processorFeatures": [
+    { "index": 10, "present": true }
+  ],
+  "threadAffinity": { "processMask": 1 },
+  "threadPriority": { "allowedPriorities": [1] },
+  "createThread": {
+    "defaultStackReserveBytes": 1048576,
+    "defaultStackCommitBytes": 4096,
+    "allowedCreationFlags": [0, 4],
+    "maximumThreads": 256
+  },
+  "systemInfo": {
+    "processorArchitecture": 0,
+    "pageSize": 4096,
+    "minimumApplicationAddress": 65536,
+    "maximumApplicationAddress": 2147418111,
+    "processorType": 586,
+    "allocationGranularity": 65536,
+    "processorLevel": 6,
+    "processorRevision": 0
+  },
+  "memoryStatus": {
+    "memoryLoadPercent": 0,
+    "totalPhysicalBytes": 2147483647,
+    "availablePhysicalBytes": 2147483647,
+    "totalPageFileBytes": 4294967295,
+    "availablePageFileBytes": 4294967295,
+    "availableVirtualBytes": 1610612736
+  },
+  "virtualAlloc": {
+    "requireNullPreferredAddress": true,
+    "allowedReserveByteLengths": [100663296],
+    "allowedAllocationTypes": [1056768],
+    "allowedProtections": [4]
+  },
+  "osVersionInfoA": {
+    "majorVersion": 10,
+    "minorVersion": 0,
+    "buildNumber": 19045,
+    "platformId": 2,
+    "servicePack": "",
+    "servicePackMajor": 0,
+    "servicePackMinor": 0,
+    "suiteMask": 256,
+    "productType": 1
+  },
+  "tickCount": { "incrementPerRead": 1 },
+  "performanceCounter": { "incrementPerRead": 10000 },
+  "heapAllocator": {
+    "allowedFlags": [0, 8],
+    "maximumAllocationBytes": 16777216,
+    "largeAllocationBytes": [67108864]
+  },
+  "heapFreeFlags": [0],
+  "heapSizeFlags": [0, 1],
+  "initializeCriticalSection": { "spinCountField": 33556432 }
+}

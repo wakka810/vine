@@ -2838,6 +2838,7 @@ fn build_bgi_dispatcher(
                 "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
                 "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
                 "Sleep" => kernel32_policy.allows_sleep_zero(),
+                "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
                 _ => true,
             }
         })

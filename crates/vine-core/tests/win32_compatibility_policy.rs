@@ -80,11 +80,42 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
             "../../../fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json"
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-global-memory-status-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
         policy.validate().unwrap();
     }
+
+    let memory_status: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
+    ))
+    .unwrap();
+    let status = memory_status
+        .memory_status()
+        .expect("x86 memory-status policy");
+    assert_eq!(status.memory_load_percent, 0);
+    assert_eq!(status.total_physical_bytes, 0x7fff_ffff);
+    assert_eq!(status.available_physical_bytes, 0x7fff_ffff);
+    assert_eq!(status.total_page_file_bytes, u32::MAX);
+    assert_eq!(status.available_page_file_bytes, u32::MAX);
+    assert_eq!(status.available_virtual_bytes, 0x6000_0000);
+    let mut invalid_available = memory_status.clone();
+    invalid_available
+        .memory_status
+        .as_mut()
+        .unwrap()
+        .available_virtual_bytes = 0;
+    assert_eq!(
+        invalid_available.validate().unwrap_err().code,
+        "kernel32-policy-memory-status-invalid"
+    );
+    let mut missing_system_info = memory_status;
+    missing_system_info.system_info = None;
+    assert_eq!(
+        missing_system_info.validate().unwrap_err().code,
+        "kernel32-policy-memory-status-invalid"
+    );
 
     let previous: Kernel32CompatibilityPolicy = serde_json::from_str(policies[10]).unwrap();
     assert!(!previous.allows_heap_allocation(0, 0x220));

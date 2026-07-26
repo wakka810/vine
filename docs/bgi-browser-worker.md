@@ -78,21 +78,21 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `kernel32-sleep-zero` and uses protocol
-`vine.browser-runtime-worker.v21`. It inherits the immutable boot-archive snapshot and
-writable-profile separation, then accepts only `Sleep(0)`. Every reached call preserves
-EAX and LastError, performs stdcall cleanup with no guest write, and requests the
-Rust-owned `yield-current-thread` boundary. Node and Chrome require all 240 calls to
-select the runnable competitor, create no host wait, and agree on the first／last call,
-selection, semantic digest, memory digest, and `GlobalMemoryStatus` terminal endpoint.
-Protocol version 20 remains the frozen predecessor for the typed file-drop snapshot;
-version 21 adds the execution-boundary disposition without moving scheduler authority
-to TypeScript.
+The active private profile is `kernel32-global-memory-status` and uses protocol
+`vine.browser-runtime-worker.v22`. It inherits the immutable boot-archive snapshot,
+writable-profile separation, and 240 Rust-owned `Sleep(0)` yields, then accepts one
+32-byte x86 `GlobalMemoryStatus` output. Node and Chrome require the same call identity,
+structure bytes, EAX／LastError preservation, compatibility-policy authority,
+system-info-derived virtual span, semantic digest, memory digest, and
+`GetFileAttributesA` terminal endpoint. Protocol version 21 remains the frozen
+predecessor for the execution-boundary disposition; version 22 adds the typed
+memory-status snapshot without moving Windows memory state or allocator authority to
+TypeScript.
 
 The semantic gate passes independently from the repeated workload gate. This bounded
-scheduler leaf does not change the Worker transport, memory topology, browser-resource
+scheduler and system-information leaves do not change the Worker transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
-evidence and is not relabelled as a measurement of the longer Sleep profile. Exact
+evidence and is not relabelled as a measurement of the longer active profile. Exact
 current semantic and artifact values remain manifest-owned.
 
 ## Reproduction

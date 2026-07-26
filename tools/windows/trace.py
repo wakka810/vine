@@ -84,6 +84,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-current-thread",
     "set-thread-affinity-mask",
     "get-system-info",
+    "global-memory-status",
     "enum-display-monitors",
     "com-initialization",
     "d3d9-create-device",

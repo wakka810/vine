@@ -78,6 +78,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_info: Option<Kernel32SystemInfoPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_status: Option<Kernel32MemoryStatusPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub virtual_alloc: Option<Kernel32VirtualAllocPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub os_version_info_a: Option<Kernel32OsVersionInfoAPolicy>,
@@ -289,6 +291,17 @@ pub struct Kernel32SystemInfoPolicy {
     pub processor_revision: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32MemoryStatusPolicy {
+    pub memory_load_percent: u32,
+    pub total_physical_bytes: u32,
+    pub available_physical_bytes: u32,
+    pub total_page_file_bytes: u32,
+    pub available_page_file_bytes: u32,
+    pub available_virtual_bytes: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32VirtualAllocPolicy {
@@ -373,6 +386,7 @@ impl Kernel32CompatibilityPolicy {
             thread_priority: None,
             create_thread: None,
             system_info: None,
+            memory_status: None,
             virtual_alloc: None,
             os_version_info_a: None,
             tick_count: None,
@@ -773,6 +787,32 @@ impl Kernel32CompatibilityPolicy {
                 "x86 system information requires schema v2, thread affinity, and the bounded PE32 virtual address profile",
             ));
         }
+        if let Some(status) = self.memory_status {
+            let Some(info) = self.system_info else {
+                return Err(policy_error(
+                    "kernel32-policy-memory-status-invalid",
+                    "x86 memory status requires the preceding system-information profile",
+                ));
+            };
+            let total_virtual_bytes = info
+                .maximum_application_address
+                .checked_sub(info.minimum_application_address)
+                .and_then(|span| span.checked_add(1));
+            if self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || status.memory_load_percent > 100
+                || status.total_physical_bytes != 0x7fff_ffff
+                || status.available_physical_bytes != status.total_physical_bytes
+                || status.total_page_file_bytes != u32::MAX
+                || status.available_page_file_bytes != status.total_page_file_bytes
+                || status.available_virtual_bytes == 0
+                || total_virtual_bytes.is_none_or(|total| status.available_virtual_bytes > total)
+            {
+                return Err(policy_error(
+                    "kernel32-policy-memory-status-invalid",
+                    "x86 memory status requires schema v2, the bounded virtual profile, native legacy capacity caps, a percentage load, and a nonzero bounded available-virtual value",
+                ));
+            }
+        }
         if let Some(virtual_alloc) = self.virtual_alloc.as_ref() {
             let reserve_byte_lengths = virtual_alloc
                 .allowed_reserve_byte_lengths
@@ -1051,6 +1091,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn system_info(&self) -> Option<Kernel32SystemInfoPolicy> {
         self.system_info
+    }
+
+    pub fn memory_status(&self) -> Option<Kernel32MemoryStatusPolicy> {
+        self.memory_status
     }
 
     pub fn virtual_alloc(&self) -> Option<&Kernel32VirtualAllocPolicy> {

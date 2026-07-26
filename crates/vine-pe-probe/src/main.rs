@@ -240,6 +240,7 @@ enum GenericRuntimeCapability {
     WaitForSingleObjectEx,
     DragAcceptFiles,
     SleepZero,
+    GlobalMemoryStatus,
 }
 
 struct GenericRuntimeProcess {
@@ -2632,6 +2633,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::WaitForSingleObjectEx
                     | GenericRuntimeCapability::DragAcceptFiles
                     | GenericRuntimeCapability::SleepZero
+                    | GenericRuntimeCapability::GlobalMemoryStatus
             )
         ) {
             let loader = kernel32_policy
@@ -3297,14 +3299,20 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let sleep_zero_enabled = matches!(
+    let global_memory_status_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::SleepZero)
+        Some(GenericRuntimeCapability::GlobalMemoryStatus)
     );
-    let drag_accept_files_enabled = matches!(
-        enabled_capability,
-        Some(GenericRuntimeCapability::DragAcceptFiles | GenericRuntimeCapability::SleepZero)
-    );
+    let sleep_zero_enabled = global_memory_status_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::SleepZero)
+        );
+    let drag_accept_files_enabled = sleep_zero_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::DragAcceptFiles)
+        );
     let wait_for_single_object_ex_enabled = drag_accept_files_enabled
         || matches!(
             enabled_capability,
@@ -4162,6 +4170,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             sleep_zero_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "GlobalMemoryStatus".to_owned(),
+            },
+        ) {
+            global_memory_status_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -13661,6 +13676,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "shell32-drag-accept-files" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-archive-source-read" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-sleep-zero" => GenericRuntimeCapability::SleepZero,
+                "kernel32-global-memory-status" => GenericRuntimeCapability::GlobalMemoryStatus,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

@@ -38,8 +38,8 @@ pub use policy::{
     Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
     Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32LoadLibraryAPolicy, Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
-    Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
     Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
@@ -57,6 +57,8 @@ pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priori
 pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
 pub const RESUME_THREAD_IMPLEMENTATION: &str = "kernel32.resume-thread.v1";
 pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
+pub const GLOBAL_MEMORY_STATUS_IMPLEMENTATION: &str =
+    "kernel32.global-memory-status.x86-deterministic.v1";
 pub const VIRTUAL_ALLOC_IMPLEMENTATION: &str = "kernel32.virtual-alloc.reserve-top-down.v1";
 pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
@@ -220,6 +222,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         CREATE_THREAD_IMPLEMENTATION => handle_create_thread(policy, contract, frame, session),
         RESUME_THREAD_IMPLEMENTATION => handle_resume_thread(contract, frame, session),
         GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
+        GLOBAL_MEMORY_STATUS_IMPLEMENTATION => handle_global_memory_status(policy, contract, frame),
         VIRTUAL_ALLOC_IMPLEMENTATION => handle_virtual_alloc(policy, contract, frame, session),
         GET_VERSION_EX_A_IMPLEMENTATION => {
             handle_get_version_ex_a(policy, contract, frame, session)
@@ -353,6 +356,7 @@ pub fn kernel32_contract_for_endpoint(
         "CreateThread" => create_thread_contract(endpoint)?,
         "ResumeThread" => resume_thread_contract(endpoint)?,
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
+        "GlobalMemoryStatus" => global_memory_status_contract(endpoint)?,
         "VirtualAlloc" => virtual_alloc_contract(endpoint)?,
         "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
@@ -799,6 +803,62 @@ fn x86_system_info_bytes(info: &Kernel32SystemInfoPolicy, active_processor_mask:
     bytes.extend_from_slice(&info.allocation_granularity.to_le_bytes());
     bytes.extend_from_slice(&info.processor_level.to_le_bytes());
     bytes.extend_from_slice(&info.processor_revision.to_le_bytes());
+    bytes
+}
+
+fn handle_global_memory_status(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "MEMORYSTATUS output")?;
+    let status = policy.memory_status().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-system-info",
+            "global-memory-status-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable x86 memory status",
+                policy.id
+            ),
+        )
+    })?;
+    let system_info = policy.system_info().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-system-info",
+            "global-memory-status-system-info-missing",
+            "validated x86 memory status has no virtual address profile",
+        )
+    })?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
+        GuestAddress(output),
+        x86_memory_status_bytes(&status, &system_info),
+    ))
+}
+
+fn x86_memory_status_bytes(
+    status: &Kernel32MemoryStatusPolicy,
+    system_info: &Kernel32SystemInfoPolicy,
+) -> Vec<u8> {
+    const X86_MEMORY_STATUS_BYTES: u32 = 32;
+
+    let total_virtual_bytes = system_info
+        .maximum_application_address
+        .checked_sub(system_info.minimum_application_address)
+        .and_then(|span| span.checked_add(1))
+        .expect("validated x86 application-address span");
+    let mut bytes = Vec::with_capacity(X86_MEMORY_STATUS_BYTES as usize);
+    for value in [
+        X86_MEMORY_STATUS_BYTES,
+        status.memory_load_percent,
+        status.total_physical_bytes,
+        status.available_physical_bytes,
+        status.total_page_file_bytes,
+        status.available_page_file_bytes,
+        total_virtual_bytes,
+        status.available_virtual_bytes,
+    ] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
     bytes
 }
 
@@ -4448,6 +4508,18 @@ pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         vec![out_struct("systemInfo", "SYSTEM_INFO", 36)],
         ApiReturnSchema::Void,
         GET_SYSTEM_INFO_IMPLEMENTATION,
+    )
+}
+
+pub fn global_memory_status_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GlobalMemoryStatus",
+        vec![out_struct("memoryStatus", "MEMORYSTATUS", 32)],
+        ApiReturnSchema::Void,
+        GLOBAL_MEMORY_STATUS_IMPLEMENTATION,
     )
 }
 

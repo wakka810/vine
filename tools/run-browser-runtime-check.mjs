@@ -74,7 +74,7 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v21";
+const runtimeProtocol = "vine.browser-runtime-worker.v22";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -568,7 +568,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" && bgiProfile === "kernel32-sleep-zero"
+      scenario === "success" &&
+        (bgiProfile === "kernel32-sleep-zero" ||
+          bgiProfile === "kernel32-global-memory-status")
         ? 300_000
         : scenario === "success" &&
         (bgiProfile === "shell32-drag-accept-files" ||
@@ -606,6 +608,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
         "kernel32-sleep-zero",
+        "kernel32-global-memory-status",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -625,6 +628,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
         "kernel32-sleep-zero",
+        "kernel32-global-memory-status",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -643,8 +647,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
         "kernel32-sleep-zero",
+        "kernel32-global-memory-status",
       ].includes(bgiProfile) && scenario === "success"
-        ? bgiProfile === "kernel32-sleep-zero"
+        ? bgiProfile === "kernel32-sleep-zero" ||
+          bgiProfile === "kernel32-global-memory-status"
           ? 1_512
           : bgiProfile === "kernel32-archive-source-read"
           ? 1_032
@@ -702,10 +708,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         capabilityCheckpoint ||
         bgiProfile === "shell32-drag-accept-files" ||
         bgiProfile === "kernel32-archive-source-read" ||
-        bgiProfile === "kernel32-sleep-zero"
+        bgiProfile === "kernel32-sleep-zero" ||
+        bgiProfile === "kernel32-global-memory-status"
       ) {
         const pacingCount =
-          bgiProfile === "kernel32-sleep-zero"
+          bgiProfile === "kernel32-sleep-zero" ||
+          bgiProfile === "kernel32-global-memory-status"
             ? 6_910
             : bgiProfile === "kernel32-archive-source-read"
             ? 4_716
@@ -731,7 +739,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (
         bgiProfile === "shell32-drag-accept-files" ||
         bgiProfile === "kernel32-archive-source-read" ||
-        bgiProfile === "kernel32-sleep-zero"
+        bgiProfile === "kernel32-sleep-zero" ||
+        bgiProfile === "kernel32-global-memory-status"
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
@@ -764,7 +773,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (
         bgiProfile === "kernel32-archive-source-read" ||
-        bgiProfile === "kernel32-sleep-zero"
+        bgiProfile === "kernel32-sleep-zero" ||
+        bgiProfile === "kernel32-global-memory-status"
       ) {
         assert.deepEqual(
           evidence.report.sourceReads
@@ -802,7 +812,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           "Chrome Worker primary boot-archive reads differ from the frozen slice",
         );
       }
-      if (bgiProfile === "kernel32-sleep-zero") {
+      if (
+        bgiProfile === "kernel32-sleep-zero" ||
+        bgiProfile === "kernel32-global-memory-status"
+      ) {
         const sleepZero = evidence.report.sleepZero;
         assert(sleepZero !== null, "Chrome Worker omitted Sleep(0) evidence");
         assert.equal(sleepZero.callCount, 240);
@@ -830,6 +843,53 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(sleepZero.hostWaitCreated, false);
       } else {
         assert.equal(evidence.report.sleepZero, null);
+      }
+      if (bgiProfile === "kernel32-global-memory-status") {
+        const memoryStatus = evidence.report.globalMemoryStatus;
+        assert(
+          memoryStatus !== null,
+          "Chrome Worker omitted GlobalMemoryStatus evidence",
+        );
+        assert.equal(memoryStatus.call.sequence, 107_757);
+        assert.equal(memoryStatus.call.occurrence, 1);
+        assert.equal(memoryStatus.call.trapInstructionCount, 16_384_108);
+        assert.deepEqual(memoryStatus.call.arguments, [0x006f_f674]);
+        assert.deepEqual(memoryStatus.call.result, { action: "preserve" });
+        assert.equal(memoryStatus.call.returnAddress, 0x1008_1fae);
+        assert.equal(
+          memoryStatus.call.stackPointerAfter -
+            memoryStatus.call.stackPointerBefore,
+          8,
+        );
+        assert.equal(memoryStatus.call.lastError, 0);
+        assert.deepEqual(memoryStatus.call.guestWrites, [
+          {
+            address: 0x006f_f674,
+            bytes: [
+              0x20, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00,
+              0xff, 0xff, 0xff, 0x7f,
+              0xff, 0xff, 0xff, 0x7f,
+              0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0xff, 0xff,
+              0x00, 0x00, 0xfe, 0x7f,
+              0x00, 0x00, 0x00, 0x60,
+            ],
+          },
+        ]);
+        assert.equal(
+          memoryStatus.stateAuthority,
+          "kernel32-compatibility-policy",
+        );
+        assert.equal(
+          memoryStatus.virtualSpanAuthority,
+          "kernel32-system-info-policy",
+        );
+        assert.equal(memoryStatus.hostMemoryImported, false);
+        assert.equal(memoryStatus.browserMemoryImported, false);
+        assert.equal(memoryStatus.allocatorQuotaAuthority, false);
+      } else {
+        assert.equal(evidence.report.globalMemoryStatus, null);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1400,6 +1460,37 @@ function normalizeSleepZero(snapshot) {
   };
 }
 
+function normalizeGlobalMemoryStatus(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      sequence: snapshot.call.sequence,
+      module: snapshot.call.module.toLowerCase(),
+      symbol: snapshot.call.symbol,
+      occurrence: snapshot.call.occurrence,
+      trapInstructionCount: snapshot.call.trapInstructionCount,
+      arguments: snapshot.call.arguments,
+      result: snapshot.call.result,
+      implementationId: snapshot.call.implementationId,
+      returnAddress: snapshot.call.returnAddress,
+      stackPointerBefore: snapshot.call.stackPointerBefore,
+      stackPointerAfter: snapshot.call.stackPointerAfter,
+      lastError: snapshot.call.lastError,
+      guestWrites: snapshot.call.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
+    },
+    stateAuthority: snapshot.stateAuthority,
+    virtualSpanAuthority: snapshot.virtualSpanAuthority,
+    hostMemoryImported: snapshot.hostMemoryImported,
+    browserMemoryImported: snapshot.browserMemoryImported,
+    allocatorQuotaAuthority: snapshot.allocatorQuotaAuthority,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1439,6 +1530,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeSleepZero(browser.report.sleepZero),
     normalizeSleepZero(oracle.sleepZero),
     "Chrome Worker Sleep(0) evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeGlobalMemoryStatus(browser.report.globalMemoryStatus),
+    normalizeGlobalMemoryStatus(oracle.globalMemoryStatus),
+    "Chrome Worker GlobalMemoryStatus evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(
@@ -1973,7 +2069,8 @@ assert(
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
 const sourceRegistration = bgiMode
   ? bgiProfile === "kernel32-archive-source-read" ||
-    bgiProfile === "kernel32-sleep-zero"
+    bgiProfile === "kernel32-sleep-zero" ||
+    bgiProfile === "kernel32-global-memory-status"
     ? await registerSourceSnapshot({
         manifestPath: path.join(
           root,

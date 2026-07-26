@@ -65,6 +65,7 @@ const supportedObservations = new Set([
   "query-performance-counter",
   "get-version-ex-a",
   "get-cp-info",
+  "global-memory-status",
   "processor-feature",
   "unhandled-exception-filter",
   "com-initialization",

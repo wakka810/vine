@@ -163,9 +163,13 @@ export function validateCurrentCheckpoint(manifest) {
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
   const archiveSourceReadActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-archive-source-read" ||
-    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero" ||
+    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status";
+  const globalMemoryStatusActive =
+    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status";
   const sleepZeroActive =
-    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero" ||
+    globalMemoryStatusActive;
   const mainLoopContinuationActive =
     primaryMainLoopProgressionActive ||
     leaveCriticalSectionActive ||
@@ -272,7 +276,24 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "2,3,4,5,6,7,8"
       : "2,3,4";
-  const profileExpectations = sleepZeroActive
+  const profileExpectations = globalMemoryStatusActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 92_327,
+        browserMappingDirtyPages: 94_516,
+        browserSuccessExecutionTransitions: 348_240,
+        latestSchema: "vine.v86-bgi-kernel32-global-memory-status",
+        latestWritebackBatches: 107_849,
+        latestWritebackDirtyPages: 148_256,
+        latestWritebackChangedBytes: 4_917_540,
+        latestHostDeltaBatches: 92_327,
+        latestFinalMemoryGeneration: 201_089,
+        semanticCallDigestSha256:
+          "ef1e28a26937875cb742983528bf5a9cd278aab6bd6fee49ac8de1415418a884",
+        memoryContentSha256:
+          "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+      }
+    : sleepZeroActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 92_304,
@@ -725,8 +746,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v21") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v21");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v22") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v22");
   }
   if (
     browser.executionEngineProfile !==
@@ -7054,6 +7075,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.systemInfo",
     errors,
   );
+  const memoryStatus = requireRecord(
+    kernel32Policy.memoryStatus,
+    "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.memoryStatus",
+    errors,
+  );
   const osVersionInfoA = requireRecord(
     kernel32Policy.osVersionInfoA,
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.osVersionInfoA",
@@ -7083,11 +7109,15 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
     kernel32Policy.id !==
-      (sleepZeroActive
+      (globalMemoryStatusActive
+        ? "kernel32-global-memory-status-v1"
+        : sleepZeroActive
         ? "kernel32-sleep-zero-v1"
         : "kernel32-wait-for-single-object-ex-v1") ||
     kernel32Policy.source !==
-      (sleepZeroActive
+      (globalMemoryStatusActive
+        ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
+        : sleepZeroActive
         ? "fixtures/runtime-policies/kernel32-sleep-zero-v1.json"
         : "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json") ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
@@ -7121,6 +7151,12 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.waitForSingleObjectExAllowNonalertable !== false ||
     kernel32Policy.waitForSingleObjectExWaitableTimerOnly !== true ||
     kernel32Policy.sleepZero !== sleepZeroActive ||
+    memoryStatus.memoryLoadPercent !== 0 ||
+    memoryStatus.totalPhysicalBytes !== 0x7fff_ffff ||
+    memoryStatus.availablePhysicalBytes !== 0x7fff_ffff ||
+    memoryStatus.totalPageFileBytes !== 0xffff_ffff ||
+    memoryStatus.availablePageFileBytes !== 0xffff_ffff ||
+    memoryStatus.availableVirtualBytes !== 0x6000_0000 ||
     sourceFiles.authority !== "runtime/files.rs::RuntimeFiles" ||
     sourceFiles.sourceManifestAuthority !== "rust-runtime-files" ||
     sourceFiles.browserRole !== "same-origin-byte-service" ||
@@ -13233,7 +13269,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (sleepZeroActive
+      (globalMemoryStatusActive
+        ? "Rust-owned deterministic x86 MEMORYSTATUS over Kernel32CompatibilityPolicy and system-info virtual-span authority"
+        : sleepZeroActive
         ? "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority"
         : archiveSourceReadActive
         ? "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority"
@@ -13783,9 +13821,14 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSleepZeroPrimaryAndConfirmationAgree !== true ||
       latestEvidence.nativeSleepZeroExecutableHashUnchanged !== true ||
       latestEvidence.sleepZeroImplemented !== true ||
-      latestEvidence.sleepZeroPolicyId !== "kernel32-sleep-zero-v1" ||
+      latestEvidence.sleepZeroPolicyId !==
+        (globalMemoryStatusActive
+          ? "kernel32-global-memory-status-v1"
+          : "kernel32-sleep-zero-v1") ||
       latestEvidence.sleepZeroPolicySource !==
-        "fixtures/runtime-policies/kernel32-sleep-zero-v1.json" ||
+        (globalMemoryStatusActive
+          ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
+          : "fixtures/runtime-policies/kernel32-sleep-zero-v1.json") ||
       latestEvidence.sleepZeroCallCount !== 240 ||
       latestEvidence.sleepZeroSequences?.join(",") !== "89430,107670" ||
       latestEvidence.sleepZeroOccurrences?.join(",") !== "1,240" ||
@@ -13845,6 +13888,94 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.sleepZeroNodeChromeOrderedSemanticsMatched !== true)
   ) {
     errors.push("Sleep(0) native, Rust, Node, and Chrome evidence is invalid");
+  }
+  if (
+    globalMemoryStatusActive &&
+    (latestEvidence.nativeGlobalMemoryStatusPrimaryTraceBytes !== 2_262_152 ||
+      latestEvidence.nativeGlobalMemoryStatusPrimaryTraceSha256 !==
+        "c36a34fc2d72c1ced0f2b65594b79587ab4a924a8719049f69be3f8d9573ca5d" ||
+      latestEvidence.nativeGlobalMemoryStatusPrimarySummaryBytes !== 52_538 ||
+      latestEvidence.nativeGlobalMemoryStatusPrimarySummarySha256 !==
+        "3ecda278dbe809dcf0b4f57eab78455f6ba71dfc19dc31071cc6703c187e8191" ||
+      latestEvidence.nativeGlobalMemoryStatusConfirmationTraceBytes !==
+        2_261_696 ||
+      latestEvidence.nativeGlobalMemoryStatusConfirmationTraceSha256 !==
+        "a8cbb131fd08cc5378216591afbdee45d21d7624e7f33a2930be64ba024f6ba7" ||
+      latestEvidence.nativeGlobalMemoryStatusConfirmationSummaryBytes !== 52_536 ||
+      latestEvidence.nativeGlobalMemoryStatusConfirmationSummarySha256 !==
+        "09dc742cd48ff63ac49accb4e42af977e668012fc3423c2b661ecaf194dae2c4" ||
+      latestEvidence.nativeGlobalMemoryStatusTraceDiagnostics !== 0 ||
+      latestEvidence.nativeGlobalMemoryStatusCallsPerTrace !== 1 ||
+      latestEvidence.nativeGlobalMemoryStatusCallerReturnRva !== "0x00081fae" ||
+      latestEvidence.nativeGlobalMemoryStatusOutputBytes !== 32 ||
+      latestEvidence.nativeGlobalMemoryStatusGuardBytes !== 16 ||
+      latestEvidence.nativeGlobalMemoryStatusGuardsPreserved !== true ||
+      latestEvidence.nativeGlobalMemoryStatusLastErrorSentinels?.join(",") !==
+        "0,87,305419896" ||
+      latestEvidence.nativeGlobalMemoryStatusLastErrorPreserved !== true ||
+      latestEvidence.nativeGlobalMemoryStatusStableCapacityFields !== true ||
+      latestEvidence.nativeGlobalMemoryStatusConsumer !==
+        "read-total-and-available-physical-clamp-to-signed-maximum-and-pass-to-initialization-helper" ||
+      latestEvidence.nativeGlobalMemoryStatusExecutableHashUnchanged !== true ||
+      latestEvidence.globalMemoryStatusImplemented !== true ||
+      latestEvidence.globalMemoryStatusPolicyId !==
+        "kernel32-global-memory-status-v1" ||
+      latestEvidence.globalMemoryStatusPolicySource !==
+        "fixtures/runtime-policies/kernel32-global-memory-status-v1.json" ||
+      latestEvidence.globalMemoryStatusCallCount !== 1 ||
+      latestEvidence.globalMemoryStatusSequence !== 107_757 ||
+      latestEvidence.globalMemoryStatusInstructionCount !== 16_384_108 ||
+      latestEvidence.globalMemoryStatusArgument !== "0x006ff674" ||
+      latestEvidence.globalMemoryStatusReturnAddress !== "0x10081fae" ||
+      latestEvidence.globalMemoryStatusStackPointers?.join(",") !==
+        "0x006ff660,0x006ff668" ||
+      latestEvidence.globalMemoryStatusResult !== "void-eax-preserved" ||
+      latestEvidence.globalMemoryStatusLastError !== 0 ||
+      latestEvidence.globalMemoryStatusGuestWriteBytes !== 32 ||
+      latestEvidence.globalMemoryStatusOutputHex !==
+        "2000000000000000ffffff7fffffff7fffffffffffffffff0000fe7f00000060" ||
+      latestEvidence.globalMemoryStatusImplementationId !==
+        "kernel32.global-memory-status.x86-deterministic.v1" ||
+      latestEvidence.globalMemoryStatusStateAuthority !==
+        "Kernel32CompatibilityPolicy.memory_status" ||
+      latestEvidence.globalMemoryStatusVirtualSpanAuthority !==
+        "Kernel32CompatibilityPolicy.system_info" ||
+      latestEvidence.globalMemoryStatusHostMemoryImported !== false ||
+      latestEvidence.globalMemoryStatusBrowserMemoryImported !== false ||
+      latestEvidence.globalMemoryStatusAllocatorQuotaAuthority !== false ||
+      latestEvidence.globalMemoryStatusNullRejectedBeforeMutation !== true ||
+      latestEvidence.globalMemoryStatusCrossPageRejectedBeforeMutation !== true ||
+      latestEvidence.globalMemoryStatusReadOnlyRejectedBeforeMutation !== true ||
+      latestEvidence.globalMemoryStatusFailureAtomicity !== true ||
+      latestEvidence.globalMemoryStatusNodeCompletions !== 1 ||
+      latestEvidence.globalMemoryStatusChromeCompletions !== 1 ||
+      latestEvidence.globalMemoryStatusNodeChromeOrderedSemanticsMatched !== true ||
+      bgiBrowserEvidence.globalMemoryStatusCompletions !== 1 ||
+      bgiBrowserEvidence.globalMemoryStatusSequence !== 107_757 ||
+      bgiBrowserEvidence.globalMemoryStatusInstructionCount !== 16_384_108 ||
+      bgiBrowserEvidence.globalMemoryStatusArgument !== "0x006ff674" ||
+      bgiBrowserEvidence.globalMemoryStatusReturnAddress !== "0x10081fae" ||
+      bgiBrowserEvidence.globalMemoryStatusStackPointers?.join(",") !==
+        "0x006ff660,0x006ff668" ||
+      bgiBrowserEvidence.globalMemoryStatusResult !== "void-eax-preserved" ||
+      bgiBrowserEvidence.globalMemoryStatusLastError !== 0 ||
+      bgiBrowserEvidence.globalMemoryStatusGuestWriteBytes !== 32 ||
+      bgiBrowserEvidence.globalMemoryStatusOutputHex !==
+        "2000000000000000ffffff7fffffff7fffffffffffffffff0000fe7f00000060" ||
+      bgiBrowserEvidence.globalMemoryStatusImplementationId !==
+        "kernel32.global-memory-status.x86-deterministic.v1" ||
+      bgiBrowserEvidence.globalMemoryStatusStateAuthority !==
+        "kernel32-compatibility-policy" ||
+      bgiBrowserEvidence.globalMemoryStatusVirtualSpanAuthority !==
+        "kernel32-system-info-policy" ||
+      bgiBrowserEvidence.globalMemoryStatusHostMemoryImported !== false ||
+      bgiBrowserEvidence.globalMemoryStatusBrowserMemoryImported !== false ||
+      bgiBrowserEvidence.globalMemoryStatusAllocatorQuotaAuthority !== false ||
+      bgiBrowserEvidence.globalMemoryStatusNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "GlobalMemoryStatus native, policy, Rust, Node, and Chrome evidence is invalid",
+    );
   }
   if (
     currentStop.kind === "com-method" &&

@@ -5125,3 +5125,29 @@ thread `8192 -> 8193`、no-competitor completion 0、host wait zeroで、ordered
 16,384,108、endpoint ID 52／address `0x7F000330`／IAT `0x100D1178`／return `0x10081FAE`の
 `KERNEL32.dll!GlobalMemoryStatus(0x006FF674)`である。Current report、Wasm、memory identityは
 [current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+
+## 150. BGI deterministic x86 `GlobalMemoryStatus`
+
+Focused `global-memory-status` observationを同じsource executableから独立に二回取得した。Primary raw traceは
+2,262,152 bytes／SHA-256 `c36a34fc2d72c1ced0f2b65594b79587ab4a924a8719049f69be3f8d9573ca5d`、
+summaryは52,538 bytes／SHA-256 `3ecda278dbe809dcf0b4f57eab78455f6ba71dfc19dc31071cc6703c187e8191`で、
+3,486 API pairsがbalancedである。Confirmation raw traceは2,261,696 bytes／SHA-256
+`a8cbb131fd08cc5378216591afbdee45d21d7624e7f33a2930be64ba024f6ba7`、summaryは52,536 bytes／SHA-256
+`09dc742cd48ff63ac49accb4e42af977e668012fc3423c2b661ecaf194dae2c4`で、3,485 API pairsがbalancedである。
+両runともsequence contiguous、diagnostics／hook errors 0である。Raw trace／summaryは`.work/`に保持し、source
+executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+各runのindependent layout oracleは64-byte `0xA5` storage中央へ32-byte `MEMORYSTATUS`を書き、前後16-byte guardを
+保持した。Sentinel LastError `0`、`87`、`0x12345678`はhook／direct system callの双方で保存された。両runで
+`dwTotalPhys`／`dwAvailPhys`は`0x7FFFFFFF`、`dwTotalPageFile`／`dwAvailPageFile`は`0xFFFFFFFF`、
+`dwTotalVirtual`は`0x7FFE0000`で安定した。Memory loadと`dwAvailVirtual`はrun／host状態で変動するartifact observationで、
+VOID return後のEAX数値とともにsemantic goldenにしない。
+
+Primary BGI callはRVA `0x00081FAE`へ戻る。Continuationはlocal structure offset 8／12の
+`dwTotalPhys`／`dwAvailPhys`を順に読み、それぞれ`0x80000000`以上なら`0x7FFFFFFF`へclampして同じhelperへ渡す。
+Runtimeはこのconsumer relationを満たすbounded deterministic profileを使い、total virtualだけは既存`GetSystemInfo`
+application spanから導出する。Host／browser memory pressure、runtime allocator quota、`GlobalMemoryStatusEx`はclaimしない。
+Node／Chromeは一completion、exact 32 bytes、EAX／LastError preserve、semantic／memory digestを一致させ、次stopを
+`KERNEL32.dll!GetFileAttributesA`とした。詳細contractは
+[bgi-global-memory-status.md](bgi-global-memory-status.md)を正とする。

@@ -452,6 +452,10 @@ let getSystemInfoOracleScheduled = false;
 let getSystemInfoOracleSentinel = null;
 let getSystemInfoOracleLastError = null;
 let getSystemInfoConsumerRecorded = false;
+let globalMemoryStatusOracleScheduled = false;
+let globalMemoryStatusOracleSentinel = null;
+let globalMemoryStatusOracleLastError = null;
+let globalMemoryStatusConsumerRecorded = false;
 let enumDisplayMonitorsOracleScheduled = false;
 let enumDisplayMonitorsOracleSentinel = null;
 let enumDisplayMonitorsOracleResult = null;
@@ -1271,6 +1275,50 @@ function snapshotSystemInfo(pointer) {
   }
 }
 
+function snapshotMemoryStatus(pointer) {
+  const measuredBytes = 32;
+  const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
+  if (raw.error !== undefined) {
+    return {
+      profile: "x86-memory-status-layout-v1",
+      measuredBytes,
+      raw,
+    };
+  }
+  if (Process.pointerSize !== 4) {
+    return {
+      profile: "x86-memory-status-layout-v1",
+      measuredBytes,
+      raw,
+      error: `x86 MEMORYSTATUS observation requires 4-byte fields, got ${Process.pointerSize}-byte pointers`,
+    };
+  }
+  try {
+    return {
+      profile: "x86-memory-status-layout-v1",
+      measuredBytes,
+      raw,
+      fields: {
+        length: pointer.readU32(),
+        memoryLoadPercent: pointer.add(4).readU32(),
+        totalPhysicalBytes: pointer.add(8).readU32(),
+        availablePhysicalBytes: pointer.add(12).readU32(),
+        totalPageFileBytes: pointer.add(16).readU32(),
+        availablePageFileBytes: pointer.add(20).readU32(),
+        totalVirtualBytes: pointer.add(24).readU32(),
+        availableVirtualBytes: pointer.add(28).readU32(),
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-memory-status-layout-v1",
+      measuredBytes,
+      raw,
+      error: error.message,
+    };
+  }
+}
+
 function snapshotTimeCaps(pointer) {
   const measuredBytes = 8;
   const raw = snapshotBoundedRawBytes(pointer, measuredBytes);
@@ -1708,6 +1756,41 @@ function snapshotGetSystemInfoCall(
               context,
               6,
               16,
+            ),
+          }
+        : null,
+    },
+  };
+}
+
+function snapshotGlobalMemoryStatusCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  context,
+  output,
+) {
+  const recordsConsumer =
+    !globalMemoryStatusConsumerRecorded &&
+    caller.module !== null &&
+    caller.module.toLowerCase() === "bgi.exe";
+  if (recordsConsumer) {
+    globalMemoryStatusConsumerRecorded = true;
+  }
+  return {
+    lastErrorBefore: Number(lastErrorBefore) >>> 0,
+    globalMemoryStatus: {
+      outputBefore: snapshotMemoryStatus(output),
+      immediateConsumer: recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              returnAddress,
+              96,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              context,
+              6,
+              24,
             ),
           }
         : null,
@@ -3385,6 +3468,9 @@ if (selectedObservations.has("set-thread-affinity-mask")) {
 }
 if (selectedObservations.has("get-system-info")) {
   hooks["kernel32.dll"].push(["GetSystemInfo", [null]]);
+}
+if (selectedObservations.has("global-memory-status")) {
+  hooks["kernel32.dll"].push(["GlobalMemoryStatus", [null]]);
 }
 if (selectedObservations.has("enum-display-monitors")) {
   hooks["user32.dll"].push([
@@ -12699,6 +12785,13 @@ function attachHook(module, name, decoders) {
         (isMainModuleCaller ||
           (caller.module.toLowerCase() === "frida-agent.dll" &&
             getSystemInfoOracleSentinel !== null));
+      const focusedGlobalMemoryStatusObservation =
+        selectedObservations.has("global-memory-status") &&
+        name === "GlobalMemoryStatus" &&
+        caller.module !== null &&
+        (isMainModuleCaller ||
+          (caller.module.toLowerCase() === "frida-agent.dll" &&
+            globalMemoryStatusOracleSentinel !== null));
       const focusedEnumDisplayMonitorsObservation =
         selectedObservations.has("enum-display-monitors") &&
         name === "EnumDisplayMonitors" &&
@@ -12872,6 +12965,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-system-info") &&
         name === "GetSystemInfo" &&
         !focusedGetSystemInfoObservation
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (
+        selectedObservations.has("global-memory-status") &&
+        name === "GlobalMemoryStatus" &&
+        !focusedGlobalMemoryStatusObservation
       ) {
         this.traceFrame = null;
         return;
@@ -13178,6 +13279,15 @@ function attachHook(module, name, decoders) {
         caller.module.toLowerCase() === "frida-agent.dll";
       if (this.traceGetSystemInfoOracle) {
         this.lastError = getSystemInfoOracleSentinel;
+      }
+      this.traceGlobalMemoryStatusOracle =
+        globalMemoryStatusOracleSentinel !== null &&
+        selectedObservations.has("global-memory-status") &&
+        name === "GlobalMemoryStatus" &&
+        caller.module !== null &&
+        caller.module.toLowerCase() === "frida-agent.dll";
+      if (this.traceGlobalMemoryStatusOracle) {
+        this.lastError = globalMemoryStatusOracleSentinel;
       }
       this.traceEnumDisplayMonitorsOracle =
         enumDisplayMonitorsOracleSentinel !== null &&
@@ -13554,6 +13664,8 @@ function attachHook(module, name, decoders) {
           : null;
       this.traceGetSystemInfo =
         focusedGetSystemInfoObservation ? { output: args[0] } : null;
+      this.traceGlobalMemoryStatus =
+        focusedGlobalMemoryStatusObservation ? { output: args[0] } : null;
       const recordsSystemDefaultLangIdConsumer =
         selectedObservations.has("system-default-lang-id") &&
         name === "GetSystemDefaultLangID" &&
@@ -13873,6 +13985,14 @@ function attachHook(module, name, decoders) {
               this.lastError,
               this.context,
               this.traceGetSystemInfo.output,
+            )
+        : this.traceGlobalMemoryStatus !== null
+          ? snapshotGlobalMemoryStatusCall(
+              caller,
+              this.returnAddress,
+              this.lastError,
+              this.context,
+              this.traceGlobalMemoryStatus.output,
             )
         : this.traceEnumDisplayMonitors !== null
           ? {
@@ -14216,6 +14336,9 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceGetSystemInfoOracle) {
         getSystemInfoOracleLastError = Number(lastError) >>> 0;
+      }
+      if (this.traceGlobalMemoryStatusOracle) {
+        globalMemoryStatusOracleLastError = Number(lastError) >>> 0;
       }
       if (this.traceEnumDisplayMonitorsOracle) {
         enumDisplayMonitorsOracleResult = result.toUInt32();
@@ -14590,6 +14713,15 @@ function attachHook(module, name, decoders) {
           : {
               getSystemInfo: {
                 outputAfter: snapshotSystemInfo(this.traceGetSystemInfo.output),
+              },
+            }),
+        ...(this.traceGlobalMemoryStatus === null
+          ? {}
+          : {
+              globalMemoryStatus: {
+                outputAfter: snapshotMemoryStatus(
+                  this.traceGlobalMemoryStatus.output,
+                ),
               },
             }),
         ...(this.traceSystemDefaultLangId === null
@@ -20134,6 +20266,106 @@ function scheduleGetSystemInfoOracle(module) {
   });
 }
 
+function scheduleGlobalMemoryStatusOracle(module) {
+  if (globalMemoryStatusOracleScheduled) {
+    return;
+  }
+  globalMemoryStatusOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GlobalMemoryStatus");
+      if (address === null) {
+        throw new Error("GlobalMemoryStatus export is unavailable");
+      }
+      const globalMemoryStatus = new SystemFunction(
+        address,
+        "void",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        const storage = Memory.alloc(64);
+        storage.writeByteArray(Array(64).fill(0xa5));
+        const output = storage.add(16);
+        const storageBefore = snapshotBoundedRawBytes(storage, 64);
+        globalMemoryStatusOracleSentinel = sentinel;
+        globalMemoryStatusOracleLastError = null;
+        try {
+          const outcome = globalMemoryStatus(output);
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (globalMemoryStatusOracleLastError === null) {
+            throw new Error(
+              "GlobalMemoryStatus oracle did not pass through the hook",
+            );
+          }
+          const storageAfter = snapshotBoundedRawBytes(storage, 64);
+          const bytes = storageAfter.bytes ?? [];
+          const measuredOutput = snapshotMemoryStatus(output);
+          const fields = measuredOutput.fields;
+          return {
+            sentinel,
+            hookLastErrorAfter: globalMemoryStatusOracleLastError,
+            systemLastError,
+            storageOffset: 16,
+            storageBefore,
+            storageAfter,
+            measuredOutput,
+            prefixGuardUnchanged:
+              bytes.length === 64 &&
+              bytes.slice(0, 16).every((value) => value === 0xa5),
+            suffixGuardUnchanged:
+              bytes.length === 64 &&
+              bytes.slice(48).every((value) => value === 0xa5),
+            fieldsCoherent:
+              fields !== undefined &&
+              fields.length === 32 &&
+              fields.memoryLoadPercent <= 100 &&
+              fields.totalPhysicalBytes > 0 &&
+              fields.availablePhysicalBytes <= fields.totalPhysicalBytes &&
+              fields.totalPageFileBytes > 0 &&
+              fields.availablePageFileBytes <= fields.totalPageFileBytes &&
+              fields.totalVirtualBytes > 0 &&
+              fields.availableVirtualBytes <= fields.totalVirtualBytes,
+            hookPreservesLastError:
+              globalMemoryStatusOracleLastError === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          globalMemoryStatusOracleSentinel = null;
+          globalMemoryStatusOracleLastError = null;
+        }
+      };
+      const calls = [0, 87, 0x12345678].map(invoke);
+      const stableCapacityFields = [
+        "totalPhysicalBytes",
+        "totalPageFileBytes",
+        "totalVirtualBytes",
+      ].every((field) =>
+        calls.every(
+          (call) =>
+            call.measuredOutput.fields?.[field] ===
+            calls[0].measuredOutput.fields?.[field],
+        ),
+      );
+      emit("global-memory-status-oracle", {
+        profile: "x86-memory-status-output-v1",
+        calls,
+        stableCapacityFields,
+        allFieldsCoherent: calls.every((call) => call.fieldsCoherent),
+        allGuardsUnchanged: calls.every(
+          (call) => call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      });
+    } catch (error) {
+      emit("global-memory-status-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleEnumDisplayMonitorsOracle(module) {
   if (enumDisplayMonitorsOracleScheduled) {
     return;
@@ -21621,6 +21853,12 @@ Process.attachModuleObserver({
       selectedObservations.has("get-system-info")
     ) {
       scheduleGetSystemInfoOracle(module);
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("global-memory-status")
+    ) {
+      scheduleGlobalMemoryStatusOracle(module);
     }
     if (
       module.name.toLowerCase() === "kernel32.dll" &&
