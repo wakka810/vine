@@ -9,6 +9,10 @@ import { fileURLToPath } from "node:url";
 
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
 import {
+  BROWSER_BGI_REPORT_SCHEMA,
+  BROWSER_BGI_REPORT_SCHEMA_VERSION,
+} from "./browser-bgi-report-contract.mjs";
+import {
   assertValidPrivateTargetEvidence,
   finalizePrivateTargetEvidence,
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
@@ -447,8 +451,8 @@ function assertReportSemantics({
   }
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
-  assert.equal(browserReport.schema, "vine.browser-bgi-runtime-worker");
-  assert.equal(browserReport.schemaVersion, 5);
+  assert.equal(browserReport.schema, BROWSER_BGI_REPORT_SCHEMA);
+  assert.equal(browserReport.schemaVersion, BROWSER_BGI_REPORT_SCHEMA_VERSION);
   assert.equal(
     browserReport.success.report.outcome,
     expectedNext.kind === "capability-checkpoint"

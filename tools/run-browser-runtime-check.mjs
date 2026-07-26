@@ -21,6 +21,10 @@ import {
   startBrowserPerformanceEnvironmentMonitor,
 } from "./browser-performance-environment.mjs";
 import {
+  BROWSER_BGI_REPORT_SCHEMA,
+  BROWSER_BGI_REPORT_SCHEMA_VERSION,
+} from "./browser-bgi-report-contract.mjs";
+import {
   handleSourceSnapshotHttp,
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
@@ -2068,8 +2072,8 @@ if (serveOnly) {
         const sourceAfter = await readFile(bgiPath);
         assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
         const report = {
-          schema: "vine.browser-bgi-runtime-worker",
-          schemaVersion: 6,
+          schema: BROWSER_BGI_REPORT_SCHEMA,
+          schemaVersion: BROWSER_BGI_REPORT_SCHEMA_VERSION,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,

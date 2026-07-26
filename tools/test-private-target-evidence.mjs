@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  BROWSER_BGI_REPORT_SCHEMA,
+  BROWSER_BGI_REPORT_SCHEMA_VERSION,
+} from "./browser-bgi-report-contract.mjs";
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
 import {
   finalizePrivateTargetEvidence,
@@ -50,6 +54,9 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
   bytes,
   sha256: digest,
 });
+
+assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 6);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
