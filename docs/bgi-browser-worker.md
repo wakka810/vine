@@ -71,6 +71,13 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
+The active private profile is `kernel32-leave-critical-section` and uses protocol
+`vine.browser-runtime-worker.v17`. It carries the typed release completion
+(`criticalSectionAddress`, `releaseThreadId`, and `lastError`) in addition to
+the common sequence, instruction, endpoint, and memory-digest fields. The
+browser transports this metadata; Rust remains the sole synchronization
+authority.
+
 ## Reproduction
 
 ```powershell

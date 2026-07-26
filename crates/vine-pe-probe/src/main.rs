@@ -13613,6 +13613,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "primary-main-loop-progression" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
+                "kernel32-leave-critical-section" => {
+                    GenericRuntimeCapability::WaitForSingleObjectEx
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

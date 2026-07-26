@@ -2,12 +2,12 @@
 
 ## Status
 
-- Status: verified
+- Status: historical verified
 - Date: 2026-07-26
 - Runtime-kernel checkpoint: `primary-main-loop-progression`
 - Previous capability checkpoint: `kernel32-enter-critical-section`
 - Completed subsystem gateway: `runtime-waitable-timer-pacing`
-- Next owned endpoint: `KERNEL32.dll!LeaveCriticalSection`
+- Follow-on checkpoint: [`kernel32-leave-critical-section`](bgi-leave-critical-section.md)
 
 This checkpoint verifies the reached main-loop scheduler round trip after the
 bounded waitable-timer service. The Rust scheduler remains the authority for
@@ -50,6 +50,12 @@ seconds. It completed 95 sessions with zero failures; session P95 was
 all 17 versioned thresholds passed in a valid environment. The benchmark report
 and artifact hashes are manifest-owned.
 
+The follow-on `kernel32-leave-critical-section` checkpoint now consumes the
+terminal `LeaveCriticalSection` call and records its release contract. This
+document remains the frozen scheduler-selection evidence for the preceding
+profile; current values and the next endpoint are maintained in
+[current-checkpoint.json](current-checkpoint.json).
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been
@@ -83,5 +89,5 @@ node tools/test-current-checkpoint.mjs
 - Browser timer latency does not select guest thread order; the Rust completion
   and generation checks do.
 - The terminal `LeaveCriticalSection` call is intentionally not dispatched in
-  this checkpoint. Its existing semantic handler remains covered by the
-  historical `kernel32-enter-critical-section` profile.
+  this profile; its follow-on release contract is documented in
+  [bgi-leave-critical-section.md](bgi-leave-critical-section.md).

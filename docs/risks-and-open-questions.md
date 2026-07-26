@@ -68,8 +68,9 @@ Worker workload gateを閉じるが、representative sceneやfull-play性能の�
 Exact evidenceは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Primary BGI execution now records the Rust-owned `8192 -> 8193 -> 8192`
-API-boundary scheduler round trip after the bounded timer waits, and Node／Chrome
-ordered semantics remain equivalent at the `LeaveCriticalSection` boundary. The
+API-boundary scheduler round trip after the bounded timer waits, consumes one
+main-thread `LeaveCriticalSection` release, and keeps Node／Chrome ordered
+semantics equivalent at the following `EnterCriticalSection` boundary. The
 next uncertainty is user-visible main-loop reachability; this evidence does not
 close cross-thread contention, full message/input flow, or graphics／audio
 milestones.

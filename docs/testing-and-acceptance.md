@@ -1249,9 +1249,9 @@ SHA-256も固定し、aggregate external CPUだけを残す再現不能な診断
 Current waitable-timer pacing workloadの先行二runは17 thresholdをすべて通過した一方、sustained
 external CPUで`invalid-environment`となった。Process attribution追加後の同一fixture／thresholdによる
 再実行は17／17 workload threshold、environment qualificationともに通過したため、旧blockerを解除して
-`primary-main-loop-progression`をactive checkpointとする。現在はRust schedulerの
-`8192 -> 8193 -> 8192`選択を確認し、`LeaveCriticalSection`直前で停止する。Exact current値は
-manifestだけを正本とする。
+`kernel32-leave-critical-section`をactive checkpointとする。現在はRust schedulerの
+`8192 -> 8193 -> 8192`選択とmain-thread `LeaveCriticalSection` releaseを確認し、
+`EnterCriticalSection`直前で停止する。Exact current値はmanifestだけを正本とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

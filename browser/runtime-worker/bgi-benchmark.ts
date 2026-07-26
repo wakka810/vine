@@ -261,7 +261,8 @@ function runSession(
 function parseCapabilityProfile(value: unknown): BgiCapabilityProfile | undefined {
   return value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
-    value === "primary-main-loop-progression"
+    value === "primary-main-loop-progression" ||
+    value === "kernel32-leave-critical-section"
     ? value
     : undefined;
 }

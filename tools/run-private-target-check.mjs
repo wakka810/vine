@@ -201,6 +201,15 @@ function assertCapabilityCheckpoint(actual, expected) {
   if (expected.completion.threadSelections !== undefined) {
     assert.deepEqual(actual.threadSelections, expected.completion.threadSelections);
   }
+  for (const field of [
+    "criticalSectionAddress",
+    "releaseThreadId",
+    "lastError",
+  ]) {
+    if (expected.completion[field] !== undefined) {
+      assert.equal(actual[field], expected.completion[field]);
+    }
+  }
 }
 
 function executionStateEvidence(report) {

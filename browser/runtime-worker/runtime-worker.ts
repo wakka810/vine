@@ -2043,11 +2043,13 @@ class BrowserRuntimeSession {
     checkpoint.memoryContentSha256 = reflection.contentSha256;
     this.#cancelAndFinish(
       "checkpoint-complete",
-      checkpoint.capability === "primary-main-loop-progression"
-        ? "API-boundary scheduler roundtrip checkpoint completed"
-        : checkpoint.capability === "kernel32-enter-critical-section"
-        ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
-        : "WaitForSingleObjectEx recurring-wait checkpoint completed",
+      checkpoint.capability === "kernel32-leave-critical-section"
+        ? "LeaveCriticalSection main-thread release checkpoint completed"
+        : checkpoint.capability === "primary-main-loop-progression"
+          ? "API-boundary scheduler roundtrip checkpoint completed"
+          : checkpoint.capability === "kernel32-enter-critical-section"
+            ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
+            : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
   }
@@ -2343,6 +2345,36 @@ class BrowserRuntimeSession {
           }
         }
       }
+    }
+    if (
+      this.#configuration.capabilityProfile === "kernel32-leave-critical-section" &&
+      completion.implementationId === "kernel32.leave-critical-section.v1" &&
+      this.#mainLoopThreadSelections.length === 2 &&
+      this.#currentThreadId === this.#initialThreadId &&
+      sequence === (this.#mainLoopThreadSelections.at(-1)?.sequence ?? -1) + 1
+    ) {
+      const criticalSectionAddress = call.arguments[0];
+      invariant(
+        typeof criticalSectionAddress === "number" &&
+          Number.isInteger(criticalSectionAddress) &&
+          criticalSectionAddress > 0,
+        "LeaveCriticalSection checkpoint omitted its section address",
+      );
+      this.#report.checkpointCompletion = {
+        capability: "kernel32-leave-critical-section",
+        implementationId: "kernel32.leave-critical-section.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        criticalSectionAddress,
+        releaseThreadId: this.#currentThreadId,
+        lastError: completion.lastError,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
     }
   }
 
@@ -2679,7 +2711,10 @@ class BrowserRuntimeSession {
         (selection.state.state === "runnable" || selection.state.state === "in-callback"),
       "Rust API boundary returned an invalid thread selection",
     );
-    if (this.#configuration.capabilityProfile === "primary-main-loop-progression") {
+    if (
+      this.#configuration.capabilityProfile === "primary-main-loop-progression" ||
+      this.#configuration.capabilityProfile === "kernel32-leave-critical-section"
+    ) {
       this.#mainLoopThreadSelections.push({
         sequence: this.#nextBgiCallSequence,
         instructionCount: this.#report.instructions,
@@ -2688,6 +2723,7 @@ class BrowserRuntimeSession {
         state: structuredClone(selection.state),
       });
       if (
+        this.#configuration.capabilityProfile === "primary-main-loop-progression" &&
         this.#mainLoopThreadSelections.length === 2 &&
         selection.threadId === this.#initialThreadId
       ) {

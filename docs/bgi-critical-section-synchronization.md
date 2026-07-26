@@ -200,8 +200,10 @@ claim for cross-thread blocking, APC delivery, or general critical-section
 scheduling. Exact historical and current stop metadata remain in
 [current-checkpoint.json](current-checkpoint.json).
 
-The active scheduler continuation is documented separately in
-[bgi-primary-main-loop-progression.md](bgi-primary-main-loop-progression.md).
+The historical scheduler continuation is documented in
+[bgi-primary-main-loop-progression.md](bgi-primary-main-loop-progression.md);
+the active main-thread release checkpoint is
+[bgi-leave-critical-section.md](bgi-leave-critical-section.md).
 
 ## Historical next structured stop
 

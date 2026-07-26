@@ -151,34 +151,90 @@ export function validateCurrentCheckpoint(manifest) {
   const root = requireRecord(manifest, "manifest", errors);
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
-  const timerCycleCount = primaryMainLoopProgressionActive ? 7 : 3;
-  const timerSetSequences = primaryMainLoopProgressionActive
+  const leaveCriticalSectionActive =
+    root.activeRuntimeCheckpoint?.profile === "kernel32-leave-critical-section";
+  const mainLoopContinuationActive =
+    primaryMainLoopProgressionActive || leaveCriticalSectionActive;
+  const timerCycleCount = mainLoopContinuationActive ? 7 : 3;
+  const timerSetSequences = mainLoopContinuationActive
     ? "18681,18689,18697,18705,18713,18721,18729"
     : "18681,18689,18697";
-  const timerSetInstructionCounts = primaryMainLoopProgressionActive
+  const timerSetInstructionCounts = mainLoopContinuationActive
     ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
     : "11973553,11973700,11973847";
-  const timerWaitSequences = primaryMainLoopProgressionActive
+  const timerWaitSequences = mainLoopContinuationActive
     ? "18682,18690,18698,18706,18714,18722,18730"
     : "18682,18690,18698";
-  const timerWaitInstructionCounts = primaryMainLoopProgressionActive
+  const timerWaitInstructionCounts = mainLoopContinuationActive
     ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
     : "11973559,11973706,11973853";
-  const timerGenerations = primaryMainLoopProgressionActive
+  const timerGenerations = mainLoopContinuationActive
     ? "1,2,3,4,5,6,7"
     : "1,2,3";
-  const timerDeadlines = primaryMainLoopProgressionActive
+  const timerDeadlines = mainLoopContinuationActive
     ? "5000,10000,15000,20000,25000,30000,35000"
     : "5000,10000,15000";
-  const timerPacingRequestIds = primaryMainLoopProgressionActive
+  const timerPacingRequestIds = mainLoopContinuationActive
     ? "3,4,5,6,7,8,9"
     : "3,4,5";
-  const timerPacingRegistrationIds = primaryMainLoopProgressionActive
+  const timerPacingRegistrationIds = mainLoopContinuationActive
     ? "1,2,3,4,5,6,7"
     : "1,2,3";
-  const timerPacingClockGenerations = primaryMainLoopProgressionActive
+  const timerPacingClockGenerations = mainLoopContinuationActive
     ? "0,1,2,3,4,5,6"
     : "0,1,2";
+  const profileExpectations = leaveCriticalSectionActive
+    ? {
+        benchmarkObservation:
+          "current-critical-section-release-observation",
+        browserMappingDeltas: 17_382,
+        browserMappingDirtyPages: 18_889,
+        browserSuccessExecutionTransitions: 58_458,
+        latestSchema: "vine.v86-bgi-kernel32-leave-critical-section.v1",
+        latestWritebackBatches: 18_791,
+        latestWritebackDirtyPages: 37_785,
+        latestWritebackChangedBytes: 2_933_159,
+        latestHostDeltaBatches: 17_382,
+        latestFinalMemoryGeneration: 36_746,
+        semanticCallDigestSha256:
+          "77dee747fc8fc285f6c4e32f68e12ba2334118b7b6984ecc68236be8acdac7f4",
+        memoryContentSha256:
+          "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636",
+      }
+    : primaryMainLoopProgressionActive
+      ? {
+          benchmarkObservation: "current-main-loop-progression-observation",
+          browserMappingDeltas: 17_381,
+          browserMappingDirtyPages: 18_888,
+          browserSuccessExecutionTransitions: 58_455,
+          latestSchema: "vine.v86-bgi-primary-main-loop-progression.v1",
+          latestWritebackBatches: 18_790,
+          latestWritebackDirtyPages: 37_783,
+          latestWritebackChangedBytes: 2_933_150,
+          latestHostDeltaBatches: 17_381,
+          latestFinalMemoryGeneration: 36_744,
+          semanticCallDigestSha256:
+            "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+          memoryContentSha256:
+            "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
+        }
+      : {
+          benchmarkObservation:
+            "current-critical-section-idle-cycle-observation",
+          browserMappingDeltas: 17_359,
+          browserMappingDirtyPages: 18_866,
+          browserSuccessExecutionTransitions: 58_352,
+          latestSchema: "vine.v86-bgi-kernel32-enter-critical-section.v1",
+          latestWritebackBatches: 18_760,
+          latestWritebackDirtyPages: 37_740,
+          latestWritebackChangedBytes: 2_932_769,
+          latestHostDeltaBatches: 17_359,
+          latestFinalMemoryGeneration: 36_692,
+          semanticCallDigestSha256:
+            "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
+          memoryContentSha256:
+            "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
+        };
   const timerRepeatedOnes = Array(timerCycleCount).fill(1).join(",");
   const timerRepeatedTwos = Array(timerCycleCount).fill(2).join(",");
   const timerRepeatedZeroes = Array(timerCycleCount).fill(0).join(",");
@@ -489,8 +545,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v16") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v16");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v17") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v17");
   }
   if (
     browser.executionEngineProfile !==
@@ -1239,21 +1295,20 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !==
-      (primaryMainLoopProgressionActive ? 17_381 : 17_359) ||
+    bgiBrowserEvidence.mappingDeltas !== profileExpectations.browserMappingDeltas ||
     bgiBrowserEvidence.mappingDirtyPages !==
-      (primaryMainLoopProgressionActive ? 18_888 : 18_866) ||
+      profileExpectations.browserMappingDirtyPages ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
     bgiBrowserEvidence.successExecutionTransitionCount !==
-      (primaryMainLoopProgressionActive ? 58_455 : 58_352) ||
+      profileExpectations.browserSuccessExecutionTransitions ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (primaryMainLoopProgressionActive ? 2 : 1) ||
+      (mainLoopContinuationActive ? 2 : 1) ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
@@ -2015,7 +2070,7 @@ export function validateCurrentCheckpoint(manifest) {
       timerGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExWaitState !== "signaled" ||
     bgiBrowserEvidence.waitForSingleObjectExNextRegistrationIds?.join(",") !==
-      (primaryMainLoopProgressionActive ? "2,3,4,5,6,7,8" : "2,3,4") ||
+      (mainLoopContinuationActive ? "2,3,4,5,6,7,8" : "2,3,4") ||
     bgiBrowserEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     bgiBrowserEvidence.waitForSingleObjectExClockAuthority !==
@@ -2718,13 +2773,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.configuration !==
       "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json" ||
     bgiBenchmarkEvidence.runtimeProfile !==
-      (primaryMainLoopProgressionActive
-        ? "primary-main-loop-progression"
-        : "kernel32-enter-critical-section") ||
+      root.activeRuntimeCheckpoint?.profile ||
     bgiBenchmarkEvidence.observationStatus !==
-      (primaryMainLoopProgressionActive
-        ? "current-main-loop-progression-observation"
-        : "current-critical-section-idle-cycle-observation") ||
+      profileExpectations.benchmarkObservation ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -7588,10 +7639,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("latest ANSI OS-version evidence is invalid");
   }
   if (
-    latestEvidence.schema !==
-      (primaryMainLoopProgressionActive
-        ? "vine.v86-bgi-primary-main-loop-progression.v1"
-        : "vine.v86-bgi-kernel32-enter-critical-section.v1") ||
+    latestEvidence.schema !== profileExpectations.latestSchema ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -8232,16 +8280,15 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !==
-      (primaryMainLoopProgressionActive ? 18_790 : 18_760) ||
+    latestEvidence.writebackBatches !== profileExpectations.latestWritebackBatches ||
     latestEvidence.writebackDirtyPages !==
-      (primaryMainLoopProgressionActive ? 37_783 : 37_740) ||
+      profileExpectations.latestWritebackDirtyPages ||
     latestEvidence.writebackChangedBytes !==
-      (primaryMainLoopProgressionActive ? 2_933_150 : 2_932_769) ||
+      profileExpectations.latestWritebackChangedBytes ||
     latestEvidence.hostDeltaBatches !==
-      (primaryMainLoopProgressionActive ? 17_381 : 17_359) ||
+      profileExpectations.latestHostDeltaBatches ||
     latestEvidence.finalMemoryGeneration !==
-      (primaryMainLoopProgressionActive ? 36_744 : 36_692)
+      profileExpectations.latestFinalMemoryGeneration
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -10166,14 +10213,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      (primaryMainLoopProgressionActive
-        ? "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8"
-        : "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da") ||
+      profileExpectations.semanticCallDigestSha256 ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.memoryContentSha256 !==
-      (primaryMainLoopProgressionActive
-        ? "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
-        : "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5") ||
+      profileExpectations.memoryContentSha256 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -10678,7 +10721,7 @@ export function validateCurrentCheckpoint(manifest) {
       "8192,8193" ||
     latestEvidence.createThreadChromeExecutedThreadIds?.join(",") !== "8192,8193" ||
     latestEvidence.createThreadContextSwitchesBeforeNextStop !==
-      (primaryMainLoopProgressionActive ? 2 : 1) ||
+      (mainLoopContinuationActive ? 2 : 1) ||
     latestEvidence.createThreadDynamicExitReleasesMappings !== true ||
     latestEvidence.createThreadDynamicAddressReuseVerified !== true ||
     latestEvidence.createThreadFailureAtomicity !== true ||
@@ -12540,6 +12583,20 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push(`${label} scheduler selections must match nextStructuredStop`);
       }
+      for (const field of [
+        "criticalSectionAddress",
+        "releaseThreadId",
+        "lastError",
+      ]) {
+        if (
+          expectedCompletion[field] !== undefined &&
+          actual[field] !== expectedCompletion[field]
+        ) {
+          errors.push(
+            `${label} critical-section release must match nextStructuredStop`,
+          );
+        }
+      }
     }
   }
   if (active.profile === "kernel32-enter-critical-section") {
@@ -12673,6 +12730,28 @@ export function validateCurrentCheckpoint(manifest) {
           "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
       ) {
         errors.push(`${label} main-loop scheduler checkpoint evidence is invalid`);
+      }
+    }
+  } else if (active.profile === "kernel32-leave-critical-section") {
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "kernel32-leave-critical-section" ||
+        completion.implementationId !== "kernel32.leave-critical-section.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 18_735 ||
+        completion.lastCompletionInstructionCount !== 11_974_687 ||
+        completion.criticalSectionAddress !== 0x100fd9cc ||
+        completion.releaseThreadId !== 8_192 ||
+        completion.lastError !== 0 ||
+        completion.instructionCount !== 11_974_730 ||
+        completion.memoryContentSha256 !==
+          "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636"
+      ) {
+        errors.push(`${label} critical-section release checkpoint evidence is invalid`);
       }
     }
   }
@@ -12879,7 +12958,9 @@ export function renderReadmeStatus(manifest) {
             ? "balanced critical-section acquisitions"
             : next.completion.capability === "primary-main-loop-progression"
               ? "scheduler thread selections"
-            : "recurring waits"
+              : next.completion.capability === "kernel32-leave-critical-section"
+                ? "critical-section release"
+                : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +

@@ -145,7 +145,8 @@ the fixed Chrome artifact, environment qualification, all 17 evaluations, and
 accepted report identity.
 The current waitable-timer pacing workload passed the same 180-second gate in a
 valid environment without changing the 17 workload thresholds; downstream work
-therefore proceeds to the manifested `EnterCriticalSection` stop.
+therefore proceeds to the manifested `EnterCriticalSection` stop after the
+main-thread `LeaveCriticalSection` release.
 
 The canonical commit-bound private target gate is:
 

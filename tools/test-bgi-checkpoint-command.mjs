@@ -256,6 +256,10 @@ assert.equal(
   bgiProfileOutputDirectory("primary-main-loop-progression"),
   "v86-bgi-primary-main-loop-progression",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-leave-critical-section"),
+  "v86-bgi-leave-critical-section",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");
