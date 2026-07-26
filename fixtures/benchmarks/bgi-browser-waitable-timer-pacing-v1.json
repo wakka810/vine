@@ -3,11 +3,11 @@
   "schemaVersion": 1,
   "id": "waitable-timer-pacing-bgi-worker-v1",
   "workload": {
-    "profile": "kernel32-enter-critical-section",
-    "guestInstructions": 11973994,
-    "supportedCalls": 18704,
+    "profile": "primary-main-loop-progression",
+    "guestInstructions": 11974687,
+    "supportedCalls": 18734,
     "sourceReadCompletions": 2,
-    "nextApi": "kernel32.dll!SetWaitableTimer"
+    "nextApi": "kernel32.dll!LeaveCriticalSection"
   },
   "durationMilliseconds": 180000,
   "sampleIntervalMilliseconds": 5000,

@@ -7,7 +7,7 @@
 - Runtime-kernel checkpoint: `kernel32-wait-for-single-object-ex`
 - Previous capability checkpoint: `kernel32-set-waitable-timer`
 - Completed subsystem gateway: `runtime-waitable-timer-pacing`
-- Next capability checkpoint: `kernel32-enter-critical-section`
+- Next capability checkpoint: `primary-main-loop-progression`
 
 This checkpoint implements the reached finite alertable wait over a relative
 one-shot waitable timer. Rust owns the logical timer clock, timer expiration,
@@ -155,14 +155,16 @@ policy-defined sustained external-CPU condition, so neither is accepted
 performance evidence. Exact reports, protected invariants, and the isolated-host
 resume condition are recorded only in the current manifest.
 
-The follow-on `kernel32-enter-critical-section` profile has since consumed
+The historical follow-on `kernel32-enter-critical-section` profile consumed
 three balanced `EnterCriticalSection`／`LeaveCriticalSection` pairs in this
-same idle cycle and stops at the next `SetWaitableTimer` arm. That continuation
-uses the existing Rust synchronization authority and an explicit Worker
-capability profile; the wait policy remains the dependency policy rather than
-a second state authority. Its 180-second repeated-session observation passed
-all versioned thresholds in a valid performance environment; exact current
-metrics remain manifest-owned.
+same idle cycle. The active
+[`primary-main-loop-progression`](bgi-primary-main-loop-progression.md) profile
+now continues through seven timer/wait pairs and records the Rust-owned
+`8192 -> 8193 -> 8192` scheduler round trip before stopping at
+`KERNEL32.dll!LeaveCriticalSection`. The wait policy remains a dependency
+policy rather than a second state authority. Its 180-second repeated-session
+observation passed all versioned thresholds in a valid performance environment;
+exact current metrics remain manifest-owned.
 
 ## Non-claims
 

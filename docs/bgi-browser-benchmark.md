@@ -9,14 +9,16 @@
   [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
 - Accepted performance evidence: current manifest report identity
 
-This observation repeats the complete reached waitable-timer pacing path in one
-Chrome Dedicated Worker. Every session starts a fresh Rust runtime and v86
-mirror, executes the three bounded `SetWaitableTimer`／`WaitForSingleObjectEx`
-pairs, and stops at `KERNEL32.dll!EnterCriticalSection`. Rust remains authority
-for the logical clock, timer state, wait result, scheduler owner, guest memory,
-and terminal endpoint. The browser owns only cancellable delay resources.
+This observation repeats the complete reached waitable-timer pacing and
+main-loop progression path in one Chrome Dedicated Worker. Every session starts
+a fresh Rust runtime and v86 mirror, executes seven bounded
+`SetWaitableTimer`／`WaitForSingleObjectEx` pairs, records the
+`8192 -> 8193 -> 8192` Rust scheduler round trip, and stops at
+`KERNEL32.dll!LeaveCriticalSection`. Rust remains authority for the logical
+clock, timer state, wait result, scheduler owner, guest memory, and terminal
+endpoint. The browser owns only cancellable delay resources.
 
-Protocol version 14 carries full-width request, registration, arm-generation,
+Protocol version 16 carries full-width request, registration, arm-generation,
 clock-generation, and owner-thread identities. The benchmark checks the
 manifest-selected call count, instruction stop, canonical semantic digest,
 memory digest, completion count, next endpoint, pending-work cleanup, and
@@ -65,9 +67,9 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The unchanged waitable-timer workload passed all 17 versioned workload
-thresholds with zero semantic failures in the two historical invalid-
-environment runs and the accepted valid-environment run. The first candidate
+The current main-loop workload passed all 17 versioned workload thresholds with
+zero semantic failures in the accepted valid-environment run. The first
+candidate
 also exposed a duplicated full-memory reflection at terminal publication. A
 copy-free Rust memory summary removed that observer-only allocation and brought
 the runtime-core linear-memory observation back below its unchanged ceiling
@@ -80,8 +82,9 @@ process. The versioned replacement records bounded process attribution without
 excluding any process or relaxing a threshold. Its unchanged 180-second run
 passed both the workload and environment decisions, so the structured blocker
 is resolved and the checkpoint advances to
-`KERNEL32.dll!EnterCriticalSection`. Exact accepted metrics and report identity
-live only in [current-checkpoint.json](current-checkpoint.json).
+`KERNEL32.dll!LeaveCriticalSection` after the scheduler round trip. Exact
+accepted metrics and report identity live only in
+[current-checkpoint.json](current-checkpoint.json).
 
 ### Historical accepted DirectInput observation
 

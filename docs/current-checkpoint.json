@@ -185,7 +185,7 @@
   "workload": "private-bgi-generic-session",
   "bgiSession": "semantic-equivalence-passed",
   "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v15",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v16",
   "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
   "browserRuntimeWorker": true,
   "browserRuntimeCoreWasm": {
@@ -332,16 +332,16 @@
     "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
     "nodeRole": "semantic-oracle-only",
     "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
-  "guestInstructions": 11973994,
+  "guestInstructions": 11974687,
   "cpuSlices": 19459,
       "budgetYields": 699,
-  "supportedCalls": 18704,
+  "supportedCalls": 18734,
       "evidenceLevel": "summary",
     "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-  "callSemanticsSha256": "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
-  "writebackBatches": 19457,
-  "writebackPages": 39354,
-  "hostDeltaBatches": 17359,
+  "callSemanticsSha256": "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+  "writebackBatches": 19487,
+  "writebackPages": 39397,
+  "hostDeltaBatches": 17381,
       "callbackEntries": 20,
     "callbackReplacements": 10,
     "maximumCallbackDepth": 3,
@@ -355,11 +355,27 @@
     "browserOwnsLogicalWindowState": false,
     "registeredThreadIds": [8192, 8193],
     "executedThreadIds": [8192, 8193],
-    "contextSwitches": 1,
-    "setWaitableTimerCompletions": 3,
+    "contextSwitches": 2,
+    "setWaitableTimerCompletions": 7,
     "setWaitableTimerSequence": 18681,
-    "setWaitableTimerSequences": [18681, 18689, 18697],
-    "setWaitableTimerInstructionCounts": [11973553, 11973700, 11973847],
+    "setWaitableTimerSequences": [
+      18681,
+      18689,
+      18697,
+      18705,
+      18713,
+      18721,
+      18729
+    ],
+    "setWaitableTimerInstructionCounts": [
+      11973553,
+      11973700,
+      11973847,
+      11973994,
+      11974141,
+      11974288,
+      11974435
+    ],
     "setWaitableTimerInstructionCount": 11973553,
     "setWaitableTimerArguments": ["0x57010002", "0x500fff98", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
     "setWaitableTimerResult": 1,
@@ -383,23 +399,95 @@
     "setWaitableTimerBrowserTimerCreated": false,
     "setWaitableTimerExpirationImplemented": true,
     "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
-    "waitForSingleObjectExCompletions": 3,
-    "waitForSingleObjectExSequences": [18682, 18690, 18698],
-    "waitForSingleObjectExInstructionCounts": [11973559, 11973706, 11973853],
+    "waitForSingleObjectExCompletions": 7,
+    "waitForSingleObjectExSequences": [
+      18682,
+      18690,
+      18698,
+      18706,
+      18714,
+      18722,
+      18730
+    ],
+    "waitForSingleObjectExInstructionCounts": [
+      11973559,
+      11973706,
+      11973853,
+      11974000,
+      11974147,
+      11974294,
+      11974441
+    ],
     "waitForSingleObjectExArguments": ["0x57010002", "0x0000000a", "0x00000001"],
-    "waitForSingleObjectExResults": [0, 0, 0],
+    "waitForSingleObjectExResults": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
     "waitForSingleObjectExReturnAddress": "0x10050615",
-    "waitForSingleObjectExLastErrors": [0, 0, 0],
+    "waitForSingleObjectExLastErrors": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
     "waitForSingleObjectExGuestWriteBytes": 0,
     "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
     "waitForSingleObjectExTimerId": 2,
     "waitForSingleObjectExManualReset": true,
-    "waitForSingleObjectExArmGenerations": [1, 2, 3],
-    "waitForSingleObjectExDeadlineTimes100ns": [5000, 10000, 15000],
-    "waitForSingleObjectExClockTimes100ns": [5000, 10000, 15000],
-    "waitForSingleObjectExClockGenerations": [1, 2, 3],
+    "waitForSingleObjectExArmGenerations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "waitForSingleObjectExDeadlineTimes100ns": [
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000,
+      35000
+    ],
+    "waitForSingleObjectExClockTimes100ns": [
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000,
+      35000
+    ],
+    "waitForSingleObjectExClockGenerations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
     "waitForSingleObjectExWaitState": "signaled",
-    "waitForSingleObjectExNextRegistrationIds": [2, 3, 4],
+    "waitForSingleObjectExNextRegistrationIds": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
     "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
     "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
     "waitForSingleObjectExTimeoutMode": "finite-zero-through-ten-milliseconds",
@@ -407,13 +495,69 @@
     "waitForSingleObjectExApcDeliveryImplemented": false,
     "waitForSingleObjectExPacingService": "runtime.timer-delay.v1",
     "waitForSingleObjectExPacingPayloadVersion": 1,
-    "waitForSingleObjectExPacingRequestIds": ["3", "4", "5"],
-    "waitForSingleObjectExPacingRegistrationIds": ["1", "2", "3"],
-    "waitForSingleObjectExPacingDelayMilliseconds": [1, 1, 1],
-    "waitForSingleObjectExPacingTimerIds": ["2", "2", "2"],
-    "waitForSingleObjectExPacingTargetTimes100ns": ["5000", "10000", "15000"],
-    "waitForSingleObjectExPacingClockGenerations": ["0", "1", "2"],
-    "waitForSingleObjectExPacingArmGenerations": ["1", "2", "3"],
+    "waitForSingleObjectExPacingRequestIds": [
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "waitForSingleObjectExPacingRegistrationIds": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
+    "waitForSingleObjectExPacingDelayMilliseconds": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "waitForSingleObjectExPacingTimerIds": [
+      "2",
+      "2",
+      "2",
+      "2",
+      "2",
+      "2",
+      "2"
+    ],
+    "waitForSingleObjectExPacingTargetTimes100ns": [
+      "5000",
+      "10000",
+      "15000",
+      "20000",
+      "25000",
+      "30000",
+      "35000"
+    ],
+    "waitForSingleObjectExPacingClockGenerations": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "waitForSingleObjectExPacingArmGenerations": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
     "waitForSingleObjectExPacingOutcome": "object-signaled",
     "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
     "waitForSingleObjectExLogicalCompletionAuthority": "rust-runtime",
@@ -423,8 +567,8 @@
     "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
     "waitForSingleObjectExHostClockImported": false,
     "waitForSingleObjectExBrowserTimerCreated": true,
-    "waitForSingleObjectExBrowserPacingRequests": 3,
-    "waitForSingleObjectExBrowserPacingCompletions": 3,
+    "waitForSingleObjectExBrowserPacingRequests": 7,
+    "waitForSingleObjectExBrowserPacingCompletions": 7,
     "waitForSingleObjectExBrowserPacingCancellations": 0,
     "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
     "waitForSingleObjectExBrowserPacingPending": 0,
@@ -843,7 +987,7 @@
     "virtualAllocNodeCompletions": 1,
     "virtualAllocChromeCompletions": 1,
     "virtualAllocNodeChromeOrderedSemanticsMatched": true,
-  "successExecutionTransitionCount": 58352,
+  "successExecutionTransitionCount": 58455,
       "monitorFromWindowCompletions": 2,
     "monitorFromWindowSequence": 17842,
     "monitorFromWindowArguments": ["0x48010001", "0x00000001"],
@@ -1457,8 +1601,8 @@
       "decommit": 0,
       "release": 4
     },
-    "mappingDeltas": 17359,
-    "mappingDirtyPages": 18866,
+    "mappingDeltas": 17381,
+    "mappingDirtyPages": 18888,
       "mappingAtomicRejections": 0,
     "mappingStaleAccessStops": 0,
     "mappingCacheEffects": {
@@ -1488,83 +1632,56 @@
     "initialStackCommittedPagesAfterGrowth": 5,
     "initialStackFinalGuardPage": "0x006fa000",
     "initialGeneration": 27,
-    "finalGeneration": 37391,
-    "nodeFinalGeneration": 36692,
+    "finalGeneration": 37443,
+    "nodeFinalGeneration": 36744,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
-    "memoryContentSha256": "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
+    "memoryContentSha256": "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
     "checkpointCompletion": {
-      "capability": "kernel32-enter-critical-section",
-      "implementationId": "kernel32.enter-critical-section.v1",
-      "requiredCompletions": 3,
-      "completionCount": 3,
-      "lastCompletionSequence": 18703,
-      "lastCompletionInstructionCount": 11973950,
-      "roundtrips": [
+      "capability": "primary-main-loop-progression",
+      "implementationId": "runtime.scheduler.api-boundary-round-robin.v1",
+      "requiredCompletions": 2,
+      "completionCount": 2,
+      "lastCompletionSequence": 18734,
+      "lastCompletionInstructionCount": 11974512,
+      "threadSelections": [
         {
-          "criticalSectionAddress": "0x1014c8d0",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18699,
-            "occurrence": 32,
-            "instructionCount": 11973878
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18700,
-            "occurrence": 31,
-            "instructionCount": 11973883
+          "sequence": 18663,
+          "instructionCount": 11973280,
+          "previousThreadId": 8192,
+          "threadId": 8193,
+          "state": {
+            "state": "runnable"
           }
         },
         {
-          "criticalSectionAddress": "0x1014c8d0",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18701,
-            "occurrence": 33,
-            "instructionCount": 11973919
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18702,
-            "occurrence": 32,
-            "instructionCount": 11973924
-          }
-        },
-        {
-          "criticalSectionAddress": "0x100ff820",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18703,
-            "occurrence": 34,
-            "instructionCount": 11973950
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18704,
-            "occurrence": 33,
-            "instructionCount": 11973959
+          "sequence": 18734,
+          "instructionCount": 11974512,
+          "previousThreadId": 8193,
+          "threadId": 8192,
+          "state": {
+            "state": "runnable"
           }
         }
       ],
-      "instructionCount": 11973994,
+      "instructionCount": 11974687,
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 118,
-        "api": "kernel32.dll!SetWaitableTimer",
-        "endpointAddress": "0x7f000750"
+        "endpointId": 145,
+        "api": "kernel32.dll!LeaveCriticalSection",
+        "endpointAddress": "0x7f000900"
       },
-      "memoryContentSha256": "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5"
+      "memoryContentSha256": "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
     },
     "initialCurrentDirectoryBytesWithNul": [67, 58, 92, 86, 105, 110, 101, 0],
     "initialCurrentDirectoryGeneration": 0,
     "setCurrentDirectoryGeneration": 1,
-    "wasmBridgeCalls": 55898,
+    "wasmBridgeCalls": 55984,
     "runtimeCoreLinearMemoryBytes": 11272192,
       "executionEngineLinearMemoryBytes": 18219008,
     "maximumSliceMilliseconds": 3.314999997615814,
-    "elapsedMilliseconds": 2298.2799999713898,
-    "heartbeatSamples": 462,
-    "maximumHeartbeatGapMilliseconds": 22.145000010728836,
+    "elapsedMilliseconds": 2248.6599999964237,
+    "heartbeatSamples": 452,
+    "maximumHeartbeatGapMilliseconds": 23.92500001192093,
     "usedJsHeapBytesBefore": 633262,
     "usedJsHeapBytesAfter": 763538,
       "cancelInstructions": 19,
@@ -1576,18 +1693,18 @@
     "sourceReadCompletions": 2,
     "sourceReadPayloadSha256": "6dba2f3ade90d3706b45ccf37e490a56c97e74511a0eae0c4ab5546f34ce1cd6",
     "sourceReadPendingAfterCleanup": 0,
-    "nodeOracleReportBytes": 411234,
-      "nodeOracleReportSha256": "200537ac822a87f90d35fe77363a0405171b118c4003a3c832678168c2aca140",
-    "browserReportBytes": 46872,
-      "browserReportSha256": "71f0a1781e0ef8c91f74cb0492198baa5bf94a5c1e7e6faa9c22df3eb82afa71"
+    "nodeOracleReportBytes": 423334,
+      "nodeOracleReportSha256": "3972b37c53639d90bd43f4ec5f9acf6ca7b358a47e9425c4154eaa26ccfb4aad",
+    "browserReportBytes": 46572,
+      "browserReportSha256": "38ed330ff3dce57ea0f214c1ec5b5d2dbe82129ac9de8521ca4217d771e903e5"
     },
   "bgiBenchmarkEvidence": {
     "schema": "vine.browser-bgi-benchmark-report",
     "schemaVersion": 3,
     "configuration": "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json",
-    "runtimeProfile": "kernel32-enter-critical-section",
-    "observationStatus": "current-critical-section-idle-cycle-observation",
-    "configurationSha256": "d34d178e5e43d1b318ac16542dd2d739fe239a710d2c57787ce9ff3941575f85",
+    "runtimeProfile": "primary-main-loop-progression",
+    "observationStatus": "current-main-loop-progression-observation",
+    "configurationSha256": "a7a2fa5c00662ebb3a6ff93bd700d70fd6c1812b6f4f6a70e08dfb444ff44ed0",
     "performanceClassification": "repeated-distribution-threshold",
     "decisionStatus": "passed",
     "decisionReason": "all-17-versioned-thresholds-passed",
@@ -1606,42 +1723,42 @@
     "externalProcessAttributionLimit": 8,
     "environmentStatus": "valid",
     "environmentReasonIds": [],
-    "environmentSamples": 179,
+    "environmentSamples": 178,
     "updaterEvents": 0,
     "sustainedEnvironmentExcursions": 0,
     "qosChangesObserved": 1,
     "qosChangesAfterWarmup": 0,
-    "durationMilliseconds": 181593,
-    "completedSessions": 102,
+    "durationMilliseconds": 181657,
+    "completedSessions": 95,
     "failedSessions": 0,
     "mainHeapSamples": 38,
     "workerHeapSamples": 37,
-    "sessionP95Milliseconds": 1857.4099999964237,
-    "sliceP99Milliseconds": 1.6349999904632568,
-    "heartbeatP99Milliseconds": 6.090000003576279,
-    "maximumHeartbeatGapMilliseconds": 34.04000002145767,
-    "mainHeapMaximumBytes": 3344036,
-    "mainHeapSlopeBytesPerMinute": 176236.49216578083,
-    "workerHeapMaximumBytes": 31089332,
-    "workerHeapSlopeBytesPerMinute": 5251532.956344573,
-    "workerHeapCapacityMaximumBytes": 78118912,
-    "workerBackingStorageMaximumBytes": 56598905,
-    "workerBackingStorageSlopeBytesPerMinute": 7245337.470392572,
+    "sessionP95Milliseconds": 2007.3499999940395,
+    "sliceP99Milliseconds": 4.9000000059604645,
+    "heartbeatP99Milliseconds": 6.370000004768372,
+    "maximumHeartbeatGapMilliseconds": 25.48999997973442,
+    "mainHeapMaximumBytes": 3013629,
+    "mainHeapSlopeBytesPerMinute": 187025.23953535472,
+    "workerHeapMaximumBytes": 30365948,
+    "workerHeapSlopeBytesPerMinute": 3180020.129665772,
+    "workerHeapCapacityMaximumBytes": 82313216,
+    "workerBackingStorageMaximumBytes": 53411462,
+    "workerBackingStorageSlopeBytesPerMinute": 4068711.2909199446,
     "runtimeCoreLinearMemoryBytes": 11272192,
     "executionEngineLinearMemoryBytes": 18219008,
-    "wasmBridgeCallsPerSession": 55898,
+    "wasmBridgeCallsPerSession": 55984,
     "thresholdFailures": 0,
     "thresholdFailureIds": [],
     "runtimeCoreWasmBytes": 4565781,
     "runtimeCoreWasmSha256": "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5",
-    "runtimeWorkerBytes": 211602,
-    "runtimeWorkerSha256": "4bc0681c2cace3bada8dba758f2700ccfa520bc6bebc75a3606a7b79570e3eb8",
-    "benchmarkMainBytes": 13367,
-    "benchmarkMainSha256": "2ea3a7341b05797354e5497c385b7d9ccc4c03f6049d905ecdd318c5f83a2457",
+    "runtimeWorkerBytes": 212865,
+    "runtimeWorkerSha256": "623144671f1eb4343923f4ce17457b412ce19f2748a7494ba084b985fcee5809",
+    "benchmarkMainBytes": 13412,
+    "benchmarkMainSha256": "84744387020cdff4a8f697fce1b1510f1decb82523e89c005e77227cdc03b2f4",
     "v86AdapterWasmBytes": 1857800,
     "v86AdapterWasmSha256": "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f",
-    "reportBytes": 2335985,
-    "reportSha256": "e4ab99d5a31aba38898a10fe4fffef13661caa7aae6a2e440241e8c24da4471a"
+    "reportBytes": 2379611,
+    "reportSha256": "bd8edba4bc5936c20d562899c0b4bfc6cd0ef3de1e74b42aa59eddd4ba524a90"
   },
   "browserStressEvidence": {
     "durationMilliseconds": 1800073.5,
@@ -1681,9 +1798,9 @@
   "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-  "runtimeKernelCheckpoint": "kernel32-enter-critical-section",
+  "runtimeKernelCheckpoint": "primary-main-loop-progression",
     "status": "checkpoint-complete",
-  "profile": "kernel32-enter-critical-section",
+  "profile": "primary-main-loop-progression",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-and-logical-priority-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime",
   "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -1776,7 +1893,7 @@
   "hostCompletionModel": "scheduler-event",
   "genericDispatcherApiCount": 110,
   "genericDispatcherContractCount": 112,
-  "genericDispatcherCallOccurrenceCount": 18704,
+  "genericDispatcherCallOccurrenceCount": 18734,
     "genericDispatcherApis": [
     "KERNEL32.dll!GetSystemTimeAsFileTime",
     "KERNEL32.dll!GetCurrentProcessId",
@@ -5399,7 +5516,7 @@
     "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
   },
   "latestEvidence": {
-    "schema": "vine.v86-bgi-kernel32-enter-critical-section.v1",
+    "schema": "vine.v86-bgi-primary-main-loop-progression.v1",
       "nativeCriticalSectionCapacityTraceBytes": 66177215,
     "nativeCriticalSectionCapacityTraceLines": 116186,
     "nativeCriticalSectionCapacityTraceSha256": "119b818f617206c9abcb63c2777279aaf8596f1b522b094c99b5f65960358b45",
@@ -6292,7 +6409,7 @@
     "nativeCreateWindowExAExecutableHashUnchanged": true,
     "implementation": "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority",
       "implementedApiContractCount": 112,
-    "genericSupportedCallCount": 18704,
+    "genericSupportedCallCount": 18734,
       "createWindowExAImplemented": true,
     "createWindowExASequence": 1388,
     "createWindowExAInstructionCount": 11476236,
@@ -6444,11 +6561,11 @@
     "initializeCriticalSectionDeltaAddress": "0x100fd000",
     "initializeCriticalSectionDeltaOwner": 1,
     "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-    "writebackBatches": 18760,
-    "writebackDirtyPages": 37740,
-    "writebackChangedBytes": 2932769,
-      "hostDeltaBatches": 17359,
-      "finalMemoryGeneration": 36692,
+    "writebackBatches": 18790,
+    "writebackDirtyPages": 37783,
+    "writebackChangedBytes": 2933150,
+      "hostDeltaBatches": 17381,
+      "finalMemoryGeneration": 36744,
       "allocationDeltaSequence": 198,
     "allocationDeltaFromGeneration": 281,
     "allocationDeltaGeneration": 282,
@@ -6533,69 +6650,42 @@
       "nodeChromeOrderedSemanticsMatched": true
     },
     "capabilityCheckpointCompletion": {
-      "capability": "kernel32-enter-critical-section",
-      "implementationId": "kernel32.enter-critical-section.v1",
-      "requiredCompletions": 3,
-      "completionCount": 3,
-      "lastCompletionSequence": 18703,
-      "lastCompletionInstructionCount": 11973950,
-      "roundtrips": [
+      "capability": "primary-main-loop-progression",
+      "implementationId": "runtime.scheduler.api-boundary-round-robin.v1",
+      "requiredCompletions": 2,
+      "completionCount": 2,
+      "lastCompletionSequence": 18734,
+      "lastCompletionInstructionCount": 11974512,
+      "threadSelections": [
         {
-          "criticalSectionAddress": "0x1014c8d0",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18699,
-            "occurrence": 32,
-            "instructionCount": 11973878
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18700,
-            "occurrence": 31,
-            "instructionCount": 11973883
+          "sequence": 18663,
+          "instructionCount": 11973280,
+          "previousThreadId": 8192,
+          "threadId": 8193,
+          "state": {
+            "state": "runnable"
           }
         },
         {
-          "criticalSectionAddress": "0x1014c8d0",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18701,
-            "occurrence": 33,
-            "instructionCount": 11973919
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18702,
-            "occurrence": 32,
-            "instructionCount": 11973924
-          }
-        },
-        {
-          "criticalSectionAddress": "0x100ff820",
-          "acquisition": {
-            "implementationId": "kernel32.enter-critical-section.v1",
-            "sequence": 18703,
-            "occurrence": 34,
-            "instructionCount": 11973950
-          },
-          "release": {
-            "implementationId": "kernel32.leave-critical-section.v1",
-            "sequence": 18704,
-            "occurrence": 33,
-            "instructionCount": 11973959
+          "sequence": 18734,
+          "instructionCount": 11974512,
+          "previousThreadId": 8193,
+          "threadId": 8192,
+          "state": {
+            "state": "runnable"
           }
         }
       ],
-      "instructionCount": 11973994,
+      "instructionCount": 11974687,
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 118,
-        "api": "kernel32.dll!SetWaitableTimer",
-        "endpointAddress": "0x7f000750"
+        "endpointId": 145,
+        "api": "kernel32.dll!LeaveCriticalSection",
+        "endpointAddress": "0x7f000900"
       },
-      "memoryContentSha256": "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5"
+      "memoryContentSha256": "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
     },
-    "memoryContentSha256": "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
+    "memoryContentSha256": "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
     "enterCriticalSectionCheckpointCompletions": 3,
     "enterCriticalSectionSequences": [18699, 18701, 18703],
     "enterCriticalSectionOccurrences": [32, 33, 34],
@@ -6976,22 +7066,86 @@
     "setWaitableTimerHostTimerImported": false,
     "setWaitableTimerBrowserTimerImported": false,
     "setWaitableTimerExpirationImplemented": true,
-    "setWaitableTimerNodeCompletions": 3,
-    "setWaitableTimerChromeCompletions": 3,
+    "setWaitableTimerNodeCompletions": 7,
+    "setWaitableTimerChromeCompletions": 7,
     "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
     "waitForSingleObjectExImplemented": true,
-    "waitForSingleObjectExSequences": [18682, 18690, 18698],
-    "waitForSingleObjectExInstructionCounts": [11973559, 11973706, 11973853],
+    "waitForSingleObjectExSequences": [
+      18682,
+      18690,
+      18698,
+      18706,
+      18714,
+      18722,
+      18730
+    ],
+    "waitForSingleObjectExInstructionCounts": [
+      11973559,
+      11973706,
+      11973853,
+      11974000,
+      11974147,
+      11974294,
+      11974441
+    ],
     "waitForSingleObjectExArguments": ["0x57010002", "0x0000000a", "0x00000001"],
-    "waitForSingleObjectExResults": [0, 0, 0],
+    "waitForSingleObjectExResults": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
     "waitForSingleObjectExReturnAddress": "0x10050615",
-    "waitForSingleObjectExLastErrors": [0, 0, 0],
+    "waitForSingleObjectExLastErrors": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
     "waitForSingleObjectExGuestWrites": 0,
     "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
-    "waitForSingleObjectExArmGenerations": [1, 2, 3],
-    "waitForSingleObjectExDeadlineTimes100ns": [5000, 10000, 15000],
-    "waitForSingleObjectExClockTimes100ns": [5000, 10000, 15000],
-    "waitForSingleObjectExClockGenerations": [1, 2, 3],
+    "waitForSingleObjectExArmGenerations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "waitForSingleObjectExDeadlineTimes100ns": [
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000,
+      35000
+    ],
+    "waitForSingleObjectExClockTimes100ns": [
+      5000,
+      10000,
+      15000,
+      20000,
+      25000,
+      30000,
+      35000
+    ],
+    "waitForSingleObjectExClockGenerations": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
     "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
     "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
     "waitForSingleObjectExMutation": "cross-owner-preflight-targeted-commit",
@@ -6999,12 +7153,60 @@
     "waitForSingleObjectExApcDeliveryImplemented": false,
     "waitForSingleObjectExPacingService": "runtime.timer-delay.v1",
     "waitForSingleObjectExPacingPayloadVersion": 1,
-    "waitForSingleObjectExPacingRequestIds": ["3", "4", "5"],
-    "waitForSingleObjectExPacingRegistrationIds": ["1", "2", "3"],
-    "waitForSingleObjectExPacingDelayMilliseconds": [1, 1, 1],
-    "waitForSingleObjectExPacingTargetTimes100ns": ["5000", "10000", "15000"],
-    "waitForSingleObjectExPacingClockGenerations": ["0", "1", "2"],
-    "waitForSingleObjectExPacingArmGenerations": ["1", "2", "3"],
+    "waitForSingleObjectExPacingRequestIds": [
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "waitForSingleObjectExPacingRegistrationIds": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
+    "waitForSingleObjectExPacingDelayMilliseconds": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "waitForSingleObjectExPacingTargetTimes100ns": [
+      "5000",
+      "10000",
+      "15000",
+      "20000",
+      "25000",
+      "30000",
+      "35000"
+    ],
+    "waitForSingleObjectExPacingClockGenerations": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6"
+    ],
+    "waitForSingleObjectExPacingArmGenerations": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7"
+    ],
     "waitForSingleObjectExPacingOutcome": "object-signaled",
     "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
     "waitForSingleObjectExLogicalCompletionAuthority": "rust-runtime",
@@ -7014,13 +7216,13 @@
     "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
     "waitForSingleObjectExHostClockImported": false,
     "waitForSingleObjectExBrowserTimerImported": false,
-    "waitForSingleObjectExBrowserPacingRequests": 3,
-    "waitForSingleObjectExBrowserPacingCompletions": 3,
+    "waitForSingleObjectExBrowserPacingRequests": 7,
+    "waitForSingleObjectExBrowserPacingCompletions": 7,
     "waitForSingleObjectExBrowserPacingCancellations": 0,
     "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
     "waitForSingleObjectExBrowserPacingPending": 0,
-    "waitForSingleObjectExNodeCompletions": 3,
-    "waitForSingleObjectExChromeCompletions": 3,
+    "waitForSingleObjectExNodeCompletions": 7,
+    "waitForSingleObjectExChromeCompletions": 7,
     "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
     "loadIconAImplemented": true,
     "loadIconASequence": 1339,
@@ -8340,7 +8542,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
+      "semanticCallDigestSha256": "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -8739,7 +8941,7 @@
       "createThreadNodeExecutedThreadIds": [8192, 8193],
       "createThreadChromeRegisteredThreadIds": [8192, 8193],
       "createThreadChromeExecutedThreadIds": [8192, 8193],
-      "createThreadContextSwitchesBeforeNextStop": 1,
+      "createThreadContextSwitchesBeforeNextStop": 2,
       "createThreadDynamicExitReleasesMappings": true,
       "createThreadDynamicAddressReuseVerified": true,
       "createThreadFailureAtomicity": true,
@@ -9981,8 +10183,8 @@
     "broadHeapVariantsImplemented": false,
     "apiSpecificReconciliationLists": false,
     "apiSpecificRequestsOrReceipts": false,
-    "reportBytes": 411234,
-      "reportSha256": "200537ac822a87f90d35fe77363a0405171b118c4003a3c832678168c2aca140"
+    "reportBytes": 423334,
+      "reportSha256": "3972b37c53639d90bd43f4ec5f9acf6ca7b358a47e9425c4154eaa26ccfb4aad"
     },
   "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
   },
@@ -9991,22 +10193,42 @@
     "kind": "capability-checkpoint",
     "nextCheckpoint": "primary-main-loop-progression",
     "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-    "instructionCount": 11973994,
+    "instructionCount": 11974687,
     "capabilityCluster": "primary-main-loop-progression",
-    "reason": "critical-section-idle-cycle-complete",
+    "reason": "main-loop-scheduler-roundtrip-complete",
     "completion": {
-      "capability": "kernel32-enter-critical-section",
-      "implementationId": "kernel32.enter-critical-section.v1",
-      "requiredCompletions": 3,
-      "completionCount": 3,
-      "lastCompletionSequence": 18703,
-      "lastCompletionInstructionCount": 11973950
+      "capability": "primary-main-loop-progression",
+      "implementationId": "runtime.scheduler.api-boundary-round-robin.v1",
+      "requiredCompletions": 2,
+      "completionCount": 2,
+      "lastCompletionSequence": 18734,
+      "lastCompletionInstructionCount": 11974512,
+      "threadSelections": [
+        {
+          "sequence": 18663,
+          "instructionCount": 11973280,
+          "previousThreadId": 8192,
+          "threadId": 8193,
+          "state": {
+            "state": "runnable"
+          }
+        },
+        {
+          "sequence": 18734,
+          "instructionCount": 11974512,
+          "previousThreadId": 8193,
+          "threadId": 8192,
+          "state": {
+            "state": "runnable"
+          }
+        }
+      ]
     },
     "nextEndpoint": {
       "endpointKind": "runtime-system-export",
-      "endpointId": 118,
-      "api": "kernel32.dll!SetWaitableTimer",
-      "endpointAddress": "0x7f000750"
+      "endpointId": 145,
+      "api": "kernel32.dll!LeaveCriticalSection",
+      "endpointAddress": "0x7f000900"
     }
   }
 }

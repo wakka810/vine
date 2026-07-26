@@ -23,6 +23,7 @@ import {
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
   type RuntimeImm32Snapshot,
+  type RuntimeThreadSelectionSnapshot,
   type RuntimeVirtualMemorySnapshot,
   type WorkerToMainMessage,
 } from "./protocol.js";
@@ -585,6 +586,7 @@ class BrowserRuntimeSession {
       instructionCount: number;
     };
   }> = [];
+  readonly #mainLoopThreadSelections: RuntimeThreadSelectionSnapshot[] = [];
   #bgiCheckpointPending = false;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -2041,7 +2043,9 @@ class BrowserRuntimeSession {
     checkpoint.memoryContentSha256 = reflection.contentSha256;
     this.#cancelAndFinish(
       "checkpoint-complete",
-      checkpoint.capability === "kernel32-enter-critical-section"
+      checkpoint.capability === "primary-main-loop-progression"
+        ? "API-boundary scheduler roundtrip checkpoint completed"
+        : checkpoint.capability === "kernel32-enter-critical-section"
         ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
         : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
@@ -2675,6 +2679,33 @@ class BrowserRuntimeSession {
         (selection.state.state === "runnable" || selection.state.state === "in-callback"),
       "Rust API boundary returned an invalid thread selection",
     );
+    if (this.#configuration.capabilityProfile === "primary-main-loop-progression") {
+      this.#mainLoopThreadSelections.push({
+        sequence: this.#nextBgiCallSequence,
+        instructionCount: this.#report.instructions,
+        previousThreadId: selection.previousThreadId,
+        threadId: selection.threadId,
+        state: structuredClone(selection.state),
+      });
+      if (
+        this.#mainLoopThreadSelections.length === 2 &&
+        selection.threadId === this.#initialThreadId
+      ) {
+        this.#report.checkpointCompletion = {
+          capability: "primary-main-loop-progression",
+          implementationId: "runtime.scheduler.api-boundary-round-robin.v1",
+          requiredCompletions: 2,
+          completionCount: 2,
+          lastCompletionSequence: this.#nextBgiCallSequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          threadSelections: structuredClone(this.#mainLoopThreadSelections),
+          instructionCount: 0,
+          nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
+        this.#bgiCheckpointPending = true;
+      }
+    }
     this.#saveLiveThreadContext();
     this.#execution.transition("thread-switch", {
       cause: "api-boundary-quantum-expired",

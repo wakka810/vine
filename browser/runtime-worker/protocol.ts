@@ -1,13 +1,24 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 15 as const;
+export const protocolVersion = 16 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
 export type BgiCapabilityProfile =
   | "kernel32-wait-for-single-object-ex"
-  | "kernel32-enter-critical-section";
+  | "kernel32-enter-critical-section"
+  | "primary-main-loop-progression";
+
+export interface RuntimeThreadSelectionSnapshot {
+  sequence: number;
+  instructionCount: number;
+  previousThreadId: number;
+  threadId: number;
+  state:
+    | { state: "runnable" }
+    | { state: "in-callback"; depth: number };
+}
 
 export interface PageLifecycleSnapshot {
   state: PageLifecycleState;
@@ -452,6 +463,23 @@ export interface SessionReport {
             instructionCount: number;
           };
         }>;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-progression";
+        implementationId: "runtime.scheduler.api-boundary-round-robin.v1";
+        requiredCompletions: 2;
+        completionCount: 2;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        threadSelections: RuntimeThreadSelectionSnapshot[];
         instructionCount: number;
         nextEndpoint: {
           id: number;

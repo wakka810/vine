@@ -149,6 +149,39 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const primaryMainLoopProgressionActive =
+    root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
+  const timerCycleCount = primaryMainLoopProgressionActive ? 7 : 3;
+  const timerSetSequences = primaryMainLoopProgressionActive
+    ? "18681,18689,18697,18705,18713,18721,18729"
+    : "18681,18689,18697";
+  const timerSetInstructionCounts = primaryMainLoopProgressionActive
+    ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
+    : "11973553,11973700,11973847";
+  const timerWaitSequences = primaryMainLoopProgressionActive
+    ? "18682,18690,18698,18706,18714,18722,18730"
+    : "18682,18690,18698";
+  const timerWaitInstructionCounts = primaryMainLoopProgressionActive
+    ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
+    : "11973559,11973706,11973853";
+  const timerGenerations = primaryMainLoopProgressionActive
+    ? "1,2,3,4,5,6,7"
+    : "1,2,3";
+  const timerDeadlines = primaryMainLoopProgressionActive
+    ? "5000,10000,15000,20000,25000,30000,35000"
+    : "5000,10000,15000";
+  const timerPacingRequestIds = primaryMainLoopProgressionActive
+    ? "3,4,5,6,7,8,9"
+    : "3,4,5";
+  const timerPacingRegistrationIds = primaryMainLoopProgressionActive
+    ? "1,2,3,4,5,6,7"
+    : "1,2,3";
+  const timerPacingClockGenerations = primaryMainLoopProgressionActive
+    ? "0,1,2,3,4,5,6"
+    : "0,1,2";
+  const timerRepeatedOnes = Array(timerCycleCount).fill(1).join(",");
+  const timerRepeatedTwos = Array(timerCycleCount).fill(2).join(",");
+  const timerRepeatedZeroes = Array(timerCycleCount).fill(0).join(",");
   const expectedRootKeys = [
     "schema",
     "schemaVersion",
@@ -456,8 +489,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v15") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v15");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v16") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v16");
   }
   if (
     browser.executionEngineProfile !==
@@ -1206,17 +1239,21 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_359 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_866 ||
+    bgiBrowserEvidence.mappingDeltas !==
+      (primaryMainLoopProgressionActive ? 17_381 : 17_359) ||
+    bgiBrowserEvidence.mappingDirtyPages !==
+      (primaryMainLoopProgressionActive ? 18_888 : 18_866) ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_352 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !==
+      (primaryMainLoopProgressionActive ? 58_455 : 58_352) ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
-    bgiBrowserEvidence.contextSwitches !== 1 ||
+    bgiBrowserEvidence.contextSwitches !==
+      (primaryMainLoopProgressionActive ? 2 : 1) ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
@@ -1915,12 +1952,11 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("browser BGI authority or teardown evidence is invalid");
   }
   if (
-    bgiBrowserEvidence.setWaitableTimerCompletions !== 3 ||
+    bgiBrowserEvidence.setWaitableTimerCompletions !== timerCycleCount ||
     bgiBrowserEvidence.setWaitableTimerSequence !== 18_681 ||
-    bgiBrowserEvidence.setWaitableTimerSequences?.join(",") !==
-      "18681,18689,18697" ||
+    bgiBrowserEvidence.setWaitableTimerSequences?.join(",") !== timerSetSequences ||
     bgiBrowserEvidence.setWaitableTimerInstructionCounts?.join(",") !==
-      "11973553,11973700,11973847" ||
+      timerSetInstructionCounts ||
     bgiBrowserEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
     bgiBrowserEvidence.setWaitableTimerArguments?.join(",") !==
       "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
@@ -1952,32 +1988,34 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("browser BGI waitable-timer arm evidence is invalid");
   }
   if (
-    bgiBrowserEvidence.waitForSingleObjectExCompletions !== 3 ||
+    bgiBrowserEvidence.waitForSingleObjectExCompletions !== timerCycleCount ||
     bgiBrowserEvidence.waitForSingleObjectExSequences?.join(",") !==
-      "18682,18690,18698" ||
+      timerWaitSequences ||
     bgiBrowserEvidence.waitForSingleObjectExInstructionCounts?.join(",") !==
-      "11973559,11973706,11973853" ||
+      timerWaitInstructionCounts ||
     bgiBrowserEvidence.waitForSingleObjectExArguments?.join(",") !==
       "0x57010002,0x0000000a,0x00000001" ||
-    bgiBrowserEvidence.waitForSingleObjectExResults?.join(",") !== "0,0,0" ||
+    bgiBrowserEvidence.waitForSingleObjectExResults?.join(",") !==
+      timerRepeatedZeroes ||
     bgiBrowserEvidence.waitForSingleObjectExReturnAddress !== "0x10050615" ||
-    bgiBrowserEvidence.waitForSingleObjectExLastErrors?.join(",") !== "0,0,0" ||
+    bgiBrowserEvidence.waitForSingleObjectExLastErrors?.join(",") !==
+      timerRepeatedZeroes ||
     bgiBrowserEvidence.waitForSingleObjectExGuestWriteBytes !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExImplementationId !==
       "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
     bgiBrowserEvidence.waitForSingleObjectExTimerId !== 2 ||
     bgiBrowserEvidence.waitForSingleObjectExManualReset !== true ||
     bgiBrowserEvidence.waitForSingleObjectExArmGenerations?.join(",") !==
-      "1,2,3" ||
+      timerGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExDeadlineTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     bgiBrowserEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     bgiBrowserEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
-      "1,2,3" ||
+      timerGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExWaitState !== "signaled" ||
     bgiBrowserEvidence.waitForSingleObjectExNextRegistrationIds?.join(",") !==
-      "2,3,4" ||
+      (primaryMainLoopProgressionActive ? "2,3,4,5,6,7,8" : "2,3,4") ||
     bgiBrowserEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     bgiBrowserEvidence.waitForSingleObjectExClockAuthority !==
@@ -1990,19 +2028,19 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime.timer-delay.v1" ||
     bgiBrowserEvidence.waitForSingleObjectExPacingPayloadVersion !== 1 ||
     bgiBrowserEvidence.waitForSingleObjectExPacingRequestIds?.join(",") !==
-      "3,4,5" ||
+      timerPacingRequestIds ||
     bgiBrowserEvidence.waitForSingleObjectExPacingRegistrationIds?.join(",") !==
-      "1,2,3" ||
+      timerPacingRegistrationIds ||
     bgiBrowserEvidence.waitForSingleObjectExPacingDelayMilliseconds?.join(",") !==
-      "1,1,1" ||
+      timerRepeatedOnes ||
     bgiBrowserEvidence.waitForSingleObjectExPacingTimerIds?.join(",") !==
-      "2,2,2" ||
+      timerRepeatedTwos ||
     bgiBrowserEvidence.waitForSingleObjectExPacingTargetTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     bgiBrowserEvidence.waitForSingleObjectExPacingClockGenerations?.join(",") !==
-      "0,1,2" ||
+      timerPacingClockGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExPacingArmGenerations?.join(",") !==
-      "1,2,3" ||
+      timerGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExPacingOutcome !==
       "object-signaled" ||
     bgiBrowserEvidence.waitForSingleObjectExNodePacingMode !==
@@ -2018,8 +2056,10 @@ export function validateCurrentCheckpoint(manifest) {
       false ||
     bgiBrowserEvidence.waitForSingleObjectExHostClockImported !== false ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserTimerCreated !== true ||
-    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingRequests !== 3 ||
-    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCompletions !== 3 ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingRequests !==
+      timerCycleCount ||
+    bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCompletions !==
+      timerCycleCount ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
@@ -2678,9 +2718,13 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.configuration !==
       "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json" ||
     bgiBenchmarkEvidence.runtimeProfile !==
-      "kernel32-enter-critical-section" ||
+      (primaryMainLoopProgressionActive
+        ? "primary-main-loop-progression"
+        : "kernel32-enter-critical-section") ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-critical-section-idle-cycle-observation" ||
+      (primaryMainLoopProgressionActive
+        ? "current-main-loop-progression-observation"
+        : "current-critical-section-idle-cycle-observation") ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -7545,7 +7589,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     latestEvidence.schema !==
-      "vine.v86-bgi-kernel32-enter-critical-section.v1" ||
+      (primaryMainLoopProgressionActive
+        ? "vine.v86-bgi-primary-main-loop-progression.v1"
+        : "vine.v86-bgi-kernel32-enter-critical-section.v1") ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -7654,8 +7700,8 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWaitableTimerHostTimerImported !== false ||
     latestEvidence.setWaitableTimerBrowserTimerImported !== false ||
     latestEvidence.setWaitableTimerExpirationImplemented !== true ||
-    latestEvidence.setWaitableTimerNodeCompletions !== 3 ||
-    latestEvidence.setWaitableTimerChromeCompletions !== 3 ||
+    latestEvidence.setWaitableTimerNodeCompletions !== timerCycleCount ||
+    latestEvidence.setWaitableTimerChromeCompletions !== timerCycleCount ||
     latestEvidence.setWaitableTimerNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest waitable-timer identity, arm, and lifetime evidence is invalid");
@@ -7701,24 +7747,27 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeWaitForSingleObjectExExecutableHashUnchanged !== true ||
     latestEvidence.waitForSingleObjectExImplemented !== true ||
     latestEvidence.waitForSingleObjectExSequences?.join(",") !==
-      "18682,18690,18698" ||
+      timerWaitSequences ||
     latestEvidence.waitForSingleObjectExInstructionCounts?.join(",") !==
-      "11973559,11973706,11973853" ||
+      timerWaitInstructionCounts ||
     latestEvidence.waitForSingleObjectExArguments?.join(",") !==
       "0x57010002,0x0000000a,0x00000001" ||
-    latestEvidence.waitForSingleObjectExResults?.join(",") !== "0,0,0" ||
+    latestEvidence.waitForSingleObjectExResults?.join(",") !==
+      timerRepeatedZeroes ||
     latestEvidence.waitForSingleObjectExReturnAddress !== "0x10050615" ||
-    latestEvidence.waitForSingleObjectExLastErrors?.join(",") !== "0,0,0" ||
+    latestEvidence.waitForSingleObjectExLastErrors?.join(",") !==
+      timerRepeatedZeroes ||
     latestEvidence.waitForSingleObjectExGuestWrites !== 0 ||
     latestEvidence.waitForSingleObjectExImplementationId !==
       "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
-    latestEvidence.waitForSingleObjectExArmGenerations?.join(",") !== "1,2,3" ||
+    latestEvidence.waitForSingleObjectExArmGenerations?.join(",") !==
+      timerGenerations ||
     latestEvidence.waitForSingleObjectExDeadlineTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     latestEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     latestEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
-      "1,2,3" ||
+      timerGenerations ||
     latestEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     latestEvidence.waitForSingleObjectExClockAuthority !==
@@ -7731,17 +7780,17 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime.timer-delay.v1" ||
     latestEvidence.waitForSingleObjectExPacingPayloadVersion !== 1 ||
     latestEvidence.waitForSingleObjectExPacingRequestIds?.join(",") !==
-      "3,4,5" ||
+      timerPacingRequestIds ||
     latestEvidence.waitForSingleObjectExPacingRegistrationIds?.join(",") !==
-      "1,2,3" ||
+      timerPacingRegistrationIds ||
     latestEvidence.waitForSingleObjectExPacingDelayMilliseconds?.join(",") !==
-      "1,1,1" ||
+      timerRepeatedOnes ||
     latestEvidence.waitForSingleObjectExPacingTargetTimes100ns?.join(",") !==
-      "5000,10000,15000" ||
+      timerDeadlines ||
     latestEvidence.waitForSingleObjectExPacingClockGenerations?.join(",") !==
-      "0,1,2" ||
+      timerPacingClockGenerations ||
     latestEvidence.waitForSingleObjectExPacingArmGenerations?.join(",") !==
-      "1,2,3" ||
+      timerGenerations ||
     latestEvidence.waitForSingleObjectExPacingOutcome !== "object-signaled" ||
     latestEvidence.waitForSingleObjectExNodePacingMode !==
       "deterministic-node-ack" ||
@@ -7756,13 +7805,15 @@ export function validateCurrentCheckpoint(manifest) {
       false ||
     latestEvidence.waitForSingleObjectExHostClockImported !== false ||
     latestEvidence.waitForSingleObjectExBrowserTimerImported !== false ||
-    latestEvidence.waitForSingleObjectExBrowserPacingRequests !== 3 ||
-    latestEvidence.waitForSingleObjectExBrowserPacingCompletions !== 3 ||
+    latestEvidence.waitForSingleObjectExBrowserPacingRequests !==
+      timerCycleCount ||
+    latestEvidence.waitForSingleObjectExBrowserPacingCompletions !==
+      timerCycleCount ||
     latestEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
     latestEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
     latestEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
-    latestEvidence.waitForSingleObjectExNodeCompletions !== 3 ||
-    latestEvidence.waitForSingleObjectExChromeCompletions !== 3 ||
+    latestEvidence.waitForSingleObjectExNodeCompletions !== timerCycleCount ||
+    latestEvidence.waitForSingleObjectExChromeCompletions !== timerCycleCount ||
     latestEvidence.waitForSingleObjectExNodeChromeOrderedSemanticsMatched !== true
   ) {
     errors.push("latest waitable-timer wait evidence is invalid");
@@ -8181,11 +8232,16 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_760 ||
-    latestEvidence.writebackDirtyPages !== 37_740 ||
-    latestEvidence.writebackChangedBytes !== 2_932_769 ||
-    latestEvidence.hostDeltaBatches !== 17_359 ||
-    latestEvidence.finalMemoryGeneration !== 36_692
+    latestEvidence.writebackBatches !==
+      (primaryMainLoopProgressionActive ? 18_790 : 18_760) ||
+    latestEvidence.writebackDirtyPages !==
+      (primaryMainLoopProgressionActive ? 37_783 : 37_740) ||
+    latestEvidence.writebackChangedBytes !==
+      (primaryMainLoopProgressionActive ? 2_933_150 : 2_932_769) ||
+    latestEvidence.hostDeltaBatches !==
+      (primaryMainLoopProgressionActive ? 17_381 : 17_359) ||
+    latestEvidence.finalMemoryGeneration !==
+      (primaryMainLoopProgressionActive ? 36_744 : 36_692)
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -10110,10 +10166,14 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da" ||
+      (primaryMainLoopProgressionActive
+        ? "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8"
+        : "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da") ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.memoryContentSha256 !==
-      "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5" ||
+      (primaryMainLoopProgressionActive
+        ? "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
+        : "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5") ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -10617,7 +10677,8 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.createThreadChromeRegisteredThreadIds?.join(",") !==
       "8192,8193" ||
     latestEvidence.createThreadChromeExecutedThreadIds?.join(",") !== "8192,8193" ||
-    latestEvidence.createThreadContextSwitchesBeforeNextStop !== 1 ||
+    latestEvidence.createThreadContextSwitchesBeforeNextStop !==
+      (primaryMainLoopProgressionActive ? 2 : 1) ||
     latestEvidence.createThreadDynamicExitReleasesMappings !== true ||
     latestEvidence.createThreadDynamicAddressReuseVerified !== true ||
     latestEvidence.createThreadFailureAtomicity !== true ||
@@ -12472,6 +12533,13 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push(`${label} critical-section roundtrips must match nextStructuredStop`);
       }
+      if (
+        expectedCompletion.threadSelections !== undefined &&
+        JSON.stringify(actual.threadSelections) !==
+          JSON.stringify(expectedCompletion.threadSelections)
+      ) {
+        errors.push(`${label} scheduler selections must match nextStructuredStop`);
+      }
     }
   }
   if (active.profile === "kernel32-enter-critical-section") {
@@ -12568,6 +12636,44 @@ export function validateCurrentCheckpoint(manifest) {
         true;
     if (!criticalEvidenceValid) {
       errors.push("critical-section checkpoint evidence is invalid");
+    }
+  } else if (active.profile === "primary-main-loop-progression") {
+    const expectedThreadSelections = [
+      {
+        sequence: 18_663,
+        instructionCount: 11_973_280,
+        previousThreadId: 8_192,
+        threadId: 8_193,
+        state: { state: "runnable" },
+      },
+      {
+        sequence: 18_734,
+        instructionCount: 11_974_512,
+        previousThreadId: 8_193,
+        threadId: 8_192,
+        state: { state: "runnable" },
+      },
+    ];
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "primary-main-loop-progression" ||
+        completion.implementationId !==
+          "runtime.scheduler.api-boundary-round-robin.v1" ||
+        completion.requiredCompletions !== 2 ||
+        completion.completionCount !== 2 ||
+        completion.lastCompletionSequence !== 18_734 ||
+        completion.lastCompletionInstructionCount !== 11_974_512 ||
+        JSON.stringify(completion.threadSelections) !==
+          JSON.stringify(expectedThreadSelections) ||
+        completion.instructionCount !== 11_974_687 ||
+        completion.memoryContentSha256 !==
+          "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b"
+      ) {
+        errors.push(`${label} main-loop scheduler checkpoint evidence is invalid`);
+      }
     }
   }
   if (
@@ -12771,6 +12877,8 @@ export function renderReadmeStatus(manifest) {
         `${
           next.completion.capability === "kernel32-enter-critical-section"
             ? "balanced critical-section acquisitions"
+            : next.completion.capability === "primary-main-loop-progression"
+              ? "scheduler thread selections"
             : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +

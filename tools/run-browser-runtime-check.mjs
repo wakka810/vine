@@ -57,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v15";
+const runtimeProtocol = "vine.browser-runtime-worker.v16";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -565,6 +565,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
+        "primary-main-loop-progression",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -577,6 +578,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
+        "primary-main-loop-progression",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -588,8 +590,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
+        "primary-main-loop-progression",
       ].includes(bgiProfile) && scenario === "success"
-        ? 1
+        ? bgiProfile === "primary-main-loop-progression"
+          ? 2
+          : 1
         : 0,
     );
     assert.deepEqual(evidence.report.initialCurrentDirectory, {
@@ -604,7 +609,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     if (scenario === "success") {
       const capabilityCheckpoint =
         bgiProfile === "kernel32-wait-for-single-object-ex" ||
-        bgiProfile === "kernel32-enter-critical-section";
+        bgiProfile === "kernel32-enter-critical-section" ||
+        bgiProfile === "primary-main-loop-progression";
       assert.equal(
         evidence.report.outcome,
         capabilityCheckpoint ? "checkpoint-complete" : "structured-stop",
@@ -629,9 +635,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         capabilityCheckpoint,
       );
       if (capabilityCheckpoint) {
+        const pacingCount =
+          bgiProfile === "primary-main-loop-progression" ? 7 : 3;
         assert.deepEqual(evidence.report.timerPacing, {
-          requests: 3,
-          completions: 3,
+          requests: pacingCount,
+          completions: pacingCount,
           cancellations: 0,
           freezes: 0,
           resumes: 0,
@@ -1227,6 +1235,13 @@ function validateBgiEquivalence(browser, oracle) {
         browserCheckpoint.roundtrips,
         oracleCheckpoint.roundtrips,
         "Chrome Worker critical-section checkpoint differs from the Node oracle",
+      );
+    }
+    if (oracleCheckpoint.capability === "primary-main-loop-progression") {
+      assert.deepEqual(
+        browserCheckpoint.threadSelections,
+        oracleCheckpoint.threadSelections,
+        "Chrome Worker scheduler selections differ from the Node oracle",
       );
     }
     return;

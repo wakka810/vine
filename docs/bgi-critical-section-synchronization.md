@@ -177,10 +177,10 @@ The frozen 140,660-byte report remains byte-identical with SHA-256
 The separate Step 10 generic report also remains 96,244 bytes with SHA-256
 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`.
 
-## Primary idle-cycle reachability
+## Historical primary idle-cycle reachability
 
-The active primary profile now consumes the existing synchronization contract
-inside the reached timer-driven idle cycle:
+The historical `kernel32-enter-critical-section` profile consumed the existing
+synchronization contract inside the reached timer-driven idle cycle:
 
 ```powershell
 npm run check:runtime:bgi -- --profile kernel32-enter-critical-section
@@ -195,10 +195,13 @@ followed by one use of `0x100FF820`; all run on controlled thread `8193`.
 Node and Chrome agree on the ordered semantic digest and final guest memory.
 The Rust `RuntimeSynchronization` object remains the only Windows-visible
 critical-section authority, and the browser owns no Windows synchronization
-state. This is reachability evidence for the existing handler, not a claim for
-cross-thread blocking, APC delivery, or general critical-section scheduling.
-Exact sequences, instruction counts, bytes, hashes, and current stop metadata
-remain in [current-checkpoint.json](current-checkpoint.json).
+state. This is historical reachability evidence for the existing handler, not a
+claim for cross-thread blocking, APC delivery, or general critical-section
+scheduling. Exact historical and current stop metadata remain in
+[current-checkpoint.json](current-checkpoint.json).
+
+The active scheduler continuation is documented separately in
+[bgi-primary-main-loop-progression.md](bgi-primary-main-loop-progression.md).
 
 ## Historical next structured stop
 

@@ -62,16 +62,16 @@ behaviorとgeneral fairnessである。
 | R-PERFORMANCE | Ambient host loadまたはtitle workload growthでversioned latency／memory thresholdを外れ、clean oracleを判定できない | Fixed fixture／duration／threshold、repeated distribution、same-host bounded comparison、structured blocker | 外部workloadを勝手に停止せずisolated hostで同条件を再実行する。再現時だけprofileに基づくbounded optimizationを行う |
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
-Current critical-section idle-cycle workloadは全versioned thresholdを通過し、
+Current primary main-loop workloadは全versioned thresholdを通過し、
 performance environmentも有効と判定された。これは現checkpointのbounded
 Worker workload gateを閉じるが、representative sceneやfull-play性能の代用ではない。
 Exact evidenceは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
-Primary BGI execution has now crossed the three balanced critical-section
-roundtrips that follow the bounded wait, and Node／Chrome ordered semantics
-remain equivalent at the next idle-cycle boundary. The next uncertainty is
-main-loop progression and user-visible scenario reachability; this evidence
-does not close cross-thread contention, full message/input flow, or graphics／audio
+Primary BGI execution now records the Rust-owned `8192 -> 8193 -> 8192`
+API-boundary scheduler round trip after the bounded timer waits, and Node／Chrome
+ordered semantics remain equivalent at the `LeaveCriticalSection` boundary. The
+next uncertainty is user-visible main-loop reachability; this evidence does not
+close cross-thread contention, full message/input flow, or graphics／audio
 milestones.
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
@@ -103,7 +103,7 @@ writable profile objectであり、そのcontent hash変化をsource corpus iden
 new SQLite profileだけへseedし、以後のread／writeを配布directoryから分離する。Canonical rerunはdetach後のpollingを
 runnable childが選択されないscheduler progress不足と分類し、競合中だけ数える64 API-boundary quantumでNode／Chromeの
 両thread実行と一回のswitchを一致させた。Reached timer waitはsingle current laneのbounded immediate roundtripまで
-成立した。残るthread riskはCPU-bound laneのpreemption、cross-thread wait／timer wake ordering、
+成立した。今回のscheduler round tripで二つのrunnable lane選択は固定できたが、残るthread riskはCPU-bound laneのpreemption、cross-thread wait／timer wake ordering、
 child exit／cleanupをprimary flowで固定できていないことである。Storage riskはprimary guest write、browser／server restart後
 load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、
 wait pacingとstorage vertical sliceをそれぞれのowner境界で進める。

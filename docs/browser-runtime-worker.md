@@ -162,6 +162,14 @@ critical-section profile requires three balanced acquisition/release roundtrips
 and reports the next owned `SetWaitableTimer` endpoint through the same
 checkpoint-complete protocol.
 
+Protocol version 16 adds the `primary-main-loop-progression` profile and a
+typed `threadSelections` completion field. The profile requires two
+Rust-authorized API-boundary selections, validates the `8192 -> 8193 -> 8192`
+round trip, and reports the next owned endpoint
+`KERNEL32.dll!LeaveCriticalSection`. Selection metadata is evidence of the
+Rust scheduler transaction; it does not make browser timing or TypeScript a
+second thread-state authority.
+
 ## Execution engine contract
 
 Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86
