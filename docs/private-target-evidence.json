@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-25T21:18:57.225Z",
+  "recordedAt": "2026-07-26T04:01:09.221Z",
   "repository": {
-    "implementationCommit": "df759033c879cb0806290de34e1e76e62cc96bdc",
-    "implementationTree": "eaa906aceed566568eab1523078fdb2e27a28d52",
-    "headCommit": "df759033c879cb0806290de34e1e76e62cc96bdc",
+    "implementationCommit": "99c4413b1e2ef2932b5b72c847e6e3c2842db436",
+    "implementationTree": "5034015bb29e76fbd848275c1fe0d7896b738998",
+    "headCommit": "99c4413b1e2ef2932b5b72c847e6e3c2842db436",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -35,7 +35,7 @@
     "policySource": "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
     "nodeReportSchema": "vine.v86-bgi-kernel32-wait-for-single-object-ex",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v13",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v14",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -127,11 +127,11 @@
         },
         "memoryContentSha256": "975002521bc7cc363fbc870a484d935b1cba9dc700b5afb8113b189c7929b828"
       },
-      "wasmBridgeCalls": 55877,
+      "wasmBridgeCalls": 55880,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 58325,
+          "transitionCount": 58334,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -178,11 +178,11 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "runtime-waitable-timer-pacing",
+      "nextCheckpoint": "kernel32-enter-critical-section",
       "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
       "instructionCount": 11973878,
-      "capabilityCluster": "runtime-waitable-timer-pacing",
-      "reason": "recurring-wait-checkpoint-complete",
+      "capabilityCluster": "kernel32-enter-critical-section",
+      "reason": "waitable-timer-pacing-complete",
       "completion": {
         "capability": "kernel32-wait-for-single-object-ex",
         "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
@@ -212,13 +212,13 @@
   "artifacts": {
     "nodeReport": {
       "path": ".work/v86-bgi-wait-for-single-object-ex/report.json",
-      "bytes": 408570,
-      "sha256": "ee88f67fb63e49921804022133c0a1f72c974e021be28673890a9d616bc55273"
+      "bytes": 409861,
+      "sha256": "bbe7befd631b7fe3c366f3fd16dd544e8d59475b7f286925658f7742d7ebbfe2"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 44045,
-      "sha256": "82b000e1caa54d202bced5c0a161131efa273517eee47864b6644781de286cd2"
+      "bytes": 45316,
+      "sha256": "027a6d1d54fcba84f29facb774114ccafb383cf75067ad9136ba1a7e302c39b9"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -233,12 +233,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "2add17dc08cde4711476a2d7febbc9b41dceb20dd787abc1e4753948192101f7"
+      "sha256": "44bace2b5ab8fdfd0a2d1650e54722a7641a72df9e277cfc07600864eb0b31a4"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4513665,
-      "sha256": "8451beb28f5b18f5cacf75477374e862d46e442c25905328fadef53de5b6d9a3"
+      "bytes": 4565781,
+      "sha256": "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -259,16 +259,16 @@
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
     "status": "threshold-passed",
-    "configuration": "fixtures/benchmarks/bgi-browser-dsound-root-and-cooperative-level-v1.json",
+    "configuration": "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json",
     "benchmarkClassification": "repeated-distribution-threshold",
     "decisionStatus": "passed",
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
-    "durationMilliseconds": 181124,
-    "completedSessions": 121,
+    "durationMilliseconds": 181105,
+    "completedSessions": 106,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "7d3569d11f27aedd01af06ff46f63f33afdfcd62e4a0e8b1ed61d31e7034a1c1"
+    "reportSha256": "7fe27cb008d883f198378805ebc4cfd0c78129e2405f9d976aad217a61c7ebb5"
   },
-  "payloadSha256": "3fceaeec0616c9c28acebbf8c3a1ff4e9d91a0d422729c4424f241ffc09425a9"
+  "payloadSha256": "b098f9a2b8c25c87f186db16d18cb4b670ee32b1788f8053b30922db582add7e"
 }
