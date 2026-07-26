@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 18 as const;
+export const protocolVersion = 19 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -10,7 +10,8 @@ export type BgiCapabilityProfile =
   | "kernel32-enter-critical-section"
   | "primary-main-loop-progression"
   | "kernel32-leave-critical-section"
-  | "kernel32-enter-critical-section-continuation";
+  | "kernel32-enter-critical-section-continuation"
+  | "kernel32-leave-critical-section-continuation";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -519,6 +520,25 @@ export interface SessionReport {
         lastCompletionInstructionCount: number;
         criticalSectionAddress: number;
         acquisitionThreadId: number;
+        lastError: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-leave-critical-section-continuation";
+        implementationId: "kernel32.leave-critical-section.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        criticalSectionAddress: number;
+        releaseThreadId: number;
         lastError: number;
         instructionCount: number;
         nextEndpoint: {

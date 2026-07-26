@@ -156,7 +156,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||
     value === "kernel32-leave-critical-section" ||
-    value === "kernel32-enter-critical-section-continuation"
+    value === "kernel32-enter-critical-section-continuation" ||
+    value === "kernel32-leave-critical-section-continuation"
     ? value
     : undefined;
 }

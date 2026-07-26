@@ -72,15 +72,14 @@ multi-thread execution, and source fingerprint preservation. Performance thresho
 defined by the versioned workload and recorded in the current manifest.
 
 The active private profile is
-`kernel32-enter-critical-section-continuation` and uses protocol
-`vine.browser-runtime-worker.v18`. It carries the typed acquisition completion
-(`criticalSectionAddress`, `acquisitionThreadId`, and `lastError`) in addition
-to the common sequence, instruction, endpoint, and memory-digest fields. The
-Worker also verifies that the immediately preceding main-thread release used
-the same address after the required scheduler selections. The browser
-transports this metadata; Rust remains the sole synchronization authority.
-Protocol version 17's typed release completion remains the frozen predecessor
-contract.
+`kernel32-leave-critical-section-continuation` and uses protocol
+`vine.browser-runtime-worker.v19`. It carries the typed release completion
+(`criticalSectionAddress`, `releaseThreadId`, and `lastError`) in addition to
+the common sequence, instruction, endpoint, and memory-digest fields. The
+Worker verifies the adjacent selected-main-thread release, reacquisition, and
+release operations all use the same address. The browser transports this
+metadata; Rust remains the sole synchronization authority. Protocol version
+18's typed acquisition completion remains the frozen predecessor contract.
 
 ## Reproduction
 

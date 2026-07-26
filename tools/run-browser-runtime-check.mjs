@@ -57,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v18";
+const runtimeProtocol = "vine.browser-runtime-worker.v19";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -566,6 +566,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
         "kernel32-enter-critical-section-continuation",
+        "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
       ].includes(bgiProfile) &&
@@ -581,6 +582,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
         "kernel32-enter-critical-section-continuation",
+        "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
       ].includes(bgiProfile) && scenario === "success"
@@ -595,12 +597,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
         "kernel32-enter-critical-section-continuation",
+        "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
-          bgiProfile === "kernel32-enter-critical-section-continuation"
+          bgiProfile === "kernel32-enter-critical-section-continuation" ||
+          bgiProfile === "kernel32-leave-critical-section-continuation"
           ? 2
           : 1
         : 0,
@@ -619,6 +623,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-wait-for-single-object-ex" ||
         bgiProfile === "kernel32-enter-critical-section" ||
         bgiProfile === "kernel32-enter-critical-section-continuation" ||
+        bgiProfile === "kernel32-leave-critical-section-continuation" ||
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section";
       assert.equal(
@@ -648,7 +653,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount =
           bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
-          bgiProfile === "kernel32-enter-critical-section-continuation"
+          bgiProfile === "kernel32-enter-critical-section-continuation" ||
+          bgiProfile === "kernel32-leave-critical-section-continuation"
             ? 7
             : 3;
         assert.deepEqual(evidence.report.timerPacing, {
@@ -1258,7 +1264,11 @@ function validateBgiEquivalence(browser, oracle) {
         "Chrome Worker scheduler selections differ from the Node oracle",
       );
     }
-    if (oracleCheckpoint.capability === "kernel32-leave-critical-section") {
+    if (
+      oracleCheckpoint.capability === "kernel32-leave-critical-section" ||
+      oracleCheckpoint.capability ===
+        "kernel32-leave-critical-section-continuation"
+    ) {
       assert.deepEqual(
         {
           criticalSectionAddress: browserCheckpoint.criticalSectionAddress,

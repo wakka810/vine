@@ -175,8 +175,12 @@ completion. Protocol version 18 adds
 `kernel32-enter-critical-section-continuation`, verifies that the immediately
 following acquisition uses the same critical-section address and selected
 main thread, and carries `acquisitionThreadId` in the terminal completion.
-Both versions observe Rust-owned synchronization transactions; they do not
-move recursion, ownership, guest bytes, or lifecycle state into TypeScript.
+Protocol version 19 adds
+`kernel32-leave-critical-section-continuation`, verifies that the immediately
+following release uses the same address and selected main thread, and carries
+`releaseThreadId` in the terminal completion. These versions observe
+Rust-owned synchronization transactions; they do not move recursion,
+ownership, guest bytes, or lifecycle state into TypeScript.
 
 ## Execution engine contract
 

@@ -189,6 +189,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-wait-for-single-object-ex",
         "kernel32-enter-critical-section",
         "kernel32-enter-critical-section-continuation",
+        "kernel32-leave-critical-section-continuation",
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
@@ -288,6 +289,7 @@ assert(
       "kernel32-wait-for-single-object-ex",
       "kernel32-enter-critical-section",
       "kernel32-enter-critical-section-continuation",
+      "kernel32-leave-critical-section-continuation",
       "primary-main-loop-progression",
       "kernel32-leave-critical-section",
     ].includes(
@@ -300,6 +302,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-wait-for-single-object-ex" ||
     genericRuntimeCapability === "kernel32-enter-critical-section" ||
     genericRuntimeCapability === "kernel32-enter-critical-section-continuation" ||
+    genericRuntimeCapability === "kernel32-leave-critical-section-continuation" ||
     genericRuntimeCapability === "primary-main-loop-progression" ||
     genericRuntimeCapability === "kernel32-leave-critical-section"
       ? "kernel32-wait-for-single-object-ex-v1.json"
@@ -485,12 +488,15 @@ const leaveCriticalSectionCheckpointEnabled =
   genericRuntimeCapability === "kernel32-leave-critical-section";
 const enterCriticalSectionContinuationEnabled =
   genericRuntimeCapability === "kernel32-enter-critical-section-continuation";
+const leaveCriticalSectionContinuationEnabled =
+  genericRuntimeCapability === "kernel32-leave-critical-section-continuation";
 const mainLoopProgressionCheckpointEnabled =
   genericRuntimeCapability === "primary-main-loop-progression";
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
   leaveCriticalSectionCheckpointEnabled ||
-  enterCriticalSectionContinuationEnabled;
+  enterCriticalSectionContinuationEnabled ||
+  leaveCriticalSectionContinuationEnabled;
 const enterCriticalSectionEnabled =
   mainLoopProgressionEnabled ||
   genericRuntimeCapability === "kernel32-enter-critical-section";
@@ -786,7 +792,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? enterCriticalSectionContinuationEnabled
+      ? leaveCriticalSectionContinuationEnabled
+      ? "v86-bgi-leave-critical-section-continuation"
+      : enterCriticalSectionContinuationEnabled
       ? "v86-bgi-enter-critical-section-continuation"
       : leaveCriticalSectionCheckpointEnabled
       ? "v86-bgi-leave-critical-section"
@@ -4864,6 +4872,8 @@ async function run() {
         validateCriticalSectionSynchronizationResult(genericResult);
       } else if (genericRuntimeCapability === "kernel32-pointer-decoding") {
         validatePointerDecodingResult(genericResult);
+      } else if (leaveCriticalSectionContinuationEnabled) {
+        validateLeaveCriticalSectionContinuationResult(genericResult);
       } else if (enterCriticalSectionContinuationEnabled) {
         validateEnterCriticalSectionContinuationResult(genericResult);
       } else if (leaveCriticalSectionCheckpointEnabled) {
@@ -5095,6 +5105,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : leaveCriticalSectionContinuationEnabled
+          ? "bgi primary LeaveCriticalSection continuation"
           : leaveCriticalSectionCheckpointEnabled
           ? "bgi primary LeaveCriticalSection completion"
           : enterCriticalSectionContinuationEnabled
@@ -5330,6 +5342,9 @@ async function run() {
                 "kernel32-leave-critical-section"
               ? `${genericResult.checkpointCompletion.completionCount} critical-section release completed`
             : genericResult.checkpointCompletion.capability ===
+                "kernel32-leave-critical-section-continuation"
+              ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation release completed`
+            : genericResult.checkpointCompletion.capability ===
                 "kernel32-enter-critical-section-continuation"
               ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
             : genericResult.checkpointCompletion.capability ===
@@ -5533,6 +5548,8 @@ async function runGenericRuntimeReentry({
   let enterCriticalSectionAcquisition = null;
   const enterCriticalSectionRoundtrips = [];
   let checkpointCompletion = null;
+  let enterCriticalSectionContinuationRelease = null;
+  let leaveCriticalSectionContinuationAcquisition = null;
   let frozenSemanticCalls = 0;
   let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
   let currentThreadId = runtimeReady.currentThreadId;
@@ -5669,6 +5686,9 @@ async function runGenericRuntimeReentry({
         reason:
           checkpointCompletion.capability === "kernel32-leave-critical-section"
             ? "kernel32-leave-critical-section-checkpoint-complete"
+            : checkpointCompletion.capability ===
+                "kernel32-leave-critical-section-continuation"
+            ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "kernel32-enter-critical-section-continuation"
             ? "kernel32-enter-critical-section-continuation-checkpoint-complete"
@@ -6524,13 +6544,26 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      enterCriticalSectionContinuationEnabled &&
-      call.implementationId === "kernel32.enter-critical-section.v1" &&
+      (enterCriticalSectionContinuationEnabled ||
+        leaveCriticalSectionContinuationEnabled) &&
+      call.implementationId === "kernel32.leave-critical-section.v1" &&
       threadSelections.length === 2 &&
       currentThreadId === runtimeReady.currentThreadId &&
-      supportedCalls.at(-2)?.implementationId ===
-        "kernel32.leave-critical-section.v1" &&
-      sequence === (supportedCalls.at(-2)?.sequence ?? -1) + 1
+      sequence === (threadSelections.at(-1)?.sequence ?? -1) + 1
+    ) {
+      enterCriticalSectionContinuationRelease = {
+        sequence,
+        criticalSectionAddress: call.arguments[0],
+      };
+    }
+    if (
+      enterCriticalSectionContinuationEnabled &&
+      call.implementationId === "kernel32.enter-critical-section.v1" &&
+      enterCriticalSectionContinuationRelease !== null &&
+      sequence === enterCriticalSectionContinuationRelease.sequence + 1 &&
+      currentThreadId === runtimeReady.currentThreadId &&
+      call.arguments[0] ===
+        enterCriticalSectionContinuationRelease.criticalSectionAddress
     ) {
       checkpointCompletion = {
         capability: "kernel32-enter-critical-section-continuation",
@@ -6541,6 +6574,44 @@ async function runGenericRuntimeReentry({
         lastCompletionInstructionCount: continuation.instructionCount,
         criticalSectionAddress: call.arguments[0],
         acquisitionThreadId: currentThreadId,
+        lastError: call.lastError,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      leaveCriticalSectionContinuationEnabled &&
+      call.implementationId === "kernel32.enter-critical-section.v1" &&
+      enterCriticalSectionContinuationRelease !== null &&
+      sequence === enterCriticalSectionContinuationRelease.sequence + 1 &&
+      currentThreadId === runtimeReady.currentThreadId &&
+      call.arguments[0] ===
+        enterCriticalSectionContinuationRelease.criticalSectionAddress
+    ) {
+      leaveCriticalSectionContinuationAcquisition = {
+        sequence,
+        criticalSectionAddress: call.arguments[0],
+      };
+    }
+    if (
+      leaveCriticalSectionContinuationEnabled &&
+      call.implementationId === "kernel32.leave-critical-section.v1" &&
+      leaveCriticalSectionContinuationAcquisition !== null &&
+      currentThreadId === runtimeReady.currentThreadId &&
+      sequence === leaveCriticalSectionContinuationAcquisition.sequence + 1 &&
+      call.arguments[0] ===
+        leaveCriticalSectionContinuationAcquisition.criticalSectionAddress
+    ) {
+      checkpointCompletion = {
+        capability: "kernel32-leave-critical-section-continuation",
+        implementationId: "kernel32.leave-critical-section.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: continuation.instructionCount,
+        criticalSectionAddress: call.arguments[0],
+        releaseThreadId: currentThreadId,
         lastError: call.lastError,
         instructionCount: 0,
         nextEndpoint: null,
@@ -17057,6 +17128,138 @@ function validateEnterCriticalSectionContinuationResult(result) {
   );
 }
 
+function validateLeaveCriticalSectionContinuationResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 18_737);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.writebacks.length, 18_793);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    37_790,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    2_933_180,
+  );
+  assert.equal(result.hostDeltas.length, 17_384);
+  assert.equal(result.stackGrowths.length, 4);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 2);
+  assert.equal(result.finalGeneration, 36_750);
+  assert.equal(result.fault, null);
+  const release = result.supportedCalls.at(-1);
+  const acquisition = result.supportedCalls.at(-2);
+  const precedingRelease = result.supportedCalls.at(-3);
+  assert.equal(precedingRelease.sequence, 18_735);
+  assert.equal(acquisition.sequence, 18_736);
+  assert.deepEqual(release, {
+    sequence: 18_737,
+    module: "KERNEL32.dll",
+    symbol: "LeaveCriticalSection",
+    occurrence: 46,
+    trapInstructionCount: 11_974_905,
+    arguments: [0x100f_d9cc],
+    result: { action: "preserve" },
+    implementationId: "kernel32.leave-critical-section.v1",
+    returnAddress: 0x1009_b30a,
+    stackPointerBefore: 0x006f_f8c4,
+    stackPointerAfter: 0x006f_f8cc,
+    lastError: 0,
+    guestWrites: [
+      {
+        address: 0x100f_d9cc,
+        bytes: [
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+        ],
+        result: {
+          bytesWritten: 24,
+          dirtyPages: 1,
+          invalidation: {
+            generation: 36_749,
+            dataTlb: false,
+            instructionFetch: false,
+            generatedCode: false,
+          },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(
+    result.hostDeltas.find(({ sequence }) => sequence === release.sequence),
+    {
+      sequence: 18_737,
+      fromGeneration: 36_748,
+      generation: 36_749,
+      mappingOperations: 0,
+      dirtyPages: [{ address: 0x100f_d000, owner: 1 }],
+      controlBytes: 72,
+      payloadBytes: 4_096,
+      payloadSha256:
+        "f1bbe058e78570cf7f0ca1fe5add68b1949e76ce2ae2dfc5e441930a6c48d503",
+      cacheEffects: {
+        flushTlb: false,
+        invalidateInstructionFetch: false,
+        invalidateGeneratedCode: false,
+      },
+    },
+  );
+  assert.deepEqual(result.checkpointCompletion, {
+    capability: "kernel32-leave-critical-section-continuation",
+    implementationId: "kernel32.leave-critical-section.v1",
+    requiredCompletions: 1,
+    completionCount: 1,
+    lastCompletionSequence: 18_737,
+    lastCompletionInstructionCount: 11_974_905,
+    criticalSectionAddress: 0x100f_d9cc,
+    releaseThreadId: 8192,
+    lastError: 0,
+    instructionCount: 11_974_948,
+    nextEndpoint: {
+      id: 144,
+      address: 0x7f00_08f0,
+      module: "KERNEL32.dll",
+      symbol: { kind: "name", name: "EnterCriticalSection" },
+    },
+    memoryContentSha256:
+      "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+  });
+  assert.equal(
+    result.checkpointCompletion.instructionCount,
+    result.terminal.instructionCount,
+  );
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 2,
+    threadExits: [],
+  });
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1",
+    ).length,
+    7,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+    ).length,
+    7,
+  );
+}
+
 function validateDibLifecycleResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -20855,6 +21058,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : leaveCriticalSectionContinuationEnabled
+        ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
         : enterCriticalSectionContinuationEnabled
         ? "vine.v86-bgi-kernel32-enter-critical-section-continuation"
         : leaveCriticalSectionCheckpointEnabled
@@ -21346,6 +21551,9 @@ function buildGenericRuntimeReentryReport({
               genericResult.checkpointCompletion.capability ===
                 "kernel32-leave-critical-section"
                 ? "BGI completed the main-thread critical-section release and stopped before the next owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
+                      "kernel32-leave-critical-section-continuation"
+                  ? "BGI completed the LeaveCriticalSection continuation after the main-thread reacquisition and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                       "kernel32-enter-critical-section-continuation"
                   ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"

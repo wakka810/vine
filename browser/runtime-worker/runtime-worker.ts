@@ -591,6 +591,10 @@ class BrowserRuntimeSession {
     sequence: number;
     criticalSectionAddress: number;
   } | null = null;
+  #leaveCriticalSectionContinuationAcquisition: {
+    sequence: number;
+    criticalSectionAddress: number;
+  } | null = null;
   #bgiCheckpointPending = false;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -2049,6 +2053,9 @@ class BrowserRuntimeSession {
       "checkpoint-complete",
       checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
+        : checkpoint.capability ===
+            "kernel32-leave-critical-section-continuation"
+          ? "LeaveCriticalSection continuation checkpoint completed"
         : checkpoint.capability === "kernel32-enter-critical-section-continuation"
           ? "EnterCriticalSection continuation checkpoint completed"
         : checkpoint.capability === "primary-main-loop-progression"
@@ -2383,11 +2390,15 @@ class BrowserRuntimeSession {
       this.#bgiCheckpointPending = true;
     }
     if (
-      this.#configuration.capabilityProfile ===
-        "kernel32-enter-critical-section-continuation" &&
+      (this.#configuration.capabilityProfile ===
+        "kernel32-enter-critical-section-continuation" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-leave-critical-section-continuation") &&
       completion.implementationId === "kernel32.leave-critical-section.v1" &&
       this.#mainLoopThreadSelections.length === 2 &&
-      this.#currentThreadId === this.#initialThreadId
+      this.#currentThreadId === this.#initialThreadId &&
+      sequence ===
+        (this.#mainLoopThreadSelections.at(-1)?.sequence ?? -1) + 1
     ) {
       const criticalSectionAddress = call.arguments[0];
       invariant(
@@ -2428,6 +2439,65 @@ class BrowserRuntimeSession {
         lastCompletionInstructionCount: this.#report.instructions,
         criticalSectionAddress,
         acquisitionThreadId: this.#currentThreadId,
+        lastError: completion.lastError,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
+    }
+    if (
+      this.#configuration.capabilityProfile ===
+        "kernel32-leave-critical-section-continuation" &&
+      completion.implementationId === "kernel32.enter-critical-section.v1" &&
+      this.#enterCriticalSectionContinuationRelease !== null &&
+      sequence === this.#enterCriticalSectionContinuationRelease.sequence + 1 &&
+      this.#currentThreadId === this.#initialThreadId
+    ) {
+      const criticalSectionAddress = call.arguments[0];
+      invariant(
+        criticalSectionAddress ===
+          this.#enterCriticalSectionContinuationRelease.criticalSectionAddress,
+        "LeaveCriticalSection continuation acquisition changed section",
+      );
+      invariant(
+        completion.lastError === 0,
+        "LeaveCriticalSection continuation acquisition changed LastError",
+      );
+      this.#leaveCriticalSectionContinuationAcquisition = {
+        sequence,
+        criticalSectionAddress,
+      };
+    }
+    if (
+      this.#configuration.capabilityProfile ===
+        "kernel32-leave-critical-section-continuation" &&
+      completion.implementationId === "kernel32.leave-critical-section.v1" &&
+      this.#leaveCriticalSectionContinuationAcquisition !== null &&
+      sequence ===
+        this.#leaveCriticalSectionContinuationAcquisition.sequence + 1 &&
+      this.#currentThreadId === this.#initialThreadId
+    ) {
+      const criticalSectionAddress = call.arguments[0];
+      invariant(
+        criticalSectionAddress ===
+          this.#leaveCriticalSectionContinuationAcquisition
+            .criticalSectionAddress,
+        "LeaveCriticalSection continuation released a different section",
+      );
+      invariant(
+        completion.lastError === 0,
+        "LeaveCriticalSection continuation changed LastError",
+      );
+      this.#report.checkpointCompletion = {
+        capability: "kernel32-leave-critical-section-continuation",
+        implementationId: "kernel32.leave-critical-section.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        criticalSectionAddress,
+        releaseThreadId: this.#currentThreadId,
         lastError: completion.lastError,
         instructionCount: 0,
         nextEndpoint: { id: 0, address: 0 },
@@ -2774,7 +2844,9 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile === "primary-main-loop-progression" ||
       this.#configuration.capabilityProfile === "kernel32-leave-critical-section" ||
       this.#configuration.capabilityProfile ===
-        "kernel32-enter-critical-section-continuation"
+        "kernel32-enter-critical-section-continuation" ||
+      this.#configuration.capabilityProfile ===
+        "kernel32-leave-critical-section-continuation"
     ) {
       this.#mainLoopThreadSelections.push({
         sequence: this.#nextBgiCallSequence,

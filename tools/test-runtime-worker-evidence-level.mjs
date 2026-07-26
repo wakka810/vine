@@ -11,7 +11,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 18 as const/u);
+assert.match(protocol, /protocolVersion = 19 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -34,6 +34,7 @@ assert.match(
   /this\.#configuration\.capabilityProfile === "kernel32-enter-critical-section"/u,
 );
 assert.match(worker, /kernel32-enter-critical-section-continuation/u);
+assert.match(worker, /kernel32-leave-critical-section-continuation/u);
 
 assert.match(fullProbe, /searchParams\.get\("evidence"\) === "full" \? "full" : "summary"/u);
 assert.match(fullProbe, /parseCapabilityProfile\(searchParams\.get\("profile"\)\)/u);

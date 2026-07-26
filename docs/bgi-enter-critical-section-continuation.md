@@ -7,6 +7,8 @@
 - Runtime-kernel checkpoint: `kernel32-enter-critical-section-continuation`
 - Previous checkpoint: [`kernel32-leave-critical-section`](bgi-leave-critical-section.md)
 - Next owned endpoint: `KERNEL32.dll!LeaveCriticalSection`
+- Follow-on checkpoint:
+  [`kernel32-leave-critical-section-continuation`](bgi-leave-critical-section-continuation.md)
 
 This checkpoint consumes the first main-thread `EnterCriticalSection` reached
 after the scheduler round trip and the preceding release. It reuses the
@@ -93,7 +95,8 @@ npm run check:runtime:bgi-browser
 - This is one uncontended main-thread reacquisition, not cross-thread
   contention, waiter ordering, deletion, abandonment, or fairness evidence.
 - The following release is an owned endpoint identity, not a completed
-  continuation checkpoint.
+  continuation checkpoint in this frozen evidence. The follow-on checkpoint
+  now consumes and verifies it.
 - Earlier workload threshold success in an invalid host environment remains
   diagnostic evidence only.
 - This does not establish full message/input flow, rendering, audio,

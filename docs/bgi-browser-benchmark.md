@@ -3,7 +3,7 @@
 ## Status
 
 - Status: accepted threshold pass in a valid environment
-- Workload: `kernel32-enter-critical-section-continuation` private BGI generic session
+- Workload: `kernel32-leave-critical-section-continuation` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
   [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
@@ -15,14 +15,16 @@ a fresh Rust runtime and v86 mirror, executes seven bounded
 `SetWaitableTimer`／`WaitForSingleObjectEx` pairs, records the
 `8192 -> 8193 -> 8192` Rust scheduler round trip, completes one
 `LeaveCriticalSection` release and the immediately following
-`EnterCriticalSection` acquisition on thread `8192`, and stops at the next
-`KERNEL32.dll!LeaveCriticalSection`. Rust remains authority for the logical
+`EnterCriticalSection` acquisition and `LeaveCriticalSection` release on
+thread `8192`, and stops at the next `KERNEL32.dll!EnterCriticalSection`. Rust
+remains authority for the logical
 clock, timer state, wait result, scheduler owner, synchronization state, guest
 memory, and terminal endpoint. The browser owns only cancellable delay
 resources.
 
-Protocol version 18 carries full-width request, registration, arm-generation,
-clock-generation, and owner-thread identities. The benchmark checks the
+Protocol version 19 carries the typed continuation release in addition to the
+full-width request, registration, arm-generation, clock-generation, and
+owner-thread identities. The benchmark checks the
 manifest-selected call count, instruction stop, canonical semantic digest,
 memory digest, completion count, next endpoint, pending-work cleanup, and
 runtime-resource metrics on every repetition. The final memory identity is
@@ -71,11 +73,12 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 ## Result
 
 The current continuation workload passed all 17 versioned workload thresholds
-with zero semantic failures across 99 sessions. Its unchanged environment
-qualification was also `valid`, so the report is accepted as the current
-performance evidence. Earlier invalid-environment reports remain historical
-diagnostics; they show why external CPU excursions are not silently accepted
-and why no threshold or runtime authority was changed.
+with zero semantic failures across 107 sessions. Session P95 was 1,842.600 ms,
+maximum-slice P99 was 2.250 ms, and heartbeat P99 was 6.070 ms. Its unchanged
+environment qualification was also `valid`, so the report is accepted as the
+current performance evidence. Earlier invalid-environment reports remain
+historical diagnostics; they show why external CPU excursions are not silently
+accepted and why no threshold or runtime authority was changed.
 
 The preceding `kernel32-leave-critical-section` workload remains historical
 accepted evidence: it passed both workload and environment decisions before

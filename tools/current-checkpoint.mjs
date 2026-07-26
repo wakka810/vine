@@ -156,10 +156,14 @@ export function validateCurrentCheckpoint(manifest) {
   const enterCriticalSectionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "kernel32-enter-critical-section-continuation";
+  const leaveCriticalSectionContinuationActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "kernel32-leave-critical-section-continuation";
   const mainLoopContinuationActive =
     primaryMainLoopProgressionActive ||
     leaveCriticalSectionActive ||
-    enterCriticalSectionContinuationActive;
+    enterCriticalSectionContinuationActive ||
+    leaveCriticalSectionContinuationActive;
   const timerCycleCount = mainLoopContinuationActive ? 7 : 3;
   const timerSetSequences = mainLoopContinuationActive
     ? "18681,18689,18697,18705,18713,18721,18729"
@@ -188,8 +192,27 @@ export function validateCurrentCheckpoint(manifest) {
   const timerPacingClockGenerations = mainLoopContinuationActive
     ? "0,1,2,3,4,5,6"
     : "0,1,2";
-  const profileExpectations = enterCriticalSectionContinuationActive
+  const profileExpectations = leaveCriticalSectionContinuationActive
     ? {
+        benchmarkObservation:
+          "current-critical-section-continuation-release-observation",
+        browserMappingDeltas: 17_384,
+        browserMappingDirtyPages: 18_891,
+        browserSuccessExecutionTransitions: 58_464,
+        latestSchema:
+          "vine.v86-bgi-kernel32-leave-critical-section-continuation.v1",
+        latestWritebackBatches: 18_793,
+        latestWritebackDirtyPages: 37_790,
+        latestWritebackChangedBytes: 2_933_180,
+        latestHostDeltaBatches: 17_384,
+        latestFinalMemoryGeneration: 36_750,
+        semanticCallDigestSha256:
+          "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
+        memoryContentSha256:
+          "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+      }
+    : enterCriticalSectionContinuationActive
+      ? {
         benchmarkObservation:
           "current-critical-section-acquisition-observation",
         browserMappingDeltas: 17_383,
@@ -569,8 +592,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v18") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v18");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v19") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v19");
   }
   if (
     browser.executionEngineProfile !==
@@ -12807,6 +12830,34 @@ export function validateCurrentCheckpoint(manifest) {
         );
       }
     }
+  } else if (
+    active.profile === "kernel32-leave-critical-section-continuation"
+  ) {
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !==
+          "kernel32-leave-critical-section-continuation" ||
+        completion.implementationId !==
+          "kernel32.leave-critical-section.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 18_737 ||
+        completion.lastCompletionInstructionCount !== 11_974_905 ||
+        completion.criticalSectionAddress !== 0x100fd9cc ||
+        completion.releaseThreadId !== 8_192 ||
+        completion.lastError !== 0 ||
+        completion.instructionCount !== 11_974_948 ||
+        completion.memoryContentSha256 !==
+          "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc"
+      ) {
+        errors.push(
+          `${label} critical-section continuation release evidence is invalid`,
+        );
+      }
+    }
   }
   if (
     currentStop.kind === "api-endpoint" &&
@@ -13016,6 +13067,9 @@ export function renderReadmeStatus(manifest) {
                 : next.completion.capability ===
                     "kernel32-enter-critical-section-continuation"
                   ? "critical-section continuation acquisition"
+                  : next.completion.capability ===
+                      "kernel32-leave-critical-section-continuation"
+                    ? "critical-section continuation release"
                 : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
