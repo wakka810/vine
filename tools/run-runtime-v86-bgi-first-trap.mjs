@@ -193,6 +193,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-progression",
         "primary-main-loop-continuation",
         "shell32-drag-accept-files",
+        "kernel32-archive-source-read",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -295,6 +296,7 @@ assert(
       "primary-main-loop-progression",
       "primary-main-loop-continuation",
       "shell32-drag-accept-files",
+      "kernel32-archive-source-read",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -310,6 +312,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "primary-main-loop-progression" ||
     genericRuntimeCapability === "primary-main-loop-continuation" ||
     genericRuntimeCapability === "shell32-drag-accept-files" ||
+    genericRuntimeCapability === "kernel32-archive-source-read" ||
     genericRuntimeCapability === "kernel32-leave-critical-section"
       ? "kernel32-wait-for-single-object-ex-v1.json"
       : genericRuntimeCapability === "kernel32-set-waitable-timer"
@@ -502,8 +505,12 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const archiveSourceReadEnabled =
+  genericRuntimeCapability === "kernel32-archive-source-read";
 const primaryMainLoopContinuationWorkloadEnabled =
-  primaryMainLoopContinuationEnabled || dragAcceptFilesEnabled;
+  primaryMainLoopContinuationEnabled ||
+  dragAcceptFilesEnabled ||
+  archiveSourceReadEnabled;
 const primaryMainLoopContinuationTrapLimit = 131_072;
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
@@ -806,7 +813,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? leaveCriticalSectionContinuationEnabled
+      ? archiveSourceReadEnabled
+      ? "v86-bgi-archive-source-read"
+      : leaveCriticalSectionContinuationEnabled
       ? "v86-bgi-leave-critical-section-continuation"
       : dragAcceptFilesEnabled
       ? "v86-bgi-drag-accept-files"
@@ -4674,15 +4683,36 @@ async function run() {
   requireFile(bgiPath, "the primary title must be installed at its configured path");
   const bgiGdbPath = path.join(path.dirname(bgiPath), "BGI.gdb");
   const bgiGdbBefore = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
+  if (archiveSourceReadEnabled) {
+    assert.equal(
+      sourceManifestPath,
+      null,
+      "kernel32-archive-source-read owns the primary boot-archive manifest",
+    );
+    sourceManifestPath = path.join(
+      root,
+      "fixtures",
+      "source-snapshots",
+      "primary-boot-archives-v1.json",
+    );
+  }
+  const bgiDirectory = path.dirname(bgiPath);
   const sourceRegistration = sourceManifestPath !== null
     ? await registerSourceSnapshot({
         manifestPath: sourceManifestPath,
-        objectFiles: { 1: bgiGdbPath },
+        objectFiles: archiveSourceReadEnabled
+          ? {
+              1: path.join(bgiDirectory, "system.arc"),
+              2: path.join(bgiDirectory, "sysprg.arc"),
+              3: path.join(bgiDirectory, "sysgrp.arc"),
+            }
+          : { 1: bgiGdbPath },
       })
     : null;
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
-  const writableProfile = sourceFileReadEnabled && sourceRegistration === null
+  const writableProfile = sourceFileReadEnabled &&
+    (sourceRegistration === null || archiveSourceReadEnabled)
     ? openWritableProfile({
         databasePath: path.join(
           root,
@@ -4898,6 +4928,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (archiveSourceReadEnabled) {
+        validateArchiveSourceReadResult(genericResult);
       } else if (dragAcceptFilesEnabled) {
         validateDragAcceptFilesResult(genericResult);
       } else if (primaryMainLoopContinuationEnabled) {
@@ -5133,6 +5165,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : archiveSourceReadEnabled
+          ? "bgi primary boot-archive source read"
           : dragAcceptFilesEnabled
           ? "bgi Shell32 DragAcceptFiles"
           : primaryMainLoopContinuationEnabled
@@ -7259,6 +7293,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : archiveSourceReadEnabled
+          ? 98
         : dragAcceptFilesEnabled
           ? 98
         : waitForSingleObjectExEnabled
@@ -17554,6 +17590,173 @@ function validatePrimaryMainLoopContinuationResult(result) {
   );
 }
 
+function validateArchiveSourceReadResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 89_386);
+  assert.equal(result.callbackEvents.length, 40);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 5);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_032);
+  assert.equal(result.schedulerContinuation.firstSelections.length, 9);
+  assert.equal(result.schedulerContinuation.lastSelection.sequence, 89_366);
+  assert(result.schedulerContinuation.selectedThreadCycle);
+  assert.deepEqual(
+    result.schedulerContinuation.indexedCriticalSectionTraversal,
+    {
+      observationCount: 512,
+      objectAddress: 0x2000_2648,
+      entryCount: 16_384,
+      first: {
+        selectionSequence: 19_072,
+        instructionCount: 13_751_701,
+        objectAddress: 0x2000_2648,
+        index: 20,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2000_2da8,
+      },
+      last: {
+        selectionSequence: 89_152,
+        instructionCount: 15_599_477,
+        objectAddress: 0x2000_2648,
+        index: 16_372,
+        entryCount: 16_384,
+        criticalSectionAddress: 0x2012_24a8,
+      },
+    },
+  );
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_032,
+    threadExits: [],
+  });
+
+  const createFileCalls = result.supportedCalls.filter(
+    (call) => call.symbol === "CreateFileA",
+  );
+  assert.equal(createFileCalls.length, 5);
+  for (const call of createFileCalls) {
+    assert.equal(call.implementationId, "kernel32.create-file-a.source.v1");
+    assert.equal(call.returnAddress, 0x1002_bc00);
+    assert.deepEqual(call.arguments.slice(1), [0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
+  }
+  const looseProbe = createFileCalls[2];
+  assert.equal(looseProbe.sequence, 89_259);
+  assert.equal(looseProbe.trapInstructionCount, 15_603_590);
+  assert.deepEqual(looseProbe.result, { action: "set", value: 0xffff_ffff });
+  assert.equal(looseProbe.lastError, 2);
+  const indexOpen = createFileCalls[3];
+  assert.equal(indexOpen.sequence, 89_270);
+  assert.equal(indexOpen.trapInstructionCount, 15_605_352);
+  assert.deepEqual(indexOpen.result, { action: "set", value: 0x4603_0001 });
+  assert.equal(indexOpen.lastError, 2);
+  const memberOpen = createFileCalls[4];
+  assert.equal(memberOpen.sequence, 89_283);
+  assert.equal(memberOpen.trapInstructionCount, 15_607_767);
+  assert.deepEqual(memberOpen.result, { action: "set", value: 0x4604_0001 });
+  assert.equal(memberOpen.lastError, 0);
+
+  const archiveReads = result.sourceReads.filter((read) => read.sourceId === 1);
+  assert.deepEqual(
+    archiveReads.map((read) => ({
+      sequence: read.sequence,
+      objectId: read.objectId,
+      offset: read.offset,
+      requestedBytes: read.requestedBytes,
+      transferredBytes: read.transferredBytes,
+    })),
+    [
+      {
+        sequence: 89_271,
+        objectId: 1,
+        offset: "0",
+        requestedBytes: 16,
+        transferredBytes: 16,
+      },
+      {
+        sequence: 89_273,
+        objectId: 1,
+        offset: "16",
+        requestedBytes: 384,
+        transferredBytes: 384,
+      },
+      {
+        sequence: 89_285,
+        objectId: 1,
+        offset: "400",
+        requestedBytes: 2_328,
+        transferredBytes: 2_328,
+      },
+    ],
+  );
+  const memberSeek = result.supportedCalls.filter(
+    (call) => call.symbol === "SetFilePointer",
+  );
+  assert.equal(memberSeek.length, 1);
+  assert.equal(memberSeek[0].sequence, 89_284);
+  assert.deepEqual(memberSeek[0].arguments, [0x4604_0001, 400, 0, 0]);
+  assert.deepEqual(memberSeek[0].result, { action: "set", value: 400 });
+  const archiveCloses = result.supportedCalls.filter(
+    (call) =>
+      call.symbol === "CloseHandle" &&
+      (call.arguments[0] === 0x4603_0001 || call.arguments[0] === 0x4604_0001),
+  );
+  assert.deepEqual(
+    archiveCloses.map((call) => ({
+      sequence: call.sequence,
+      handle: call.arguments[0],
+    })),
+    [
+      { sequence: 89_274, handle: 0x4603_0001 },
+      { sequence: 89_286, handle: 0x4604_0001 },
+    ],
+  );
+
+  assert.equal(result.writebacks.length, 89_444);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    122_908,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    3_622_341,
+  );
+  assert.equal(result.hostDeltas.length, 78_585);
+  assert.equal(result.finalGeneration, 168_609);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "user32-windows");
+  assert.equal(result.fault.fault.code, "set-window-pos-size-unsupported");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 202,
+    address: 0x7f00_0c90,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "SetWindowPos" },
+    iatAddress: 0x100d_1400,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "233209a71d74ab8893e91efc9404c8d493d1ea438beba06ae626013b6cbb2deb",
+  );
+  assert.equal(result.terminal.instructionCount, 15_951_782);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_cb4b);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 8),
+    [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 0x10a],
+  );
+}
+
 function validateDragAcceptFilesResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -21411,7 +21614,10 @@ function buildGenericRuntimeReentryReport({
     );
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
-        assert.equal(setWaitableTimerCalls.length, 4_707);
+        assert.equal(
+          setWaitableTimerCalls.length,
+          archiveSourceReadEnabled ? 4_716 : 4_707,
+        );
       } else {
         assert.equal(setWaitableTimerCalls.length, 7);
       }
@@ -21433,7 +21639,10 @@ function buildGenericRuntimeReentryReport({
   if (waitForSingleObjectExEnabled) {
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
-        assert.equal(waitForSingleObjectExCalls.length, 4_706);
+        assert.equal(
+          waitForSingleObjectExCalls.length,
+          archiveSourceReadEnabled ? 4_716 : 4_706,
+        );
       } else {
         assert.equal(waitForSingleObjectExCalls.length, 7);
       }
@@ -21466,18 +21675,47 @@ function buildGenericRuntimeReentryReport({
       "WaitForSingleObjectEx pacing request identities are not unique",
     );
   }
-  const dragAcceptFilesCalls = dragAcceptFilesEnabled
+  const dragAcceptFilesCalls = dragAcceptFilesEnabled || archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
           call.implementationId ===
           "shell32.drag-accept-files.logical-window-style-v1",
       )
     : [];
-  if (dragAcceptFilesEnabled) {
+  if (dragAcceptFilesEnabled || archiveSourceReadEnabled) {
     assert.equal(
       dragAcceptFilesCalls.length,
       1,
       "DragAcceptFiles report summary requires one primary call",
+    );
+  }
+  const archiveSourceCreateFileCalls = archiveSourceReadEnabled
+    ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
+    : [];
+  const archiveSourceReads = archiveSourceReadEnabled
+    ? genericResult.sourceReads.filter((read) => read.sourceId === 1)
+    : [];
+  const archiveSourceLooseProbeCall = archiveSourceReadEnabled
+    ? archiveSourceCreateFileCalls[2] ?? null
+    : null;
+  const archiveSourceOpenCalls = archiveSourceReadEnabled
+    ? archiveSourceCreateFileCalls.slice(3)
+    : [];
+  if (archiveSourceReadEnabled) {
+    assert.equal(
+      archiveSourceCreateFileCalls.length,
+      5,
+      "archive source read report summary requires the frozen CreateFileA completions",
+    );
+    assert.equal(
+      archiveSourceLooseProbeCall.result.value,
+      0xffff_ffff,
+      "the loose-file probe before the archive opens must remain not-found",
+    );
+    assert.equal(
+      archiveSourceReads.length,
+      3,
+      "archive source read report summary requires the frozen bounded reads",
     );
   }
   const repeatedCallEvidence = (calls) =>
@@ -21500,6 +21738,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : archiveSourceReadEnabled
+        ? "vine.v86-bgi-kernel32-archive-source-read"
         : dragAcceptFilesEnabled
         ? "vine.v86-bgi-shell32-drag-accept-files"
         : primaryMainLoopContinuationEnabled
@@ -21908,7 +22148,7 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    ...(dragAcceptFilesEnabled
+    ...(dragAcceptFilesEnabled || archiveSourceReadEnabled
       ? {
           dragAcceptFiles: {
             call: dragAcceptFilesCalls[0],
@@ -21916,6 +22156,21 @@ function buildGenericRuntimeReentryReport({
             acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles",
             browserResourceCreated: false,
             wmDropFilesImplemented: false,
+          },
+        }
+      : {}),
+    ...(archiveSourceReadEnabled
+      ? {
+          archiveSourceRead: {
+            snapshotId: "primary-boot-archives-v1",
+            mountAuthority: "rust-runtime-vfs",
+            byteDelivery: "bounded-host-range-read",
+            looseFileProbe: archiveSourceLooseProbeCall,
+            archiveOpens: archiveSourceOpenCalls,
+            archiveReads: archiveSourceReads,
+            immutableSourceWriteDenied: true,
+            writableProfileShadowing: false,
+            archiveFormatParsedByRuntime: false,
           },
         }
       : {}),

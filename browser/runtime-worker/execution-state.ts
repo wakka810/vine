@@ -262,6 +262,11 @@ export class PendingHostRequestTable {
     return request === undefined ? null : this.#snapshot(request);
   }
 
+  pending(requestId: string): HostRequestSnapshot | null {
+    const request = this.#requests.get(requestId);
+    return request === undefined ? null : this.#snapshot(request);
+  }
+
   snapshots(): HostRequestSnapshot[] {
     return [...this.#requests.values()].map((request) => this.#snapshot(request));
   }

@@ -556,7 +556,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" && bgiProfile === "shell32-drag-accept-files"
+      scenario === "success" &&
+        (bgiProfile === "shell32-drag-accept-files" ||
+          bgiProfile === "kernel32-archive-source-read")
         ? 180_000
         : 30_000,
     );
@@ -588,6 +590,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
+        "kernel32-archive-source-read",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -605,6 +608,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
+        "kernel32-archive-source-read",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -621,8 +625,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-progression",
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
+        "kernel32-archive-source-read",
       ].includes(bgiProfile) && scenario === "success"
-        ? bgiProfile === "shell32-drag-accept-files"
+        ? bgiProfile === "kernel32-archive-source-read"
+          ? 1_032
+          : bgiProfile === "shell32-drag-accept-files"
           ? 1_030
           : bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
@@ -674,10 +681,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       );
       if (
         capabilityCheckpoint ||
-        bgiProfile === "shell32-drag-accept-files"
+        bgiProfile === "shell32-drag-accept-files" ||
+        bgiProfile === "kernel32-archive-source-read"
       ) {
         const pacingCount =
-          bgiProfile === "shell32-drag-accept-files"
+          bgiProfile === "kernel32-archive-source-read"
+            ? 4_716
+            : bgiProfile === "shell32-drag-accept-files"
             ? 4_706
             : bgiProfile === "primary-main-loop-progression" ||
           bgiProfile === "kernel32-leave-critical-section" ||
@@ -696,7 +706,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           pending: 0,
         });
       }
-      if (bgiProfile === "shell32-drag-accept-files") {
+      if (
+        bgiProfile === "shell32-drag-accept-files" ||
+        bgiProfile === "kernel32-archive-source-read"
+      ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
         assert.equal(dragAcceptFiles.call.sequence, 89_249);
@@ -725,6 +738,43 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(dragAcceptFiles.wmDropFilesImplemented, false);
       } else {
         assert.equal(evidence.report.dragAcceptFiles, null);
+      }
+      if (bgiProfile === "kernel32-archive-source-read") {
+        assert.deepEqual(
+          evidence.report.sourceReads
+            .filter((read) => read.request.sourceId === 1)
+            .map((read) => ({
+              objectId: read.request.objectId,
+              offset: read.request.offset,
+              requestedBytes: read.request.requestedBytes,
+              transferredBytes: read.transferredBytes,
+              succeeded: read.succeeded,
+            })),
+          [
+            {
+              objectId: 1,
+              offset: 0,
+              requestedBytes: 16,
+              transferredBytes: 16,
+              succeeded: true,
+            },
+            {
+              objectId: 1,
+              offset: 16,
+              requestedBytes: 384,
+              transferredBytes: 384,
+              succeeded: true,
+            },
+            {
+              objectId: 1,
+              offset: 400,
+              requestedBytes: 2_328,
+              transferredBytes: 2_328,
+              succeeded: true,
+            },
+          ],
+          "Chrome Worker primary boot-archive reads differ from the frozen slice",
+        );
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1782,7 +1832,21 @@ assert(
 );
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
 const sourceRegistration = bgiMode
-  ? null
+  ? bgiProfile === "kernel32-archive-source-read"
+    ? await registerSourceSnapshot({
+        manifestPath: path.join(
+          root,
+          "fixtures",
+          "source-snapshots",
+          "primary-boot-archives-v1.json",
+        ),
+        objectFiles: {
+          1: path.join(path.dirname(bgiPath), "system.arc"),
+          2: path.join(path.dirname(bgiPath), "sysprg.arc"),
+          3: path.join(path.dirname(bgiPath), "sysgrp.arc"),
+        },
+      })
+    : null
   : await registerSourceSnapshot({
       manifestPath: sourceManifestPath,
       objectFiles: { 1: sourceObjectPath },

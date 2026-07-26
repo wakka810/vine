@@ -13642,6 +13642,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "primary-main-loop-continuation" => GenericRuntimeCapability::WaitForSingleObjectEx,
                 "primary-main-loop-progression" => GenericRuntimeCapability::WaitForSingleObjectEx,
                 "shell32-drag-accept-files" => GenericRuntimeCapability::DragAcceptFiles,
+                "kernel32-archive-source-read" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

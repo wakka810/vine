@@ -283,7 +283,10 @@ function runSession(
       instructionBudget: 16_384,
       watchdogInstructionLimit: 20_000_000,
       watchdogWallMilliseconds:
-        capabilityProfile === "shell32-drag-accept-files" ? 180_000 : 20_000,
+        capabilityProfile === "shell32-drag-accept-files" ||
+      capabilityProfile === "kernel32-archive-source-read"
+        ? 180_000
+        : 20_000,
       pageLifecycle: pageLifecycle.snapshot(),
     },
   } satisfies MainToWorkerMessage);
@@ -299,7 +302,8 @@ function parseCapabilityProfile(value: unknown): BgiCapabilityProfile | undefine
     value === "kernel32-leave-critical-section" ||
     value === "kernel32-enter-critical-section-continuation" ||
     value === "kernel32-leave-critical-section-continuation" ||
-    value === "shell32-drag-accept-files"
+    value === "shell32-drag-accept-files" ||
+    value === "kernel32-archive-source-read"
     ? value
     : undefined;
 }

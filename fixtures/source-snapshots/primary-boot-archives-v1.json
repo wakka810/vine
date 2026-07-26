@@ -1,0 +1,30 @@
+{
+  "schema": "vine.source-snapshot-manifest",
+  "schemaVersion": 1,
+  "titleFingerprint": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+  "snapshotId": "primary-boot-archives-v1",
+  "mount": {
+    "sourceId": 1,
+    "rootPathA": [67, 58, 92, 86, 105, 110, 101, 0]
+  },
+  "files": [
+    {
+      "objectId": 1,
+      "relativePathA": [115, 121, 115, 116, 101, 109, 46, 97, 114, 99],
+      "byteLength": 21464,
+      "sha256": "650556db25925148b0f91e5d157aa5a03a085d9b9e48e095baa9c73e0f9adcb0"
+    },
+    {
+      "objectId": 2,
+      "relativePathA": [115, 121, 115, 112, 114, 103, 46, 97, 114, 99],
+      "byteLength": 195670,
+      "sha256": "cd2a0f67b2277511674c73faac2bc1d902ca2d6972a55f36d77dcc3305ec73e9"
+    },
+    {
+      "objectId": 3,
+      "relativePathA": [115, 121, 115, 103, 114, 112, 46, 97, 114, 99],
+      "byteLength": 11665375,
+      "sha256": "8ddbe7e93172f50b0189b91d132982a450f05516f9206954288fde68326ca475"
+    }
+  ]
+}

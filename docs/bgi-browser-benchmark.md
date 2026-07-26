@@ -3,21 +3,20 @@
 ## Status
 
 - Status: structured threshold blocker in a valid environment
-- Workload: `shell32-drag-accept-files` private BGI generic session
+- Workload: `kernel32-archive-source-read` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
-  [`fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json`](../fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json)
+  [`fixtures/benchmarks/bgi-browser-archive-source-read-v1.json`](../fixtures/benchmarks/bgi-browser-archive-source-read-v1.json)
 - Performance evidence and blocker: current manifest report identity
 
 This observation repeats the reached waitable-timer pacing, main-loop
-progression, and `DragAcceptFiles` leaf in one Chrome Dedicated Worker. Every
-session starts a fresh Rust runtime and v86 mirror, executes the reached
-logical timer cycles, records the
-`8192 -> 8193 -> 8192` Rust scheduler round trip, completes one
-`LeaveCriticalSection` release and the immediately following
-`EnterCriticalSection` acquisition and `LeaveCriticalSection` release on
-thread `8192`, applies the reached FALSE file-drop acceptance flag to the
-logical window, and stops at `USER32.dll!MessageBoxA`. Rust remains authority for the logical
+progression, the `DragAcceptFiles` leaf, and the primary boot-archive
+source reads in one Chrome Dedicated Worker. Every session starts a fresh
+Rust runtime and v86 mirror, executes the reached logical timer cycles,
+records the `8192 -> 8193 -> 8192` Rust scheduler round trip, replays the
+loose-file probe and the bounded `system.arc` header, index, and `ipl._bp`
+member reads through the immutable snapshot mount, and stops at the
+`USER32.dll!SetWindowPos` resize variant. Rust remains authority for the logical
 clock, timer state, wait result, scheduler owner, synchronization state, guest
 memory, logical-window style, and terminal endpoint. The browser owns only
 cancellable delay resources.
@@ -73,13 +72,13 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The current `DragAcceptFiles` workload completed 14 sessions with zero semantic
-failures in a `valid` environment. Fifteen of 17 versioned thresholds passed.
-The minimum-session threshold failed at 14 against 24, and session P95 failed
-at 15,868.955 ms against 8,000 ms. Maximum-slice P99 was 2.635 ms, heartbeat
-P99 was 15.955 ms, and the maximum heartbeat gap was 31.285 ms, so the failure
-is throughput／latency rather than main-thread responsiveness or semantic
-divergence.
+The current `kernel32-archive-source-read` workload completed 14 sessions
+with zero semantic failures in a `valid` environment. Fifteen of 17
+versioned thresholds passed. The minimum-session threshold failed at 14
+against 24, and session P95 failed at 13,108.180 ms against 8,000 ms.
+Maximum-slice P99 was 3.315 ms, heartbeat P99 was 6.075 ms, and the maximum
+heartbeat gap was 37.090 ms, so the failure remains throughput／latency
+rather than main-thread responsiveness or semantic divergence.
 
 The bounded remediation replaced one-millisecond timeout churn with a
 `MessageChannel` deadline driver and coalesced only synchronous API-boundary
@@ -90,9 +89,10 @@ restored before acceptance measurement. The unchanged gate therefore remains
 blocked pending a profiled correctness-preserving Rust／Wasm dispatch fast
 path or an explicit versioned performance-contract decision.
 
-One preceding measurement completed 12 sessions but was classified
-`invalid-environment` for sustained external CPU and discarded. It is not a
-confirmation, pass, or reason to alter the thresholds.
+The earlier `DragAcceptFiles` observation of the same blocker (14 sessions,
+session P95 15,868.955 ms) and its discarded `invalid-environment`
+predecessor remain historical evidence. None of them is a confirmation,
+pass, or reason to alter the thresholds.
 
 The preceding `kernel32-leave-critical-section-continuation` workload remains
 historical accepted evidence: it passed both workload and environment
@@ -104,7 +104,7 @@ larger active workload.
 The earlier DirectInput enumeration workload completed without semantic
 failure and passed all 17 thresholds in a valid environment. Its exact workload,
 artifact, distribution, and report identities remain historical evidence; they
-do not substitute for the active timer-heavy `DragAcceptFiles` gate.
+do not substitute for the active timer-heavy archive-source-read gate.
 
 ### Historical heartbeat investigation
 

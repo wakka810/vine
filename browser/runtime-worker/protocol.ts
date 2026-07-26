@@ -12,7 +12,8 @@ export type BgiCapabilityProfile =
   | "kernel32-leave-critical-section"
   | "kernel32-enter-critical-section-continuation"
   | "kernel32-leave-critical-section-continuation"
-  | "shell32-drag-accept-files";
+  | "shell32-drag-accept-files"
+  | "kernel32-archive-source-read";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;

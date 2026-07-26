@@ -71,10 +71,12 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `shell32-drag-accept-files` and uses protocol
-`vine.browser-runtime-worker.v20`. It carries one compact typed
-`dragAcceptFiles` snapshot containing the reached call, immutable logical
-window, effective extended style, Rust authority labels, and explicit browser
+The active private profile is `kernel32-archive-source-read` and uses
+protocol `vine.browser-runtime-worker.v20`. It registers the primary
+boot-archive snapshot beside the writable profile, replays the loose-file
+probe and the bounded `system.arc` reads through the same-origin source API,
+delivers storage and pacing completions to Rust in request-issue order, and
+still carries the compact typed `dragAcceptFiles` snapshot with its browser
 resource／`WM_DROPFILES` non-claims. Node and Chrome normalize only module-name
 case; arguments, ABI result, LastError, guest writes, window identity,
 lifecycle, style, terminal endpoint, semantic digest, and memory digest must

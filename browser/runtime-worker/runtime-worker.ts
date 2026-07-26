@@ -554,8 +554,10 @@ class BrowserRuntimeSession {
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
+  readonly #deferredHostCompletions = new Map<string, () => void>();
   readonly #timerPacing: TimerPacingService;
-  #timerPacingResume:
+  #hostBarrierRequestId: string | null = null;
+  #hostBarrierResume:
     | {
         requestId: string;
         threadId: number;
@@ -681,7 +683,10 @@ class BrowserRuntimeSession {
         this.#configuration.evidenceLevel === "full" || workload === "private-bgi",
         "summary runtime evidence is only supported for the private BGI workload",
       );
-      const sourceBackedWorkload = workload === "controlled-source-read";
+      const sourceBackedWorkload =
+        workload === "controlled-source-read" ||
+        (workload === "private-bgi" &&
+          this.#configuration.capabilityProfile === "kernel32-archive-source-read");
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -1278,6 +1283,53 @@ class BrowserRuntimeSession {
       throw new Error("host completion arrived after the runtime session stopped");
     }
     try {
+      this.#deliverInIssueOrder(message.requestId, () =>
+        this.#deliverHostCompletion(message),
+      );
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  // Host completions must reach Rust in request-issue order: the Node oracle
+  // services every host request synchronously, so a younger completion (for
+  // example a timer-pacing deadline) may not overtake an older in-flight
+  // storage read without diverging from the frozen scheduling stream.
+  #deliverInIssueOrder(requestId: string, deliver: () => void): void {
+    const head = this.#pendingHostRequests.first();
+    if (head?.requestId === requestId) {
+      deliver();
+      this.#drainDeferredHostCompletions();
+      return;
+    }
+    invariant(
+      this.#pendingHostRequests.pending(requestId) !== null,
+      `host completion ${requestId} does not belong to a pending request`,
+    );
+    invariant(
+      !this.#deferredHostCompletions.has(requestId),
+      `host completion ${requestId} is already deferred`,
+    );
+    this.#deferredHostCompletions.set(requestId, deliver);
+  }
+
+  #drainDeferredHostCompletions(): void {
+    while (!this.#terminal && !this.#stopping) {
+      const head = this.#pendingHostRequests.first();
+      if (head === null) {
+        return;
+      }
+      const deliver = this.#deferredHostCompletions.get(head.requestId);
+      if (deliver === undefined) {
+        return;
+      }
+      this.#deferredHostCompletions.delete(head.requestId);
+      deliver();
+    }
+  }
+
+  #deliverHostCompletion(message: HostCompletionMessage): void {
+    {
       const pending = this.#pendingHostRequests.complete(
         message.requestId,
         message.threadId,
@@ -1305,12 +1357,12 @@ class BrowserRuntimeSession {
       }
       this.#applyCpuResumeToThread(completion.threadId, completion.completion);
       this.#threadExecutionStates.set(completion.threadId, resumeState);
-      if (pending.service === "runtime.timer-delay.v1") {
+      if (this.#hostBarrierRequestId === pending.requestId) {
         invariant(
-          this.#timerPacingResume === null,
-          "timer pacing retained an unconsumed owner resume",
+          this.#hostBarrierResume === null,
+          "host completion barrier retained an unconsumed owner resume",
         );
-        this.#timerPacingResume = {
+        this.#hostBarrierResume = {
           requestId: pending.requestId,
           threadId: completion.threadId,
           scheduler: completion.scheduler,
@@ -1330,9 +1382,6 @@ class BrowserRuntimeSession {
         this.#signalRunnable();
       }
       this.#status("running", `${pending.service} completed`);
-    } catch (error) {
-      this.#fail(error instanceof Error ? error : new Error(String(error)));
-      return;
     }
   }
 
@@ -1422,7 +1471,9 @@ class BrowserRuntimeSession {
         payload.byteLength,
         0,
       ].forEach((word, index) => view.setUint32(index * 4, word, true));
-      this.#completeSourceRead(metadata, control, payload);
+      this.#deliverInIssueOrder(metadata.requestId, () =>
+        this.#completeSourceRead(metadata, control, payload),
+      );
     } finally {
       this.#sourceReadControllers.delete(metadata.requestId);
     }
@@ -1494,7 +1545,9 @@ class BrowserRuntimeSession {
         payload.byteLength,
         0,
       ].forEach((word, index) => view.setUint32(index * 4, word, true));
-      this.#completeSourceRead(metadata, control, payload);
+      this.#deliverInIssueOrder(metadata.requestId, () =>
+        this.#completeSourceRead(metadata, control, payload),
+      );
     } finally {
       this.#sourceReadControllers.delete(metadata.requestId);
     }
@@ -1605,13 +1658,15 @@ class BrowserRuntimeSession {
     );
     const control = new Uint8Array(await response.arrayBuffer());
     invariant(control.byteLength === 32, "writable commit response size mismatch");
-    const completion = this.#completeWritableCommit(metadata, control);
-    if (completion.succeeded) {
-      file.exists = true;
-      file.generation = completion.committedGeneration;
-      file.byteLength = payloadOutput.payload.byteLength;
-      file.sha256 = contentSha256;
-    }
+    this.#deliverInIssueOrder(metadata.requestId, () => {
+      const completion = this.#completeWritableCommit(metadata, control);
+      if (completion.succeeded) {
+        file.exists = true;
+        file.generation = completion.committedGeneration;
+        file.byteLength = payloadOutput.payload.byteLength;
+        file.sha256 = contentSha256;
+      }
+    });
   }
 
   #completeSourceRead(
@@ -1643,6 +1698,17 @@ class BrowserRuntimeSession {
     this.#report.sourceReads.push(completion.sourceRead);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
     this.#threadExecutionStates.set(completion.threadId, resumeState);
+    if (this.#hostBarrierRequestId === pending.requestId) {
+      invariant(
+        this.#hostBarrierResume === null,
+        "host completion barrier retained an unconsumed owner resume",
+      );
+      this.#hostBarrierResume = {
+        requestId: pending.requestId,
+        threadId: completion.threadId,
+        scheduler: completion.scheduler,
+      };
+    }
     this.#report.rustSchedulerTransitions += 1;
     pending.resolve({ result: 1, completionPolicy: pending.completionPolicy });
     if (this.#execution.state() === "waiting-host") {
@@ -1687,6 +1753,17 @@ class BrowserRuntimeSession {
     this.#report.writableCommits.push(completion.writableCommit);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
     this.#threadExecutionStates.set(completion.threadId, resumeState);
+    if (this.#hostBarrierRequestId === pending.requestId) {
+      invariant(
+        this.#hostBarrierResume === null,
+        "host completion barrier retained an unconsumed owner resume",
+      );
+      this.#hostBarrierResume = {
+        requestId: pending.requestId,
+        threadId: completion.threadId,
+        scheduler: completion.scheduler,
+      };
+    }
     this.#report.rustSchedulerTransitions += 1;
     pending.resolve({
       result: completion.writableCommit.succeeded ? 1 : 0,
@@ -1908,7 +1985,10 @@ class BrowserRuntimeSession {
         await this.#scheduleAfterBlock(
           metadata.threadId,
           metadata.requestId,
-          metadata.service === "runtime.timer-delay.v1",
+          metadata.service === "runtime.timer-delay.v1" ||
+            metadata.service === "storage.source-read.v1" ||
+            metadata.service === "storage.profile-read.v1" ||
+            metadata.service === "storage.profile-commit.v1",
         );
         this.#synchronousApiBoundariesSinceYield = 0;
         break;
@@ -2945,7 +3025,8 @@ class BrowserRuntimeSession {
         "kernel32-enter-critical-section-continuation" ||
       this.#configuration.capabilityProfile ===
         "kernel32-leave-critical-section-continuation" ||
-      this.#configuration.capabilityProfile === "shell32-drag-accept-files"
+      this.#configuration.capabilityProfile === "shell32-drag-accept-files" ||
+      this.#configuration.capabilityProfile === "kernel32-archive-source-read"
     ) {
       this.#mainLoopThreadSelections.push({
         sequence: this.#nextBgiCallSequence,
@@ -3403,32 +3484,46 @@ class BrowserRuntimeSession {
     this.#saveLiveThreadContext();
     if (waitForHostBeforeScheduling) {
       this.#liveThreadId = null;
-      const pending = this.#pendingHostRequests.first();
+      const pending =
+        requestId === null ? null : this.#pendingHostRequests.pending(requestId);
       invariant(
-        pending?.requestId === requestId && pending.threadId === blockedThreadId,
-        "paced host wait has no matching delivery record",
+        pending !== null && pending.threadId === blockedThreadId,
+        "synchronous host wait has no matching delivery record",
       );
+      invariant(
+        this.#pendingHostRequests.size() === 1,
+        "synchronous host wait overlaps another pending host request",
+      );
+      invariant(
+        this.#hostBarrierRequestId === null,
+        "synchronous host completion barrier is already armed",
+      );
+      this.#hostBarrierRequestId = pending.requestId;
       this.#execution.transition("waiting-host", {
-        cause: "timer-pacing-execution-barrier",
+        cause: "synchronous-host-execution-barrier",
         threadId: blockedThreadId,
         requestId,
       });
-      await this.#waitForRunnable();
+      try {
+        await this.#waitForRunnable();
+      } finally {
+        this.#hostBarrierRequestId = null;
+      }
       if (this.#terminal || this.#stopping) {
-        throw new SessionStopped("session ended during timer pacing");
+        throw new SessionStopped("session ended during a synchronous host wait");
       }
       invariant(
         this.#execution.state() === "host-completion",
-        "timer pacing wake did not originate from its host completion",
+        "synchronous host wake did not originate from its host completion",
       );
-      const resume = this.#timerPacingResume;
+      const resume = this.#hostBarrierResume;
       invariant(
         resume?.requestId === requestId && resume.threadId === blockedThreadId,
-        "timer pacing completion omitted its Rust-owned owner resume",
+        "synchronous host completion omitted its Rust-owned owner resume",
       );
-      this.#timerPacingResume = null;
+      this.#hostBarrierResume = null;
       this.#execution.transition("thread-switch", {
-        cause: "rust-timer-pacing-owner-resume",
+        cause: "rust-synchronous-host-owner-resume",
         threadId: resume.threadId,
         requestId,
       });
@@ -3436,7 +3531,7 @@ class BrowserRuntimeSession {
       this.#execution.transition(
         resume.scheduler.state === "in-callback" ? "guest-callback" : "ready",
         {
-          cause: "timer-pacing-owner-context-restored",
+          cause: "synchronous-host-owner-context-restored",
           threadId: resume.threadId,
           requestId,
         },
@@ -3627,7 +3722,9 @@ class BrowserRuntimeSession {
     }
     this.#stopping = true;
     this.#timerPacing.cancelAll();
-    this.#timerPacingResume = null;
+    this.#hostBarrierResume = null;
+    this.#hostBarrierRequestId = null;
+    this.#deferredHostCompletions.clear();
     this.#abortSourceReads();
     this.#abortProfileTransports();
     this.#terminalTask = (async () => {

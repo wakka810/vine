@@ -104,7 +104,10 @@ worker.postMessage({
     instructionBudget: scenario === "watchdog" ? 4 : 16_384,
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
     watchdogWallMilliseconds:
-      capabilityProfile === "shell32-drag-accept-files" ? 180_000 : 20_000,
+      capabilityProfile === "shell32-drag-accept-files" ||
+      capabilityProfile === "kernel32-archive-source-read"
+        ? 180_000
+        : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
 } satisfies MainToWorkerMessage);
@@ -159,7 +162,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
     value === "kernel32-leave-critical-section" ||
     value === "kernel32-enter-critical-section-continuation" ||
     value === "kernel32-leave-critical-section-continuation" ||
-    value === "shell32-drag-accept-files"
+    value === "shell32-drag-accept-files" ||
+    value === "kernel32-archive-source-read"
     ? value
     : undefined;
 }

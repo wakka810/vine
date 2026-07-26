@@ -14,15 +14,15 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `shell32-drag-accept-files`: 89283 calls across 113 endpoint contracts / 111 APIs, memory generation 168414 |
+| Runtime diagnostics | `kernel32-archive-source-read`: 89386 calls across 113 endpoint contracts / 111 APIs, memory generation 168609 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-blocked` (14 sessions) |
-| Active blocker | `shell32-drag-accept-files-browser-throughput-threshold-v1`: `minimum-completed-sessions`; Profile a correctness-preserving Rust/Wasm dispatch fast path or make an explicit versioned performance-contract decision, then rerun the unchanged 180-second gate and advance to MessageBoxA only when all thresholds pass. |
+| Active blocker | `kernel32-archive-source-read-browser-throughput-threshold-v1`: `minimum-completed-sessions`; Profile a correctness-preserving Rust/Wasm dispatch fast path or make an explicit versioned performance-contract decision, then rerun the unchanged 180-second gate and advance to the SetWindowPos resize stop only when all thresholds pass. |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!MessageBoxA(0x48010001, 0x006ff3a8, 0x100dcbe0, 0x00001010)` at instruction 15610457: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00000000, 0x00000000, 0x00000506, 0x000002ed, 0x0000010a)` at instruction 15951782: `set-window-pos-size-unsupported` |
 
-The active semantic report is 426,498 bytes with SHA-256
-`7ab576ff627a437796e3b687ae8ccbbb83d07134467d41e7b8513cb6140d0501`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 433,300 bytes with SHA-256
+`ac09054bf301f0c8f6d75b93e2e10eba3325b456649b1a4f2509bebc35aa56ce`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,7 +30,7 @@ The active semantic report is 426,498 bytes with SHA-256
 |---|---|---|---|
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, and owner-thread SetTimer registration slices pass; logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
-| `immutable-source-asset-access` | Immutable source asset access | `fixture-only` | Controlled immutable source range reads pass; BGI.gdb is writable profile state, so no primary immutable asset access is currently claimed |
+| `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
 | `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached, while pixel storage, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |

@@ -183,11 +183,22 @@ Rust-owned synchronization transactions; they do not move recursion,
 ownership, guest bytes, or lifecycle state into TypeScript.
 
 Protocol version 20 adds the `shell32-drag-accept-files` profile and a compact
-typed `dragAcceptFiles` observation. The Worker verifies one reached stdcall,
+typed `dragAcceptFiles` observation, and the `kernel32-archive-source-read`
+profile reuses the same protocol with the primary boot-archive snapshot mount. The Worker verifies one reached stdcall,
 EAX preservation, LastError, zero guest writes, created logical-window
 lifecycle, and the effective `WS_EX_ACCEPTFILES` bit. It records that no
 browser resource or `WM_DROPFILES` path was created. The style bit and window
 generation remain private `RuntimeUser32` authority.
+
+Timer pacing, immutable source reads, writable profile reads, and writable
+commits are synchronous-stream services: the issuing guest thread parks on a
+request-and-thread-validated completion barrier, and the Worker delivers
+host completions to Rust in request-issue order, deferring a younger
+completion while an older request is in flight. This keeps the Rust-visible
+scheduling stream identical to the synchronous Node oracle when wall-clock
+fetch latency and pacing deadlines would otherwise race. The controlled
+fixture's browser host services keep the existing
+execute-another-thread offer path.
 
 The browser delay adapter now uses one `MessageChannel`-driven deadline queue
 instead of creating a clamped timeout task for every one-millisecond pacing

@@ -31,7 +31,13 @@ Win32 handle, cursor, guest pointer, LastError, or dirty-file decision.
 An immutable `vine.source-snapshot-manifest` version 1 binds a title and snapshot
 to source/object IDs, paths, byte lengths, and SHA-256 values. The source server
 validates and caches the configured host bytes and accepts no guest-supplied host
-path.
+path. The primary title registers the versioned
+`fixtures/source-snapshots/primary-boot-archives-v1.json` snapshot — exactly the
+three natively-opened boot archives `system.arc`, `sysprg.arc`, and `sysgrp.arc`
+under mount root `C:\Vine` — beside the `BGI.gdb` writable profile; the two
+mounts share one title fingerprint and root, and writable paths may not shadow
+immutable objects. Unregistered paths, including the engine's loose-file member
+probes, resolve to not-found exactly as on the native disk.
 
 A `vine.writable-profile-snapshot` version 2 binds a title fingerprint, profile ID,
 root, quota, and path allowlist to per-object existence, generation, length, and
