@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-26T07:41:15.391Z",
+  "recordedAt": "2026-07-26T07:53:46.221Z",
   "repository": {
-    "implementationCommit": "204211ba112a998502d62bdf3b3975ef6a49671d",
-    "implementationTree": "35f2abc4ed0f8f6ab621365aae223a3574011f60",
-    "headCommit": "204211ba112a998502d62bdf3b3975ef6a49671d",
+    "implementationCommit": "95b964a4a4b6704c88e190da1de70552cc6b6977",
+    "implementationTree": "7b7a9a10cc9d531ca0cd0348ffbbc2185c1008d3",
+    "headCommit": "95b964a4a4b6704c88e190da1de70552cc6b6977",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -226,8 +226,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 46186,
-      "sha256": "db000a7254352b745baec20de6322c94382b54e4b948920a4855540143d51b83"
+      "bytes": 46177,
+      "sha256": "3bf5674030cbf7a019b51c1aa74a51c56fe31eaee6b5e0475c27746deef733c3"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -242,7 +242,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "b2838b480ac2b64a0827106d0d25d1b39faa4ca94232c36b9c3c7c6360f71dc1"
+      "sha256": "f7b1a58894cbeb88eae36259ad62d56989cf8f34606ab31bbc290eda15c90f72"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -267,17 +267,17 @@
   },
   "performanceObservation": {
     "classification": "observation-not-semantic-gate",
-    "status": "environment-blocked",
+    "status": "threshold-passed",
     "configuration": "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json",
     "benchmarkClassification": "repeated-distribution-threshold",
     "decisionStatus": "passed",
     "decisionReason": "all-17-versioned-thresholds-passed",
     "thresholdEvaluationCount": 17,
-    "durationMilliseconds": 181516,
-    "completedSessions": 101,
+    "durationMilliseconds": 180729,
+    "completedSessions": 99,
     "failedSessions": 0,
     "thresholdFailureIds": [],
-    "reportSha256": "d12ebc8ab21ab6e10b1166c25e885f41e4822a0d17fdb860b81e80509346d4c8"
+    "reportSha256": "a9a00920aa51d221873a89a8940a600e5758d1fa6b7083134ed3922cf948c212"
   },
-  "payloadSha256": "8f4ede74406efbfc23d0bb5c1486ecc6e49ec56cc3e4e46a54d2afdb0a77c276"
+  "payloadSha256": "6d84e4bbc7962e9f730496b1c3e4daab2023d11c3c30b6c24933054cb2470f79"
 }
