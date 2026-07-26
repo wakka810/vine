@@ -8,13 +8,14 @@ use vine_core::{
     DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestCallbackArgument,
     GuestCallbackCompletionPolicy, GuestMemory, GuestRange, Imm32CompatibilityPolicy, ImportTarget,
     ImportThunk, ImportThunkDisposition, ImportThunkId, LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, LoaderIngressReport, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, PageProtection, Pe32Limits,
-    PreparedGuestCallback, ProcessAddressSpaceLayout, RUNTIME_PRIMARY_MONITOR_HANDLE,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeCurrentDirectoryA, RuntimeCursorSource, RuntimeDeviceContextTarget,
-    RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest,
-    RuntimeInputProfile, RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_MENU_HANDLE_NAMESPACE, LastErrorPolicy,
+    LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
+    ModuleSnapshot, PageProtection, Pe32Limits, PreparedGuestCallback, ProcessAddressSpaceLayout,
+    RUNTIME_MENU_HANDLE_BASE, RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
+    RuntimeCursorSource, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
+    RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
+    RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind, RuntimeThreadId,
@@ -136,6 +137,8 @@ const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10)
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
 const GET_SYSTEM_MENU_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 20);
 const ENABLE_MENU_ITEM_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 24);
+const LIVE_GET_SYSTEM_MENU_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 76);
+const LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 80);
 const GET_SYSTEM_MENU_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1a00;
 const ENABLE_MENU_ITEM_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1b00;
 const GET_SYSTEM_MENU_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_274c);
@@ -204,7 +207,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v21();
+        let policy = User32CompatibilityPolicy::controlled_v22();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -295,7 +298,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v21();
+        let mut policy = User32CompatibilityPolicy::controlled_v22();
         policy
             .swap_mouse_button
             .as_mut()
@@ -392,7 +395,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v21();
+        let policy = User32CompatibilityPolicy::controlled_v22();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -547,7 +550,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v21(),
+            policy: User32CompatibilityPolicy::controlled_v22(),
         }
     }
 
@@ -793,7 +796,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v21(),
+            policy: User32CompatibilityPolicy::controlled_v22(),
         }
     }
 
@@ -994,7 +997,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v21(),
+            policy: User32CompatibilityPolicy::controlled_v22(),
         }
     }
 
@@ -1046,6 +1049,8 @@ struct RegisterClassFixture {
     set_timer_endpoint: ApiEndpointIdentity,
     monitor_from_window_endpoint: ApiEndpointIdentity,
     get_monitor_info_a_endpoint: ApiEndpointIdentity,
+    get_system_menu_endpoint: ApiEndpointIdentity,
+    enable_menu_item_endpoint: ApiEndpointIdentity,
     window_procedure: GuestAddress,
     callback_sentinel: GuestAddress,
     policy: User32CompatibilityPolicy,
@@ -1155,6 +1160,14 @@ impl RegisterClassFixture {
                 GET_MONITOR_INFO_A_ENDPOINT_ADDRESS,
             ),
             (SET_TIMER_IAT_ADDRESS, SET_TIMER_ENDPOINT_ADDRESS),
+            (
+                LIVE_GET_SYSTEM_MENU_IAT_ADDRESS,
+                GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
+            ),
+            (
+                LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS,
+                ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
+            ),
         ] {
             memory
                 .write_initialization(runtime_owner, address, &endpoint.0.to_le_bytes())
@@ -1660,6 +1673,36 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_system_menu_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(280),
+            address: GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13a0),
+            iat_address: LIVE_GET_SYSTEM_MENU_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetSystemMenu".to_owned(),
+                hint: 381,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let enable_menu_item_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(281),
+            address: ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13a4),
+            iat_address: LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "EnableMenuItem".to_owned(),
+                hint: 214,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let dispatcher = ApiDispatcher::new(
             [
                 icon_endpoint.clone(),
@@ -1681,6 +1724,8 @@ impl RegisterClassFixture {
                 set_timer_endpoint.clone(),
                 monitor_from_window_endpoint.clone(),
                 get_monitor_info_a_endpoint.clone(),
+                get_system_menu_endpoint.clone(),
+                enable_menu_item_endpoint.clone(),
             ],
             [
                 load_icon_a_contract(icon_endpoint.clone()).expect("icon contract"),
@@ -1712,10 +1757,14 @@ impl RegisterClassFixture {
                     .expect("MonitorFromWindow contract"),
                 get_monitor_info_a_contract(get_monitor_info_a_endpoint.clone())
                     .expect("GetMonitorInfoA contract"),
+                get_system_menu_contract(get_system_menu_endpoint.clone())
+                    .expect("GetSystemMenu contract"),
+                enable_menu_item_contract(enable_menu_item_endpoint.clone())
+                    .expect("EnableMenuItem contract"),
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v21();
+        let policy = User32CompatibilityPolicy::controlled_v22();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
@@ -1745,6 +1794,8 @@ impl RegisterClassFixture {
             set_timer_endpoint,
             monitor_from_window_endpoint,
             get_monitor_info_a_endpoint,
+            get_system_menu_endpoint,
+            enable_menu_item_endpoint,
             window_procedure,
             callback_sentinel,
             policy,
@@ -2150,6 +2201,37 @@ impl RegisterClassFixture {
             self.get_monitor_info_a_endpoint.clone(),
             GuestAddress(GET_MONITOR_INFO_A_STACK_POINTER),
             GET_MONITOR_INFO_A_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_get_system_menu(&mut self, window_handle: u32, revert: u32) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(GET_SYSTEM_MENU_STACK_POINTER),
+            &[GET_SYSTEM_MENU_RETURN_ADDRESS.0, window_handle, revert],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.get_system_menu_endpoint.clone(),
+            GuestAddress(GET_SYSTEM_MENU_STACK_POINTER),
+            GET_SYSTEM_MENU_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_enable_menu_item(
+        &mut self,
+        menu_handle: u32,
+        item: u32,
+        flags: u32,
+    ) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(ENABLE_MENU_ITEM_STACK_POINTER),
+            &[ENABLE_MENU_ITEM_RETURN_ADDRESS.0, menu_handle, item, flags],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.enable_menu_item_endpoint.clone(),
+            GuestAddress(ENABLE_MENU_ITEM_STACK_POINTER),
+            ENABLE_MENU_ITEM_RETURN_ADDRESS,
         )
     }
 
@@ -3141,7 +3223,7 @@ fn set_timer_contract_is_immediate_four_word_stdcall_registration() {
 }
 
 #[test]
-fn invalid_menu_chain_contracts_are_cataloged_immediate_stdcall_leaves() {
+fn system_menu_contracts_are_cataloged_as_distinct_logical_handle_leaves() {
     let fixture = InvalidMenuFixture::new();
     let get_system_menu = user32_contract_for_endpoint(fixture.get_system_menu_endpoint.clone())
         .expect("GetSystemMenu catalog lookup")
@@ -3151,7 +3233,13 @@ fn invalid_menu_chain_contracts_are_cataloged_immediate_stdcall_leaves() {
         CallingConvention::Stdcall
     );
     assert_eq!(get_system_menu.abi.arguments.len(), 2);
-    assert_eq!(get_system_menu.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(
+        get_system_menu.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: "vine.logical-menu.v1".to_owned(),
+            nullable: true,
+        }
+    );
     assert_eq!(get_system_menu.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(
         get_system_menu.last_error_policy,
@@ -3168,6 +3256,11 @@ fn invalid_menu_chain_contracts_are_cataloged_immediate_stdcall_leaves() {
         CallingConvention::Stdcall
     );
     assert_eq!(enable_menu_item.abi.arguments.len(), 3);
+    assert!(matches!(
+        &enable_menu_item.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-menu.v1" && *nullable
+    ));
     assert_eq!(enable_menu_item.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(enable_menu_item.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(
@@ -3215,7 +3308,7 @@ fn def_window_proc_a_contract_keeps_message_dependent_lparam_as_scalar() {
 }
 
 #[test]
-fn invalid_menu_chain_matches_native_failures_without_allocating_menu_identity() {
+fn invalid_system_menu_handles_match_native_failures_without_allocating_identity() {
     let mut fixture = InvalidMenuFixture::new();
     let generation = fixture.memory.stats().generation;
 
@@ -3268,31 +3361,51 @@ fn invalid_menu_chain_matches_native_failures_without_allocating_menu_identity()
 }
 
 #[test]
-fn invalid_menu_chain_rejects_unreached_variants_before_mutation() {
-    for index in 1..=2 {
-        let mut fixture = InvalidMenuFixture::new();
-        let generation = fixture.memory.stats().generation;
-        let last_error = fixture
+fn system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation() {
+    let mut unknown_window = InvalidMenuFixture::new();
+    let generation = unknown_window.memory.stats().generation;
+    let completion = match unknown_window.dispatch_get_system_menu(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-window GetSystemMenu completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1400);
+    assert_eq!(unknown_window.memory.stats().generation, generation);
+    assert!(unknown_window.runtime.system_menus().is_empty());
+
+    let mut unsupported_revert = InvalidMenuFixture::new();
+    let generation = unsupported_revert.memory.stats().generation;
+    let last_error = unsupported_revert
+        .runtime
+        .current_last_error()
+        .expect("entry LastError");
+    let fault = match unsupported_revert.dispatch_get_system_menu(2) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected GetSystemMenu revert fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "get-system-menu-variant-unsupported");
+    assert_eq!(unsupported_revert.memory.stats().generation, generation);
+    assert_eq!(
+        unsupported_revert
             .runtime
             .current_last_error()
-            .expect("entry LastError");
-        let fault = match fixture.dispatch_get_system_menu(index) {
-            DispatchOutcome::Fault(fault) => fault,
-            other => panic!("expected GetSystemMenu variant fault, got {other:?}"),
-        };
-        assert_eq!(fault.class, ApiFaultClass::Unsupported);
-        assert_eq!(fault.code, "get-system-menu-variant-unsupported");
-        assert_eq!(fixture.memory.stats().generation, generation);
-        assert_eq!(
-            fixture
-                .runtime
-                .current_last_error()
-                .expect("unchanged LastError"),
-            last_error
-        );
-    }
+            .expect("unchanged LastError"),
+        last_error
+    );
 
-    for index in 1..=3 {
+    let mut unknown_menu = InvalidMenuFixture::new();
+    let generation = unknown_menu.memory.stats().generation;
+    let completion = match unknown_menu.dispatch_enable_menu_item(1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-menu EnableMenuItem completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(u32::MAX));
+    assert_eq!(completion.last_error, 1401);
+    assert_eq!(unknown_menu.memory.stats().generation, generation);
+    assert!(unknown_menu.runtime.system_menus().is_empty());
+
+    for index in 2..=3 {
         let mut fixture = InvalidMenuFixture::new();
         let generation = fixture.memory.stats().generation;
         let last_error = fixture
@@ -3317,7 +3430,7 @@ fn invalid_menu_chain_rejects_unreached_variants_before_mutation() {
 
     for enable_menu_item in [false, true] {
         let mut fixture = InvalidMenuFixture::new();
-        fixture.policy.invalid_menu_chain = None;
+        fixture.policy.system_menu = None;
         let generation = fixture.memory.stats().generation;
         let last_error = fixture
             .runtime
@@ -3349,6 +3462,78 @@ fn invalid_menu_chain_rejects_unreached_variants_before_mutation() {
             last_error
         );
     }
+}
+
+#[test]
+fn live_system_menu_identity_is_window_owned_reused_and_failure_atomic() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let sentinel = 0xa5a5_5a5a;
+    fixture.runtime.set_current_last_error(sentinel).unwrap();
+
+    let first = match fixture.dispatch_get_system_menu(window_handle, 0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected live GetSystemMenu completion, got {other:?}"),
+    };
+    assert_eq!(first.eax, RegisterUpdate::Set(RUNTIME_MENU_HANDLE_BASE));
+    assert_eq!(first.last_error, sentinel);
+    assert!(first.guest_writes.is_empty());
+    let menu = fixture
+        .runtime
+        .system_menu(RUNTIME_MENU_HANDLE_BASE)
+        .expect("window-owned system menu");
+    assert_eq!(menu.namespace, LOGICAL_MENU_HANDLE_NAMESPACE);
+    assert_eq!(menu.owner_window_handle, window_handle);
+    assert_eq!(menu.close_item_command, 0xf060);
+    assert!(menu.close_item_enabled);
+    assert_eq!(fixture.runtime.system_menus().len(), 1);
+
+    let before_reuse = fixture.runtime.system_menus().clone();
+    let repeated = match fixture.dispatch_get_system_menu(window_handle, 0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated GetSystemMenu completion, got {other:?}"),
+    };
+    assert_eq!(repeated.eax, RegisterUpdate::Set(RUNTIME_MENU_HANDLE_BASE));
+    assert_eq!(repeated.last_error, sentinel);
+    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
+
+    let enabled = match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE, 0xf060, 0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected EnableMenuItem completion, got {other:?}"),
+    };
+    assert_eq!(enabled.eax, RegisterUpdate::Set(0));
+    assert_eq!(enabled.last_error, sentinel);
+    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+
+    let unknown_menu =
+        match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE + 1, 0xf060, 0) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected invalid-menu completion, got {other:?}"),
+        };
+    assert_eq!(unknown_menu.eax, RegisterUpdate::Set(u32::MAX));
+    assert_eq!(unknown_menu.last_error, 1401);
+    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
+
+    fixture.runtime.set_current_last_error(sentinel).unwrap();
+    for (item, flags) in [(0xf061, 0), (0xf060, 1)] {
+        let fault = match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE, item, flags) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected unsupported menu-item variant, got {other:?}"),
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, "enable-menu-item-variant-unsupported");
+        assert_eq!(fixture.runtime.system_menus(), &before_reuse);
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+    }
+
+    let invalid_window = match fixture.dispatch_get_system_menu(window_handle + 1, 0) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-window completion, got {other:?}"),
+    };
+    assert_eq!(invalid_window.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_window.last_error, 1400);
+    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
 }
 
 #[test]
@@ -4175,7 +4360,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     let mut disabled = MetricsFixture::new(true);
     disabled.policy.get_system_metrics = None;
     disabled.policy.create_window_ex_a = None;
-    disabled.policy.invalid_menu_chain = None;
+    disabled.policy.system_menu = None;
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
     disabled.policy.send_message_a_ime_control = None;

@@ -250,19 +250,19 @@ export function validateCurrentCheckpoint(manifest) {
   const profileExpectations = archiveSourceReadActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 78_589,
-        browserMappingDirtyPages: 80_498,
-        browserSuccessExecutionTransitions: 285_968,
+        browserMappingDeltas: 78_613,
+        browserMappingDirtyPages: 80_530,
+        browserSuccessExecutionTransitions: 286_089,
         latestSchema: "vine.v86-bgi-kernel32-archive-source-read.v1",
-        latestWritebackBatches: 89_449,
-        latestWritebackDirtyPages: 122_914,
-        latestWritebackChangedBytes: 3_622_432,
-        latestHostDeltaBatches: 78_589,
-        latestFinalMemoryGeneration: 168_620,
+        latestWritebackBatches: 89_491,
+        latestWritebackDirtyPages: 122_969,
+        latestWritebackChangedBytes: 3_623_229,
+        latestHostDeltaBatches: 78_613,
+        latestFinalMemoryGeneration: 169_016,
         semanticCallDigestSha256:
-          "120707c8b95c82678df838c5e7fb59bfa411266484b441bb26ae6deb710cda2b",
+          "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
         memoryContentSha256:
-          "be9494858dd1c5e3abe610d299f2bd5e14b2cfaafb577dded80ed9f76b2b2420",
+          "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
       }
     : dragAcceptFilesActive
     ? {
@@ -1484,10 +1484,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.sourceReadCompletions !==
       (archiveSourceReadActive ? 5 : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 23 ||
-    bgiBrowserEvidence.callbackReplacements !== 12 ||
+    bgiBrowserEvidence.callbackEntries !== 24 ||
+    bgiBrowserEvidence.callbackReplacements !== 13 ||
     bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
-    bgiBrowserEvidence.logicalWindowCompletions !== 5 ||
+    bgiBrowserEvidence.logicalWindowCompletions !== 6 ||
     bgiBrowserEvidence.logicalWindowHandle !== "0x48010001" ||
     bgiBrowserEvidence.logicalWindowFinalLifecycle !== "created" ||
     bgiBrowserEvidence.logicalWindowRequestedStyle !== "0x80ca0000" ||
@@ -1495,6 +1495,43 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.logicalWindowVisible !== true ||
     bgiBrowserEvidence.logicalWindowTopmost !== false ||
     bgiBrowserEvidence.browserOwnsLogicalWindowState !== false ||
+    bgiBrowserEvidence.setWindowPosResizeCompletions !== 1 ||
+    bgiBrowserEvidence.setWindowPosResizeSequence !== 89_387 ||
+    bgiBrowserEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !==
+      "21,22,23,24" ||
+    bgiBrowserEvidence.setWindowPosResizeCallbackMessages?.join(",") !==
+      "70,131,5,71" ||
+    bgiBrowserEvidence.setWindowPosResizeCallbackDepthAfterCompletion !== 0 ||
+    bgiBrowserEvidence.setWindowPosResizeOrderedSemanticsMatched !== true ||
+    bgiBrowserEvidence.systemMenuCompletions !== 2 ||
+    bgiBrowserEvidence.systemMenuSequences?.join(",") !== "89390,89391" ||
+    bgiBrowserEvidence.systemMenuInstructionCounts?.join(",") !==
+      "15952000,15952003" ||
+    bgiBrowserEvidence.getSystemMenuArguments?.join(",") !==
+      "0x48010001,0x00000000" ||
+    bgiBrowserEvidence.getSystemMenuResult !== "0x4e010001" ||
+    bgiBrowserEvidence.getSystemMenuLastError !== 0 ||
+    bgiBrowserEvidence.getSystemMenuImplementationId !==
+      "user32.get-system-menu.logical-system-menu.v2" ||
+    bgiBrowserEvidence.enableMenuItemArguments?.join(",") !==
+      "0x4e010001,0x0000f060,0x00000000" ||
+    bgiBrowserEvidence.enableMenuItemResult !== 0 ||
+    bgiBrowserEvidence.enableMenuItemLastError !== 0 ||
+    bgiBrowserEvidence.enableMenuItemImplementationId !==
+      "user32.enable-menu-item.logical-system-menu.v2" ||
+    bgiBrowserEvidence.systemMenuStateAuthority !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    bgiBrowserEvidence.systemMenuHandleNamespace !== "vine.logical-menu.v1" ||
+    bgiBrowserEvidence.systemMenuOwnerWindowHandle !== "0x48010001" ||
+    bgiBrowserEvidence.systemMenuCloseItemEnabled !== true ||
+    bgiBrowserEvidence.systemMenuPreviousCloseItemState !== 0 ||
+    bgiBrowserEvidence.systemMenuMutation !==
+      "separate-menu-generation-plan-stale-check-targeted-commit" ||
+    bgiBrowserEvidence.systemMenuWindowMutationGenerationIndependent !== true ||
+    bgiBrowserEvidence.systemMenuFailureAtomicity !== true ||
+    bgiBrowserEvidence.systemMenuBrowserOwnsWindowsState !== false ||
+    bgiBrowserEvidence.systemMenuBrowserResourceCreated !== false ||
+    bgiBrowserEvidence.systemMenuNodeChromeOrderedSemanticsMatched !== true ||
     bgiBrowserEvidence.monitorFromWindowCompletions !== 2 ||
     bgiBrowserEvidence.monitorFromWindowSequence !== 17_842 ||
     bgiBrowserEvidence.monitorFromWindowArguments?.join(",") !==
@@ -3968,7 +4005,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("runtime::audio::"),
       )
       .join(",") !==
-       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::timers::tests::window_timer_registration_replacement_and_teardown_preserve_identity,runtime::timers::tests::window_timer_capacity_rejection_is_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+       "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::timers::tests::window_timer_registration_replacement_and_teardown_preserve_identity,runtime::timers::tests::window_timer_capacity_rejection_is_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
@@ -4015,7 +4052,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("kernel32_virtual_memory_dispatcher::"),
       )
       .join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::invalid_menu_chain_rejects_unreached_variants_before_mutation,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     representativeAtomicTests.filter(
       (test) =>
         test ===
@@ -7416,6 +7453,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.defWindowProcAImplementedMessages",
     errors,
   );
+  const systemMenuVariants = requireStringArray(
+    user32Policy.systemMenuVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.systemMenuVariants",
+    errors,
+  );
   const getSystemMenuFailure = requireRecord(
     user32Policy.getSystemMenuFailure,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.getSystemMenuFailure",
@@ -7428,11 +7470,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 21 ||
+    user32Policy.schemaVersion !== 22 ||
     user32Policy.id !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21" ||
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v21" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v22" ||
     user32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
       "runtime/displays.rs::RuntimeDisplays" ||
@@ -7674,14 +7716,34 @@ export function validateCurrentCheckpoint(manifest) {
       "129,131,5,3,128,71,70,28,134,6,641,642,7" ||
     user32Policy.defWindowProcALparamContract !==
       "bounded-message-dependent-scalar-or-pointer-union" ||
-    user32Policy.invalidMenuProfileId !==
-      "null-window-system-menu-close-item-v1" ||
+    user32Policy.systemMenuProfileId !==
+      "live-window-system-menu-close-item-enabled-v1" ||
+    user32Policy.logicalMenuAuthority !== "runtime/user32.rs::RuntimeUser32" ||
+    user32Policy.menuHandleNamespace !== "vine.logical-menu.v1" ||
+    user32Policy.firstMenuHandle !== "0x4e010001" ||
+    systemMenuVariants.join(",") !==
+      "null-window-failure,created-window-false-revert,logical-close-item-enable" ||
+    user32Policy.systemMenuRevert !== 0 ||
+    user32Policy.systemMenuCloseItemCommand !== "0x0000f060" ||
+    user32Policy.systemMenuCloseItemFlags !== 0 ||
+    user32Policy.systemMenuCloseItemInitialEnabled !== true ||
+    user32Policy.systemMenuWindowRelation !==
+      "one-system-menu-per-created-window" ||
+    user32Policy.systemMenuMutation !==
+      "separate-menu-generation-plan-stale-check-targeted-commit" ||
+    user32Policy.systemMenuIdempotentEnablePreservesGeneration !== true ||
+    user32Policy.getSystemMenuSuccessLastErrorPolicy !== "preserve" ||
     getSystemMenuFailure.result !== "0x00000000" ||
     getSystemMenuFailure.lastError !== 1_400 ||
+    user32Policy.enableMenuItemSuccessLastErrorPolicy !== "preserve" ||
     enableMenuItemFailure.item !== "0x0000f060" ||
     enableMenuItemFailure.flags !== 0 ||
     enableMenuItemFailure.result !== "0xffffffff" ||
     enableMenuItemFailure.lastError !== 1_401 ||
+    user32Policy.processExitRetiresSystemMenus !== true ||
+    user32Policy.hostMenuImported !== false ||
+    user32Policy.browserMenuImported !== false ||
+    user32Policy.boundedSystemMenuIdentityImplemented !== true ||
     user32Policy.processExitRetiresWindows !== true ||
     user32Policy.hostWindowImported !== false ||
     user32Policy.browserWindowImported !== false ||
@@ -8990,15 +9052,54 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeSetWindowPosResizeConsumer !==
       "bool-overwritten-by-immediate-helper-call" ||
     latestEvidence.nativeSetWindowPosResizeExecutableHashUnchanged !== true ||
+    latestEvidence.nativeSystemMenuPrimaryTraceBytes !== 2_257_147 ||
+    latestEvidence.nativeSystemMenuPrimaryTraceLines !== 7_048 ||
+    latestEvidence.nativeSystemMenuPrimaryTraceSha256 !==
+      "baab2b367da0083c0d3b9e61e0022657ff72216d0e037ff1ee2a5a73ffbc2283" ||
+    latestEvidence.nativeSystemMenuPrimarySummaryBytes !== 52_845 ||
+    latestEvidence.nativeSystemMenuPrimarySummarySha256 !==
+      "a419c9fb267e088878cc5d3160c2c60d49a5be9bc1e1fa8b61b3d0e3a11cf7c2" ||
+    latestEvidence.nativeSystemMenuPrimaryBalancedApiPairs !== 3_487 ||
+    latestEvidence.nativeSystemMenuConfirmationTraceBytes !== 2_248_758 ||
+    latestEvidence.nativeSystemMenuConfirmationTraceLines !== 7_043 ||
+    latestEvidence.nativeSystemMenuConfirmationTraceSha256 !==
+      "7b43593011cf2835a02c2574ae20fa84d71fc4f283829c8ed66665f2aeafcf57" ||
+    latestEvidence.nativeSystemMenuConfirmationSummaryBytes !== 53_083 ||
+    latestEvidence.nativeSystemMenuConfirmationSummarySha256 !==
+      "a48772b3f5d11f420bd3cc8ae014e150ab969d2175280be4d85a7d60b75ebfb3" ||
+    latestEvidence.nativeSystemMenuConfirmationBalancedApiPairs !== 3_484 ||
+    latestEvidence.nativeSystemMenuTraceDiagnostics !== 0 ||
+    latestEvidence.nativeSystemMenuProfile !==
+      "x86-bgi-live-window-system-menu-close-item-enabled-v1" ||
+    latestEvidence.nativeSystemMenuGetCallsPerTrace !== 2 ||
+    latestEvidence.nativeSystemMenuEnableCallsPerTrace !== 2 ||
+    latestEvidence.nativeSystemMenuCallerRvas?.join(",") !==
+      "0x0009274c,0x00092753" ||
+    latestEvidence.nativeSystemMenuInitialNullGetResult !== "0x00000000" ||
+    latestEvidence.nativeSystemMenuInitialNullGetLastError !== 1_400 ||
+    latestEvidence.nativeSystemMenuInitialNullEnableResult !== "0xffffffff" ||
+    latestEvidence.nativeSystemMenuInitialNullEnableLastError !== 1_401 ||
+    latestEvidence.nativeSystemMenuLiveGetResultNonzero !== true ||
+    latestEvidence.nativeSystemMenuLiveGetLastError !== 0 ||
+    latestEvidence.nativeSystemMenuLiveEnableItem !== "0x0000f060" ||
+    latestEvidence.nativeSystemMenuLiveEnableFlags !== 0 ||
+    latestEvidence.nativeSystemMenuLiveEnablePreviousState !== 0 ||
+    latestEvidence.nativeSystemMenuLiveEnableLastError !== 0 ||
+    latestEvidence.nativeSystemMenuLiveHandleRelation !==
+      "nonzero-get-result-passed-unchanged-to-enable" ||
+    latestEvidence.nativeSystemMenuNativeHandlesArtifactOnly !== true ||
+    latestEvidence.nativeSystemMenuConsumer !==
+      "enable-result-not-branch-consumed-before-global-state-write" ||
+    latestEvidence.nativeSystemMenuExecutableHashUnchanged !== true ||
     latestEvidence.setWindowPosImplemented !== true ||
-    latestEvidence.setWindowPosCallCount !== 3 ||
-    latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408,17831" ||
+    latestEvidence.setWindowPosCallCount !== 4 ||
+    latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408,17831,89387" ||
     latestEvidence.setWindowPosInstructionCounts?.join(",") !==
-      "11476612,11476797,11806645" ||
+      "11476612,11476797,11806645,15951782" ||
     latestEvidence.setWindowPosReturnAddresses?.join(",") !==
-      "0x10067f88,0x10067f9f,0x1005cb4b" ||
-    latestEvidence.setWindowPosResults?.join(",") !== "1,1,1" ||
-    latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0,0" ||
+      "0x10067f88,0x10067f9f,0x1005cb4b,0x1005cb4b" ||
+    latestEvidence.setWindowPosResults?.join(",") !== "1,1,1,1" ||
+    latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0,0,0" ||
     latestEvidence.setWindowPosGuestWrites !== 0 ||
     latestEvidence.setWindowPosImplementationId !== "user32.set-window-pos.v3" ||
     latestEvidence.setWindowPosStateOwner !==
@@ -9016,7 +9117,7 @@ export function validateCurrentCheckpoint(manifest) {
     setWindowPosShowGeometry.clientY !== 8_666 ||
     setWindowPosShowGeometry.clientWidth !== 800 ||
     setWindowPosShowGeometry.clientHeight !== 600 ||
-    latestEvidence.setWindowPosFinalVisible !== false ||
+    latestEvidence.setWindowPosFinalVisible !== true ||
     latestEvidence.setWindowPosFinalTopmost !== false ||
     latestEvidence.setWindowPosCallbackFrameIds?.join(",") !== "8,9,10,11" ||
     latestEvidence.setWindowPosCallbackMessages?.join(",") !== "71,3,127,71" ||
@@ -9043,7 +9144,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosActivationHostZOrderIdentityImported !== false ||
     latestEvidence.setWindowPosActivationExternalThreadIdentityImported !== false ||
     latestEvidence.setWindowPosResizeReached !== true ||
-    latestEvidence.setWindowPosResizeOuterCompletionPending !== true ||
+    latestEvidence.setWindowPosResizeOuterCompletionPending !== false ||
+    latestEvidence.setWindowPosResizeOuterCompletionResult !== 1 ||
+    latestEvidence.setWindowPosResizeOuterCompletionLastError !== 0 ||
     latestEvidence.setWindowPosResizeSequence !== 89_387 ||
     latestEvidence.setWindowPosResizeOccurrence !== 4 ||
     latestEvidence.setWindowPosResizeInstructionCount !== 15_951_782 ||
@@ -9052,17 +9155,18 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosResizeReturnAddress !== "0x1005cb4b" ||
     latestEvidence.setWindowPosResizeImplementationId !==
       "user32.set-window-pos.v3" ||
-    latestEvidence.setWindowPosResizePolicySchemaVersion !== 21 ||
+    latestEvidence.setWindowPosResizePolicySchemaVersion !== 22 ||
     latestEvidence.setWindowPosResizePolicyId !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21" ||
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22" ||
     latestEvidence.setWindowPosResizeProfileId !==
       "initial-offscreen-show-hide-same-geometry-activation-resize-v3" ||
-    latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !== "21,22,23" ||
-    latestEvidence.setWindowPosResizeCallbackMessages?.join(",") !== "70,131,5" ||
-    latestEvidence.setWindowPosResizeCompletedCallbackResults?.join(",") !== "0,0" ||
+    latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !== "21,22,23,24" ||
+    latestEvidence.setWindowPosResizeCallbackMessages?.join(",") !== "70,131,5,71" ||
+    latestEvidence.setWindowPosResizeCompletedCallbackResults?.join(",") !==
+      "0,0,0,0" ||
     latestEvidence.setWindowPosResizeCallbackReturnInstructionCounts?.join(",") !==
-      "15951884,15951937" ||
-    latestEvidence.setWindowPosResizeActiveCallbackDepth !== 1 ||
+      "15951884,15951937,15952027,15952080" ||
+    latestEvidence.setWindowPosResizeActiveCallbackDepth !== 0 ||
     latestEvidence.setWindowPosResizeScratchAddress !== "0x00501000" ||
     latestEvidence.setWindowPosResizeScratchBytes !== 80 ||
     latestEvidence.setWindowPosResizeScratchWindowPosPointerOffset !== 48 ||
@@ -9080,6 +9184,44 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.setWindowPosResizeUser32GdiCommitPoint !==
       "after-wm-nccalcsize-before-wm-size" ||
     latestEvidence.setWindowPosResizeLiveWindowDcAtomicRejectionVerified !== true ||
+    latestEvidence.liveSystemMenuCompletions !== 2 ||
+    latestEvidence.liveSystemMenuSequences?.join(",") !== "89390,89391" ||
+    latestEvidence.liveSystemMenuInstructionCounts?.join(",") !==
+      "15952000,15952003" ||
+    latestEvidence.liveGetSystemMenuArguments?.join(",") !==
+      "0x48010001,0x00000000" ||
+    latestEvidence.liveGetSystemMenuReturnAddress !== "0x1009274c" ||
+    latestEvidence.liveGetSystemMenuResult !== "0x4e010001" ||
+    latestEvidence.liveGetSystemMenuLastError !== 0 ||
+    latestEvidence.liveGetSystemMenuGuestWrites !== 0 ||
+    latestEvidence.liveGetSystemMenuImplementationId !==
+      "user32.get-system-menu.logical-system-menu.v2" ||
+    latestEvidence.liveEnableMenuItemArguments?.join(",") !==
+      "0x4e010001,0x0000f060,0x00000000" ||
+    latestEvidence.liveEnableMenuItemReturnAddress !== "0x10092753" ||
+    latestEvidence.liveEnableMenuItemResult !== 0 ||
+    latestEvidence.liveEnableMenuItemLastError !== 0 ||
+    latestEvidence.liveEnableMenuItemGuestWrites !== 0 ||
+    latestEvidence.liveEnableMenuItemImplementationId !==
+      "user32.enable-menu-item.logical-system-menu.v2" ||
+    latestEvidence.systemMenuStateAuthority !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    latestEvidence.systemMenuHandleNamespace !== "vine.logical-menu.v1" ||
+    latestEvidence.systemMenuOwnerWindowHandle !== "0x48010001" ||
+    latestEvidence.systemMenuCloseItemCommand !== "0x0000f060" ||
+    latestEvidence.systemMenuCloseItemEnabled !== true ||
+    latestEvidence.systemMenuPreviousCloseItemState !== 0 ||
+    latestEvidence.systemMenuMutation !==
+      "separate-menu-generation-plan-stale-check-targeted-commit" ||
+    latestEvidence.systemMenuWindowMutationGenerationIndependent !== true ||
+    latestEvidence.systemMenuRepeatedGetReusesIdentity !== true ||
+    latestEvidence.systemMenuIdempotentEnablePreservesGeneration !== true ||
+    latestEvidence.systemMenuFailureAtomicity !== true ||
+    latestEvidence.systemMenuProcessExitRetiresIdentity !== true ||
+    latestEvidence.systemMenuHostIdentityImported !== false ||
+    latestEvidence.systemMenuBrowserIdentityImported !== false ||
+    latestEvidence.systemMenuBrowserResourceCreated !== false ||
+    latestEvidence.systemMenuNodeChromeOrderedSemanticsMatched !== true ||
     latestEvidence.setWindowPosBoundedPrimaryResizeImplemented !== true ||
     latestEvidence.setWindowPosGeneralResizeImplemented !== false ||
     latestEvidence.setWindowPosGeneralZOrderImplemented !== false ||
@@ -13023,7 +13165,7 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
       (archiveSourceReadActive
-        ? "Rust-owned immutable boot-archive snapshot mount over runtime-vfs path, share, cursor, and bounded host range-read authority"
+        ? "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority"
         : dragAcceptFilesActive
           ? "Rust-owned DragAcceptFiles over logical-window extended-style authority with failure-atomic plan/commit"
           : "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority") ||
@@ -13070,26 +13212,26 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.callbackScratchAddressAllocationPurpose !== "callback-scratch" ||
     latestEvidence.callbackScratchSeparatedFromDescendingStack !== true ||
     latestEvidence.defWindowProcAImplemented !== true ||
-    latestEvidence.defWindowProcACallCount !== 16 ||
+    latestEvidence.defWindowProcACallCount !== 20 ||
     latestEvidence.defWindowProcASequences?.join(",") !==
-      "1389,1390,1393,1394,1399,1403,1404,1409,17832,17833,17834,17835,17836,17837,17838,17839" ||
+      "1389,1390,1393,1394,1399,1403,1404,1409,17832,17833,17834,17835,17836,17837,17838,17839,89388,89389,89392,89393" ||
     latestEvidence.defWindowProcAMessages?.join(",") !==
-      "129,131,5,3,128,71,3,71,70,70,28,134,6,641,642,7" ||
+      "129,131,5,3,128,71,3,71,70,70,28,134,6,641,642,7,70,131,5,71" ||
     latestEvidence.defWindowProcAResults?.join(",") !==
-      "1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0" ||
+      "1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0" ||
     latestEvidence.defWindowProcALastErrors?.join(",") !==
-      "0,0,1401,1401,0,0,0,0,0,0,0,0,0,0,0,0" ||
+      "0,0,1401,1401,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0" ||
     latestEvidence.defWindowProcANonClientGuestWriteBytes !== 16 ||
     latestEvidence.defWindowProcAScalarLparamsDereferenced !== false ||
     latestEvidence.getSystemMenuImplemented !== true ||
-    latestEvidence.getSystemMenuSequence !== 1_391 ||
-    latestEvidence.getSystemMenuResult !== "0x00000000" ||
-    latestEvidence.getSystemMenuLastError !== 1_400 ||
+    latestEvidence.getSystemMenuInitialNullSequence !== 1_391 ||
+    latestEvidence.getSystemMenuInitialNullResult !== "0x00000000" ||
+    latestEvidence.getSystemMenuInitialNullLastError !== 1_400 ||
     latestEvidence.enableMenuItemImplemented !== true ||
-    latestEvidence.enableMenuItemSequence !== 1_392 ||
-    latestEvidence.enableMenuItemResult !== "0xffffffff" ||
-    latestEvidence.enableMenuItemLastError !== 1_401 ||
-    latestEvidence.generalMenuIdentityAllocated !== false ||
+    latestEvidence.enableMenuItemInitialNullSequence !== 1_392 ||
+    latestEvidence.enableMenuItemInitialNullResult !== "0xffffffff" ||
+    latestEvidence.enableMenuItemInitialNullLastError !== 1_401 ||
+    latestEvidence.initialMenuIdentityAllocated !== false ||
     latestEvidence.windowCreationFailureAtomicity !== true ||
     latestEvidence.windowCallbackReplacementFailureAtomicity !== true ||
     latestEvidence.browserOwnsLogicalWindowState !== false

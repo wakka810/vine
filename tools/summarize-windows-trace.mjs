@@ -47,6 +47,7 @@ const supportedObservations = new Set([
   "get-system-metrics",
   "get-client-rect",
   "get-monitor-info-a",
+  "get-system-menu",
   "window-dc",
   "set-window-long-a",
   "get-string-type-w",

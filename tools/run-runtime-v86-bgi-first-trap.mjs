@@ -7479,7 +7479,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22",
     );
     assert.equal(
       ready.displayProfileId,
@@ -17604,13 +17604,13 @@ function validatePrimaryMainLoopContinuationResult(result) {
 
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
-  assert.equal(result.activeCallbackDepth, 1);
-  assert.equal(result.supportedCalls.length, 89_389);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 89_429);
   assert.equal(
     result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
-    89_388,
+    89_429,
   );
-  assert.equal(result.callbackEvents.length, 45);
+  assert.equal(result.callbackEvents.length, 48);
   assert.equal(result.stackGrowths.length, 6);
   assert.equal(result.heapPageMaterializations.length, 31);
   assert.equal(result.sourceReads.length, 5);
@@ -17730,22 +17730,38 @@ function validateArchiveSourceReadResult(result) {
     ],
   );
 
-  const pendingResize = result.supportedCalls.filter(
-    (call) => call.pendingCallback === true,
-  );
-  assert.deepEqual(pendingResize, [
-    {
-      sequence: 89_387,
-      module: "USER32.dll",
-      symbol: "SetWindowPos",
-      occurrence: 4,
-      trapInstructionCount: 15_951_782,
-      arguments: [0x4801_0001, 0xffff_fffe, 0, 0],
-      pendingCallback: true,
-    },
-  ]);
   assert.deepEqual(
-    result.callbackEvents.slice(-5).map((event) => ({
+    result.supportedCalls.filter((call) => call.pendingCallback === true),
+    [],
+  );
+  const completedResize = result.supportedCalls.find(
+    (call) => call.sequence === 89_387,
+  );
+  assert(completedResize, "completed resize call is missing");
+  assert.equal(completedResize.symbol, "SetWindowPos");
+  assert.equal(completedResize.occurrence, 4);
+  assert.equal(completedResize.trapInstructionCount, 15_951_782);
+  assert.deepEqual(
+    completedResize.arguments,
+    [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
+  );
+  assert.deepEqual(completedResize.result, { action: "set", value: 1 });
+  assert.equal(completedResize.implementationId, "user32.set-window-pos.v3");
+  assert.equal(completedResize.returnAddress, 0x1005_cb4b);
+  assert.equal(completedResize.lastError, 0);
+  assert.deepEqual(completedResize.guestWrites, []);
+  assert.deepEqual(completedResize.window.geometry, {
+    x: 15_360,
+    y: 8_640,
+    width: 1_286,
+    height: 749,
+    clientX: 15_363,
+    clientY: 8_666,
+    clientWidth: 1_280,
+    clientHeight: 720,
+  });
+  assert.deepEqual(
+    result.callbackEvents.slice(-8).map((event) => ({
       action: event.action,
       sequence: event.sequence,
       frameId: event.frameId,
@@ -17788,21 +17804,52 @@ function validateArchiveSourceReadResult(result) {
         result: undefined,
         arguments: [0x4801_0001, 0x0005, 0, 0x02d0_0500],
       },
+      {
+        action: "return",
+        sequence: 89_387,
+        frameId: 23,
+        result: 0,
+        arguments: undefined,
+      },
+      {
+        action: "replace",
+        sequence: 89_387,
+        frameId: 24,
+        result: undefined,
+        arguments: [0x4801_0001, 0x0047, 0, 0x0050_1000],
+      },
+      {
+        action: "return",
+        sequence: 89_387,
+        frameId: 24,
+        result: 0,
+        arguments: undefined,
+      },
     ],
   );
-  const resizeDefaults = result.supportedCalls.slice(-2);
+  const resizeDefaults = result.supportedCalls.filter(
+    (call) => call.sequence >= 89_388 && call.sequence <= 89_393,
+  );
   assert.deepEqual(
     resizeDefaults.map((call) => ({
       sequence: call.sequence,
-      message: call.arguments[1],
+      symbol: call.symbol,
+      arguments: call.arguments,
       result: call.result,
       guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
     })),
     [
-      { sequence: 89_388, message: 0x0046, result: { action: "set", value: 0 }, guestWrites: [] },
+      {
+        sequence: 89_388,
+        symbol: "DefWindowProcA",
+        arguments: [0x4801_0001, 0x0046, 0, 0x0050_1000],
+        result: { action: "set", value: 0 },
+        guestWrites: [],
+      },
       {
         sequence: 89_389,
-        message: 0x0083,
+        symbol: "DefWindowProcA",
+        arguments: [0x4801_0001, 0x0083, 1, 0x0050_1000],
         result: { action: "set", value: 0 },
         guestWrites: [
           {
@@ -17811,49 +17858,100 @@ function validateArchiveSourceReadResult(result) {
           },
         ],
       },
+      {
+        sequence: 89_390,
+        symbol: "GetSystemMenu",
+        arguments: [0x4801_0001, 0],
+        result: { action: "set", value: 0x4e01_0001 },
+        guestWrites: [],
+      },
+      {
+        sequence: 89_391,
+        symbol: "EnableMenuItem",
+        arguments: [0x4e01_0001, 0x0000_f060, 0],
+        result: { action: "set", value: 0 },
+        guestWrites: [],
+      },
+      {
+        sequence: 89_392,
+        symbol: "DefWindowProcA",
+        arguments: [0x4801_0001, 0x0005, 0, 0x02d0_0500],
+        result: { action: "set", value: 0 },
+        guestWrites: [],
+      },
+      {
+        sequence: 89_393,
+        symbol: "DefWindowProcA",
+        arguments: [0x4801_0001, 0x0047, 0, 0x0050_1000],
+        result: { action: "set", value: 0 },
+        guestWrites: [],
+      },
+    ],
+  );
+  const liveSystemMenuCalls = result.supportedCalls.filter(
+    (call) =>
+      call.sequence === 89_390 || call.sequence === 89_391,
+  );
+  assert.deepEqual(
+    liveSystemMenuCalls.map((call) => ({
+      implementationId: call.implementationId,
+      lastError: call.lastError,
+      stackCleanup: call.stackPointerAfter - call.stackPointerBefore,
+    })),
+    [
+      {
+        implementationId: "user32.get-system-menu.logical-system-menu.v2",
+        lastError: 0,
+        stackCleanup: 12,
+      },
+      {
+        implementationId: "user32.enable-menu-item.logical-system-menu.v2",
+        lastError: 0,
+        stackCleanup: 16,
+      },
     ],
   );
 
-  assert.equal(result.writebacks.length, 89_449);
+  assert.equal(result.writebacks.length, 89_491);
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
       0,
     ),
-    122_914,
+    122_969,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
       0,
     ),
-    3_622_432,
+    3_623_229,
   );
-  assert.equal(result.hostDeltas.length, 78_589);
-  assert.equal(result.finalGeneration, 168_620);
+  assert.equal(result.hostDeltas.length, 78_613);
+  assert.equal(result.finalGeneration, 169_016);
   assert.equal(result.checkpointCompletion, undefined);
-  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.fault.class, "unsupported");
-  assert.equal(result.fault.fault.stage, "user32-menus");
-  assert.equal(result.fault.fault.code, "get-system-menu-variant-unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.deepEqual(result.fault.endpoint.endpoint, {
-    id: 178,
-    address: 0x7f00_0b10,
-    module: "user32.dll",
-    symbol: { kind: "name", name: "GetSystemMenu" },
-    iatAddress: 0x100d_13a0,
+    id: 146,
+    address: 0x7f00_0910,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "Sleep" },
+    iatAddress: 0x100d_12f0,
     disposition: "declared-runtime-export",
   });
   assert.equal(
     result.fault.memoryContentSha256,
-    "be9494858dd1c5e3abe610d299f2bd5e14b2cfaafb577dded80ed9f76b2b2420",
+    "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
   );
-  assert.equal(result.terminal.instructionCount, 15_952_000);
-  assert.equal(result.terminal.terminal.returnAddress, 0x1009_274c);
+  assert.equal(result.terminal.instructionCount, 15_953_766);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_a2f5);
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, 3),
-    [0x4801_0001, 0],
+    result.terminal.terminal.stackWords.slice(1, 2),
+    [0],
   );
 }
 
@@ -21792,6 +21890,22 @@ function buildGenericRuntimeReentryReport({
       "DragAcceptFiles report summary requires one primary call",
     );
   }
+  const systemMenuCalls = archiveSourceReadEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+            "user32.get-system-menu.logical-system-menu.v2" ||
+          call.implementationId ===
+            "user32.enable-menu-item.logical-system-menu.v2",
+      )
+    : [];
+  if (archiveSourceReadEnabled) {
+    assert.deepEqual(
+      systemMenuCalls.map((call) => call.sequence),
+      [1_391, 1_392, 89_390, 89_391],
+      "system-menu report summary requires the initial failure and reached live-window chains",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -22259,6 +22373,21 @@ function buildGenericRuntimeReentryReport({
             acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles",
             browserResourceCreated: false,
             wmDropFilesImplemented: false,
+          },
+        }
+      : {}),
+    ...(archiveSourceReadEnabled
+      ? {
+          systemMenu: {
+            initialNullCalls: systemMenuCalls.slice(0, 2),
+            liveCalls: systemMenuCalls.slice(2),
+            menuAuthority: "runtime-user32-window-owned-logical-system-menu",
+            menuHandleNamespace: "vine.logical-menu.v1",
+            closeItemCommand: 0x0000_f060,
+            closeItemInitialState: "enabled",
+            mutation: "menu-generation-plan-stale-check-targeted-commit",
+            windowMutationGenerationIndependent: true,
+            browserResourceCreated: false,
           },
         }
       : {}),

@@ -13,10 +13,10 @@ use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
     LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
-    LOGICAL_MONITOR_HANDLE_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
-    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS,
-    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
-    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
+    LOGICAL_MENU_HANDLE_NAMESPACE, LOGICAL_MONITOR_HANDLE_NAMESPACE,
+    LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
+    RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
+    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
     RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeImeStatusWindowRequest,
     RuntimeInputProfile, RuntimeRect, RuntimeSetWindowPosCallbackAction,
@@ -32,7 +32,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 21;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 22;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -52,8 +52,8 @@ pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1"
 pub const RELEASE_DC_IMPLEMENTATION: &str = "user32.release-dc.window-or-screen-acquisition.v2";
 pub const CREATE_WINDOW_EX_A_IMPLEMENTATION: &str = "user32.create-window-ex-a.v1";
 pub const DEF_WINDOW_PROC_A_IMPLEMENTATION: &str = "user32.def-window-proc-a.v1";
-pub const GET_SYSTEM_MENU_IMPLEMENTATION: &str = "user32.get-system-menu.invalid-window.v1";
-pub const ENABLE_MENU_ITEM_IMPLEMENTATION: &str = "user32.enable-menu-item.invalid-menu.v1";
+pub const GET_SYSTEM_MENU_IMPLEMENTATION: &str = "user32.get-system-menu.logical-system-menu.v2";
+pub const ENABLE_MENU_ITEM_IMPLEMENTATION: &str = "user32.enable-menu-item.logical-system-menu.v2";
 
 const RT_ICON: u32 = 3;
 const RT_CURSOR: u32 = 1;
@@ -266,7 +266,7 @@ pub struct User32CreateWindowExAPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct User32InvalidMenuChainPolicy {
+pub struct User32SystemMenuPolicy {
     pub profile_id: String,
     pub revert: u32,
     pub item: u32,
@@ -295,15 +295,15 @@ pub struct User32CompatibilityPolicy {
     pub register_class_ex_a: Option<User32RegisterClassExAPolicy>,
     pub get_system_metrics: Option<User32GetSystemMetricsPolicy>,
     pub create_window_ex_a: Option<User32CreateWindowExAPolicy>,
-    pub invalid_menu_chain: Option<User32InvalidMenuChainPolicy>,
+    pub system_menu: Option<User32SystemMenuPolicy>,
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v21() -> Self {
+    pub fn controlled_v22() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-v21"
+            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -446,8 +446,8 @@ impl User32CompatibilityPolicy {
                 require_null_menu: true,
                 require_null_create_parameter: true,
             }),
-            invalid_menu_chain: Some(User32InvalidMenuChainPolicy {
-                profile_id: "null-window-system-menu-close-item-v1".to_owned(),
+            system_menu: Some(User32SystemMenuPolicy {
+                profile_id: "live-window-system-menu-close-item-enabled-v1".to_owned(),
                 revert: 0,
                 item: 0x0000_f060,
                 flags: 0,
@@ -886,7 +886,7 @@ impl User32CompatibilityPolicy {
                 ));
             }
         }
-        if let Some(profile) = self.invalid_menu_chain.as_ref()
+        if let Some(profile) = self.system_menu.as_ref()
             && (!valid_profile_id(&profile.profile_id)
                 || profile.revert != 0
                 || profile.item != 0x0000_f060
@@ -895,8 +895,8 @@ impl User32CompatibilityPolicy {
         {
             return Err(ApiFault::runtime_defect(
                 "user32-compatibility-policy",
-                "user32-invalid-menu-chain-profile-invalid",
-                "User32 invalid menu chain requires the reached NULL-window system-menu close-item variant",
+                "user32-system-menu-profile-invalid",
+                "User32 system-menu policy requires the reached FALSE-revert, SC_CLOSE, MF_BYCOMMAND|MF_ENABLED variant and live-window capability",
             ));
         }
         Ok(())
@@ -1035,14 +1035,18 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
-        GET_SYSTEM_MENU_IMPLEMENTATION => match handle_get_system_menu(policy, contract, frame) {
-            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
-            Err(fault) => ApiHandlerResult::Fault(fault),
-        },
-        ENABLE_MENU_ITEM_IMPLEMENTATION => match handle_enable_menu_item(policy, contract, frame) {
-            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
-            Err(fault) => ApiHandlerResult::Fault(fault),
-        },
+        GET_SYSTEM_MENU_IMPLEMENTATION => {
+            match handle_get_system_menu(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        ENABLE_MENU_ITEM_IMPLEMENTATION => {
+            match handle_enable_menu_item(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         implementation_id => ApiHandlerResult::Fault(ApiFault::unsupported(
             "user32-api-dispatch",
             "implementation-id-unsupported",
@@ -1055,40 +1059,66 @@ fn handle_get_system_menu(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    let profile = policy.invalid_menu_chain.as_ref().ok_or_else(|| {
+    let profile = policy.system_menu.as_ref().ok_or_else(|| {
         ApiFault::unsupported(
             "user32-menus",
             "get-system-menu-policy-disabled",
             format!(
-                "compatibility policy {} does not enable the reached invalid-window system-menu query",
+                "compatibility policy {} does not enable the reached logical system-menu query",
                 policy.id
             ),
         )
     })?;
     let window = required_argument(contract, frame, 0, "window")?;
     let revert = required_argument(contract, frame, 1, "revert")?;
-    if window != 0 || revert != profile.revert {
+    if revert != profile.revert {
         return Err(ApiFault::unsupported(
             "user32-menus",
             "get-system-menu-variant-unsupported",
-            "GetSystemMenu currently supports only the reached NULL-window, FALSE-revert failure",
+            "GetSystemMenu currently supports only the reached FALSE-revert query",
         ));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+    if window == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
+            value: 0,
+        })
+        .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime_mut().get_system_menu(window, profile.item) {
+        Ok(result) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
+            value: result.handle,
+        })
+        .with_last_error(preserved_last_error)),
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            })
+            .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_enable_menu_item(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    let profile = policy.invalid_menu_chain.as_ref().ok_or_else(|| {
+    let profile = policy.system_menu.as_ref().ok_or_else(|| {
         ApiFault::unsupported(
             "user32-menus",
             "enable-menu-item-policy-disabled",
             format!(
-                "compatibility policy {} does not enable the reached invalid-menu item update",
+                "compatibility policy {} does not enable the reached logical system-menu item update",
                 policy.id
             ),
         )
@@ -1096,14 +1126,34 @@ fn handle_enable_menu_item(
     let menu = required_argument(contract, frame, 0, "menu")?;
     let item = required_argument(contract, frame, 1, "item")?;
     let flags = required_argument(contract, frame, 2, "flags")?;
-    if menu != 0 || item != profile.item || flags != profile.flags {
+    if item != profile.item || flags != profile.flags {
         return Err(ApiFault::unsupported(
             "user32-menus",
             "enable-menu-item-variant-unsupported",
-            "EnableMenuItem currently supports only the reached NULL-menu close-item failure",
+            "EnableMenuItem currently supports only the reached SC_CLOSE MF_BYCOMMAND|MF_ENABLED update",
         ));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX)).with_last_error(ERROR_INVALID_MENU_HANDLE))
+    if menu == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+            .with_last_error(ERROR_INVALID_MENU_HANDLE));
+    }
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session
+        .runtime_mut()
+        .enable_system_menu_close_item(menu, item)
+    {
+        Ok(result) => Ok(
+            ApiImmediate::new(ApiReturnValue::U32(result.previous_state))
+                .with_last_error(preserved_last_error),
+        ),
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
+                .with_last_error(ERROR_INVALID_MENU_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_swap_mouse_button(
@@ -5427,7 +5477,7 @@ pub fn create_window_ex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
                 u32_argument("width"),
                 u32_argument("height"),
                 logical_window_handle_argument("parent", true),
-                u32_argument("menu"),
+                logical_handle_argument("menu", LOGICAL_MENU_HANDLE_NAMESPACE, true),
                 opaque_pointer_argument("instance", false, 4),
                 opaque_pointer_argument("creationParameter", true, 1),
             ],
@@ -5476,7 +5526,10 @@ pub fn get_system_menu_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
                 logical_window_handle_argument("window", true),
                 u32_argument("revert"),
             ],
-            return_value: ApiReturnSchema::U32,
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
             stack_cleanup: StackCleanup::Callee,
         },
         last_error_policy: LastErrorPolicy::FromHandler,
@@ -5493,7 +5546,7 @@ pub fn enable_menu_item_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCon
         abi: AbiSchema {
             calling_convention: CallingConvention::Stdcall,
             arguments: vec![
-                u32_argument("menu"),
+                logical_handle_argument("menu", LOGICAL_MENU_HANDLE_NAMESPACE, true),
                 u32_argument("item"),
                 u32_argument("flags"),
             ],
@@ -5686,7 +5739,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v21();
+        let policy = User32CompatibilityPolicy::controlled_v22();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -5733,7 +5786,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v22();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -5745,14 +5798,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v22();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v22();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -5763,21 +5816,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v22();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v22();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v22();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -5788,7 +5841,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v22();
         invalid_timer
             .set_timer
             .as_mut()
@@ -5799,14 +5852,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v22();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v22();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -5817,7 +5870,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v22();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -5828,7 +5881,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v22();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -5839,7 +5892,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v22();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -5851,7 +5904,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v22();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -5862,7 +5915,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v22();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -5873,7 +5926,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v21();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v22();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -5884,11 +5937,11 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v21();
-        invalid_menu.invalid_menu_chain.as_mut().unwrap().item = 0xf061;
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v22();
+        invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,
-            "user32-invalid-menu-chain-profile-invalid"
+            "user32-system-menu-profile-invalid"
         );
     }
 }

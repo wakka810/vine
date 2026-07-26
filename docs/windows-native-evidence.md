@@ -5044,3 +5044,48 @@ generation 168,620を通した。Chromeは90,273 slices／90,270 writebacks／12
 `get-system-menu-variant-unsupported`である。Live system-menu identity、menu item state、general resize、content copy、
 browser renderer resizeはこのcheckpointで実装済みとしない。Current artifact identityは
 [current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+
+## 148. BGI live window system-menu identity
+
+Focused `get-system-menu` observationを同じsource executableから独立に2回取得した。Primary raw traceは
+2,257,147 bytes／7,048 lines／SHA-256
+`baab2b367da0083c0d3b9e61e0022657ff72216d0e037ff1ee2a5a73ffbc2283`、summaryは52,845 bytes／SHA-256
+`a419c9fb267e088878cc5d3160c2c60d49a5be9bc1e1fa8b61b3d0e3a11cf7c2`で、3,487 API pairsがbalancedである。
+Confirmation raw traceは2,248,758 bytes／7,043 lines／SHA-256
+`7b43593011cf2835a02c2574ae20fa84d71fc4f283829c8ed66665f2aeafcf57`、summaryは53,083 bytes／SHA-256
+`a48772b3f5d11f420bd3cc8ae014e150ab969d2175280be4d85a7d60b75ebfb3`で、3,484 API pairsがbalancedである。
+両runともsequence contiguous、diagnostics／hook errors 0である。Raw trace／summaryは`.work/`に保持しGitへ追加しない。
+Source executableは実行前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+各runには同じcaller RVA `0x0009274C`／`0x00092753`から二つのchainがある。Window creation中の
+`GetSystemMenu(NULL,FALSE)`はNULL／`ERROR_INVALID_WINDOW_HANDLE` 1,400、続く
+`EnableMenuItem(NULL,SC_CLOSE,0)`は`0xFFFFFFFF`／`ERROR_INVALID_MENU_HANDLE` 1,401となる。Created main windowの
+live chainでは`GetSystemMenu(hwnd,FALSE)`がnonzero HMENU、LastError 0を返し、そのHMENUが変更されず次の
+`EnableMenuItem(menu,SC_CLOSE,0)`へ渡される。Enable resultは0、LastError 0で、close itemのprevious stateがenabled
+だったことを示す。Native HMENUはprimary `0x2E0906CD`、confirmation `0x5FCB02AB`とrun間で変わるartifact
+identityであり、Vineのlogical handleへimportしない。CallerはEnable resultをbranchに使わず、直後にglobal stateを
+1へ書いて継続する。
+
+Runtime policy v22はcreated window、FALSE revert、`SC_CLOSE`、`MF_BYCOMMAND | MF_ENABLED`だけを受理する。
+`RuntimeUser32`がwindowごとに一つのlogical HMENU、window／handle index、initial enabled close-item stateを所有し、
+repeat Getは同じidentityを返す。Menu mutationはwindow operation generationと独立した専用generationで
+plan／preflight／targeted commitするため、`WM_SIZE` callback内の初回menu allocationは外側のpending
+`SetWindowPos` resizeをstaleにしない。Enabledへのrepeatはprevious state 0を返すidempotent operationでgenerationを
+進めない。NULL／unknown／stale handle、TRUE revert、wrong item／flags、capacity／identity exhaustion、process teardownは
+model／dispatcher negative testsでfailure atomicityを固定する。Native HMENU、Win32 handle table、browser resourceは作らない。
+
+Nodeは外側resizeの4 callbackを全てreturnし、active callback depth／pending callbackを0にして89,429 supported calls、
+89,491 writebacks／122,969 dirty pages／3,623,229 changed bytes、78,613 host deltas、generation 169,016を通した。
+Semantic SHA-256は`2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4`、terminal memory
+SHA-256は`e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd`である。Summary reportは
+439,804 bytes／SHA-256 `85b48861cfaa48396708c5f06fdeb55d90c2d48ef0ede47f360f74a8a81db030`で、初期failureと
+live success chainを別fieldに保持する。Chromeは90,315 slices／90,312 writebacks／124,835 pages、78,613 mapping
+deltas／80,530 dirty pages、generation 169,736、263,478 Wasm crossingsを通し、同じcall digest、memory digest、
+ordered menu semanticsを再現した。Browser reportは952,766 bytes／SHA-256
+`5e0e9210ab3b16a8e25453872e47153a5eb2d1d6b487bced457217536bcdc709`で、cancel／watchdog cleanupはcleanである。
+
+次stopはinstruction 15,953,766、endpoint ID 146／address `0x7F000910`／IAT `0x100D12F0`／return
+`0x1006A2F5`の`KERNEL32.dll!Sleep(0)`で、faultは`endpoint-contract-missing`である。General menu tree／item
+mutation、TRUE revert、window destruction、host scheduling、wall-clock delay、browser menu renderingはこのcheckpointで
+実装済みとしない。Current artifact identityは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。

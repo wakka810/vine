@@ -707,6 +707,16 @@ Surfaceが存在すればidentityを保持し、reached `NOCOPYBITS` policyに�
 stale generation、source geometry mismatchは両ownerを変更せず拒否する。General resize、z-order、content preservation、
 cross-thread／multi-window activationは別contractである。
 
+System menuも`RuntimeUser32`内の独立したidentity domainとする。Created windowごとに最大一つのlogical HMENUを
+monotonic allocator、window index、handle indexで所有し、repeat `GetSystemMenu(FALSE)`は同じidentityを返す。
+Reached `EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)`は初期enabled stateを確認するidempotent updateである。
+Menu collection／allocator／close-item stateは専用menu generationでplan／preflight／targeted commitし、window
+operation generationを進めない。これにより`WM_SIZE` callback中のmenu allocationが、外側のpending
+`SetWindowPos` resize planをstaleにしない。Unknown／stale handle、wrong command／flags、TRUE revert、capacity／
+identity exhaustionはwindow、menu、allocator、LastErrorを部分更新する前に拒否する。Logical HMENUはWin32 handle table、
+native HMENU、browser resource IDと相互代用せず、process teardownでowner windowとともにretireする。Current browser
+adapterはread-only ordered completionだけを観測し、DOM menuを作らない。
+
 Reached `DragAcceptFiles`はShell32固有の第二window stateを作らず、既存`RuntimeUser32` window recordの
 effective extended styleにある`WS_EX_ACCEPTFILES` bitを唯一のacceptance authorityとする。Dispatcherは
 live `created` HWND、style generation、requested booleanをpreflightし、owner-local planをstale-check後に

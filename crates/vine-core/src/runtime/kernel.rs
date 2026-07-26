@@ -166,17 +166,18 @@ use super::timers::{
 };
 use super::user32::{
     RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
-    RuntimeDefaultImeWindowResult, RuntimeIcon, RuntimeIconId, RuntimeIconResource,
-    RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId, RuntimeLoadCursorAResult,
-    RuntimeLoadIconAResult, RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
+    RuntimeDefaultImeWindowResult, RuntimeEnableMenuItemResult, RuntimeGetSystemMenuResult,
+    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeImeStatusWindowRequest,
+    RuntimeImeWindow, RuntimeImeWindowId, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
+    RuntimeMenuId, RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
     RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeSetWindowStyleResult, RuntimeUser32, RuntimeWindow, RuntimeWindowClass,
-    RuntimeWindowClassId, RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest,
-    RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId, RuntimeWindowLifecycle,
-    RuntimeWindowProcedure,
+    RuntimeSetWindowStyleResult, RuntimeSystemMenu, RuntimeUser32, RuntimeWindow,
+    RuntimeWindowClass, RuntimeWindowClassId, RuntimeWindowClassRegistration,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId,
+    RuntimeWindowLifecycle, RuntimeWindowProcedure,
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{
@@ -5021,6 +5022,38 @@ impl RuntimeKernel {
 
     pub fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
         self.user32.windows()
+    }
+
+    pub(crate) fn get_system_menu(
+        &mut self,
+        window_handle: u32,
+        close_item_command: u32,
+    ) -> Result<RuntimeGetSystemMenuResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_system_menu(window_handle, close_item_command)?;
+        self.user32.commit_system_menu(plan)
+    }
+
+    pub(crate) fn enable_system_menu_close_item(
+        &mut self,
+        menu_handle: u32,
+        close_item_command: u32,
+    ) -> Result<RuntimeEnableMenuItemResult, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_enable_system_menu_close_item(menu_handle, close_item_command)?;
+        self.user32.commit_enable_system_menu_close_item(plan)
+    }
+
+    pub fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
+        self.user32.system_menu(handle)
+    }
+
+    pub fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
+        self.user32.system_menus()
     }
 
     pub(crate) fn get_default_ime_window(

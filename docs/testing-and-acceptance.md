@@ -1219,6 +1219,20 @@ window snapshot、8 callback completions、active／focus／foreground relation�
 比較する。General resize／z-order、cross-thread／multiple-window activation、queued paint、DOM positioningは
 実装済みまたはgoldenとしない。
 
+Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
+`GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
+`runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、
+repeat reuse、initial close-item state、idempotent enable、専用menu generation、capacity／handle exhaustion、process
+teardownを固定し、menu allocation後にも事前作成したwindow mutation planがcommitできることを要求する。
+`user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic`とmenu contract／negative testsは
+x86 stdcall cleanup、logical-handle namespace、success LastError preserve、NULL／unknown handle failure、unsupported
+revert／command／flagsのmutation-free rejectionを固定する。Focused native evidenceは二つのbalanced runで、nonzero
+native HMENUが次のEnable callへそのまま渡され、previous state 0とLastError 0が返るrelationだけをgoldenにする。
+Native handle数値は比較しない。Primary Node／Chromeは外側resizeの全4 callback return、active callback depth 0、
+二つのlive menu completion、zero guest writes、同じordered semantic digestと`Sleep(0)` structured stopを一致させる。
+TRUE revert、arbitrary menu tree／item state、owner-destroy lifecycle、DOM／browser menu renderingは実装済みまたは
+acceptance済みとしない。
+
 Reached `DragAcceptFiles` leafは、live `created` HWNDのeffective extended styleにある
 `WS_EX_ACCEPTFILES` bitだけを更新する。Rust model／dispatcher testsはTRUE／FALSE、idempotent generation、
 unknown／wrong-lifecycle handle、stale／duplicate plan、LastError ordering、VOID／EAX preserve、callee cleanupを

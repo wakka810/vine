@@ -3988,6 +3988,13 @@ setWindowPosResizeSelection.find(
 ).selectedObservations = ["set-window-pos-resize"];
 assert.doesNotThrow(() => summarizeTrace(encode(setWindowPosResizeSelection)));
 
+const getSystemMenuSelection = structuredClone(events);
+getSystemMenuSelection[0].arguments.observations = ["get-system-menu"];
+getSystemMenuSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["get-system-menu"];
+assert.doesNotThrow(() => summarizeTrace(encode(getSystemMenuSelection)));
+
 const getStringTypeSelection = structuredClone(events);
 getStringTypeSelection[0].arguments.observations = ["get-string-type-w"];
 getStringTypeSelection.find(

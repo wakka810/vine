@@ -10,6 +10,7 @@ use super::{RuntimeStateError, RuntimeThreadId};
 
 pub const LOGICAL_ICON_HANDLE_NAMESPACE: &str = "vine.logical-icon.v1";
 pub const LOGICAL_CURSOR_HANDLE_NAMESPACE: &str = "vine.logical-cursor.v1";
+pub const LOGICAL_MENU_HANDLE_NAMESPACE: &str = "vine.logical-menu.v1";
 pub const LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE: &str = "vine.logical-window-class-atom.v1";
 pub const LOGICAL_WINDOW_HANDLE_NAMESPACE: &str = "vine.logical-window.v1";
 pub const RUNTIME_SHARED_ICON_LIMIT: usize = 4_096;
@@ -18,11 +19,13 @@ pub const RUNTIME_WINDOW_CLASS_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_CLASS_NAME_A_LIMIT: usize = 256;
 pub const RUNTIME_WINDOW_CLASS_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_WINDOW_LIMIT: usize = 4_096;
+pub const RUNTIME_SYSTEM_MENU_LIMIT: usize = RUNTIME_WINDOW_LIMIT;
 pub const RUNTIME_DEFAULT_IME_WINDOW_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_NAME_A_LIMIT: usize = 512;
 pub const RUNTIME_WINDOW_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_ICON_HANDLE_BASE: u32 = 0x4901_0001;
 pub const RUNTIME_CURSOR_HANDLE_BASE: u32 = 0x4301_0001;
+pub const RUNTIME_MENU_HANDLE_BASE: u32 = 0x4e01_0001;
 pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
 pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
@@ -392,6 +395,39 @@ pub struct RuntimeWindow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
+pub struct RuntimeMenuId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSystemMenu {
+    pub id: RuntimeMenuId,
+    pub handle: u32,
+    pub namespace: String,
+    pub owner_window_id: RuntimeWindowId,
+    pub owner_window_handle: u32,
+    pub close_item_command: u32,
+    pub close_item_enabled: bool,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGetSystemMenuResult {
+    pub menu_id: RuntimeMenuId,
+    pub handle: u32,
+    pub already_created: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEnableMenuItemResult {
+    pub previous_state: u32,
+    pub enabled: bool,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
 pub struct RuntimeImeWindowId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -535,6 +571,22 @@ enum RuntimeWindowCreationDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeSystemMenuDisposition {
+    Existing(RuntimeSystemMenu),
+    Create {
+        menu: RuntimeSystemMenu,
+        next_menu_id: u64,
+        next_menu_handle: u32,
+        next_menu_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeSystemMenuItemDisposition {
+    Unchanged(RuntimeSystemMenu),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeDefaultImeWindowDisposition {
     Existing(RuntimeImeWindow),
     Create {
@@ -666,6 +718,20 @@ pub(super) struct RuntimeWindowCreationPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSystemMenuPlan {
+    expected_menu_generation: u64,
+    owner_window: RuntimeWindow,
+    disposition: RuntimeSystemMenuDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeSystemMenuItemPlan {
+    expected_menu_generation: u64,
+    owner_window: RuntimeWindow,
+    disposition: RuntimeSystemMenuItemDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeDefaultImeWindowPlan {
     expected_generation: u64,
     app_window: RuntimeWindow,
@@ -719,10 +785,13 @@ pub(super) struct RuntimeSetWindowPosCallbackPlan {
 pub(super) struct RuntimeUser32TeardownPlan {
     expected_generation: u64,
     next_generation: u64,
+    expected_menu_generation: u64,
+    next_menu_generation: u64,
     retired_icons: usize,
     retired_cursors: usize,
     retired_window_classes: usize,
     retired_windows: usize,
+    retired_system_menus: usize,
     retired_ime_windows: usize,
     retired_default_ime_windows: usize,
     retired_active_windows: usize,
@@ -756,6 +825,12 @@ pub(super) struct RuntimeUser32 {
     #[serde(skip)]
     window_handle_index: BTreeMap<u32, RuntimeWindowId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    system_menus: BTreeMap<RuntimeMenuId, RuntimeSystemMenu>,
+    #[serde(skip)]
+    system_menu_window_index: BTreeMap<RuntimeWindowId, RuntimeMenuId>,
+    #[serde(skip)]
+    menu_handle_index: BTreeMap<u32, RuntimeMenuId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     ime_windows: BTreeMap<RuntimeImeWindowId, RuntimeImeWindow>,
     #[serde(skip)]
     ime_window_handle_index: BTreeMap<u32, RuntimeImeWindowId>,
@@ -774,9 +849,12 @@ pub(super) struct RuntimeUser32 {
     next_window_class_id: u64,
     next_window_class_atom: u32,
     next_window_id: u64,
+    next_menu_id: u64,
+    next_menu_handle: u32,
     next_ime_window_id: u64,
     next_window_handle: u32,
     generation: u64,
+    menu_generation: u64,
 }
 
 impl Default for RuntimeUser32 {
@@ -793,6 +871,9 @@ impl Default for RuntimeUser32 {
             window_class_atom_index: BTreeMap::new(),
             windows: BTreeMap::new(),
             window_handle_index: BTreeMap::new(),
+            system_menus: BTreeMap::new(),
+            system_menu_window_index: BTreeMap::new(),
+            menu_handle_index: BTreeMap::new(),
             ime_windows: BTreeMap::new(),
             ime_window_handle_index: BTreeMap::new(),
             default_ime_windows: BTreeMap::new(),
@@ -806,9 +887,12 @@ impl Default for RuntimeUser32 {
             next_window_class_id: 1,
             next_window_class_atom: u32::from(RUNTIME_WINDOW_CLASS_ATOM_BASE),
             next_window_id: 1,
+            next_menu_id: 1,
+            next_menu_handle: RUNTIME_MENU_HANDLE_BASE,
             next_ime_window_id: 1,
             next_window_handle: RUNTIME_WINDOW_HANDLE_BASE,
             generation: 0,
+            menu_generation: 0,
         }
     }
 }
@@ -1461,6 +1545,268 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn plan_system_menu(
+        &self,
+        window_handle: u32,
+        close_item_command: u32,
+    ) -> Result<RuntimeSystemMenuPlan, RuntimeStateError> {
+        if close_item_command == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "system-menu-close-command-invalid",
+                "logical system menu requires a nonzero close-item command",
+            ));
+        }
+        let owner_window = self.window(window_handle)?.clone();
+        if owner_window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "system-menu-window-lifecycle-state-invalid",
+                "logical system menu requires a created owner window",
+            ));
+        }
+        if let Some(id) = self.system_menu_window_index.get(&owner_window.id) {
+            let menu = self.system_menus.get(id).cloned().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-user32",
+                    "system-menu-window-index-dangling",
+                    "logical window system-menu index does not resolve to a live menu",
+                )
+            })?;
+            self.validate_system_menu_identity(&menu)?;
+            if menu.close_item_command != close_item_command {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "system-menu-close-command-mismatch",
+                    "logical system menu close-item command differs from its creation contract",
+                ));
+            }
+            return Ok(RuntimeSystemMenuPlan {
+                expected_menu_generation: self.menu_generation,
+                owner_window,
+                disposition: RuntimeSystemMenuDisposition::Existing(menu),
+            });
+        }
+        if self.system_menus.len() >= RUNTIME_SYSTEM_MENU_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "system-menu-limit-exceeded",
+                "logical system-menu count exceeds the runtime bound",
+            ));
+        }
+        let id = RuntimeMenuId(self.next_menu_id);
+        if id.0 == 0 || self.system_menus.contains_key(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "system-menu-id-collision",
+                "logical system-menu allocator selected an invalid or live identity",
+            ));
+        }
+        if self.next_menu_handle < RUNTIME_MENU_HANDLE_BASE
+            || self.menu_handle_index.contains_key(&self.next_menu_handle)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "system-menu-handle-collision",
+                "logical HMENU allocator selected an invalid or live handle",
+            ));
+        }
+        let next_menu_id = self.next_menu_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "system-menu-id-space-exhausted",
+                "logical system-menu identity space is exhausted",
+            )
+        })?;
+        let next_menu_handle = self.next_menu_handle.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "system-menu-handle-space-exhausted",
+                "logical HMENU space is exhausted",
+            )
+        })?;
+        let next_menu_generation = self.next_menu_generation()?;
+        Ok(RuntimeSystemMenuPlan {
+            expected_menu_generation: self.menu_generation,
+            owner_window: owner_window.clone(),
+            disposition: RuntimeSystemMenuDisposition::Create {
+                menu: RuntimeSystemMenu {
+                    id,
+                    handle: self.next_menu_handle,
+                    namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
+                    owner_window_id: owner_window.id,
+                    owner_window_handle: owner_window.handle,
+                    close_item_command,
+                    close_item_enabled: true,
+                    generation: next_menu_generation,
+                },
+                next_menu_id,
+                next_menu_handle,
+                next_menu_generation,
+            },
+        })
+    }
+
+    pub(super) fn preflight_system_menu(
+        &self,
+        plan: &RuntimeSystemMenuPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.menu_generation != plan.expected_menu_generation
+            || self.windows.get(&plan.owner_window.id) != Some(&plan.owner_window)
+            || self.window_handle_index.get(&plan.owner_window.handle)
+                != Some(&plan.owner_window.id)
+            || plan.owner_window.lifecycle != RuntimeWindowLifecycle::Created
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "system-menu-plan-stale",
+                "logical system-menu collection or owner window changed after planning",
+            ));
+        }
+        match &plan.disposition {
+            RuntimeSystemMenuDisposition::Existing(menu) => {
+                if self.system_menus.get(&menu.id) != Some(menu)
+                    || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
+                    || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-user32",
+                        "system-menu-plan-stale",
+                        "logical system-menu identity changed after planning",
+                    ));
+                }
+                self.validate_system_menu_identity(menu)?;
+            }
+            RuntimeSystemMenuDisposition::Create { menu, .. } => {
+                if self.next_menu_id != menu.id.0
+                    || self.next_menu_handle != menu.handle
+                    || self.system_menus.contains_key(&menu.id)
+                    || self
+                        .system_menu_window_index
+                        .contains_key(&menu.owner_window_id)
+                    || self.menu_handle_index.contains_key(&menu.handle)
+                    || menu.owner_window_id != plan.owner_window.id
+                    || menu.owner_window_handle != plan.owner_window.handle
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-user32",
+                        "system-menu-plan-stale",
+                        "logical system-menu allocators, indexes, or owner relation changed after planning",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_system_menu(
+        &mut self,
+        plan: RuntimeSystemMenuPlan,
+    ) -> Result<RuntimeGetSystemMenuResult, RuntimeStateError> {
+        self.preflight_system_menu(&plan)?;
+        match plan.disposition {
+            RuntimeSystemMenuDisposition::Existing(menu) => Ok(RuntimeGetSystemMenuResult {
+                menu_id: menu.id,
+                handle: menu.handle,
+                already_created: true,
+            }),
+            RuntimeSystemMenuDisposition::Create {
+                menu,
+                next_menu_id,
+                next_menu_handle,
+                next_menu_generation,
+            } => {
+                let result = RuntimeGetSystemMenuResult {
+                    menu_id: menu.id,
+                    handle: menu.handle,
+                    already_created: false,
+                };
+                self.next_menu_id = next_menu_id;
+                self.next_menu_handle = next_menu_handle;
+                self.menu_generation = next_menu_generation;
+                let previous_window = self
+                    .system_menu_window_index
+                    .insert(menu.owner_window_id, menu.id);
+                let previous_handle = self.menu_handle_index.insert(menu.handle, menu.id);
+                let previous_menu = self.system_menus.insert(menu.id, menu);
+                debug_assert!(previous_window.is_none());
+                debug_assert!(previous_handle.is_none());
+                debug_assert!(previous_menu.is_none());
+                Ok(result)
+            }
+        }
+    }
+
+    pub(super) fn plan_enable_system_menu_close_item(
+        &self,
+        menu_handle: u32,
+        close_item_command: u32,
+    ) -> Result<RuntimeSystemMenuItemPlan, RuntimeStateError> {
+        let menu = self.system_menu(menu_handle)?.clone();
+        if close_item_command == 0 || menu.close_item_command != close_item_command {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "system-menu-close-command-mismatch",
+                "EnableMenuItem command does not identify the logical system close item",
+            ));
+        }
+        if !menu.close_item_enabled {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "system-menu-close-item-state-invalid",
+                "the bounded logical system menu must begin with an enabled close item",
+            ));
+        }
+        let owner_window = self.window_by_id(menu.owner_window_id)?.clone();
+        Ok(RuntimeSystemMenuItemPlan {
+            expected_menu_generation: self.menu_generation,
+            owner_window,
+            disposition: RuntimeSystemMenuItemDisposition::Unchanged(menu),
+        })
+    }
+
+    pub(super) fn preflight_enable_system_menu_close_item(
+        &self,
+        plan: &RuntimeSystemMenuItemPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.menu_generation != plan.expected_menu_generation
+            || self.windows.get(&plan.owner_window.id) != Some(&plan.owner_window)
+            || self.window_handle_index.get(&plan.owner_window.handle)
+                != Some(&plan.owner_window.id)
+            || plan.owner_window.lifecycle != RuntimeWindowLifecycle::Created
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "system-menu-item-plan-stale",
+                "logical system-menu collection or owner window changed after item planning",
+            ));
+        }
+        let RuntimeSystemMenuItemDisposition::Unchanged(menu) = &plan.disposition;
+        if self.system_menus.get(&menu.id) != Some(menu)
+            || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
+            || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "system-menu-item-plan-stale",
+                "logical system-menu item identity changed after planning",
+            ));
+        }
+        self.validate_system_menu_identity(menu)
+    }
+
+    pub(super) fn commit_enable_system_menu_close_item(
+        &mut self,
+        plan: RuntimeSystemMenuItemPlan,
+    ) -> Result<RuntimeEnableMenuItemResult, RuntimeStateError> {
+        self.preflight_enable_system_menu_close_item(&plan)?;
+        Ok(RuntimeEnableMenuItemResult {
+            previous_state: 0,
+            enabled: true,
+            changed: false,
+        })
+    }
+
     pub(super) fn resolve_ime_app_window_target(
         &self,
         window_handle: u32,
@@ -1912,6 +2258,7 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.system_menus.is_empty()
             && self.ime_windows.is_empty()
             && self.default_ime_windows.is_empty()
             && self.active_windows.is_empty()
@@ -1923,10 +2270,17 @@ impl RuntimeUser32 {
         Ok(Some(RuntimeUser32TeardownPlan {
             expected_generation: self.generation,
             next_generation: self.next_generation()?,
+            expected_menu_generation: self.menu_generation,
+            next_menu_generation: if self.system_menus.is_empty() {
+                self.menu_generation
+            } else {
+                self.next_menu_generation()?
+            },
             retired_icons: self.icons.len(),
             retired_cursors: self.cursors.len(),
             retired_window_classes: self.window_classes.len(),
             retired_windows: self.windows.len(),
+            retired_system_menus: self.system_menus.len(),
             retired_ime_windows: self.ime_windows.len(),
             retired_default_ime_windows: self.default_ime_windows.len(),
             retired_active_windows: self.active_windows.len(),
@@ -1940,6 +2294,7 @@ impl RuntimeUser32 {
         plan: &RuntimeUser32TeardownPlan,
     ) -> Result<(), RuntimeStateError> {
         if self.generation != plan.expected_generation
+            || self.menu_generation != plan.expected_menu_generation
             || self.icons.len() != plan.retired_icons
             || self.resource_index.len() != plan.retired_icons
             || self.handle_index.len() != plan.retired_icons
@@ -1951,6 +2306,9 @@ impl RuntimeUser32 {
             || self.window_class_atom_index.len() != plan.retired_window_classes
             || self.windows.len() != plan.retired_windows
             || self.window_handle_index.len() != plan.retired_windows
+            || self.system_menus.len() != plan.retired_system_menus
+            || self.system_menu_window_index.len() != plan.retired_system_menus
+            || self.menu_handle_index.len() != plan.retired_system_menus
             || self.ime_windows.len() != plan.retired_ime_windows
             || self.ime_window_handle_index.len() != plan.retired_ime_windows
             || self.default_ime_windows.len() != plan.retired_default_ime_windows
@@ -1971,6 +2329,9 @@ impl RuntimeUser32 {
         debug_assert!(self.preflight_process_teardown(&plan).is_ok());
         self.windows.clear();
         self.window_handle_index.clear();
+        self.system_menus.clear();
+        self.system_menu_window_index.clear();
+        self.menu_handle_index.clear();
         self.ime_windows.clear();
         self.ime_window_handle_index.clear();
         self.default_ime_windows.clear();
@@ -1987,6 +2348,7 @@ impl RuntimeUser32 {
         self.cursor_source_index.clear();
         self.cursor_handle_index.clear();
         self.generation = plan.next_generation;
+        self.menu_generation = plan.next_menu_generation;
     }
 
     pub fn icon(&self, handle: u32) -> Result<&RuntimeIcon, RuntimeStateError> {
@@ -3415,11 +3777,73 @@ impl RuntimeUser32 {
         &self.windows
     }
 
+    pub fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
+        let id = self
+            .menu_handle_index
+            .get(&handle)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-user32",
+                    "menu-handle-unknown",
+                    format!("logical HMENU {handle:#010x} is not live"),
+                )
+            })?;
+        let menu = self.system_menus.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "menu-handle-index-dangling",
+                "logical HMENU index does not resolve to a live menu",
+            )
+        })?;
+        self.validate_system_menu_identity(menu)?;
+        Ok(menu)
+    }
+
+    pub fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
+        &self.system_menus
+    }
+
+    fn validate_system_menu_identity(
+        &self,
+        menu: &RuntimeSystemMenu,
+    ) -> Result<(), RuntimeStateError> {
+        let owner_window = self.windows.get(&menu.owner_window_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "system-menu-owner-window-missing",
+                "logical system menu refers to a non-live owner window",
+            )
+        })?;
+        if menu.id.0 == 0
+            || menu.handle < RUNTIME_MENU_HANDLE_BASE
+            || menu.namespace != LOGICAL_MENU_HANDLE_NAMESPACE
+            || menu.close_item_command == 0
+            || !menu.close_item_enabled
+            || menu.generation == 0
+            || menu.generation > self.menu_generation
+            || owner_window.handle != menu.owner_window_handle
+            || owner_window.lifecycle != RuntimeWindowLifecycle::Created
+            || self.window_handle_index.get(&menu.owner_window_handle)
+                != Some(&menu.owner_window_id)
+            || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
+            || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "system-menu-identity-invalid",
+                "logical system menu identity, owner relation, or close-item state is inconsistent",
+            ));
+        }
+        Ok(())
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.icons.is_empty()
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.system_menus.is_empty()
             && self.ime_windows.is_empty()
             && self.default_ime_windows.is_empty()
             && self.active_windows.is_empty()
@@ -3433,6 +3857,16 @@ impl RuntimeUser32 {
                 "runtime-user32",
                 "user32-generation-exhausted",
                 "User32 resource generation is exhausted",
+            )
+        })
+    }
+
+    fn next_menu_generation(&self) -> Result<u64, RuntimeStateError> {
+        self.menu_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "system-menu-generation-exhausted",
+                "logical system-menu generation is exhausted",
             )
         })
     }
@@ -4503,6 +4937,116 @@ mod tests {
             "window-handle-unknown"
         );
         assert_eq!(user32, before_unknown);
+    }
+
+    #[test]
+    fn system_menu_identity_is_window_owned_reentrant_and_failure_atomic() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        let pending_window_update = user32
+            .plan_window_style_update(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                0x90ca_0000,
+                0x0400_0000,
+            )
+            .unwrap();
+        let user32_generation = user32.generation;
+        let first_plan = user32.plan_system_menu(window_handle, 0xf060).unwrap();
+        assert!(user32.system_menus().is_empty());
+        let first = user32.commit_system_menu(first_plan).unwrap();
+        assert_eq!(first.menu_id, RuntimeMenuId(1));
+        assert_eq!(first.handle, RUNTIME_MENU_HANDLE_BASE);
+        assert!(!first.already_created);
+        assert_eq!(user32.generation, user32_generation);
+        assert_eq!(user32.menu_generation, 1);
+
+        let menu = user32.system_menu(first.handle).unwrap();
+        assert_eq!(menu.owner_window_handle, window_handle);
+        assert_eq!(menu.close_item_command, 0xf060);
+        assert!(menu.close_item_enabled);
+        assert_eq!(menu.namespace, LOGICAL_MENU_HANDLE_NAMESPACE);
+
+        let style = user32
+            .commit_window_style_update(pending_window_update)
+            .expect("menu allocation must not stale a pending window mutation");
+        assert!(style.changed);
+        let repeated = user32
+            .commit_system_menu(user32.plan_system_menu(window_handle, 0xf060).unwrap())
+            .unwrap();
+        assert_eq!(repeated.menu_id, first.menu_id);
+        assert_eq!(repeated.handle, first.handle);
+        assert!(repeated.already_created);
+        assert_eq!(user32.system_menus().len(), 1);
+
+        let menu_generation = user32.menu_generation;
+        let enabled = user32
+            .commit_enable_system_menu_close_item(
+                user32
+                    .plan_enable_system_menu_close_item(first.handle, 0xf060)
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            enabled,
+            RuntimeEnableMenuItemResult {
+                previous_state: 0,
+                enabled: true,
+                changed: false,
+            }
+        );
+        assert_eq!(user32.menu_generation, menu_generation);
+
+        for error in [
+            user32
+                .plan_enable_system_menu_close_item(first.handle, 0xf061)
+                .unwrap_err(),
+            user32
+                .plan_enable_system_menu_close_item(first.handle + 1, 0xf060)
+                .unwrap_err(),
+        ] {
+            assert!(matches!(
+                error.code,
+                "system-menu-close-command-mismatch" | "menu-handle-unknown"
+            ));
+        }
+        let before_exhaustion = user32.clone();
+        user32.next_menu_handle = u32::MAX;
+        let exhausted = user32.clone();
+        let other_window = user32
+            .commit_window_creation(
+                user32
+                    .plan_window_creation(user32.window(window_handle).unwrap().creation.clone())
+                    .unwrap(),
+            )
+            .unwrap();
+        for (message, result) in [
+            (RuntimeWindowCreationMessage::NonClientCreate, 1),
+            (RuntimeWindowCreationMessage::NonClientCalculate, 0),
+            (RuntimeWindowCreationMessage::Create, 0),
+            (RuntimeWindowCreationMessage::Size, 0),
+            (RuntimeWindowCreationMessage::Move, 0),
+        ] {
+            let plan = user32
+                .plan_window_creation_callback(other_window.window_id, message, result)
+                .unwrap();
+            user32.commit_window_creation_callback(plan).unwrap();
+        }
+        assert_eq!(
+            user32
+                .plan_system_menu(other_window.handle, 0xf060)
+                .unwrap_err()
+                .code,
+            "system-menu-handle-space-exhausted"
+        );
+        assert_eq!(user32.next_menu_handle, u32::MAX);
+        assert_eq!(user32.system_menus(), exhausted.system_menus());
+        user32.next_menu_handle = before_exhaustion.next_menu_handle;
+
+        let teardown = user32.plan_process_teardown().unwrap().unwrap();
+        user32.preflight_process_teardown(&teardown).unwrap();
+        user32.commit_process_teardown(teardown);
+        assert!(user32.is_empty());
+        assert!(user32.system_menu(first.handle).is_err());
     }
 
     fn resource(

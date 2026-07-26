@@ -67,7 +67,7 @@ Current primary `kernel32-archive-source-read` profileはNode／Chromeのordered
 同じabsolute limitを適用したfailureはsame-workload regressionを示さなかった。Duration、workload identity、
 semantic／memory digest、他15 thresholdを維持したversion 2は14 sessions／14,000 msとし、valid environmentの
 最終runで17 sessions／11,232.015 ms、17/17 threshold passとなった。R-PERFORMANCEはactive blockerでは
-なくなった。現在の89,388-call workloadとの差は一度だけ通るresize callback prefixで、browser resource、
+なくなった。現在の89,429-call workloadとの差は一度だけ通るresize／system-menu continuationで、browser resource、
 host wait、hot loopを追加しないためperformance gateは再baselineしていない。将来のworkload増加ではversionを
 跨いだ絶対時間だけで回帰判定しない。Exact evidenceと
 再測定条件は[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
@@ -76,9 +76,11 @@ Primary BGI executionはfile-drop acceptance flagの適用後、旧`MessageBoxA`
 error branchだったと判定し、immutable boot-archive snapshot mount経由でsystem.arcのheader／index／
 `ipl._bp` member readsを完了してscript interpreterを起動した。Primaryのbounded
 `USER32.dll!SetWindowPos` resizeは、USER32 geometryとGDI window surfaceをNCCALCSIZE completionで
-failure-atomicに更新し、Node／Chromeを`WM_SIZE` callback内の`USER32.dll!GetSystemMenu(hwnd,FALSE)`まで進めた。
-現在のsemantic stopはlive window system-menu identity gatewayである。このevidenceはgeneral window resize、
-rendering、input、audio milestone、general asset breadthを閉じない。
+failure-atomicに更新し、`WM_SIZE`内の`GetSystemMenu(hwnd,FALSE) -> EnableMenuItem(SC_CLOSE,0)`と最終
+`WM_WINDOWPOSCHANGED`まで完了した。Logical HMENUはwindow-owned identityとしてRustに置き、専用menu generationにより
+外側resize planをstaleにしない。現在のsemantic stopは`KERNEL32.dll!Sleep(0)`である。これは既存scheduler authorityへ
+接続するbounded yield contractとして分類し、host wall-clock sleepやbrowser timerをguest-visible authorityへimportしない。
+このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
 
