@@ -12,6 +12,20 @@ use super::{
 
 pub const RUNTIME_API_BOUNDARY_QUANTUM: u32 = 64;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeApiBoundaryDisposition {
+    #[default]
+    ContinueQuantum,
+    YieldCurrentThread,
+}
+
+impl RuntimeApiBoundaryDisposition {
+    pub const fn continues_quantum(&self) -> bool {
+        matches!(self, Self::ContinueQuantum)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum SchedulerThreadState {
@@ -133,6 +147,7 @@ pub(super) struct RuntimeSchedulerSelectionPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeSchedulerApiBoundaryPlan {
+    disposition: RuntimeApiBoundaryDisposition,
     previous_revision: u64,
     next_revision: u64,
     previous_thread_id: RuntimeThreadId,
@@ -403,6 +418,7 @@ impl RuntimeScheduler {
 
     pub(super) fn plan_completed_api_boundary(
         &self,
+        disposition: RuntimeApiBoundaryDisposition,
     ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
         let current_state = self.current_state()?;
         let next_revision = self.api_boundary_revision.checked_add(1).ok_or_else(|| {
@@ -416,6 +432,7 @@ impl RuntimeScheduler {
         let runnable_competitor = next_runnable.map(|selection| selection.next);
         if matches!(current_state, SchedulerThreadState::InCallback { .. }) {
             return Ok(RuntimeSchedulerApiBoundaryPlan {
+                disposition,
                 previous_revision: self.api_boundary_revision,
                 next_revision,
                 previous_thread_id: self.current_thread_id,
@@ -435,6 +452,7 @@ impl RuntimeScheduler {
         }
         let Some(next_runnable) = next_runnable else {
             return Ok(RuntimeSchedulerApiBoundaryPlan {
+                disposition,
                 previous_revision: self.api_boundary_revision,
                 next_revision,
                 previous_thread_id: self.current_thread_id,
@@ -445,26 +463,31 @@ impl RuntimeScheduler {
                 selection: None,
             });
         };
-        let completed = self
-            .completed_api_boundaries_in_quantum
-            .checked_add(1)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-scheduler",
-                    "api-boundary-counter-overflow",
-                    "API execution boundary counter is exhausted",
-                )
-            })?;
-        let quantum_expired = completed >= RUNTIME_API_BOUNDARY_QUANTUM;
+        let completed = if disposition == RuntimeApiBoundaryDisposition::YieldCurrentThread {
+            0
+        } else {
+            self.completed_api_boundaries_in_quantum
+                .checked_add(1)
+                .ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-scheduler",
+                        "api-boundary-counter-overflow",
+                        "API execution boundary counter is exhausted",
+                    )
+                })?
+        };
+        let select_competitor = disposition == RuntimeApiBoundaryDisposition::YieldCurrentThread
+            || completed >= RUNTIME_API_BOUNDARY_QUANTUM;
         Ok(RuntimeSchedulerApiBoundaryPlan {
+            disposition,
             previous_revision: self.api_boundary_revision,
             next_revision,
             previous_thread_id: self.current_thread_id,
             previous_thread_state: current_state,
             runnable_competitor,
             previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
-            next_completed_boundaries: if quantum_expired { 0 } else { completed },
-            selection: quantum_expired.then_some(next_runnable),
+            next_completed_boundaries: if select_competitor { 0 } else { completed },
+            selection: select_competitor.then_some(next_runnable),
         })
     }
 
@@ -506,6 +529,11 @@ impl RuntimeScheduler {
 
     pub(super) fn commit_completed_api_boundary(&mut self, plan: RuntimeSchedulerApiBoundaryPlan) {
         debug_assert_eq!(self.api_boundary_revision, plan.previous_revision);
+        debug_assert!(matches!(
+            plan.disposition,
+            RuntimeApiBoundaryDisposition::ContinueQuantum
+                | RuntimeApiBoundaryDisposition::YieldCurrentThread
+        ));
         debug_assert_eq!(self.current_thread_id, plan.previous_thread_id);
         debug_assert_eq!(self.current_state().ok(), Some(plan.previous_thread_state));
         debug_assert_eq!(
@@ -928,7 +956,9 @@ mod tests {
             .plan_current_transition(SchedulerThreadState::Runnable)
             .unwrap();
         scheduler.commit_lane(initial_running);
-        let no_competitor = scheduler.plan_completed_api_boundary().unwrap();
+        let no_competitor = scheduler
+            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum)
+            .unwrap();
         let second_running = scheduler
             .plan_registration(SECOND, SchedulerThreadState::Runnable)
             .unwrap();
@@ -944,7 +974,9 @@ mod tests {
         assert_eq!(scheduler, before_runnable_set_stale);
 
         for _ in 1..RUNTIME_API_BOUNDARY_QUANTUM {
-            let plan = scheduler.plan_completed_api_boundary().unwrap();
+            let plan = scheduler
+                .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum)
+                .unwrap();
             scheduler.preflight_completed_api_boundary(&plan).unwrap();
             scheduler.commit_completed_api_boundary(plan);
         }
@@ -957,7 +989,9 @@ mod tests {
             .plan_current_transition(SchedulerThreadState::InCallback { depth: 1 })
             .unwrap();
         scheduler.commit_lane(enter_callback);
-        let callback_boundary = scheduler.plan_completed_api_boundary().unwrap();
+        let callback_boundary = scheduler
+            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread)
+            .unwrap();
         assert_eq!(callback_boundary.selection(), None);
         scheduler
             .preflight_completed_api_boundary(&callback_boundary)
@@ -982,7 +1016,9 @@ mod tests {
             .plan_current_transition(SchedulerThreadState::Runnable)
             .unwrap();
         scheduler.commit_lane(leave_callback);
-        let expired = scheduler.plan_completed_api_boundary().unwrap();
+        let expired = scheduler
+            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum)
+            .unwrap();
         assert_eq!(expired.selection().unwrap().next(), SECOND);
         assert_eq!(scheduler.current_thread_id(), INITIAL);
 

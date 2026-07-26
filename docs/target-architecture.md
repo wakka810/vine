@@ -52,7 +52,14 @@ scheduler transitionはRustだけが決定する。Rustは`waiting-host`とreque
 TypeScriptはbrowser eventをdeliveryする。completion後の`runnable`または`in-callback`復帰もRustが
 検証してからCPU contextへ適用する。Worker event loopは独自にguest threadをwakeしない。
 
-Worker protocol version 9のstate machineは、Rust scheduler laneを`ready`、`running`、
+Immediate API completionはresult／LastError／guest writeとは別にexecution-boundary dispositionを持つ。
+通常値はrunnable competitorがいるAPI boundaryだけを64回quantumへ数え、explicit
+`yield-current-thread`は同じRust schedulerのmutation-free planで次のrunnable laneを選択してquantumを
+resetする。競合laneがなければcurrent laneを継続し、host waitやwall-clock timerを作らない。Callback中は
+どちらのdispositionでもlaneをinterleaveせず、plan revision、runnable set、duplicate commitを検証してから
+targeted commitする。TypeScriptはdispositionとselected threadを運ぶだけで、Windowsのyield policyを所有しない。
+
+Worker protocol version 9で導入し現行protocolでも維持するstate machineは、Rust scheduler laneを`ready`、`running`、
 `budget-yield`、`memory-fault`、`api-trap`、`thread-switch`、`thread-exit`、`waiting-host`、
 `host-completion`、`guest-callback`、`callback-return`、`stopping`、`stopped`の閉じたtransition
 graphで駆動する。illegal transitionはstate mutation前に
@@ -61,7 +68,7 @@ policyを持つtableへ置き、wrong-thread、duplicate、cancel後のlate comp
 terminal reportは必ず`stopped`かつpending record zeroとし、watchdogだけが原因thread、active
 request、直前transitionのdiagnostic contextを持つ。
 
-Version 9はsessionごとに`full`／`summary` evidence levelを明示する。両modeは一つのordered
+Version 9で導入したevidence contractはsessionごとに`full`／`summary` evidence levelを明示する。両modeは一つのordered
 semantic digestへ正規化callを流し、next sequenceとbounded out-of-order mapでduplicate／orderingを検証する。
 `full`だけがterminal時にordered call payloadを公開し、`summary`はprivate BGI benchmarkに限定してcall
 countとdigestを保持する。Digestはcanonical top-level fieldを直接streamし、ASCII fragmentをreusable SHA blockへ
@@ -155,10 +162,11 @@ guest CALL / JMP import thunk
   -> ABI schema lookup
   -> pointer / length / handle validation
   -> compatibility implementation
-       -> immediate: result + LastError を返す
+       -> immediate: result + LastError + execution-boundary disposition を返す
+          -> Rust scheduler がAPI boundaryをplan／commitし、継続laneを選ぶ
        -> deferred: guest thread を WAITING にし host request を発行
-  -> host response / event
-  -> guest thread を RUNNABLE に戻す
+          -> host response / event
+          -> guest thread を RUNNABLE に戻す
   -> return register / stack を ABI 規則どおり復元
 ```
 

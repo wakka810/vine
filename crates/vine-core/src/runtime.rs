@@ -180,8 +180,9 @@ pub use registries::{
     RuntimeRegistries,
 };
 pub use scheduler::{
-    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler,
-    RuntimeSchedulerEvent, RuntimeThreadExecutionSelection, SchedulerThreadState,
+    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeApiBoundaryDisposition, RuntimeHostCompletion,
+    RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent, RuntimeThreadExecutionSelection,
+    SchedulerThreadState,
 };
 pub use synchronization::{
     RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_MUTEX_LIMIT, RuntimeCreateMutexAResult,

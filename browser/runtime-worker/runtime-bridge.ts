@@ -26,6 +26,7 @@ export interface ApiCompletion extends CpuResume {
     arguments: Array<{ words: number[] }>;
   };
   readonly lastError: number;
+  executionBoundary?: "yield-current-thread";
   guestWrites?: Array<{
     write: { address: number; bytes: number[] };
   }>;

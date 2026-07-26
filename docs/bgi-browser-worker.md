@@ -40,6 +40,13 @@ cancellation identity are validated across the bridge. General Win32 thread crea
 TEB lifecycle, wait families, fairness policy, and exception delivery remain separate
 gateway work.
 
+An immediate API completion also carries a Rust-owned execution-boundary disposition.
+The normal value continues the 64-boundary cooperative quantum; `yield-current-thread`
+selects the next runnable competitor and resets that quantum without creating a host
+request. The Worker transports the disposition and applies the returned opaque CPU
+selection, but does not decide whether an API yields. Callback non-interleaving and the
+same mutation-free plan／stale／duplicate-commit checks apply to both dispositions.
+
 The reached `runtime.timer-delay.v1` service is a bounded scheduling exception.
 Rust owns the logical target and completion result; the Worker owns only the
 browser delay and page-lifecycle resource. While that delay is pending, the
@@ -71,25 +78,22 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `kernel32-archive-source-read` and uses
-protocol `vine.browser-runtime-worker.v20`. It registers the primary
-boot-archive snapshot beside the writable profile, replays the loose-file
-probe and the bounded `system.arc` reads through the same-origin source API,
-delivers storage and pacing completions to Rust in request-issue order, and
-still carries the compact typed `dragAcceptFiles` snapshot with its browser
-resource／`WM_DROPFILES` non-claims. Node and Chrome normalize only module-name
-case; arguments, ABI result, LastError, guest writes, window identity,
-lifecycle, style, terminal endpoint, semantic digest, and memory digest must
-match exactly. The browser transports this metadata; Rust remains the sole
-window and file-drop acceptance authority. Protocol version 19's typed
-critical-section release remains the frozen predecessor contract.
+The active private profile is `kernel32-sleep-zero` and uses protocol
+`vine.browser-runtime-worker.v21`. It inherits the immutable boot-archive snapshot and
+writable-profile separation, then accepts only `Sleep(0)`. Every reached call preserves
+EAX and LastError, performs stdcall cleanup with no guest write, and requests the
+Rust-owned `yield-current-thread` boundary. Node and Chrome require all 240 calls to
+select the runnable competitor, create no host wait, and agree on the first／last call,
+selection, semantic digest, memory digest, and `GlobalMemoryStatus` terminal endpoint.
+Protocol version 20 remains the frozen predecessor for the typed file-drop snapshot;
+version 21 adds the execution-boundary disposition without moving scheduler authority
+to TypeScript.
 
-The semantic gate passes independently from the repeated workload gate. The
-active 180-second workload fails its unchanged minimum-session and session-P95
-thresholds in a valid environment after bounded scheduling remediation.
-Consequently the semantic checkpoint cannot advance to the next endpoint.
-Exact measurements, discarded invalid-environment evidence, protected
-invariants, and the resume condition remain manifest-owned.
+The semantic gate passes independently from the repeated workload gate. This bounded
+scheduler leaf does not change the Worker transport, memory topology, browser-resource
+lifetime, graphics, or audio path, so the last versioned archive workload remains risk
+evidence and is not relabelled as a measurement of the longer Sleep profile. Exact
+current semantic and artifact values remain manifest-owned.
 
 ## Reproduction
 
@@ -107,6 +111,8 @@ fingerprint before and after execution.
   acceptance.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.
+- `Sleep` intervals greater than zero, no-competitor timing, host wall-clock delay,
+  priority-weighted selection, and preemptive scheduling are not implemented.
 - The versioned workload gate is not a full-play or long-idle soak.
 - Unsupported behavior remains an explicit structured stop. A normal capability
   completion requires a versioned count and next-endpoint contract; reaching a

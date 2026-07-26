@@ -185,13 +185,13 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v20",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v21",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 4612099,
-      "sha256": "e6be58285f62671ae17b241b3082fd4d4cfc0b5cdcf7005422ea53b6ae0ae6f0"
+      "bytes": 4617474,
+      "sha256": "f9a496e27dfbca0e008b9c1f5ce3ffdbd658c8ec33160c0821a537cf445d4c94"
     },
     "browserRuntimeFixture": {
       "bytes": 3584,
@@ -361,16 +361,16 @@
       "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       "nodeRole": "semantic-oracle-only",
       "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
-      "guestInstructions": 15953766,
-      "cpuSlices": 90315,
-      "budgetYields": 824,
-      "supportedCalls": 89429,
-      "evidenceLevel": "compact",
+      "guestInstructions": 16384108,
+      "cpuSlices": 108647,
+      "budgetYields": 829,
+      "supportedCalls": 107756,
+      "evidenceLevel": "summary",
       "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-      "callSemanticsSha256": "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
-      "writebackBatches": 90312,
-      "writebackPages": 124835,
-      "hostDeltaBatches": 78613,
+      "callSemanticsSha256": "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+      "writebackBatches": 108644,
+      "writebackPages": 150033,
+      "hostDeltaBatches": 92304,
       "callbackEntries": 24,
       "callbackReplacements": 13,
       "maximumCallbackDepth": 3,
@@ -390,16 +390,16 @@
         8192,
         8193
       ],
-      "contextSwitches": 1032,
-      "setWaitableTimerCompletions": 4716,
+      "contextSwitches": 1512,
+      "setWaitableTimerCompletions": 6910,
       "setWaitableTimerSequence": 18681,
       "setWaitableTimerSequences": [
         18681,
-        89364
+        107739
       ],
       "setWaitableTimerInstructionCounts": [
         11973553,
-        15942875
+        16291292
       ],
       "setWaitableTimerInstructionCount": 11973553,
       "setWaitableTimerArguments": [
@@ -431,14 +431,14 @@
       "setWaitableTimerBrowserTimerCreated": false,
       "setWaitableTimerExpirationImplemented": true,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
-      "waitForSingleObjectExCompletions": 4716,
+      "waitForSingleObjectExCompletions": 6910,
       "waitForSingleObjectExSequences": [
         18682,
-        89365
+        107740
       ],
       "waitForSingleObjectExInstructionCounts": [
         11973559,
-        15942881
+        16291298
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -460,24 +460,24 @@
       "waitForSingleObjectExManualReset": true,
       "waitForSingleObjectExArmGenerations": [
         1,
-        4716
+        6910
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        23580000
+        34550000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        23580000
+        34550000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        4716
+        6910
       ],
       "waitForSingleObjectExWaitState": "signaled",
       "waitForSingleObjectExNextRegistrationIds": [
         2,
-        4717
+        6911
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -488,11 +488,11 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "4721"
+        "6915"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "4716"
+        "6910"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
@@ -504,15 +504,15 @@
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "23580000"
+        "34550000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "4715"
+        "6909"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "4716"
+        "6910"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -523,13 +523,57 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerCreated": true,
-      "waitForSingleObjectExBrowserPacingRequests": 4716,
-      "waitForSingleObjectExBrowserPacingCompletions": 4716,
+      "waitForSingleObjectExBrowserPacingRequests": 6910,
+      "waitForSingleObjectExBrowserPacingCompletions": 6910,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
       "waitForSingleObjectExFailureAtomicity": true,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
+      "sleepZeroCompletions": 240,
+      "sleepZeroSequences": [
+        89430,
+        107670
+      ],
+      "sleepZeroOccurrences": [
+        1,
+        240
+      ],
+      "sleepZeroInstructionCounts": [
+        15953766,
+        16290005
+      ],
+      "sleepZeroArguments": [
+        "0x00000000"
+      ],
+      "sleepZeroResult": "void-eax-preserved",
+      "sleepZeroReturnAddress": "0x1006a2f5",
+      "sleepZeroStackPointers": [
+        "0x006ff578",
+        "0x006ff580"
+      ],
+      "sleepZeroLastErrors": [
+        0,
+        0
+      ],
+      "sleepZeroGuestWriteBytes": 0,
+      "sleepZeroImplementationId": "kernel32.sleep-zero.yield-current-thread.v1",
+      "sleepZeroExecutionBoundary": "yield-current-thread",
+      "sleepZeroSchedulerAuthority": "rust-runtime-scheduler",
+      "sleepZeroSchedulerSelectionCount": 240,
+      "sleepZeroSchedulerSelectionSequences": [
+        89430,
+        107670
+      ],
+      "sleepZeroSchedulerSelectionInstructionCounts": [
+        15953766,
+        16290005
+      ],
+      "sleepZeroSchedulerPreviousThreadId": 8192,
+      "sleepZeroSchedulerSelectedThreadId": 8193,
+      "sleepZeroNoCompetitorCompletions": 0,
+      "sleepZeroHostWaitCreated": false,
+      "sleepZeroNodeChromeOrderedSemanticsMatched": true,
       "dragAcceptFilesCompletions": 1,
       "dragAcceptFilesSequence": 89249,
       "dragAcceptFilesInstructionCount": 15601759,
@@ -1176,7 +1220,7 @@
       "virtualAllocNodeCompletions": 1,
       "virtualAllocChromeCompletions": 1,
       "virtualAllocNodeChromeOrderedSemanticsMatched": true,
-      "successExecutionTransitionCount": 286089,
+      "successExecutionTransitionCount": 348147,
       "monitorFromWindowCompletions": 2,
       "monitorFromWindowSequence": 17842,
       "monitorFromWindowArguments": [
@@ -2113,7 +2157,7 @@
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 286089,
+          "transitionCount": 348147,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2142,14 +2186,14 @@
         }
       },
       "mappingOperations": {
-        "reserve": 21,
-        "commit": 78,
-        "protect": 28,
+        "reserve": 29,
+        "commit": 94,
+        "protect": 45,
         "decommit": 0,
-        "release": 4
+        "release": 12
       },
-      "mappingDeltas": 78613,
-      "mappingDirtyPages": 80530,
+      "mappingDeltas": 92304,
+      "mappingDirtyPages": 94493,
       "mappingAtomicRejections": 0,
       "mappingStaleAccessStops": 0,
       "mappingCacheEffects": {
@@ -2179,16 +2223,16 @@
       "initialStackCommittedPagesAfterGrowth": 7,
       "initialStackFinalGuardPage": "0x006f8000",
       "initialGeneration": 27,
-      "finalGeneration": 169736,
-      "nodeFinalGeneration": 169016,
+      "finalGeneration": 201760,
+      "nodeFinalGeneration": 201035,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
-      "memoryContentSha256": "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+      "memoryContentSha256": "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
       "nextCapabilityCluster": "kernel32-api-contract",
-      "nextEndpoint": "kernel32.dll!Sleep",
+      "nextEndpoint": "kernel32.dll!GlobalMemoryStatus",
       "nextFaultCode": "endpoint-contract-missing",
-      "nextEndpointAddress": "0x7f000910",
+      "nextEndpointAddress": "0x7f000330",
       "nextArguments": [
-        "0x00000000"
+        "0x006ff674"
       ],
       "initialCurrentDirectoryBytesWithNul": [
         67,
@@ -2202,15 +2246,15 @@
       ],
       "initialCurrentDirectoryGeneration": 0,
       "setCurrentDirectoryGeneration": 1,
-      "wasmBridgeCalls": 263478,
-      "runtimeCoreLinearMemoryBytes": 14680064,
+      "wasmBridgeCalls": 316276,
+      "runtimeCoreLinearMemoryBytes": 16842752,
       "executionEngineLinearMemoryBytes": 18219008,
-      "maximumSliceMilliseconds": 3.5900000035762787,
-      "elapsedMilliseconds": 10871.52500000596,
-      "heartbeatSamples": 2177,
-      "maximumHeartbeatGapMilliseconds": 24.53999999165535,
-      "usedJsHeapBytesBefore": 633666,
-      "usedJsHeapBytesAfter": 2758300,
+      "maximumSliceMilliseconds": 2.719999998807907,
+      "elapsedMilliseconds": 15027.59999999404,
+      "heartbeatSamples": 3007,
+      "maximumHeartbeatGapMilliseconds": 25.62999999523163,
+      "usedJsHeapBytesBefore": 634177,
+      "usedJsHeapBytesAfter": 3678769,
       "cancelInstructions": 19,
       "watchdogInstructions": 4,
       "pendingHostCallsAfterCleanup": 0,
@@ -2220,10 +2264,10 @@
       "sourceReadCompletions": 5,
       "sourceReadPayloadSha256": "6dba2f3ade90d3706b45ccf37e490a56c97e74511a0eae0c4ab5546f34ce1cd6",
       "sourceReadPendingAfterCleanup": 0,
-      "nodeOracleReportBytes": 439804,
-      "nodeOracleReportSha256": "85b48861cfaa48396708c5f06fdeb55d90c2d48ef0ede47f360f74a8a81db030",
-      "browserReportBytes": 952766,
-      "browserReportSha256": "5e0e9210ab3b16a8e25453872e47153a5eb2d1d6b487bced457217536bcdc709",
+      "nodeOracleReportBytes": 447000,
+      "nodeOracleReportSha256": "7a2d796b53a0445d95b016d244d0895a821c0877711a3a8b6d629bc79accffec",
+      "browserReportBytes": 1374083,
+      "browserReportSha256": "f0ea806b77cccfa5e10bcd9086dbcabcabc2b31508a17b2ebfbf6af246ab61e3",
       "archiveSourceReadCompletions": 3,
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceReadOffsets": [
@@ -2339,11 +2383,11 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "kernel32-archive-source-read",
+    "runtimeKernelCheckpoint": "kernel32-sleep-zero",
     "status": "structured-stop",
-    "profile": "kernel32-archive-source-read",
+    "profile": "kernel32-sleep-zero",
     "runtimeStateAuthority": "rust",
-    "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-and-logical-priority-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance",
+    "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
     "runtimeWindowActivationScope": "same-owner-thread-single-window-same-geometry-active-focus-foreground-callback-lifecycle",
     "runtimeStateOwns": [
@@ -2433,9 +2477,9 @@
     ],
     "callbackFrameStack": true,
     "hostCompletionModel": "scheduler-event",
-    "genericDispatcherApiCount": 111,
-    "genericDispatcherContractCount": 113,
-    "genericDispatcherCallOccurrenceCount": 89429,
+    "genericDispatcherApiCount": 112,
+    "genericDispatcherContractCount": 114,
+    "genericDispatcherCallOccurrenceCount": 107756,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -2547,6 +2591,7 @@
       "IMM32.dll!ImmAssociateContext",
       "KERNEL32.dll!SetWaitableTimer",
       "KERNEL32.dll!WaitForSingleObjectEx",
+      "KERNEL32.dll!Sleep",
       "SHELL32.dll!DragAcceptFiles"
     ],
     "allSupportedCallsUseGenericDispatcher": true,
@@ -2754,7 +2799,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "kernel32-sleep-zero"
+      "capabilityExpansionPausedAt": "kernel32-global-memory-status"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -5108,7 +5153,7 @@
       "bgiReportSha256": "ab4070d9b0f86e4821f7ea4d89b57a44d83829b3032f04c1edf40fde49db2da4"
     },
     "runtimeScheduler": {
-      "schema": "vine.runtime-scheduler.v4",
+      "schema": "vine.runtime-scheduler.v5",
       "stateOwner": "runtime/scheduler.rs::RuntimeScheduler",
       "mutableCollectionVisibility": "private",
       "serializedRuntimeField": "scheduler",
@@ -5135,8 +5180,8 @@
       "waitSubsystemAdapter": "serde-flatten-private-runtime-waits",
       "crossSubsystemMutation": "scheduler-host-plan-aggregate-lifecycle-preflight-targeted-commit",
       "hostRequestTransition": "scheduler-plan-infallible-targeted-commit",
-      "subsystemTests": 8,
-      "crossSubsystemAtomicTests": 7,
+      "subsystemTests": 9,
+      "crossSubsystemAtomicTests": 8,
       "directCollectionMutationFromAggregate": false,
       "directHostRequestMutationFromAggregate": false,
       "hostRequestCancellationPlan": true,
@@ -5146,6 +5191,10 @@
       "synchronousResumePreemptsCaller": false,
       "apiBoundaryQuantum": 64,
       "apiBoundaryCountsOnlyWithRunnableCompetitor": true,
+      "apiBoundaryDisposition": "continue-quantum-or-yield-current-thread",
+      "explicitYieldRequiresRunnableCompetitor": true,
+      "explicitYieldResetsQuantum": true,
+      "explicitYieldCreatesHostWait": false,
       "apiBoundaryCallbackNonInterleaving": true,
       "apiBoundaryPlanMutationFree": true,
       "apiBoundaryStaleCommitRejected": true,
@@ -5162,6 +5211,8 @@
         8193
       ],
       "privateNodeChromeContextSwitches": 1,
+      "privateSleepZeroNodeChromeSelectionCount": 240,
+      "privateSleepZeroNodeChromeOrderedSemanticsMatched": true,
       "wholeRuntimeStateClone": false
     },
     "runtimeWaitQueue": {
@@ -5452,8 +5503,8 @@
     "kernel32CompatibilityPolicy": {
       "schema": "vine.kernel32-compatibility-policy",
       "schemaVersion": 2,
-      "id": "kernel32-wait-for-single-object-ex-v1",
-      "source": "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
+      "id": "kernel32-sleep-zero-v1",
+      "source": "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
       "handlerDispatch": "single-semantic-implementation-id-with-policy",
       "evidenceSelectsImplementationBranch": false,
       "semanticTestsRequireEvidenceProfile": false,
@@ -5502,6 +5553,7 @@
       "waitForSingleObjectExAllowAlertable": true,
       "waitForSingleObjectExAllowNonalertable": false,
       "waitForSingleObjectExWaitableTimerOnly": true,
+      "sleepZero": true,
       "sourceFiles": {
         "authority": "runtime/files.rs::RuntimeFiles",
         "sourceManifestAuthority": "rust-runtime-files",
@@ -7314,7 +7366,33 @@
       "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-kernel32-archive-source-read.v1",
+      "schema": "vine.v86-bgi-kernel32-sleep-zero",
+      "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
+      "nativeSleepZeroOracleArchitecture": "coff-i386",
+      "nativeSleepZeroOracleSourceBytes": 6481,
+      "nativeSleepZeroOracleSourceSha256": "95ce4364c0428c1559679c753b0b1501b4977078d4f7b02c7ba900ca89479332",
+      "nativeSleepZeroOracleObjectBytes": 19723,
+      "nativeSleepZeroOracleObjectSha256": "ebd64a7811cad7100b5f5ba6485c82cdf3d8f2e788afee385ff3b6e293d7f260",
+      "nativeSleepZeroOracleExecutableBytes": 6144,
+      "nativeSleepZeroOracleExecutableSha256": "1168739db86861c6fb75179a606b0e60429cd301adda8cf523ee8c697741da11",
+      "nativeSleepZeroOracleRuns": 2,
+      "nativeSleepZeroOracleSingleCpuPinned": true,
+      "nativeSleepZeroOracleReadyCompetitor": true,
+      "nativeSleepZeroOracleSamplesPerRun": 8,
+      "nativeSleepZeroOracleAdvancedSamplesPerRun": 8,
+      "nativeSleepZeroOraclePreservedLastErrorSamplesPerRun": 8,
+      "nativeSleepZeroOracleWaitResult": 0,
+      "nativeSleepZeroOracleExitCodes": [
+        0,
+        0
+      ],
+      "nativeSleepZeroPrimaryEvidenceSource": "independent-d3d9-raster-status-primary-and-confirmation-summaries",
+      "nativeSleepZeroPrimaryOuterLoopEntryRva": "0x0006a263",
+      "nativeSleepZeroPrimaryCallerReturnRva": "0x0006a2f5",
+      "nativeSleepZeroPrimaryArgument": 0,
+      "nativeSleepZeroPrimaryConsumer": "repeat-raster-status-read-and-yield-current-thread",
+      "nativeSleepZeroPrimaryAndConfirmationAgree": true,
+      "nativeSleepZeroExecutableHashUnchanged": true,
       "nativeDragAcceptFilesPrimaryTraceBytes": 23308,
       "nativeDragAcceptFilesPrimaryTraceLines": 77,
       "nativeDragAcceptFilesPrimaryTraceSha256": "939c2094e929ba80e867ec73586e41b0d411d6f657def08d11c44212795ae412",
@@ -8816,9 +8894,9 @@
       "nativeEnableMenuItemLastError": 1401,
       "nativeInvalidMenuConsumer": "result-ignored-global-flag-set-and-continue",
       "nativeCreateWindowExAExecutableHashUnchanged": true,
-      "implementation": "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority",
-      "implementedApiContractCount": 113,
-      "genericSupportedCallCount": 89429,
+      "implementation": "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority",
+      "implementedApiContractCount": 114,
+      "genericSupportedCallCount": 107756,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -9135,11 +9213,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 89491,
-      "writebackDirtyPages": 122969,
-      "writebackChangedBytes": 3623229,
-      "hostDeltaBatches": 78613,
-      "finalMemoryGeneration": 169016,
+      "writebackBatches": 107818,
+      "writebackDirtyPages": 148160,
+      "writebackChangedBytes": 4916226,
+      "hostDeltaBatches": 92304,
+      "finalMemoryGeneration": 201035,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -9291,7 +9369,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+      "memoryContentSha256": "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -9825,17 +9903,17 @@
       "setWaitableTimerHostTimerImported": false,
       "setWaitableTimerBrowserTimerImported": false,
       "setWaitableTimerExpirationImplemented": true,
-      "setWaitableTimerNodeCompletions": 4716,
-      "setWaitableTimerChromeCompletions": 4716,
+      "setWaitableTimerNodeCompletions": 6910,
+      "setWaitableTimerChromeCompletions": 6910,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
       "waitForSingleObjectExImplemented": true,
       "waitForSingleObjectExSequences": [
         18682,
-        89365
+        107740
       ],
       "waitForSingleObjectExInstructionCounts": [
         11973559,
-        15942881
+        16291298
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -9855,19 +9933,19 @@
       "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       "waitForSingleObjectExArmGenerations": [
         1,
-        4716
+        6910
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        23580000
+        34550000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        23580000
+        34550000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        4716
+        6910
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -9878,11 +9956,11 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "4721"
+        "6915"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "4716"
+        "6910"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
@@ -9890,15 +9968,15 @@
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "23580000"
+        "34550000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "4715"
+        "6909"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "4716"
+        "6910"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -9909,14 +9987,65 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerImported": false,
-      "waitForSingleObjectExBrowserPacingRequests": 4716,
-      "waitForSingleObjectExBrowserPacingCompletions": 4716,
+      "waitForSingleObjectExBrowserPacingRequests": 6910,
+      "waitForSingleObjectExBrowserPacingCompletions": 6910,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
-      "waitForSingleObjectExNodeCompletions": 4716,
-      "waitForSingleObjectExChromeCompletions": 4716,
+      "waitForSingleObjectExNodeCompletions": 6910,
+      "waitForSingleObjectExChromeCompletions": 6910,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
+      "sleepZeroImplemented": true,
+      "sleepZeroPolicyId": "kernel32-sleep-zero-v1",
+      "sleepZeroPolicySource": "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
+      "sleepZeroCallCount": 240,
+      "sleepZeroSequences": [
+        89430,
+        107670
+      ],
+      "sleepZeroOccurrences": [
+        1,
+        240
+      ],
+      "sleepZeroInstructionCounts": [
+        15953766,
+        16290005
+      ],
+      "sleepZeroArguments": [
+        "0x00000000"
+      ],
+      "sleepZeroResult": "void-eax-preserved",
+      "sleepZeroReturnAddress": "0x1006a2f5",
+      "sleepZeroStackPointers": [
+        "0x006ff578",
+        "0x006ff580"
+      ],
+      "sleepZeroLastErrors": [
+        0,
+        0
+      ],
+      "sleepZeroGuestWriteBytes": 0,
+      "sleepZeroImplementationId": "kernel32.sleep-zero.yield-current-thread.v1",
+      "sleepZeroExecutionBoundary": "yield-current-thread",
+      "sleepZeroSchedulerAuthority": "runtime/scheduler.rs::RuntimeScheduler",
+      "sleepZeroSchedulerSelectionCount": 240,
+      "sleepZeroSchedulerSelectionSequences": [
+        89430,
+        107670
+      ],
+      "sleepZeroSchedulerSelectionInstructionCounts": [
+        15953766,
+        16290005
+      ],
+      "sleepZeroSchedulerPreviousThreadId": 8192,
+      "sleepZeroSchedulerSelectedThreadId": 8193,
+      "sleepZeroNoCompetitorCompletions": 0,
+      "sleepZeroHostWaitCreated": false,
+      "sleepZeroNonzeroRejectedBeforeMutation": true,
+      "sleepZeroFailureAtomicity": true,
+      "sleepZeroNodeCompletions": 240,
+      "sleepZeroChromeCompletions": 240,
+      "sleepZeroNodeChromeOrderedSemanticsMatched": true,
       "loadIconAImplemented": true,
       "loadIconASequence": 1339,
       "loadIconAInstructionCount": 49942,
@@ -12215,7 +12344,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
+      "semanticCallDigestSha256": "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -14495,20 +14624,20 @@
       "broadHeapVariantsImplemented": false,
       "apiSpecificReconciliationLists": false,
       "apiSpecificRequestsOrReceipts": false,
-      "firstStructuredStopInstructionCount": 15953766,
+      "firstStructuredStopInstructionCount": 16384108,
       "firstStructuredStopCapabilityCluster": "kernel32-api-contract",
-      "firstStructuredStopEndpoint": "kernel32.dll!Sleep",
+      "firstStructuredStopEndpoint": "kernel32.dll!GlobalMemoryStatus",
       "firstStructuredStopEndpointKind": "runtime-system-export",
-      "firstStructuredStopEndpointId": 146,
-      "firstStructuredStopEndpointAddress": "0x7f000910",
-      "firstStructuredStopIatAddress": "0x100d12f0",
+      "firstStructuredStopEndpointId": 52,
+      "firstStructuredStopEndpointAddress": "0x7f000330",
+      "firstStructuredStopIatAddress": "0x100d1178",
       "firstStructuredStopArguments": [
-        "0x00000000"
+        "0x006ff674"
       ],
-      "firstStructuredStopReturnAddress": "0x1006a2f5",
+      "firstStructuredStopReturnAddress": "0x10081fae",
       "firstStructuredStopFault": "endpoint-contract-missing",
-      "reportBytes": 439804,
-      "reportSha256": "85b48861cfaa48396708c5f06fdeb55d90c2d48ef0ede47f360f74a8a81db030",
+      "reportBytes": 447000,
+      "reportSha256": "7a2d796b53a0445d95b016d244d0895a821c0877711a3a8b6d629bc79accffec",
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceManifest": "fixtures/source-snapshots/primary-boot-archives-v1.json",
       "archiveSourceMountRoot": "C:\\Vine",
@@ -14556,19 +14685,19 @@
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "api-endpoint",
-    "nextCheckpoint": "kernel32-sleep-zero",
+    "nextCheckpoint": "kernel32-global-memory-status",
     "pausedHistoricalCheckpoint": "twentieth-supported-win32-call-return",
-    "instructionCount": 15953766,
+    "instructionCount": 16384108,
     "capabilityCluster": "kernel32-api-contract",
     "reason": "endpoint-contract-missing",
     "endpointKind": "runtime-system-export",
-    "endpointId": 146,
-    "api": "KERNEL32.dll!Sleep",
+    "endpointId": 52,
+    "api": "KERNEL32.dll!GlobalMemoryStatus",
     "arguments": [
-      "0x00000000"
+      "0x006ff674"
     ],
-    "endpointAddress": "0x7f000910",
-    "iatAddress": "0x100d12f0",
-    "returnAddress": "0x1006a2f5"
+    "endpointAddress": "0x7f000330",
+    "iatAddress": "0x100d1178",
+    "returnAddress": "0x10081fae"
   }
 }

@@ -4,6 +4,23 @@ use vine_core::{
 };
 
 #[test]
+fn sleep_zero_is_an_explicit_version_two_policy_capability() {
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"
+    ))
+    .expect("active Kernel32 policy fixture");
+    active.validate().expect("valid active Kernel32 policy");
+    assert!(active.allows_sleep_zero());
+
+    let mut legacy = Kernel32CompatibilityPolicy::controlled_v1();
+    legacy.sleep_zero = true;
+    let error = legacy
+        .validate()
+        .expect_err("legacy policy cannot enable Sleep(0)");
+    assert_eq!(error.code, "kernel32-policy-sleep-zero-invalid");
+}
+
+#[test]
 fn versioned_policy_files_validate_without_evidence_manifest() {
     let policies = [
         include_str!("../../../fixtures/runtime-policies/kernel32-controlled-v1.json"),
@@ -62,6 +79,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!(
             "../../../fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json"
         ),
+        include_str!("../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();

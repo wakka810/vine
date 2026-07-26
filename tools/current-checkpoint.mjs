@@ -162,7 +162,10 @@ export function validateCurrentCheckpoint(manifest) {
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
   const archiveSourceReadActive =
-    root.activeRuntimeCheckpoint?.profile === "kernel32-archive-source-read";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-archive-source-read" ||
+    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero";
+  const sleepZeroActive =
+    root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero";
   const mainLoopContinuationActive =
     primaryMainLoopProgressionActive ||
     leaveCriticalSectionActive ||
@@ -170,84 +173,123 @@ export function validateCurrentCheckpoint(manifest) {
     leaveCriticalSectionContinuationActive ||
     dragAcceptFilesActive ||
     archiveSourceReadActive;
-  const timerCycleCount = archiveSourceReadActive
+  const timerCycleCount = sleepZeroActive
+    ? 6_910
+    : archiveSourceReadActive
     ? 4_716
     : dragAcceptFilesActive
     ? 4_706
     : mainLoopContinuationActive
       ? 7
       : 3;
-  const timerSetSequences = archiveSourceReadActive
+  const timerSetSequences = sleepZeroActive
+    ? "18681,107739"
+    : archiveSourceReadActive
     ? "18681,89364"
     : dragAcceptFilesActive
     ? "18681,89217"
     : mainLoopContinuationActive
       ? "18681,18689,18697,18705,18713,18721,18729"
       : "18681,18689,18697";
-  const timerSetInstructionCounts = archiveSourceReadActive
+  const timerSetInstructionCounts = sleepZeroActive
+    ? "11973553,16291292"
+    : archiveSourceReadActive
     ? "11973553,15942875"
     : dragAcceptFilesActive
     ? "11973553,15600688"
     : mainLoopContinuationActive
       ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
       : "11973553,11973700,11973847";
-  const timerWaitSequences = archiveSourceReadActive
+  const timerWaitSequences = sleepZeroActive
+    ? "18682,107740"
+    : archiveSourceReadActive
     ? "18682,89365"
     : dragAcceptFilesActive
     ? "18682,89218"
     : mainLoopContinuationActive
       ? "18682,18690,18698,18706,18714,18722,18730"
       : "18682,18690,18698";
-  const timerWaitInstructionCounts = archiveSourceReadActive
+  const timerWaitInstructionCounts = sleepZeroActive
+    ? "11973559,16291298"
+    : archiveSourceReadActive
     ? "11973559,15942881"
     : dragAcceptFilesActive
     ? "11973559,15600694"
     : mainLoopContinuationActive
       ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
       : "11973559,11973706,11973853";
-  const timerGenerations = archiveSourceReadActive
+  const timerGenerations = sleepZeroActive
+    ? "1,6910"
+    : archiveSourceReadActive
     ? "1,4716"
     : dragAcceptFilesActive
     ? "1,4706"
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerDeadlines = archiveSourceReadActive
+  const timerDeadlines = sleepZeroActive
+    ? "5000,34550000"
+    : archiveSourceReadActive
     ? "5000,23580000"
     : dragAcceptFilesActive
     ? "5000,23530000"
     : mainLoopContinuationActive
       ? "5000,10000,15000,20000,25000,30000,35000"
       : "5000,10000,15000";
-  const timerPacingRequestIds = archiveSourceReadActive
+  const timerPacingRequestIds = sleepZeroActive
+    ? "3,6915"
+    : archiveSourceReadActive
     ? "3,4721"
     : dragAcceptFilesActive
     ? "3,4708"
     : mainLoopContinuationActive
       ? "3,4,5,6,7,8,9"
       : "3,4,5";
-  const timerPacingRegistrationIds = archiveSourceReadActive
+  const timerPacingRegistrationIds = sleepZeroActive
+    ? "1,6910"
+    : archiveSourceReadActive
     ? "1,4716"
     : dragAcceptFilesActive
     ? "1,4706"
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerPacingClockGenerations = archiveSourceReadActive
+  const timerPacingClockGenerations = sleepZeroActive
+    ? "0,6909"
+    : archiveSourceReadActive
     ? "0,4715"
     : dragAcceptFilesActive
     ? "0,4705"
     : mainLoopContinuationActive
       ? "0,1,2,3,4,5,6"
       : "0,1,2";
-  const timerNextRegistrationIds = archiveSourceReadActive
+  const timerNextRegistrationIds = sleepZeroActive
+    ? "2,6911"
+    : archiveSourceReadActive
     ? "2,4717"
     : dragAcceptFilesActive
     ? "2,4707"
     : mainLoopContinuationActive
       ? "2,3,4,5,6,7,8"
       : "2,3,4";
-  const profileExpectations = archiveSourceReadActive
+  const profileExpectations = sleepZeroActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 92_304,
+        browserMappingDirtyPages: 94_493,
+        browserSuccessExecutionTransitions: 348_147,
+        latestSchema: "vine.v86-bgi-kernel32-sleep-zero",
+        latestWritebackBatches: 107_818,
+        latestWritebackDirtyPages: 148_160,
+        latestWritebackChangedBytes: 4_916_226,
+        latestHostDeltaBatches: 92_304,
+        latestFinalMemoryGeneration: 201_035,
+        semanticCallDigestSha256:
+          "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+        memoryContentSha256:
+          "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+      }
+    : archiveSourceReadActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 78_613,
@@ -683,8 +725,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v20") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v20");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v21") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v21");
   }
   if (
     browser.executionEngineProfile !==
@@ -1433,16 +1475,26 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nodeRole !== "semantic-oracle-only" ||
     bgiBrowserEvidence.runtimeStateAuthority !== "rust-wasm-in-runtime-worker" ||
     bgiBrowserEvidence.evidenceLevel !==
-      (dragAcceptFilesActive || archiveSourceReadActive ? "compact" : "summary") ||
+      (sleepZeroActive
+        ? "summary"
+        : dragAcceptFilesActive || archiveSourceReadActive
+          ? "compact"
+          : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
-    bgiMappingOperations.reserve !== 21 ||
+    bgiMappingOperations.reserve !== (sleepZeroActive ? 29 : 21) ||
     bgiMappingOperations.commit !==
-      (archiveSourceReadActive ? 78 : dragAcceptFilesActive ? 72 : 71) ||
-    bgiMappingOperations.protect !== 28 ||
+      (sleepZeroActive
+        ? 94
+        : archiveSourceReadActive
+          ? 78
+          : dragAcceptFilesActive
+            ? 72
+            : 71) ||
+    bgiMappingOperations.protect !== (sleepZeroActive ? 45 : 28) ||
     bgiMappingOperations.decommit !== 0 ||
-    bgiMappingOperations.release !== 4 ||
+    bgiMappingOperations.release !== (sleepZeroActive ? 12 : 4) ||
     bgiBrowserEvidence.mappingDeltas !== profileExpectations.browserMappingDeltas ||
     bgiBrowserEvidence.mappingDirtyPages !==
       profileExpectations.browserMappingDirtyPages ||
@@ -1456,7 +1508,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (archiveSourceReadActive
+      (sleepZeroActive
+        ? 1_512
+        : archiveSourceReadActive
         ? 1_032
         : dragAcceptFilesActive
           ? 1_030
@@ -3009,7 +3063,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "fixtures/benchmarks/bgi-browser-drag-accept-files-v1.json"
           : "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json") ||
     bgiBenchmarkEvidence.runtimeProfile !==
-      root.activeRuntimeCheckpoint?.profile ||
+      (sleepZeroActive
+        ? "kernel32-archive-source-read"
+        : root.activeRuntimeCheckpoint?.profile) ||
     bgiBenchmarkEvidence.observationStatus !==
       profileExpectations.benchmarkObservation ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
@@ -6750,7 +6806,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    scheduler.schema !== "vine.runtime-scheduler.v4" ||
+    scheduler.schema !== "vine.runtime-scheduler.v5" ||
     scheduler.stateOwner !== "runtime/scheduler.rs::RuntimeScheduler" ||
     scheduler.mutableCollectionVisibility !== "private" ||
     scheduler.serializedRuntimeField !== "scheduler" ||
@@ -6769,8 +6825,8 @@ export function validateCurrentCheckpoint(manifest) {
     scheduler.crossSubsystemMutation !==
       "scheduler-host-plan-aggregate-lifecycle-preflight-targeted-commit" ||
     scheduler.hostRequestTransition !== "scheduler-plan-infallible-targeted-commit" ||
-    scheduler.subsystemTests < 8 ||
-    scheduler.crossSubsystemAtomicTests < 7 ||
+    scheduler.subsystemTests < 9 ||
+    scheduler.crossSubsystemAtomicTests < 8 ||
     scheduler.directCollectionMutationFromAggregate !== false ||
     scheduler.directHostRequestMutationFromAggregate !== false ||
     scheduler.hostRequestCancellationPlan !== true ||
@@ -6780,6 +6836,11 @@ export function validateCurrentCheckpoint(manifest) {
     scheduler.synchronousResumePreemptsCaller !== false ||
     scheduler.apiBoundaryQuantum !== 64 ||
     scheduler.apiBoundaryCountsOnlyWithRunnableCompetitor !== true ||
+    scheduler.apiBoundaryDisposition !==
+      "continue-quantum-or-yield-current-thread" ||
+    scheduler.explicitYieldRequiresRunnableCompetitor !== true ||
+    scheduler.explicitYieldResetsQuantum !== true ||
+    scheduler.explicitYieldCreatesHostWait !== false ||
     scheduler.apiBoundaryCallbackNonInterleaving !== true ||
     scheduler.apiBoundaryPlanMutationFree !== true ||
     scheduler.apiBoundaryStaleCommitRejected !== true ||
@@ -6790,6 +6851,8 @@ export function validateCurrentCheckpoint(manifest) {
     scheduler.privateNodeChromeRegisteredThreadIds?.join(",") !== "8192,8193" ||
     scheduler.privateNodeChromeExecutedThreadIds?.join(",") !== "8192,8193" ||
     scheduler.privateNodeChromeContextSwitches !== 1 ||
+    scheduler.privateSleepZeroNodeChromeSelectionCount !== 240 ||
+    scheduler.privateSleepZeroNodeChromeOrderedSemanticsMatched !== true ||
     scheduler.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime scheduler subsystem boundary is invalid");
@@ -7019,9 +7082,14 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
-    kernel32Policy.id !== "kernel32-wait-for-single-object-ex-v1" ||
+    kernel32Policy.id !==
+      (sleepZeroActive
+        ? "kernel32-sleep-zero-v1"
+        : "kernel32-wait-for-single-object-ex-v1") ||
     kernel32Policy.source !==
-      "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json" ||
+      (sleepZeroActive
+        ? "fixtures/runtime-policies/kernel32-sleep-zero-v1.json"
+        : "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json") ||
     kernel32Policy.handlerDispatch !== "single-semantic-implementation-id-with-policy" ||
     kernel32Policy.evidenceSelectsImplementationBranch !== false ||
     kernel32Policy.semanticTestsRequireEvidenceProfile !== false ||
@@ -7052,6 +7120,7 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.waitForSingleObjectExAllowAlertable !== true ||
     kernel32Policy.waitForSingleObjectExAllowNonalertable !== false ||
     kernel32Policy.waitForSingleObjectExWaitableTimerOnly !== true ||
+    kernel32Policy.sleepZero !== sleepZeroActive ||
     sourceFiles.authority !== "runtime/files.rs::RuntimeFiles" ||
     sourceFiles.sourceManifestAuthority !== "rust-runtime-files" ||
     sourceFiles.browserRole !== "same-origin-byte-service" ||
@@ -13164,7 +13233,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (archiveSourceReadActive
+      (sleepZeroActive
+        ? "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority"
+        : archiveSourceReadActive
         ? "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority"
         : dragAcceptFilesActive
           ? "Rust-owned DragAcceptFiles over logical-window extended-style authority with failure-atomic plan/commit"
@@ -13681,6 +13752,99 @@ export function validateCurrentCheckpoint(manifest) {
         "request-issue-order")
   ) {
     errors.push("primary boot-archive source read evidence is invalid");
+  }
+  if (
+    sleepZeroActive &&
+    (latestEvidence.nativeSleepZeroOracleProfile !==
+      "x86-sleep-zero-ready-competitor-v1" ||
+      latestEvidence.nativeSleepZeroOracleArchitecture !== "coff-i386" ||
+      latestEvidence.nativeSleepZeroOracleSourceBytes !== 6_481 ||
+      latestEvidence.nativeSleepZeroOracleSourceSha256 !==
+        "95ce4364c0428c1559679c753b0b1501b4977078d4f7b02c7ba900ca89479332" ||
+      latestEvidence.nativeSleepZeroOracleObjectBytes !== 19_723 ||
+      latestEvidence.nativeSleepZeroOracleObjectSha256 !==
+        "ebd64a7811cad7100b5f5ba6485c82cdf3d8f2e788afee385ff3b6e293d7f260" ||
+      latestEvidence.nativeSleepZeroOracleExecutableBytes !== 6_144 ||
+      latestEvidence.nativeSleepZeroOracleExecutableSha256 !==
+        "1168739db86861c6fb75179a606b0e60429cd301adda8cf523ee8c697741da11" ||
+      latestEvidence.nativeSleepZeroOracleRuns !== 2 ||
+      latestEvidence.nativeSleepZeroOracleSingleCpuPinned !== true ||
+      latestEvidence.nativeSleepZeroOracleReadyCompetitor !== true ||
+      latestEvidence.nativeSleepZeroOracleSamplesPerRun !== 8 ||
+      latestEvidence.nativeSleepZeroOracleAdvancedSamplesPerRun !== 8 ||
+      latestEvidence.nativeSleepZeroOraclePreservedLastErrorSamplesPerRun !== 8 ||
+      latestEvidence.nativeSleepZeroOracleWaitResult !== 0 ||
+      latestEvidence.nativeSleepZeroOracleExitCodes?.join(",") !== "0,0" ||
+      latestEvidence.nativeSleepZeroPrimaryOuterLoopEntryRva !== "0x0006a263" ||
+      latestEvidence.nativeSleepZeroPrimaryCallerReturnRva !== "0x0006a2f5" ||
+      latestEvidence.nativeSleepZeroPrimaryArgument !== 0 ||
+      latestEvidence.nativeSleepZeroPrimaryConsumer !==
+        "repeat-raster-status-read-and-yield-current-thread" ||
+      latestEvidence.nativeSleepZeroPrimaryAndConfirmationAgree !== true ||
+      latestEvidence.nativeSleepZeroExecutableHashUnchanged !== true ||
+      latestEvidence.sleepZeroImplemented !== true ||
+      latestEvidence.sleepZeroPolicyId !== "kernel32-sleep-zero-v1" ||
+      latestEvidence.sleepZeroPolicySource !==
+        "fixtures/runtime-policies/kernel32-sleep-zero-v1.json" ||
+      latestEvidence.sleepZeroCallCount !== 240 ||
+      latestEvidence.sleepZeroSequences?.join(",") !== "89430,107670" ||
+      latestEvidence.sleepZeroOccurrences?.join(",") !== "1,240" ||
+      latestEvidence.sleepZeroInstructionCounts?.join(",") !==
+        "15953766,16290005" ||
+      latestEvidence.sleepZeroArguments?.join(",") !== "0x00000000" ||
+      latestEvidence.sleepZeroResult !== "void-eax-preserved" ||
+      latestEvidence.sleepZeroReturnAddress !== "0x1006a2f5" ||
+      latestEvidence.sleepZeroStackPointers?.join(",") !==
+        "0x006ff578,0x006ff580" ||
+      latestEvidence.sleepZeroLastErrors?.join(",") !== "0,0" ||
+      latestEvidence.sleepZeroGuestWriteBytes !== 0 ||
+      latestEvidence.sleepZeroImplementationId !==
+        "kernel32.sleep-zero.yield-current-thread.v1" ||
+      latestEvidence.sleepZeroExecutionBoundary !== "yield-current-thread" ||
+      latestEvidence.sleepZeroSchedulerAuthority !==
+        "runtime/scheduler.rs::RuntimeScheduler" ||
+      latestEvidence.sleepZeroSchedulerSelectionCount !== 240 ||
+      latestEvidence.sleepZeroSchedulerSelectionSequences?.join(",") !==
+        "89430,107670" ||
+      latestEvidence.sleepZeroSchedulerSelectionInstructionCounts?.join(",") !==
+        "15953766,16290005" ||
+      latestEvidence.sleepZeroSchedulerPreviousThreadId !== 8_192 ||
+      latestEvidence.sleepZeroSchedulerSelectedThreadId !== 8_193 ||
+      latestEvidence.sleepZeroNoCompetitorCompletions !== 0 ||
+      latestEvidence.sleepZeroHostWaitCreated !== false ||
+      latestEvidence.sleepZeroNonzeroRejectedBeforeMutation !== true ||
+      latestEvidence.sleepZeroFailureAtomicity !== true ||
+      latestEvidence.sleepZeroNodeCompletions !== 240 ||
+      latestEvidence.sleepZeroChromeCompletions !== 240 ||
+      latestEvidence.sleepZeroNodeChromeOrderedSemanticsMatched !== true ||
+      bgiBrowserEvidence.sleepZeroCompletions !== 240 ||
+      bgiBrowserEvidence.sleepZeroSequences?.join(",") !== "89430,107670" ||
+      bgiBrowserEvidence.sleepZeroOccurrences?.join(",") !== "1,240" ||
+      bgiBrowserEvidence.sleepZeroInstructionCounts?.join(",") !==
+        "15953766,16290005" ||
+      bgiBrowserEvidence.sleepZeroArguments?.join(",") !== "0x00000000" ||
+      bgiBrowserEvidence.sleepZeroResult !== "void-eax-preserved" ||
+      bgiBrowserEvidence.sleepZeroReturnAddress !== "0x1006a2f5" ||
+      bgiBrowserEvidence.sleepZeroStackPointers?.join(",") !==
+        "0x006ff578,0x006ff580" ||
+      bgiBrowserEvidence.sleepZeroLastErrors?.join(",") !== "0,0" ||
+      bgiBrowserEvidence.sleepZeroGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.sleepZeroImplementationId !==
+        "kernel32.sleep-zero.yield-current-thread.v1" ||
+      bgiBrowserEvidence.sleepZeroExecutionBoundary !== "yield-current-thread" ||
+      bgiBrowserEvidence.sleepZeroSchedulerAuthority !== "rust-runtime-scheduler" ||
+      bgiBrowserEvidence.sleepZeroSchedulerSelectionCount !== 240 ||
+      bgiBrowserEvidence.sleepZeroSchedulerSelectionSequences?.join(",") !==
+        "89430,107670" ||
+      bgiBrowserEvidence.sleepZeroSchedulerSelectionInstructionCounts?.join(",") !==
+        "15953766,16290005" ||
+      bgiBrowserEvidence.sleepZeroSchedulerPreviousThreadId !== 8_192 ||
+      bgiBrowserEvidence.sleepZeroSchedulerSelectedThreadId !== 8_193 ||
+      bgiBrowserEvidence.sleepZeroNoCompetitorCompletions !== 0 ||
+      bgiBrowserEvidence.sleepZeroHostWaitCreated !== false ||
+      bgiBrowserEvidence.sleepZeroNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("Sleep(0) native, Rust, Node, and Chrome evidence is invalid");
   }
   if (
     currentStop.kind === "com-method" &&

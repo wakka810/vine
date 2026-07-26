@@ -33,16 +33,16 @@ use vine_core::{
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, ReentrancyPolicy,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap,
-    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeModule, RuntimeModuleLoadState,
-    RuntimeModuleReferenceOwner, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeTlsValue,
-    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
+    RegisterUpdate, RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockState,
+    RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeHeapInitialization,
+    RuntimeModule, RuntimeModuleLoadState, RuntimeModuleReferenceOwner, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeTlsValue, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
+    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
-    SET_WAITABLE_TIMER_IMPLEMENTATION, SchedulerThreadState, StackCleanup,
-    TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
+    SET_WAITABLE_TIMER_IMPLEMENTATION, SLEEP_ZERO_IMPLEMENTATION, SchedulerThreadState,
+    StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
     complete_kernel32_waitable_timer_pacing, dispatch_kernel32_api,
     dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
@@ -6817,6 +6817,133 @@ fn set_waitable_timer_arms_bounded_relative_one_shot_atomically() {
             if fault.code == "set-waitable-timer-policy-disabled"
     ));
     assert_eq!(runtime, runtime_before_disabled);
+}
+
+#[test]
+fn sleep_zero_requests_a_scheduler_yield_and_rejects_other_intervals_before_mutation() {
+    let (mut memory, owner) = initialized_memory();
+    let endpoint_address = GuestAddress(ENDPOINT_BASE + 0x11c);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(IAT_BASE),
+            &endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize Sleep IAT");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(1),
+        address: endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "Sleep".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("Sleep contract");
+    assert_eq!(contract.implementation_id, SLEEP_ZERO_IMPLEMENTATION);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Void);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.behavior, ApiBehavior::Immediate);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+
+    let frames = [
+        vec![0x1000_1010, 0],
+        vec![0x1000_1011, 1],
+        vec![0x1000_1012, 0],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    memory.seal_owner(owner).expect("seal runtime owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"
+    ))
+    .expect("active Kernel32 policy fixture");
+    assert!(policy.allows_sleep_zero());
+    policy.validate().expect("valid Sleep(0) policy");
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let dispatch = |index: usize,
+                    memory: &mut GuestMemory,
+                    runtime: &mut RuntimeState,
+                    selected_policy: &Kernel32CompatibilityPolicy|
+     -> DispatchOutcome {
+        let mut session = ExecutionSession::new(memory, runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(
+                &endpoint,
+                STACK_BASE + index as u32 * 0x20,
+                frames[index][0],
+            ),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(selected_policy, contract, frame, session)
+            },
+        )
+    };
+
+    let runtime_before_success = runtime.clone();
+    let memory_before_success = memory.stats();
+    let DispatchOutcome::Immediate(completion) = dispatch(0, &mut memory, &mut runtime, &policy)
+    else {
+        panic!("Sleep(0) did not complete immediately");
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Preserve);
+    assert_eq!(completion.stack_pointer, GuestAddress(STACK_BASE + 8));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(
+        completion.execution_boundary,
+        RuntimeApiBoundaryDisposition::YieldCurrentThread
+    );
+    assert_eq!(runtime, runtime_before_success);
+    assert_eq!(memory.stats(), memory_before_success);
+
+    let runtime_before_interval = runtime.clone();
+    let memory_before_interval = memory.stats();
+    let interval = dispatch(1, &mut memory, &mut runtime, &policy);
+    assert!(matches!(
+        interval,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "sleep-interval-unsupported"
+    ));
+    assert_eq!(runtime, runtime_before_interval);
+    assert_eq!(memory.stats(), memory_before_interval);
+
+    let mut disabled = policy;
+    disabled.sleep_zero = false;
+    disabled.validate().expect("valid disabled Sleep policy");
+    let runtime_before_disabled = runtime.clone();
+    let memory_before_disabled = memory.stats();
+    let disabled_outcome = dispatch(2, &mut memory, &mut runtime, &disabled);
+    assert!(matches!(
+        disabled_outcome,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "sleep-zero-policy-disabled"
+    ));
+    assert_eq!(runtime, runtime_before_disabled);
+    assert_eq!(memory.stats(), memory_before_disabled);
 }
 
 #[test]

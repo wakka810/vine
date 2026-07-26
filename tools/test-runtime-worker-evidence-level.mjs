@@ -11,7 +11,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 20 as const/u);
+assert.match(protocol, /protocolVersion = 21 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -25,6 +25,7 @@ assert.doesNotMatch(worker, /supportedCalls\.some\(/u);
 assert.equal(worker.match(/supportedCalls\.sort\(/gu)?.length, 1);
 assert.match(worker, /summary runtime evidence is only supported for the private BGI workload/u);
 assert.match(worker, /summary BGI evidence retained detailed call payloads/u);
+assert.match(worker, /terminal\.outcome === "structured-stop"/u);
 assert.match(
   worker,
   /this\.#configuration\.capabilityProfile ===\s*"kernel32-wait-for-single-object-ex"/u,

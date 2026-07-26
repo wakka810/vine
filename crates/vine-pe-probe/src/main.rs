@@ -239,6 +239,7 @@ enum GenericRuntimeCapability {
     SetWaitableTimer,
     WaitForSingleObjectEx,
     DragAcceptFiles,
+    SleepZero,
 }
 
 struct GenericRuntimeProcess {
@@ -2630,6 +2631,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SetWaitableTimer
                     | GenericRuntimeCapability::WaitForSingleObjectEx
                     | GenericRuntimeCapability::DragAcceptFiles
+                    | GenericRuntimeCapability::SleepZero
             )
         ) {
             let loader = kernel32_policy
@@ -3295,9 +3297,13 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let sleep_zero_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::SleepZero)
+    );
     let drag_accept_files_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DragAcceptFiles)
+        Some(GenericRuntimeCapability::DragAcceptFiles | GenericRuntimeCapability::SleepZero)
     );
     let wait_for_single_object_ex_enabled = drag_accept_files_enabled
         || matches!(
@@ -4149,6 +4155,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             wait_for_single_object_ex_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "Sleep".to_owned(),
+            },
+        ) {
+            sleep_zero_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -5504,7 +5517,9 @@ fn run_v86_generic_runtime_session(
                         )?;
                         let thread_selection = session
                             .runtime_mut()
-                            .complete_api_execution_boundary()
+                            .complete_api_execution_boundary_with_disposition(
+                                completion.execution_boundary,
+                            )
                             .map_err(runtime_state_error)?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
@@ -5938,7 +5953,9 @@ fn run_v86_generic_runtime_session(
                         };
                         let thread_selection = session
                             .runtime_mut()
-                            .complete_api_execution_boundary()
+                            .complete_api_execution_boundary_with_disposition(
+                                completion.execution_boundary,
+                            )
                             .map_err(runtime_state_error)?;
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
@@ -13643,6 +13660,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "primary-main-loop-progression" => GenericRuntimeCapability::WaitForSingleObjectEx,
                 "shell32-drag-accept-files" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-archive-source-read" => GenericRuntimeCapability::DragAcceptFiles,
+                "kernel32-sleep-zero" => GenericRuntimeCapability::SleepZero,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

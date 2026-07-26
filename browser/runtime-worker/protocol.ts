@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 20 as const;
+export const protocolVersion = 21 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -13,7 +13,8 @@ export type BgiCapabilityProfile =
   | "kernel32-enter-critical-section-continuation"
   | "kernel32-leave-critical-section-continuation"
   | "shell32-drag-accept-files"
-  | "kernel32-archive-source-read";
+  | "kernel32-archive-source-read"
+  | "kernel32-sleep-zero";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -23,6 +24,24 @@ export interface RuntimeThreadSelectionSnapshot {
   state:
     | { state: "runnable" }
     | { state: "in-callback"; depth: number };
+  executionBoundary?: "yield-current-thread";
+}
+
+export interface RuntimeSleepZeroCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "Sleep";
+  occurrence: number;
+  trapInstructionCount: number;
+  arguments: [0];
+  result: { action: "preserve" };
+  implementationId: "kernel32.sleep-zero.yield-current-thread.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+  executionBoundary: "yield-current-thread";
 }
 
 export interface PageLifecycleSnapshot {
@@ -401,6 +420,7 @@ export interface SessionReport {
     stackPointerAfter: number;
     lastError?: number;
     guestWrites: Array<{ address: number; bytes: number[] }>;
+    executionBoundary?: "yield-current-thread";
     interface?: string;
     vtableSlot?: number;
     referenceCount?: number;
@@ -443,6 +463,20 @@ export interface SessionReport {
     acceptanceAuthority: "effective-extended-style-ws-ex-acceptfiles";
     browserResourceCreated: false;
     wmDropFilesImplemented: false;
+  } | null;
+  sleepZero: {
+    callCount: number;
+    firstCall: RuntimeSleepZeroCallSnapshot;
+    lastCall: RuntimeSleepZeroCallSnapshot;
+    executionBoundary: "yield-current-thread";
+    schedulerAuthority: "rust-runtime-scheduler";
+    schedulerSelections: {
+      selectionCount: number;
+      firstSelection: RuntimeThreadSelectionSnapshot | null;
+      lastSelection: RuntimeThreadSelectionSnapshot | null;
+    };
+    noCompetitorCompletions: number;
+    hostWaitCreated: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

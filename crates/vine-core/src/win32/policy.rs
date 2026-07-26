@@ -55,6 +55,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub set_waitable_timer: Option<Kernel32SetWaitableTimerPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait_for_single_object_ex: Option<Kernel32WaitForSingleObjectExPolicy>,
+    #[serde(default)]
+    pub sleep_zero: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -360,6 +362,7 @@ impl Kernel32CompatibilityPolicy {
             create_waitable_timer_a: None,
             set_waitable_timer: None,
             wait_for_single_object_ex: None,
+            sleep_zero: false,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -644,6 +647,12 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-wait-for-single-object-ex-invalid",
                 "WaitForSingleObjectEx requires the timer arm layer, a bounded finite timeout, at least one alertable mode, and timer-only object scope",
+            ));
+        }
+        if self.sleep_zero && self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION {
+            return Err(policy_error(
+                "kernel32-policy-sleep-zero-invalid",
+                "Sleep(0) requires the version 2 compatibility-policy boundary",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -1001,6 +1010,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn wait_for_single_object_ex(&self) -> Option<Kernel32WaitForSingleObjectExPolicy> {
         self.wait_for_single_object_ex
+    }
+
+    pub fn allows_sleep_zero(&self) -> bool {
+        self.sleep_zero
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {

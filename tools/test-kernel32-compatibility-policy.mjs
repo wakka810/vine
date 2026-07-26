@@ -49,6 +49,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-virtual-alloc-reserve-v1.json",
   "fixtures/runtime-policies/kernel32-set-waitable-timer-v1.json",
   "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
+  "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -247,6 +248,12 @@ for (const relative of policyFiles) {
       allowCompletionRoutine: false,
       allowResume: false,
     });
+  }
+  const sleepZero = policy.sleepZero ?? false;
+  assert.equal(typeof sleepZero, "boolean");
+  if (sleepZero) {
+    assert.equal(policy.schemaVersion, 2);
+    assert.equal(policy.id, "kernel32-sleep-zero-v1");
   }
   const loadLibraryA = policy.loadLibraryA ?? null;
   if (loadLibraryA !== null) {

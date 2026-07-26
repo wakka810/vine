@@ -132,8 +132,8 @@ use super::process::{RuntimeProcessDirectories, RuntimeProcessMutationPlan};
 use super::registries::LOGICAL_ENCODED_POINTER_NAMESPACE;
 use super::registries::{RuntimeDynamicEndpoint, RuntimeEncodedPointer, RuntimeRegistries};
 use super::scheduler::{
-    RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler, RuntimeSchedulerEvent,
-    RuntimeThreadExecutionSelection, SchedulerThreadState,
+    RuntimeApiBoundaryDisposition, RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler,
+    RuntimeSchedulerEvent, RuntimeThreadExecutionSelection, SchedulerThreadState,
 };
 use super::scheduler::{
     RuntimeHostCompletionPlan, RuntimeHostRequestCancellationPlan, RuntimeHostRequestPlan,
@@ -3192,6 +3192,15 @@ impl RuntimeKernel {
     pub fn complete_api_execution_boundary(
         &mut self,
     ) -> Result<Option<RuntimeThreadExecutionSelection>, RuntimeStateError> {
+        self.complete_api_execution_boundary_with_disposition(
+            RuntimeApiBoundaryDisposition::ContinueQuantum,
+        )
+    }
+
+    pub fn complete_api_execution_boundary_with_disposition(
+        &mut self,
+        disposition: RuntimeApiBoundaryDisposition,
+    ) -> Result<Option<RuntimeThreadExecutionSelection>, RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
             || !self.scheduler_state()?.is_executable()
@@ -3212,7 +3221,7 @@ impl RuntimeKernel {
                 "current API boundary thread has no runtime object identity",
             ));
         }
-        let plan = self.scheduler.plan_completed_api_boundary()?;
+        let plan = self.scheduler.plan_completed_api_boundary(disposition)?;
         let selection = if let Some(selection) = plan.selection() {
             let thread_id = selection.next();
             let state = self.scheduler_state_for_thread(thread_id)?;

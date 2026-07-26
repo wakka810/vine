@@ -21,14 +21,15 @@ use crate::pe32::{ImportTarget, LoaderIngressReport};
 use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, ProcessAddressAllocationClassification,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy, RuntimeAudioDevice,
-    RuntimeAudioDeviceCreateRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
-    RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
-    RuntimeDynamicEndpoint, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
-    RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGdiplusSession,
-    RuntimeGdiplusStartupRequest, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeHeapInitialization,
-    RuntimeHeapTeardown, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
+    RuntimeApiBoundaryDisposition, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
+    RuntimeCallbackFrameId, RuntimeCallbackScratch, RuntimeCreateDibSectionResult,
+    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeDynamicEndpoint,
+    RuntimeGdiDibSectionDescriptor, RuntimeGdiObject, RuntimeGdiTextRasterResult,
+    RuntimeGdiTextRasterTarget, RuntimeGdiplusSession, RuntimeGdiplusStartupRequest,
+    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeVirtualMemoryReservation,
@@ -541,6 +542,8 @@ pub struct ApiImmediate {
     pub committed_guest_writes: Vec<ApiGuestWriteReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<u32>,
+    #[serde(skip_serializing_if = "RuntimeApiBoundaryDisposition::continues_quantum")]
+    pub execution_boundary: RuntimeApiBoundaryDisposition,
 }
 
 impl ApiImmediate {
@@ -550,6 +553,7 @@ impl ApiImmediate {
             guest_writes: Vec::new(),
             committed_guest_writes: Vec::new(),
             last_error: None,
+            execution_boundary: RuntimeApiBoundaryDisposition::ContinueQuantum,
         }
     }
 
@@ -565,6 +569,11 @@ impl ApiImmediate {
 
     pub fn with_last_error(mut self, last_error: u32) -> Self {
         self.last_error = Some(last_error);
+        self
+    }
+
+    pub fn with_execution_boundary(mut self, disposition: RuntimeApiBoundaryDisposition) -> Self {
+        self.execution_boundary = disposition;
         self
     }
 }
@@ -1014,6 +1023,8 @@ pub struct ApiImmediateCompletion {
     pub eflags: RegisterUpdate,
     pub last_error: u32,
     pub guest_writes: Vec<ApiGuestWriteReceipt>,
+    #[serde(skip_serializing_if = "RuntimeApiBoundaryDisposition::continues_quantum")]
+    pub execution_boundary: RuntimeApiBoundaryDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -2716,6 +2727,7 @@ fn complete_immediate_in_memory(
         eflags: RegisterUpdate::Preserve,
         last_error: next_last_error,
         guest_writes,
+        execution_boundary: immediate.execution_boundary,
     })
 }
 

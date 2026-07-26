@@ -658,6 +658,7 @@ class BrowserRuntimeSession {
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
     dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
+    sleepZero: null as SessionReport["sleepZero"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -686,7 +687,8 @@ class BrowserRuntimeSession {
       const sourceBackedWorkload =
         workload === "controlled-source-read" ||
         (workload === "private-bgi" &&
-          this.#configuration.capabilityProfile === "kernel32-archive-source-read");
+          (this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
+            this.#configuration.capabilityProfile === "kernel32-sleep-zero"));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -2042,7 +2044,11 @@ class BrowserRuntimeSession {
             "runnable API-created guest thread has no CPU context",
           );
         }
-        this.#completeApiExecutionBoundary(resumeState, metadata.threadSelection);
+        this.#completeApiExecutionBoundary(
+          resumeState,
+          metadata.threadSelection,
+          metadata.completion.executionBoundary,
+        );
         break;
       }
       case "api-fault":
@@ -2339,6 +2345,9 @@ class BrowserRuntimeSession {
         address: write.address,
         bytes: write.bytes,
       })),
+      ...(completion.executionBoundary === undefined
+        ? {}
+        : { executionBoundary: completion.executionBoundary }),
       ...(metadata.currentDirectory === undefined
         ? {}
         : { currentDirectory: metadata.currentDirectory }),
@@ -2436,6 +2445,64 @@ class BrowserRuntimeSession {
         browserResourceCreated: false,
         wmDropFilesImplemented: false,
       };
+    }
+    if (
+      completion.implementationId ===
+      "kernel32.sleep-zero.yield-current-thread.v1"
+    ) {
+      invariant(
+        this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+          endpoint.module.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "Sleep",
+        "Sleep(0) completed outside its capability profile",
+      );
+      invariant(
+        call.arguments.length === 1 &&
+          call.arguments[0] === 0 &&
+          completion.eax.action === "preserve" &&
+          completion.lastError === 0 &&
+          guestWrites.length === 0 &&
+          completion.executionBoundary === "yield-current-thread",
+        "Sleep(0) ABI or execution-boundary completion changed",
+      );
+      const occurrence = (this.#report.sleepZero?.callCount ?? 0) + 1;
+      const sleepCall = {
+        sequence,
+        module: endpoint.module,
+        symbol: "Sleep" as const,
+        occurrence,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [0] as [0],
+        result: { action: "preserve" as const },
+        implementationId:
+          "kernel32.sleep-zero.yield-current-thread.v1" as const,
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [] as [],
+        executionBoundary: "yield-current-thread" as const,
+      };
+      if (this.#report.sleepZero === null) {
+        this.#report.sleepZero = {
+          callCount: 1,
+          firstCall: sleepCall,
+          lastCall: sleepCall,
+          executionBoundary: "yield-current-thread",
+          schedulerAuthority: "rust-runtime-scheduler",
+          schedulerSelections: {
+            selectionCount: 0,
+            firstSelection: null,
+            lastSelection: null,
+          },
+          noCompetitorCompletions: 0,
+          hostWaitCreated: false,
+        };
+      } else {
+        this.#report.sleepZero.callCount = occurrence;
+        this.#report.sleepZero.lastCall = sleepCall;
+      }
     }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
@@ -3005,10 +3072,29 @@ class BrowserRuntimeSession {
   #completeApiExecutionBoundary(
     callerResumeState: "ready" | "guest-callback",
     selection: ApiBoundaryThreadSelection | undefined,
+    executionBoundary: ApiCompletion["executionBoundary"],
   ): void {
+    if (executionBoundary === "yield-current-thread") {
+      const sleepZero = this.#report.sleepZero;
+      invariant(
+        this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+          sleepZero !== null &&
+          sleepZero.callCount ===
+            sleepZero.schedulerSelections.selectionCount +
+              sleepZero.noCompetitorCompletions +
+              1,
+        "Sleep(0) execution boundary is out of sequence",
+      );
+      if (selection === undefined) {
+        sleepZero.noCompetitorCompletions += 1;
+      }
+    }
     if (selection === undefined) {
       this.#execution.transition(callerResumeState, {
-        cause: "synchronous-api-complete",
+        cause:
+          executionBoundary === "yield-current-thread"
+            ? "synchronous-api-explicit-yield-no-competitor"
+            : "synchronous-api-complete",
         threadId: this.#currentThreadId,
       });
       return;
@@ -3027,15 +3113,27 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile ===
         "kernel32-leave-critical-section-continuation" ||
       this.#configuration.capabilityProfile === "shell32-drag-accept-files" ||
-      this.#configuration.capabilityProfile === "kernel32-archive-source-read"
+      this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
+      this.#configuration.capabilityProfile === "kernel32-sleep-zero"
     ) {
-      this.#mainLoopThreadSelections.push({
+      const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
         instructionCount: this.#report.instructions,
         previousThreadId: selection.previousThreadId,
         threadId: selection.threadId,
         state: structuredClone(selection.state),
-      });
+        ...(executionBoundary === undefined ? {} : { executionBoundary }),
+      };
+      this.#mainLoopThreadSelections.push(selectionSnapshot);
+      if (executionBoundary === "yield-current-thread") {
+        const sleepZero = this.#report.sleepZero ??
+          failInvariant("Sleep(0) scheduler evidence is missing");
+        sleepZero.schedulerSelections.selectionCount += 1;
+        sleepZero.schedulerSelections.firstSelection ??=
+          structuredClone(selectionSnapshot);
+        sleepZero.schedulerSelections.lastSelection =
+          structuredClone(selectionSnapshot);
+      }
       if (
         this.#configuration.capabilityProfile === "primary-main-loop-progression" &&
         this.#mainLoopThreadSelections.length === 2 &&
@@ -3058,7 +3156,10 @@ class BrowserRuntimeSession {
     }
     this.#saveLiveThreadContext();
     this.#execution.transition("thread-switch", {
-      cause: "api-boundary-quantum-expired",
+      cause:
+        executionBoundary === "yield-current-thread"
+          ? "api-boundary-explicit-yield"
+          : "api-boundary-quantum-expired",
       threadId: selection.threadId,
     });
     this.#activateThread(selection.threadId, selection.state);
@@ -3904,6 +4005,20 @@ class BrowserRuntimeSession {
       "BGI semantic call digest count diverged from completed sequence identity",
     );
     this.#report.supportedCallSemanticsSha256 = this.#semanticCallDigest.digestHex();
+    if (
+      this.#configuration.capabilityProfile === "kernel32-sleep-zero" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      const sleepZero = this.#report.sleepZero;
+      invariant(
+        sleepZero !== null &&
+          sleepZero.callCount > 0 &&
+          sleepZero.callCount ===
+            sleepZero.schedulerSelections.selectionCount +
+              sleepZero.noCompetitorCompletions,
+        "Sleep(0) report omitted an execution-boundary outcome",
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -4054,6 +4169,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             sourceReads: [],
             writableCommits: [],
             dragAcceptFiles: null,
+            sleepZero: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

@@ -1,9 +1,10 @@
 use vine_core::{
     GuestAddress, LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout,
-    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeBootstrap, RuntimeClockState, RuntimeHandle,
-    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState,
-    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_API_BOUNDARY_QUANTUM, RuntimeApiBoundaryDisposition, RuntimeBootstrap,
+    RuntimeClockState, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -76,6 +77,52 @@ fn api_boundary_quantum_starts_only_after_a_second_runnable_lane_exists() {
             .thread_id,
         SECOND_THREAD_ID
     );
+}
+
+#[test]
+fn api_boundary_yield_selects_a_runnable_competitor_without_host_wait() {
+    let mut runtime = running_runtime();
+    assert_eq!(
+        runtime
+            .complete_api_execution_boundary_with_disposition(
+                RuntimeApiBoundaryDisposition::YieldCurrentThread,
+            )
+            .unwrap(),
+        None,
+        "yield without a runnable competitor returns immediately"
+    );
+    assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
+
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second executable thread");
+    assert_eq!(runtime.complete_api_execution_boundary().unwrap(), None);
+    let selection = runtime
+        .complete_api_execution_boundary_with_disposition(
+            RuntimeApiBoundaryDisposition::YieldCurrentThread,
+        )
+        .expect("complete yielding API boundary")
+        .expect("yield selects the runnable competitor immediately");
+    assert_eq!(selection.previous_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(selection.thread_id, SECOND_THREAD_ID);
+    assert_eq!(selection.state, SchedulerThreadState::Runnable);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+
+    for completed in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+        assert_eq!(
+            runtime.complete_api_execution_boundary().unwrap(),
+            None,
+            "explicit yield must reset the following quantum at boundary {completed}"
+        );
+        assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    }
+    let reset_quantum_selection = runtime
+        .complete_api_execution_boundary()
+        .expect("complete reset quantum")
+        .expect("the reset quantum selects only at its final boundary");
+    assert_eq!(reset_quantum_selection.previous_thread_id, SECOND_THREAD_ID);
+    assert_eq!(reset_quantum_selection.thread_id, INITIAL_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
 }
 
 #[test]

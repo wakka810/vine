@@ -1674,7 +1674,7 @@ impl BrowserRuntime {
                 };
                 if let Some(selection) = self
                     .runtime
-                    .complete_api_execution_boundary()
+                    .complete_api_execution_boundary_with_disposition(completion.execution_boundary)
                     .map_err(error_string)?
                 {
                     metadata["threadSelection"] = json!(selection);
@@ -2837,6 +2837,7 @@ fn build_bgi_dispatcher(
                 "LCMapStringW" => kernel32_policy.lc_map_string_w().is_some(),
                 "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
                 "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
+                "Sleep" => kernel32_policy.allows_sleep_zero(),
                 _ => true,
             }
         })

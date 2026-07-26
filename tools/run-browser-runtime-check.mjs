@@ -74,7 +74,7 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v20";
+const runtimeProtocol = "vine.browser-runtime-worker.v21";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -547,7 +547,14 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
     }
     await wait(50);
   }
-  throw new Error(`BGI browser runtime timed out: ${JSON.stringify(snapshot)}`);
+  const diagnostics = await evaluate(client, `({
+    check: window.__vineBgiCheck,
+    status: document.querySelector("#status")?.textContent ?? null,
+    body: { ...document.body.dataset },
+  })`);
+  throw new Error(
+    `BGI browser runtime timed out after ${timeoutMs}ms: ${JSON.stringify(diagnostics)}`,
+  );
 }
 
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
@@ -561,7 +568,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" &&
+      scenario === "success" && bgiProfile === "kernel32-sleep-zero"
+        ? 300_000
+        : scenario === "success" &&
         (bgiProfile === "shell32-drag-accept-files" ||
           bgiProfile === "kernel32-archive-source-read")
         ? 180_000
@@ -596,6 +605,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
+        "kernel32-sleep-zero",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -614,6 +624,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
+        "kernel32-sleep-zero",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -631,8 +642,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-leave-critical-section",
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
+        "kernel32-sleep-zero",
       ].includes(bgiProfile) && scenario === "success"
-        ? bgiProfile === "kernel32-archive-source-read"
+        ? bgiProfile === "kernel32-sleep-zero"
+          ? 1_512
+          : bgiProfile === "kernel32-archive-source-read"
           ? 1_032
           : bgiProfile === "shell32-drag-accept-files"
           ? 1_030
@@ -687,10 +701,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (
         capabilityCheckpoint ||
         bgiProfile === "shell32-drag-accept-files" ||
-        bgiProfile === "kernel32-archive-source-read"
+        bgiProfile === "kernel32-archive-source-read" ||
+        bgiProfile === "kernel32-sleep-zero"
       ) {
         const pacingCount =
-          bgiProfile === "kernel32-archive-source-read"
+          bgiProfile === "kernel32-sleep-zero"
+            ? 6_910
+            : bgiProfile === "kernel32-archive-source-read"
             ? 4_716
             : bgiProfile === "shell32-drag-accept-files"
             ? 4_706
@@ -713,7 +730,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (
         bgiProfile === "shell32-drag-accept-files" ||
-        bgiProfile === "kernel32-archive-source-read"
+        bgiProfile === "kernel32-archive-source-read" ||
+        bgiProfile === "kernel32-sleep-zero"
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
@@ -744,7 +762,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.dragAcceptFiles, null);
       }
-      if (bgiProfile === "kernel32-archive-source-read") {
+      if (
+        bgiProfile === "kernel32-archive-source-read" ||
+        bgiProfile === "kernel32-sleep-zero"
+      ) {
         assert.deepEqual(
           evidence.report.sourceReads
             .filter((read) => read.request.sourceId === 1)
@@ -780,6 +801,35 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           ],
           "Chrome Worker primary boot-archive reads differ from the frozen slice",
         );
+      }
+      if (bgiProfile === "kernel32-sleep-zero") {
+        const sleepZero = evidence.report.sleepZero;
+        assert(sleepZero !== null, "Chrome Worker omitted Sleep(0) evidence");
+        assert.equal(sleepZero.callCount, 240);
+        assert.equal(sleepZero.firstCall.sequence, 89_430);
+        assert.equal(sleepZero.firstCall.occurrence, 1);
+        assert.equal(sleepZero.firstCall.trapInstructionCount, 15_953_766);
+        assert.deepEqual(sleepZero.firstCall.arguments, [0]);
+        assert.deepEqual(sleepZero.firstCall.result, { action: "preserve" });
+        assert.equal(sleepZero.firstCall.returnAddress, 0x1006_a2f5);
+        assert.equal(
+          sleepZero.firstCall.stackPointerAfter - sleepZero.firstCall.stackPointerBefore,
+          8,
+        );
+        assert.equal(sleepZero.firstCall.lastError, 0);
+        assert.deepEqual(sleepZero.firstCall.guestWrites, []);
+        assert.equal(sleepZero.firstCall.executionBoundary, "yield-current-thread");
+        assert.equal(sleepZero.lastCall.sequence, 107_670);
+        assert.equal(sleepZero.lastCall.occurrence, 240);
+        assert.equal(sleepZero.lastCall.trapInstructionCount, 16_290_005);
+        assert.equal(sleepZero.schedulerSelections.selectionCount, 240);
+        assert.equal(sleepZero.schedulerSelections.firstSelection?.sequence, 89_430);
+        assert.equal(sleepZero.schedulerSelections.lastSelection?.sequence, 107_670);
+        assert.equal(sleepZero.noCompetitorCompletions, 0);
+        assert.equal(sleepZero.schedulerAuthority, "rust-runtime-scheduler");
+        assert.equal(sleepZero.hostWaitCreated, false);
+      } else {
+        assert.equal(evidence.report.sleepZero, null);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1303,6 +1353,53 @@ function normalizeDragAcceptFiles(snapshot) {
   };
 }
 
+function normalizeSleepZero(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  const normalizeCall = (call) => ({
+    sequence: call.sequence,
+    module: call.module.toLowerCase(),
+    symbol: call.symbol,
+    occurrence: call.occurrence,
+    trapInstructionCount: call.trapInstructionCount,
+    arguments: call.arguments,
+    result: call.result,
+    implementationId: call.implementationId,
+    returnAddress: call.returnAddress,
+    stackPointerBefore: call.stackPointerBefore,
+    stackPointerAfter: call.stackPointerAfter,
+    lastError: call.lastError,
+    guestWrites: call.guestWrites,
+    executionBoundary: call.executionBoundary,
+  });
+  const normalizeSelection = (selection) =>
+    selection === null || selection === undefined
+      ? null
+      : {
+          sequence: selection.sequence,
+          instructionCount: selection.instructionCount,
+          previousThreadId: selection.previousThreadId,
+          threadId: selection.threadId,
+          state: selection.state,
+          executionBoundary: selection.executionBoundary,
+        };
+  return {
+    callCount: snapshot.callCount,
+    firstCall: normalizeCall(snapshot.firstCall),
+    lastCall: normalizeCall(snapshot.lastCall),
+    executionBoundary: snapshot.executionBoundary,
+    schedulerAuthority: snapshot.schedulerAuthority,
+    schedulerSelections: {
+      selectionCount: snapshot.schedulerSelections.selectionCount,
+      firstSelection: normalizeSelection(snapshot.schedulerSelections.firstSelection),
+      lastSelection: normalizeSelection(snapshot.schedulerSelections.lastSelection),
+    },
+    noCompetitorCompletions: snapshot.noCompetitorCompletions,
+    hostWaitCreated: snapshot.hostWaitCreated,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1337,6 +1434,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeDragAcceptFiles(browser.report.dragAcceptFiles),
     normalizeDragAcceptFiles(oracle.dragAcceptFiles),
     "Chrome Worker DragAcceptFiles evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeSleepZero(browser.report.sleepZero),
+    normalizeSleepZero(oracle.sleepZero),
+    "Chrome Worker Sleep(0) evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(
@@ -1870,7 +1972,8 @@ assert(
 );
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
 const sourceRegistration = bgiMode
-  ? bgiProfile === "kernel32-archive-source-read"
+  ? bgiProfile === "kernel32-archive-source-read" ||
+    bgiProfile === "kernel32-sleep-zero"
     ? await registerSourceSnapshot({
         manifestPath: path.join(
           root,

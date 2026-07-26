@@ -20,9 +20,9 @@ use crate::runtime::{
     RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
     RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
-    RUNTIME_WRITABLE_READ_SERVICE, RuntimeCreateThreadRequest, RuntimeCriticalSection,
-    RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA,
-    RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
+    RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
+    RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
+    RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
     RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExBegin,
     RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
     RuntimeWritableCommitHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
@@ -95,6 +95,7 @@ pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
     "kernel32.set-waitable-timer.relative-one-shot.v1";
 pub const WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION: &str =
     "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+pub const SLEEP_ZERO_IMPLEMENTATION: &str = "kernel32.sleep-zero.yield-current-thread.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
@@ -273,6 +274,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         SET_WAITABLE_TIMER_IMPLEMENTATION => {
             handle_set_waitable_timer(policy, contract, frame, session)
         }
+        SLEEP_ZERO_IMPLEMENTATION => handle_sleep_zero(policy, contract, frame),
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -383,6 +385,7 @@ pub fn kernel32_contract_for_endpoint(
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "SetWaitableTimer" => set_waitable_timer_contract(endpoint)?,
         "WaitForSingleObjectEx" => wait_for_single_object_ex_contract(endpoint)?,
+        "Sleep" => sleep_contract(endpoint)?,
         "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
         "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
         "QueryPerformanceFrequency" => query_performance_frequency_contract(endpoint)?,
@@ -2982,6 +2985,36 @@ fn wait_result_immediate(
     ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error)
 }
 
+fn handle_sleep_zero(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let milliseconds = required_argument(contract, frame, 0, "sleep interval")?;
+    if !policy.allows_sleep_zero() {
+        return Err(ApiFault::unsupported(
+            "win32-thread-scheduling",
+            "sleep-zero-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable Sleep(0)",
+                policy.id
+            ),
+        ));
+    }
+    if milliseconds != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-thread-scheduling",
+            "sleep-interval-unsupported",
+            format!(
+                "compatibility policy {} does not enable Sleep({milliseconds})",
+                policy.id
+            ),
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_execution_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread))
+}
+
 fn handle_get_string_type_w(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -4899,6 +4932,16 @@ pub fn wait_for_single_object_ex_contract(
     contract.behavior = ApiBehavior::ImmediateOrDeferred;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
+}
+
+pub fn sleep_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "Sleep",
+        vec![u32_argument("milliseconds")],
+        ApiReturnSchema::Void,
+        SLEEP_ZERO_IMPLEMENTATION,
+    )
 }
 
 pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

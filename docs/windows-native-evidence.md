@@ -5089,3 +5089,39 @@ ordered menu semanticsを再現した。Browser reportは952,766 bytes／SHA-256
 `0x1006A2F5`の`KERNEL32.dll!Sleep(0)`で、faultは`endpoint-contract-missing`である。General menu tree／item
 mutation、TRUE revert、window destruction、host scheduling、wall-clock delay、browser menu renderingはこのcheckpointで
 実装済みとしない。Current artifact identityは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+
+## 149. BGI cooperative `Sleep(0)` yield
+
+Primary consumer evidenceは、新規にtitle traceを増やさず、既存の独立したD3D9 raster-status primary／confirmation
+summaryを再利用した。両summaryはouter loop RVA `0x0006A263`がraster status readを反復し、その間に
+caller return RVA `0x0006A2F5`から`Sleep(0)`を呼ぶことに一致する。Immediate raster caller RVAは
+`0x0005AEDD`である。このrelationだけをtitle consumer contractとし、native schedulerの時間量やhost thread identityは
+importしない。既存raw trace／summaryは`.work/`に保持し、source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままである。
+
+Titleとは独立したno-CRT PE32／COFF-i386 oracle `x86-sleep-zero-ready-competitor-v1`を
+`.work/windows-traces/`で作成した。Mainとbusy workerを同じlogical CPUへpinし、suspended workerのresume、start／ready
+handshakeを完了してから8回`Sleep(0)`を呼ぶ。各callの前後でworker counterとsentinel LastErrorを採取し、stop後に
+worker join／handle closeを確認する。独立2 runはいずれもexit code 0、counter advance 8/8、LastError preserve 8/8、
+`WAIT_OBJECT_0`、close successである。Sourceは6,481 bytes／SHA-256
+`95ce4364c0428c1559679c753b0b1501b4977078d4f7b02c7ba900ca89479332`、objectは19,723 bytes／SHA-256
+`ebd64a7811cad7100b5f5ba6485c82cdf3d8f2e788afee385ff3b6e293d7f260`、executableは6,144 bytes／SHA-256
+`1168739db86861c6fb75179a606b0e60429cd301adda8cf523ee8c697741da11`である。`llvm-readobj --coff-imports`は
+`KERNEL32.dll!Sleep`を含むundecorated importsとCOFF-i386を確認した。Source、object、import library、executable、run outputは
+ignored evidenceでありGitへ追加しない。
+
+Runtime policy `kernel32-sleep-zero-v1`はargument 0だけを許可し、one-argument x86 stdcall、VOID／EAX preserve、
+LastError preserve、guest write zeroを固定する。Semantic handlerはhost timer／host waitを作らず、completionへ
+`yield-current-thread` dispositionを付ける。Rust `RuntimeScheduler`がrunnable lane selectionとquantum resetをplan／commitし、
+競合がなければcurrent laneを継続する。Callback中は別laneへinterleaveせず、stale／duplicate plan、runnable-set mismatch、
+nonzero interval、disabled policyをmutation前に拒否する。Positive interval、wall-clock delay、priority weighting、preemptive
+fairnessはこのcontractに含めない。
+
+Primary Node／Chromeは107,756 supported calls中240回の`Sleep(0)` completionと240回のRust scheduler selectionを一致させた。
+First／lastはsequence 89,430／107,670、occurrence 1／240、instruction 15,953,766／16,290,005で、argument 0、
+return `0x1006A2F5`、stack `0x006FF578 -> 0x006FF580`、LastError 0、guest write zeroである。各selectionは
+thread `8192 -> 8193`、no-competitor completion 0、host wait zeroで、ordered semantic SHA-256は
+`bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1`で一致した。次stopはinstruction
+16,384,108、endpoint ID 52／address `0x7F000330`／IAT `0x100D1178`／return `0x10081FAE`の
+`KERNEL32.dll!GlobalMemoryStatus(0x006FF674)`である。Current report、Wasm、memory identityは
+[current-checkpoint.json](current-checkpoint.json)だけを正本とする。

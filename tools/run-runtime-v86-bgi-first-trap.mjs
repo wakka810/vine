@@ -194,6 +194,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-continuation",
         "shell32-drag-accept-files",
         "kernel32-archive-source-read",
+        "kernel32-sleep-zero",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -297,6 +298,7 @@ assert(
       "primary-main-loop-continuation",
       "shell32-drag-accept-files",
       "kernel32-archive-source-read",
+      "kernel32-sleep-zero",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -305,7 +307,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-wait-for-single-object-ex" ||
+    genericRuntimeCapability === "kernel32-sleep-zero"
+      ? "kernel32-sleep-zero-v1.json"
+      : genericRuntimeCapability === "kernel32-wait-for-single-object-ex" ||
     genericRuntimeCapability === "kernel32-enter-critical-section" ||
     genericRuntimeCapability === "kernel32-enter-critical-section-continuation" ||
     genericRuntimeCapability === "kernel32-leave-critical-section-continuation" ||
@@ -505,7 +509,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const sleepZeroCheckpointEnabled =
+  genericRuntimeCapability === "kernel32-sleep-zero";
 const archiveSourceReadEnabled =
+  sleepZeroCheckpointEnabled ||
   genericRuntimeCapability === "kernel32-archive-source-read";
 const primaryMainLoopContinuationWorkloadEnabled =
   primaryMainLoopContinuationEnabled ||
@@ -813,7 +820,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? archiveSourceReadEnabled
+      ? sleepZeroCheckpointEnabled
+      ? "v86-bgi-sleep-zero"
+      : archiveSourceReadEnabled
       ? "v86-bgi-archive-source-read"
       : leaveCriticalSectionContinuationEnabled
       ? "v86-bgi-leave-critical-section-continuation"
@@ -4928,6 +4937,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (sleepZeroCheckpointEnabled) {
+        validateSleepZeroResult(genericResult);
       } else if (archiveSourceReadEnabled) {
         validateArchiveSourceReadResult(genericResult);
       } else if (dragAcceptFilesEnabled) {
@@ -5165,6 +5176,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : sleepZeroCheckpointEnabled
+          ? "bgi Sleep(0) cooperative scheduler yield"
           : archiveSourceReadEnabled
           ? "bgi primary boot-archive source read"
           : dragAcceptFilesEnabled
@@ -5653,6 +5666,9 @@ async function runGenericRuntimeReentry({
           };
     const firstTraversal = traversalSelections[0];
     const lastTraversal = traversalSelections.at(-1);
+    const yieldCurrentThreadSelections = threadSelections.filter(
+      (selection) => selection.executionBoundary === "yield-current-thread",
+    );
     return {
       schedulerContinuation: {
         selectionCount: threadSelections.length,
@@ -5677,6 +5693,20 @@ async function runGenericRuntimeReentry({
           primaryMainLoopSelectedThreadCycle === null
             ? null
             : structuredClone(primaryMainLoopSelectedThreadCycle),
+        yieldCurrentThread: {
+          selectionCount: yieldCurrentThreadSelections.length,
+          firstSelection:
+            yieldCurrentThreadSelections.length === 0
+              ? null
+              : structuredClone(yieldCurrentThreadSelections[0]),
+          lastSelection:
+            yieldCurrentThreadSelections.length === 0
+              ? null
+              : structuredClone(yieldCurrentThreadSelections.at(-1)),
+          ...(evidenceLevel === "full"
+            ? { threadSelections: structuredClone(yieldCurrentThreadSelections) }
+            : {}),
+        },
         ...(evidenceLevel === "full"
           ? { threadSelections: structuredClone(threadSelections) }
           : {}),
@@ -6635,6 +6665,9 @@ async function runGenericRuntimeReentry({
         previousThreadId: completionFrame.threadSelection.previousThreadId,
         threadId: completionFrame.threadSelection.threadId,
         state: structuredClone(completionFrame.threadSelection.state),
+        ...(call.executionBoundary === undefined
+          ? {}
+          : { executionBoundary: call.executionBoundary }),
         ...(primaryMainLoopContinuationWorkloadEnabled
           ? {
               previousThreadTrapContext: {
@@ -7181,6 +7214,9 @@ function buildGenericCallRecord(
       bytes: write.bytes,
       result,
     })),
+    ...(completionFrame.completion.executionBoundary === undefined
+      ? {}
+      : { executionBoundary: completionFrame.completion.executionBoundary }),
     ...(completionFrame.flsValue === undefined
       ? {}
       : { flsValue: completionFrame.flsValue }),
@@ -7305,6 +7341,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : sleepZeroCheckpointEnabled
+        ? 99
         : archiveSourceReadEnabled
           ? 98
         : dragAcceptFilesEnabled
@@ -17602,6 +17640,76 @@ function validatePrimaryMainLoopContinuationResult(result) {
   );
 }
 
+function validateSleepZeroResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 107_756);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    107_756,
+  );
+  assert.equal(result.callbackEvents.length, 48);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 5);
+  const sleepCalls = result.supportedCalls.filter(
+    (call) => call.implementationId === "kernel32.sleep-zero.yield-current-thread.v1",
+  );
+  assert.equal(sleepCalls.length, 240, "Sleep(0) completion count changed");
+  const sleep = sleepCalls[0];
+  assert.equal(sleep.sequence, 89_430);
+  assert.equal(sleep.symbol, "Sleep");
+  assert.equal(sleep.occurrence, 1);
+  assert.equal(sleep.trapInstructionCount, 15_953_766);
+  assert.deepEqual(sleep.arguments, [0]);
+  assert.deepEqual(sleep.result, { action: "preserve" });
+  assert.equal(sleep.returnAddress, 0x1006_a2f5);
+  assert.equal(sleep.stackPointerAfter - sleep.stackPointerBefore, 8);
+  assert.equal(sleep.lastError, 0);
+  assert.deepEqual(sleep.guestWrites, []);
+  assert.equal(sleep.executionBoundary, "yield-current-thread");
+  const lastSleep = sleepCalls.at(-1);
+  assert.equal(lastSleep.sequence, 107_670);
+  assert.equal(lastSleep.occurrence, 240);
+  assert.equal(lastSleep.trapInstructionCount, 16_290_005);
+  assert.equal(lastSleep.returnAddress, 0x1006_a2f5);
+  assert.equal(lastSleep.executionBoundary, "yield-current-thread");
+  assert.equal(result.schedulerContinuation.selectionCount, 1_512);
+  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.firstSelection.sequence,
+    89_430,
+  );
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.lastSelection.sequence,
+    107_670,
+  );
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_512,
+    threadExits: [],
+  });
+  assert.equal(result.finalGeneration, 201_035);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 52,
+    address: 0x7f00_0330,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "GlobalMemoryStatus" },
+    iatAddress: 0x100d_1178,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+  );
+  assert.equal(result.terminal.instructionCount, 16_384_108);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_1fae);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f674]);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -21815,10 +21923,14 @@ function buildGenericRuntimeReentryReport({
     );
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
-        assert.equal(
-          setWaitableTimerCalls.length,
-          archiveSourceReadEnabled ? 4_716 : 4_707,
-        );
+        if (sleepZeroCheckpointEnabled) {
+          assert.equal(setWaitableTimerCalls.length, 6_910);
+        } else {
+          assert.equal(
+            setWaitableTimerCalls.length,
+            archiveSourceReadEnabled ? 4_716 : 4_707,
+          );
+        }
       } else {
         assert.equal(setWaitableTimerCalls.length, 7);
       }
@@ -21840,10 +21952,14 @@ function buildGenericRuntimeReentryReport({
   if (waitForSingleObjectExEnabled) {
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
-        assert.equal(
-          waitForSingleObjectExCalls.length,
-          archiveSourceReadEnabled ? 4_716 : 4_706,
-        );
+        if (sleepZeroCheckpointEnabled) {
+          assert.equal(waitForSingleObjectExCalls.length, 6_910);
+        } else {
+          assert.equal(
+            waitForSingleObjectExCalls.length,
+            archiveSourceReadEnabled ? 4_716 : 4_706,
+          );
+        }
       } else {
         assert.equal(waitForSingleObjectExCalls.length, 7);
       }
@@ -21906,6 +22022,21 @@ function buildGenericRuntimeReentryReport({
       "system-menu report summary requires the initial failure and reached live-window chains",
     );
   }
+  const sleepZeroCalls = sleepZeroCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "kernel32.sleep-zero.yield-current-thread.v1",
+      )
+    : [];
+  if (sleepZeroCheckpointEnabled) {
+    assert.equal(sleepZeroCalls.length, 240, "Sleep(0) report summary count changed");
+    assert.equal(
+      genericResult.schedulerContinuation.yieldCurrentThread.selectionCount,
+      sleepZeroCalls.length,
+      "each reached Sleep(0) must select the runnable competitor",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -21955,6 +22086,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : sleepZeroCheckpointEnabled
+        ? "vine.v86-bgi-kernel32-sleep-zero"
         : archiveSourceReadEnabled
         ? "vine.v86-bgi-kernel32-archive-source-read"
         : dragAcceptFilesEnabled
@@ -22388,6 +22521,21 @@ function buildGenericRuntimeReentryReport({
             mutation: "menu-generation-plan-stale-check-targeted-commit",
             windowMutationGenerationIndependent: true,
             browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(sleepZeroCheckpointEnabled
+      ? {
+          sleepZero: {
+            ...repeatedCallEvidence(sleepZeroCalls),
+            executionBoundary: "yield-current-thread",
+            schedulerAuthority: "rust-runtime-scheduler",
+            schedulerSelections:
+              genericResult.schedulerContinuation.yieldCurrentThread,
+            noCompetitorCompletions:
+              sleepZeroCalls.length -
+              genericResult.schedulerContinuation.yieldCurrentThread.selectionCount,
+            hostWaitCreated: false,
           },
         }
       : {}),
