@@ -4,13 +4,14 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 export const writableProfileSchema = "vine.writable-profile-snapshot";
-export const writableProfileSchemaVersion = 2;
+export const writableProfileSchemaVersion = 3;
 export const writableProfileReadService = "storage.profile-read.v1";
 export const writableProfileCommitService = "storage.profile-commit.v1";
+export const writableProfileDirectoryCreateService = "storage.profile-directory-create.v1";
 export const writableProfileMaximumBytes = 16 * 1024 * 1024;
 export const writableProfileMaximumIoBytes = 1024 * 1024;
 
-const databaseSchemaVersion = 2;
+const databaseSchemaVersion = 3;
 const maximumGeneration = Number.MAX_SAFE_INTEGER;
 const errorWriteFault = 29;
 const errorLockViolation = 33;
@@ -24,6 +25,7 @@ export function openWritableProfile({
   rootPathA,
   quotaBytes,
   files,
+  directories = [],
 }) {
   assertText(titleFingerprint, "title fingerprint", 128);
   assertText(profileId, "profile ID", 128);
@@ -56,6 +58,33 @@ export function openWritableProfile({
       "profile writable object or path identity is duplicated",
     );
   }
+  if (!Array.isArray(directories) || directories.length > 64) {
+    throw profileError(
+      "writable-profile-directories-invalid",
+      "profile permits at most 64 writable directory paths",
+    );
+  }
+  const normalizedDirectories = directories.map((directory) =>
+    normalizeConfiguredDirectory(directory)
+  );
+  const directoryIds = new Set(
+    normalizedDirectories.map((directory) => directory.directoryId),
+  );
+  const directoryPaths = new Set(
+    normalizedDirectories.map((directory) => windowsPathIdentity(directory.relativePathA)),
+  );
+  if (
+    directoryIds.size !== normalizedDirectories.length ||
+    directoryPaths.size !== normalizedDirectories.length ||
+    normalizedDirectories.some((directory) =>
+      paths.has(windowsPathIdentity(directory.relativePathA))
+    )
+  ) {
+    throw profileError(
+      "writable-profile-directories-duplicate",
+      "profile writable directory identity is duplicated or conflicts with a file path",
+    );
+  }
 
   const configuration = {
     titleFingerprint,
@@ -63,6 +92,7 @@ export function openWritableProfile({
     rootPathA: root,
     quotaBytes,
     files: normalizedFiles,
+    directories: normalizedDirectories,
   };
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   const database = new DatabaseSync(databasePath);
@@ -95,6 +125,20 @@ export function openWritableProfile({
         committed_generation INTEGER NOT NULL,
         byte_length INTEGER NOT NULL,
         sha256 TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS writable_directory_paths (
+        directory_id INTEGER PRIMARY KEY,
+        relative_path_a BLOB NOT NULL UNIQUE
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS directories (
+        directory_id INTEGER PRIMARY KEY REFERENCES writable_directory_paths(directory_id),
+        generation INTEGER NOT NULL CHECK (generation > 0)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS directory_commits (
+        request_key TEXT PRIMARY KEY,
+        directory_id INTEGER NOT NULL REFERENCES writable_directory_paths(directory_id),
+        base_generation INTEGER NOT NULL,
+        committed_generation INTEGER NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS profile_lease (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -131,6 +175,12 @@ export function snapshotWritableProfile(profile) {
       .all()
       .map((file) => [file.object_id, file]),
   );
+  const storedDirectories = new Map(
+    profile.database
+      .prepare("SELECT directory_id, generation FROM directories")
+      .all()
+      .map((directory) => [directory.directory_id, directory]),
+  );
   return {
     schema: writableProfileSchema,
     schemaVersion: writableProfileSchemaVersion,
@@ -159,6 +209,15 @@ export function snapshotWritableProfile(profile) {
         generation: file.generation,
         byteLength: file.byte_length,
         sha256: file.sha256,
+      };
+    }),
+    directories: profile.directories.map((configured) => {
+      const directory = storedDirectories.get(configured.directoryId);
+      return {
+        directoryId: configured.directoryId,
+        relativePathA: [...configured.relativePathA],
+        exists: directory !== undefined,
+        generation: directory?.generation ?? 0,
       };
     }),
   };
@@ -379,13 +438,107 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
   }
 }
 
+export function commitWritableDirectory(profile, request, { failpoint = null } = {}) {
+  const normalized = normalizeDirectoryCommitRequest(profile, request);
+  if (failpoint === "before-transaction") {
+    throw profileError(
+      "writable-profile-directory-failpoint",
+      "injected failure before directory transaction",
+    );
+  }
+  const database = profile.database;
+  database.exec("BEGIN IMMEDIATE");
+  let committed = false;
+  try {
+    assertActiveWritableProfileLease(database, normalized);
+    const duplicate = database
+      .prepare(
+        "SELECT directory_id, base_generation, committed_generation FROM directory_commits WHERE request_key = ?",
+      )
+      .get(normalized.requestKey);
+    if (duplicate !== undefined) {
+      assertDuplicateDirectoryCommit(duplicate, normalized);
+      database.exec("COMMIT");
+      committed = true;
+      return {
+        directoryId: normalized.directoryId,
+        baseGeneration: normalized.baseGeneration,
+        committedGeneration: duplicate.committed_generation,
+        win32Error: 0,
+        duplicate: true,
+      };
+    }
+    const current = database
+      .prepare("SELECT generation FROM directories WHERE directory_id = ?")
+      .get(normalized.directoryId);
+    const currentGeneration = current?.generation ?? 0;
+    if (currentGeneration !== normalized.baseGeneration) {
+      throw profileError(
+        "writable-profile-directory-generation-stale",
+        `directory create base generation ${normalized.baseGeneration} does not match ${currentGeneration}`,
+      );
+    }
+    const committedGeneration = normalized.baseGeneration + 1;
+    if (committedGeneration > maximumGeneration) {
+      throw profileError(
+        "writable-profile-directory-generation-exhausted",
+        "writable directory generation exceeds lossless host accounting",
+      );
+    }
+    database
+      .prepare(`
+        INSERT INTO directories(directory_id, generation)
+        VALUES (?, ?)
+        ON CONFLICT(directory_id) DO UPDATE SET generation = excluded.generation
+      `)
+      .run(normalized.directoryId, committedGeneration);
+    database
+      .prepare(`
+        INSERT INTO directory_commits(
+          request_key, directory_id, base_generation, committed_generation
+        ) VALUES (?, ?, ?, ?)
+      `)
+      .run(
+        normalized.requestKey,
+        normalized.directoryId,
+        normalized.baseGeneration,
+        committedGeneration,
+      );
+    if (failpoint === "after-write-before-commit") {
+      throw profileError(
+        "writable-profile-directory-failpoint",
+        "injected failure before SQLite directory commit",
+      );
+    }
+    database.exec("COMMIT");
+    committed = true;
+    if (failpoint === "after-commit-response-lost") {
+      throw profileError(
+        "writable-profile-directory-response-lost",
+        "injected response loss after directory commit",
+      );
+    }
+    return {
+      directoryId: normalized.directoryId,
+      baseGeneration: normalized.baseGeneration,
+      committedGeneration,
+      win32Error: 0,
+      duplicate: false,
+    };
+  } finally {
+    if (!committed) {
+      database.exec("ROLLBACK");
+    }
+  }
+}
+
 export async function handleWritableProfileHttp(request, response, profile) {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
-  if (!url.pathname.startsWith("/api/profile/v2/")) {
+  if (!url.pathname.startsWith("/api/profile/v3/")) {
     return false;
   }
   try {
-    if (url.pathname === "/api/profile/v2/sessions") {
+    if (url.pathname === "/api/profile/v3/sessions") {
       if (request.method !== "POST") {
         sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
         return true;
@@ -401,7 +554,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
       return true;
     }
     const sessionMatch = url.pathname.match(
-      /^\/api\/profile\/v2\/sessions\/([1-9][0-9]*)$/u,
+      /^\/api\/profile\/v3\/sessions\/([1-9][0-9]*)$/u,
     );
     if (sessionMatch !== null) {
       if (request.method !== "DELETE") {
@@ -422,7 +575,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
       return true;
     }
 
-    if (url.pathname === "/api/profile/v2/snapshot") {
+    if (url.pathname === "/api/profile/v3/snapshot") {
       if (request.method !== "GET") {
         sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
         return true;
@@ -440,13 +593,96 @@ export async function handleWritableProfileHttp(request, response, profile) {
     }
 
     const match = url.pathname.match(
-      /^\/api\/profile\/v2\/titles\/([^/]+)\/profiles\/([^/]+)\/objects\/([1-9][0-9]*)(\/commits)?$/u,
+      /^\/api\/profile\/v3\/titles\/([^/]+)\/profiles\/([^/]+)\/directories\/([1-9][0-9]*)\/commits$/u,
     );
-    if (match === null) {
+    if (match !== null) {
+      const [, encodedTitle, encodedProfile, directoryText] = match;
+      const titleFingerprint = decodeURIComponent(encodedTitle);
+      const profileId = decodeURIComponent(encodedProfile);
+      const directoryId = Number(directoryText);
+      const configured = profile.directories.find(
+        (directory) => directory.directoryId === directoryId,
+      );
+      if (
+        titleFingerprint !== profile.titleFingerprint ||
+        profileId !== profile.profileId ||
+        !Number.isSafeInteger(directoryId) ||
+        configured === undefined
+      ) {
+        sendProfileError(
+          response,
+          404,
+          "writable-profile-directory-unknown",
+          "profile directory not found",
+        );
+        return true;
+      }
+      if (request.method !== "POST") {
+        sendProfileError(response, 405, "writable-profile-method-invalid", "method not allowed");
+        return true;
+      }
+      const lease = requestLease(request);
+      const requestKey = requiredHeader(request, "x-vine-request-key", 256);
+      const baseGeneration = parseSafeInteger(
+        requiredHeader(request, "x-vine-base-generation", 32),
+        "directory create base generation",
+        0,
+        maximumGeneration - 1,
+      );
+      let storageErrorCode = null;
+      let result;
+      try {
+        result = commitWritableDirectory(profile, {
+          requestKey,
+          titleFingerprint,
+          profileId,
+          directoryId,
+          relativePathA: configured.relativePathA,
+          baseGeneration,
+          ...lease,
+        });
+      } catch (error) {
+        const win32Error = writableCommitWin32Error(error);
+        if (win32Error === null) {
+          throw error;
+        }
+        storageErrorCode =
+          typeof error?.code === "string"
+            ? error.code
+            : "writable-profile-directory-storage-failure";
+        result = {
+          directoryId,
+          baseGeneration,
+          committedGeneration: baseGeneration,
+          win32Error,
+          duplicate: false,
+        };
+      }
+      const control = encodeDirectoryCommitResponse(result);
+      response.writeHead(200, profileHeaders(profile, {
+        "Content-Type": "application/vnd.vine.profile-directory-create.v1",
+        "Content-Length": String(control.length),
+        "X-Vine-Directory-Id": String(directoryId),
+        "X-Vine-Base-Generation": String(baseGeneration),
+        "X-Vine-Committed-Generation": String(result.committedGeneration),
+        "X-Vine-Duplicate": String(result.duplicate),
+        "X-Vine-Session-Epoch": String(lease.sessionEpoch),
+        ...(storageErrorCode === null
+          ? {}
+          : { "X-Vine-Storage-Error-Code": storageErrorCode }),
+      }));
+      response.end(control);
+      return true;
+    }
+
+    const objectMatch = url.pathname.match(
+      /^\/api\/profile\/v3\/titles\/([^/]+)\/profiles\/([^/]+)\/objects\/([1-9][0-9]*)(\/commits)?$/u,
+    );
+    if (objectMatch === null) {
       sendProfileError(response, 404, "writable-profile-route-unknown", "profile route not found");
       return true;
     }
-    const [, encodedTitle, encodedProfile, objectText, commitSuffix] = match;
+    const [, encodedTitle, encodedProfile, objectText, commitSuffix] = objectMatch;
     const titleFingerprint = decodeURIComponent(encodedTitle);
     const profileId = decodeURIComponent(encodedProfile);
     const objectId = Number(objectText);
@@ -632,8 +868,15 @@ function initializeProfile(database, configuration) {
           seed.run(file.objectId, file.seedBytes.length, sha256(file.seedBytes), file.seedBytes);
         }
       }
+      const insertDirectory = database.prepare(
+        "INSERT INTO writable_directory_paths(directory_id, relative_path_a) VALUES (?, ?)",
+      );
+      for (const directory of configuration.directories) {
+        insertDirectory.run(directory.directoryId, directory.relativePathA);
+      }
     } else {
-      if (metadata.schema_version === 1) {
+      const previousSchemaVersion = metadata.schema_version;
+      if (previousSchemaVersion === 1 || previousSchemaVersion === 2) {
         database
           .prepare("UPDATE profile_metadata SET schema_version = ? WHERE singleton = 1")
           .run(databaseSchemaVersion);
@@ -656,6 +899,36 @@ function initializeProfile(database, configuration) {
         throw profileError(
           "writable-profile-path-identity-mismatch",
           "existing database writable paths differ from the requested profile",
+        );
+      }
+      if (previousSchemaVersion === 1 || previousSchemaVersion === 2) {
+        const insertDirectory = database.prepare(
+          "INSERT OR IGNORE INTO writable_directory_paths(directory_id, relative_path_a) VALUES (?, ?)",
+        );
+        for (const directory of configuration.directories) {
+          insertDirectory.run(directory.directoryId, directory.relativePathA);
+        }
+      }
+      const storedDirectories = database
+        .prepare(
+          "SELECT directory_id, relative_path_a FROM writable_directory_paths ORDER BY directory_id",
+        )
+        .all();
+      if (
+        storedDirectories.length !== configuration.directories.length ||
+        storedDirectories.some((stored, index) => {
+          const expected = [...configuration.directories].sort(
+            (a, b) => a.directoryId - b.directoryId,
+          )[index];
+          return (
+            stored.directory_id !== expected.directoryId ||
+            !Buffer.from(stored.relative_path_a).equals(expected.relativePathA)
+          );
+        })
+      ) {
+        throw profileError(
+          "writable-profile-directory-identity-mismatch",
+          "existing database writable directories differ from the requested profile",
         );
       }
     }
@@ -681,6 +954,22 @@ function normalizeConfiguredFile(file) {
     ? null
     : boundedBytes(file.seedBytes, "writable seed", writableProfileMaximumBytes);
   return { objectId: file.objectId, relativePathA, seedBytes };
+}
+
+function normalizeConfiguredDirectory(directory) {
+  assertInteger(directory.directoryId, "writable directory ID", 1, 0xffff_ffff);
+  const relativePathA = boundedBytes(
+    directory.relativePathA,
+    "writable directory relative path",
+    32 * 1024,
+  );
+  if (relativePathA.length === 0 || relativePathA.includes(0)) {
+    throw profileError(
+      "writable-profile-directory-relative-path-invalid",
+      "writable directory relative path must be nonempty and NUL-free",
+    );
+  }
+  return { directoryId: directory.directoryId, relativePathA };
 }
 
 function windowsPathIdentity(bytes) {
@@ -737,6 +1026,57 @@ function normalizeCommitRequest(profile, request, content) {
     sessionKey: lease.sessionKey,
     sessionEpoch: lease.epoch,
     content: bytes,
+  };
+}
+
+function normalizeDirectoryCommitRequest(profile, request) {
+  assertText(request.requestKey, "directory create request key", 256);
+  if (
+    request.titleFingerprint !== profile.titleFingerprint ||
+    request.profileId !== profile.profileId
+  ) {
+    throw profileError(
+      "writable-profile-directory-profile-mismatch",
+      "directory create title or profile identity does not match the database",
+    );
+  }
+  assertInteger(request.directoryId, "directory ID", 1, 0xffff_ffff);
+  assertInteger(
+    request.baseGeneration,
+    "directory create base generation",
+    0,
+    maximumGeneration - 1,
+  );
+  const lease = normalizeLease({
+    sessionKey: request.sessionKey,
+    epoch: request.sessionEpoch,
+  });
+  const configured = profile.directories.find(
+    (directory) => directory.directoryId === request.directoryId,
+  );
+  if (configured === undefined) {
+    throw profileError(
+      "writable-profile-directory-unknown",
+      "directory create identity is not in the writable allowlist",
+    );
+  }
+  if (
+    request.relativePathA !== undefined &&
+    !boundedBytes(
+      request.relativePathA,
+      "directory create relative path",
+      32 * 1024,
+    ).equals(configured.relativePathA)
+  ) {
+    throw profileError(
+      "writable-profile-directory-path-mismatch",
+      "directory create path does not match the writable directory identity",
+    );
+  }
+  return {
+    ...request,
+    sessionKey: lease.sessionKey,
+    sessionEpoch: lease.epoch,
   };
 }
 
@@ -810,7 +1150,7 @@ function writableCommitWin32Error(error) {
   if (code.includes("quota") || code.includes("disk-full")) {
     return errorDiskFull;
   }
-  if (code === "writable-profile-generation-stale") {
+  if (code.includes("generation-stale")) {
     return errorWriteFault;
   }
   if (code === "writable-profile-lease-revoked") {
@@ -869,6 +1209,18 @@ function assertDuplicateCommit(stored, request) {
     throw profileError(
       "writable-profile-request-key-conflict",
       "durable request key was reused for different commit content",
+    );
+  }
+}
+
+function assertDuplicateDirectoryCommit(stored, request) {
+  if (
+    stored.directory_id !== request.directoryId ||
+    stored.base_generation !== request.baseGeneration
+  ) {
+    throw profileError(
+      "writable-profile-directory-request-key-conflict",
+      "durable directory request key was reused for another identity or generation",
     );
   }
 }
@@ -972,6 +1324,22 @@ function encodeCommitResponse(result) {
   const words = [
     1,
     result.objectId,
+    result.baseGeneration >>> 0,
+    Math.floor(result.baseGeneration / 0x1_0000_0000),
+    result.committedGeneration >>> 0,
+    Math.floor(result.committedGeneration / 0x1_0000_0000),
+    result.win32Error,
+    0,
+  ];
+  words.forEach((word, index) => control.writeUInt32LE(word, index * 4));
+  return control;
+}
+
+function encodeDirectoryCommitResponse(result) {
+  const control = Buffer.alloc(32);
+  const words = [
+    1,
+    result.directoryId,
     result.baseGeneration >>> 0,
     Math.floor(result.baseGeneration / 0x1_0000_0000),
     result.committedGeneration >>> 0,

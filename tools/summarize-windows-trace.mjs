@@ -33,6 +33,7 @@ const supportedObservations = new Set([
   "multi-byte-to-wide-char",
   "set-current-directory-a",
   "get-file-attributes-a",
+  "create-directory-a",
   "create-mutex-a",
   "create-waitable-timer-a",
   "set-waitable-timer",
@@ -384,7 +385,12 @@ const d3d9DeviceCapsFieldLayout = [
 ];
 
 const categoryApis = {
-  file: new Set(["CreateFileA", "CreateFileW", "GetFileAttributesA"]),
+  file: new Set([
+    "CreateFileA",
+    "CreateFileW",
+    "GetFileAttributesA",
+    "CreateDirectoryA",
+  ]),
   window: new Set(["CreateWindowExA", "CreateWindowExW"]),
   graphics: new Set([
     "BitBlt",

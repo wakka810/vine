@@ -164,6 +164,8 @@ pub struct Kernel32SourceFilePolicy {
     pub maximum_write_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_file_attributes_a: Option<Kernel32GetFileAttributesAPolicy>,
+    #[serde(default)]
+    pub create_directory_a: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -600,6 +602,7 @@ impl Kernel32CompatibilityPolicy {
                     attributes.regular_file_attributes != 0x20
                         || attributes.directory_attributes != 0x30
                 })
+                || (files.create_directory_a && !writable)
                 || (writable
                     && (!share_modes.contains(&0)
                         || !dispositions.contains(&4)
@@ -1043,6 +1046,12 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn get_file_attributes_a(&self) -> Option<Kernel32GetFileAttributesAPolicy> {
         self.source_files.as_ref()?.get_file_attributes_a
+    }
+
+    pub fn create_directory_a_enabled(&self) -> bool {
+        self.source_files
+            .as_ref()
+            .is_some_and(|files| files.create_directory_a)
     }
 
     pub fn load_library_a(&self) -> Option<&Kernel32LoadLibraryAPolicy> {

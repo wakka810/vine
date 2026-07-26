@@ -18,8 +18,9 @@ pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 32;
 pub const RUNTIME_SOURCE_FILE_LIMIT: usize = 4096;
 pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 1024 * 1024;
 pub const RUNTIME_WRITABLE_PROFILE_SCHEMA: &str = "vine.writable-profile-snapshot";
-pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 2;
+pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 3;
 pub const RUNTIME_WRITABLE_PROFILE_FILE_LIMIT: usize = 64;
+pub const RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT: usize = 64;
 pub const RUNTIME_WRITABLE_PROFILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 pub const RUNTIME_WRITABLE_FILE_MAX_IO_BYTES: u32 = 1024 * 1024;
 pub const RUNTIME_WRITABLE_READ_SERVICE: &str = "storage.profile-read.v1";
@@ -27,6 +28,10 @@ pub const RUNTIME_WRITABLE_COMMIT_SERVICE: &str = "storage.profile-commit.v1";
 pub const RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION: u32 = 1;
 pub const RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES: usize = 28;
 pub const RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES: usize = 32;
+pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE: &str = "storage.profile-directory-create.v1";
+pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION: u32 = 1;
+pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES: usize = 16;
+pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_RESPONSE_BYTES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -88,6 +93,7 @@ pub struct RuntimeWritableProfileManifest {
     pub root_path_a: Vec<u8>,
     pub quota_bytes: u64,
     pub files: Vec<RuntimeWritableFileManifest>,
+    pub directories: Vec<RuntimeWritableDirectoryManifest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +107,15 @@ pub struct RuntimeWritableFileManifest {
     pub sha256: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeWritableDirectoryManifest {
+    pub directory_id: u32,
+    pub relative_path_a: Vec<u8>,
+    pub exists: bool,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeWritableProfile {
@@ -109,8 +124,11 @@ pub struct RuntimeWritableProfile {
     pub root_path_a: Vec<u8>,
     pub quota_bytes: u64,
     pub files: BTreeMap<u32, RuntimeWritableFile>,
+    pub directories: BTreeMap<u32, RuntimeWritableDirectory>,
     #[serde(skip)]
     path_index: BTreeMap<Vec<u8>, u32>,
+    #[serde(skip)]
+    directory_path_index: BTreeMap<Vec<u8>, u32>,
     #[serde(skip)]
     root_identity: Vec<u8>,
 }
@@ -133,6 +151,17 @@ pub struct RuntimeWritableFile {
     working_bytes: Vec<u8>,
     #[serde(skip)]
     dirty_base_generation: Option<u64>,
+    #[serde(skip)]
+    revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWritableDirectory {
+    pub directory_id: u32,
+    pub relative_path_a: Vec<u8>,
+    pub exists: bool,
+    pub generation: u64,
     #[serde(skip)]
     revision: u64,
 }
@@ -280,6 +309,81 @@ pub struct RuntimeWritableCommitCompletion {
     pub win32_error: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWritableDirectoryCreateRequest {
+    pub request_id: u64,
+    pub directory_id: u32,
+    pub relative_path_a: Vec<u8>,
+    pub base_generation: u64,
+}
+
+impl RuntimeWritableDirectoryCreateRequest {
+    pub fn encode_host_payload(&self) -> [u8; RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES] {
+        let words = [
+            RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION,
+            self.directory_id,
+            self.base_generation as u32,
+            (self.base_generation >> 32) as u32,
+        ];
+        let mut payload = [0; RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES];
+        for (word, destination) in words.into_iter().zip(payload.chunks_exact_mut(4)) {
+            destination.copy_from_slice(&word.to_le_bytes());
+        }
+        payload
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeWritableDirectoryCreateHostResponse {
+    pub request_id: u64,
+    pub directory_id: u32,
+    pub base_generation: u64,
+    pub committed_generation: u64,
+    pub win32_error: u32,
+}
+
+impl RuntimeWritableDirectoryCreateHostResponse {
+    pub fn decode_binary(request_id: u64, control: &[u8]) -> Result<Self, RuntimeStateError> {
+        if control.len() != RUNTIME_WRITABLE_DIRECTORY_CREATE_RESPONSE_BYTES {
+            return Err(vfs_invalid(
+                "writable-directory-create-response-size-invalid",
+                "writable directory create response must contain eight little-endian words",
+            ));
+        }
+        let words: [u32; 8] = std::array::from_fn(|index| {
+            let offset = index * 4;
+            u32::from_le_bytes(
+                control[offset..offset + 4]
+                    .try_into()
+                    .expect("four-byte writable directory create response chunk"),
+            )
+        });
+        if words[0] != RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION || words[7] != 0 {
+            return Err(vfs_invalid(
+                "writable-directory-create-response-version-invalid",
+                "writable directory create response uses an unsupported version or reserved word",
+            ));
+        }
+        Ok(Self {
+            request_id,
+            directory_id: words[1],
+            base_generation: u64::from(words[2]) | (u64::from(words[3]) << 32),
+            committed_generation: u64::from(words[4]) | (u64::from(words[5]) << 32),
+            win32_error: words[6],
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWritableDirectoryCreateCompletion {
+    pub request: RuntimeWritableDirectoryCreateRequest,
+    pub succeeded: bool,
+    pub committed_generation: u64,
+    pub win32_error: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSourceReadRequest {
@@ -400,6 +504,7 @@ pub(super) struct RuntimeFiles {
     open_files: BTreeMap<RuntimeSourceFileId, RuntimeSourceFile>,
     pending_reads: BTreeMap<u64, RuntimePendingSourceRead>,
     pending_commits: BTreeMap<u64, RuntimePendingWritableCommit>,
+    pending_directory_creates: BTreeMap<u64, RuntimePendingWritableDirectoryCreate>,
     next_file_id: u64,
 }
 
@@ -411,6 +516,7 @@ impl Default for RuntimeFiles {
             open_files: BTreeMap::new(),
             pending_reads: BTreeMap::new(),
             pending_commits: BTreeMap::new(),
+            pending_directory_creates: BTreeMap::new(),
             next_file_id: 1,
         }
     }
@@ -517,6 +623,12 @@ struct RuntimePendingWritableCommit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimePendingWritableDirectoryCreate {
+    request: RuntimeWritableDirectoryCreateRequest,
+    expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWritableCommitBeginPlan {
     pending: RuntimePendingWritableCommit,
 }
@@ -527,6 +639,25 @@ pub(super) struct RuntimeWritableCommitCompletionPlan {
     previous_writable: RuntimeWritableFile,
     next_writable: RuntimeWritableFile,
     completion: RuntimeWritableCommitCompletion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDirectoryCreateBeginPlan {
+    pending: RuntimePendingWritableDirectoryCreate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDirectoryCreateCompletionPlan {
+    pending: RuntimePendingWritableDirectoryCreate,
+    previous_directory: RuntimeWritableDirectory,
+    next_directory: RuntimeWritableDirectory,
+    completion: RuntimeWritableDirectoryCreateCompletion,
+}
+
+impl RuntimeWritableDirectoryCreateCompletionPlan {
+    pub(super) fn completion(&self) -> &RuntimeWritableDirectoryCreateCompletion {
+        &self.completion
+    }
 }
 
 impl RuntimeWritableCommitCompletionPlan {
@@ -593,6 +724,11 @@ pub(super) struct RuntimeWritableCommitCancellationPlan {
     requests: Vec<RuntimePendingWritableCommit>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDirectoryCreateCancellationPlan {
+    requests: Vec<RuntimePendingWritableDirectoryCreate>,
+}
+
 impl RuntimeWritableCommitCancellationPlan {
     pub(super) fn request_ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.requests
@@ -650,6 +786,26 @@ impl RuntimeFiles {
             return Ok(RuntimePathResolution::MissingPath);
         }
         let relative = &normalized.identity[root_identity.len() + 1..];
+        if let Some(directory_id) = self
+            .writable_profile
+            .as_ref()
+            .and_then(|profile| profile.directory_path_index.get(relative).copied())
+        {
+            let profile = self
+                .writable_profile
+                .as_ref()
+                .expect("writable directory path requires profile");
+            let directory = profile.directories.get(&directory_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-vfs",
+                    "writable-directory-path-index-corrupt",
+                    "writable directory path index points to a missing identity",
+                )
+            })?;
+            if directory.exists {
+                return Ok(RuntimePathResolution::Directory);
+            }
+        }
         if let Some(object_id) = self
             .writable_profile
             .as_ref()
@@ -715,10 +871,278 @@ impl RuntimeFiles {
         self.snapshot
             .as_ref()
             .is_some_and(|snapshot| snapshot.path_index.keys().any(|path| is_descendant(path)))
+            || self.writable_profile.as_ref().is_some_and(|profile| {
+                profile.path_index.keys().any(|path| is_descendant(path))
+                    || profile
+                        .directory_path_index
+                        .iter()
+                        .any(|(path, directory_id)| {
+                            profile
+                                .directories
+                                .get(directory_id)
+                                .is_some_and(|directory| directory.exists)
+                                && (path.as_slice() == relative || is_descendant(path))
+                        })
+            })
+    }
+
+    pub(super) fn plan_writable_directory_create(
+        &self,
+        requested_path: &[u8],
+        current_directory: &[u8],
+        request_id: u64,
+    ) -> Result<RuntimeWritableDirectoryCreateBeginPlan, RuntimeStateError> {
+        let normalized = resolve_path(requested_path, current_directory)?;
+        let profile = self.writable_profile.as_ref().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-vfs",
+                "writable-profile-missing",
+                "directory creation requires a registered writable profile",
+            )
+        })?;
+        if normalized.identity == profile.root_identity {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-already-exists",
+                "the writable profile mount root already exists",
+            ));
+        }
+        let relative = relative_to_mount(&normalized.identity, &profile.root_identity)?;
+        if profile.path_index.contains_key(relative)
             || self
-                .writable_profile
+                .snapshot
                 .as_ref()
-                .is_some_and(|profile| profile.path_index.keys().any(|path| is_descendant(path)))
+                .is_some_and(|snapshot| snapshot.path_index.contains_key(relative))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-file-conflict",
+                "directory creation path identifies a registered file",
+            ));
+        }
+        let directory_id = profile
+            .directory_path_index
+            .get(relative)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "writable-directory-unregistered",
+                    "directory creation path is outside the writable profile allowlist",
+                )
+            })?;
+        let directory = profile.directories.get(&directory_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "writable-directory-path-index-corrupt",
+                "writable directory path index points to a missing identity",
+            )
+        })?;
+        if directory.exists {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-already-exists",
+                "the writable directory already exists",
+            ));
+        }
+        if self
+            .pending_directory_creates
+            .values()
+            .any(|pending| pending.request.directory_id == directory_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-create-pending",
+                "the writable directory already owns a pending durable create",
+            ));
+        }
+        let parent = relative
+            .iter()
+            .rposition(|byte| *byte == b'\\')
+            .map_or(&[][..], |separator| &relative[..separator]);
+        if !parent.is_empty() && !self.registered_directory_exists(parent) {
+            return Err(RuntimeStateError::not_found(
+                "runtime-vfs",
+                "writable-directory-parent-missing",
+                "the writable directory parent does not exist",
+            ));
+        }
+        Ok(RuntimeWritableDirectoryCreateBeginPlan {
+            pending: RuntimePendingWritableDirectoryCreate {
+                request: RuntimeWritableDirectoryCreateRequest {
+                    request_id,
+                    directory_id,
+                    relative_path_a: directory.relative_path_a.clone(),
+                    base_generation: directory.generation,
+                },
+                expected_revision: directory.revision,
+            },
+        })
+    }
+
+    pub(super) fn preflight_writable_directory_create(
+        &self,
+        plan: &RuntimeWritableDirectoryCreateBeginPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let pending = &plan.pending;
+        let directory = self.writable_directory(pending.request.directory_id)?;
+        if directory.exists
+            || directory.generation != pending.request.base_generation
+            || directory.revision != pending.expected_revision
+            || directory.relative_path_a != pending.request.relative_path_a
+            || self
+                .pending_directory_creates
+                .contains_key(&pending.request.request_id)
+            || self
+                .pending_directory_creates
+                .values()
+                .any(|existing| existing.request.directory_id == pending.request.directory_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-create-plan-stale",
+                "writable directory state changed after create planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_writable_directory_create_begin(
+        &mut self,
+        plan: RuntimeWritableDirectoryCreateBeginPlan,
+    ) -> RuntimeWritableDirectoryCreateRequest {
+        debug_assert!(self.preflight_writable_directory_create(&plan).is_ok());
+        let request = plan.pending.request.clone();
+        let previous = self
+            .pending_directory_creates
+            .insert(request.request_id, plan.pending);
+        debug_assert!(previous.is_none());
+        request
+    }
+
+    pub(super) fn writable_directory_create_request(
+        &self,
+        request_id: u64,
+    ) -> Result<&RuntimeWritableDirectoryCreateRequest, RuntimeStateError> {
+        self.pending_directory_creates
+            .get(&request_id)
+            .map(|pending| &pending.request)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "writable-directory-create-request-unknown",
+                    "directory create metadata does not identify a pending request",
+                )
+            })
+    }
+
+    pub(super) fn plan_writable_directory_create_completion(
+        &self,
+        response: RuntimeWritableDirectoryCreateHostResponse,
+    ) -> Result<RuntimeWritableDirectoryCreateCompletionPlan, RuntimeStateError> {
+        let pending = self
+            .pending_directory_creates
+            .get(&response.request_id)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "writable-directory-create-request-unknown",
+                    "directory create completion does not identify a pending request",
+                )
+            })?
+            .clone();
+        let previous_directory = self
+            .writable_directory(pending.request.directory_id)?
+            .clone();
+        if response.directory_id != pending.request.directory_id
+            || response.base_generation != pending.request.base_generation
+            || previous_directory.exists
+            || previous_directory.generation != pending.request.base_generation
+            || previous_directory.revision != pending.expected_revision
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-create-completion-identity-mismatch",
+                "directory create completion identity or generation is stale",
+            ));
+        }
+        let succeeded = response.win32_error == 0;
+        let expected_generation = response.base_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "writable-directory-generation-exhausted",
+                "writable directory generation space is exhausted",
+            )
+        })?;
+        if (succeeded && response.committed_generation != expected_generation)
+            || (!succeeded && response.committed_generation != response.base_generation)
+        {
+            return Err(vfs_invalid(
+                "writable-directory-create-completion-generation-invalid",
+                "directory create response generation does not match success or failure semantics",
+            ));
+        }
+        let mut next_directory = previous_directory.clone();
+        if succeeded {
+            next_directory.exists = true;
+            next_directory.generation = response.committed_generation;
+            next_directory.revision = next_directory.revision.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-vfs",
+                    "writable-directory-revision-exhausted",
+                    "writable directory revision space is exhausted",
+                )
+            })?;
+        }
+        Ok(RuntimeWritableDirectoryCreateCompletionPlan {
+            pending: pending.clone(),
+            previous_directory,
+            next_directory,
+            completion: RuntimeWritableDirectoryCreateCompletion {
+                request: pending.request,
+                succeeded,
+                committed_generation: response.committed_generation,
+                win32_error: response.win32_error,
+            },
+        })
+    }
+
+    pub(super) fn preflight_writable_directory_create_completion(
+        &self,
+        plan: &RuntimeWritableDirectoryCreateCompletionPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self
+            .pending_directory_creates
+            .get(&plan.pending.request.request_id)
+            != Some(&plan.pending)
+            || self.writable_directory(plan.previous_directory.directory_id)?
+                != &plan.previous_directory
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-directory-create-completion-plan-stale",
+                "writable directory state changed after completion planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_writable_directory_create_completion(
+        &mut self,
+        plan: RuntimeWritableDirectoryCreateCompletionPlan,
+    ) -> RuntimeWritableDirectoryCreateCompletion {
+        debug_assert!(
+            self.preflight_writable_directory_create_completion(&plan)
+                .is_ok()
+        );
+        self.pending_directory_creates
+            .remove(&plan.pending.request.request_id);
+        self.writable_profile
+            .as_mut()
+            .expect("validated writable directory profile")
+            .directories
+            .insert(plan.next_directory.directory_id, plan.next_directory);
+        plan.completion
     }
 
     pub(super) fn open_file(
@@ -746,6 +1170,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -821,6 +1246,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -840,6 +1266,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -857,6 +1284,7 @@ impl RuntimeFiles {
             || manifest.quota_bytes > RUNTIME_WRITABLE_PROFILE_MAX_BYTES
             || manifest.files.is_empty()
             || manifest.files.len() > RUNTIME_WRITABLE_PROFILE_FILE_LIMIT
+            || manifest.directories.len() > RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT
         {
             return Err(vfs_invalid(
                 "writable-profile-manifest-invalid",
@@ -915,6 +1343,43 @@ impl RuntimeFiles {
                 },
             );
         }
+        let mut directories = BTreeMap::new();
+        let mut directory_path_index = BTreeMap::new();
+        for directory in manifest.directories {
+            let relative = normalize_relative_path(&directory.relative_path_a)?;
+            let identity = windows_932_ascii_fold(&relative);
+            let valid_state = if directory.exists {
+                directory.generation > 0
+            } else {
+                directory.generation == 0
+            };
+            if directory.directory_id == 0 || !valid_state {
+                return Err(vfs_invalid(
+                    "writable-directory-manifest-invalid",
+                    "writable directory manifest identity, existence, or generation is invalid",
+                ));
+            }
+            if directories.contains_key(&directory.directory_id)
+                || directory_path_index.contains_key(&identity)
+                || path_index.contains_key(&identity)
+            {
+                return Err(vfs_invalid(
+                    "writable-directory-manifest-duplicate",
+                    "writable directory identity or case-insensitive path is duplicated or conflicts with a file",
+                ));
+            }
+            directory_path_index.insert(identity, directory.directory_id);
+            directories.insert(
+                directory.directory_id,
+                RuntimeWritableDirectory {
+                    directory_id: directory.directory_id,
+                    relative_path_a: relative,
+                    exists: directory.exists,
+                    generation: directory.generation,
+                    revision: 0,
+                },
+            );
+        }
         if total_bytes > manifest.quota_bytes {
             return Err(RuntimeStateError::resource_limit(
                 "runtime-vfs",
@@ -928,7 +1393,9 @@ impl RuntimeFiles {
             root_path_a: root.bytes_with_nul,
             quota_bytes: manifest.quota_bytes,
             files,
+            directories,
             path_index,
+            directory_path_index,
             root_identity: root.identity,
         };
         validate_source_profile_separation_opt(self.snapshot.as_ref(), &next)?;
@@ -943,6 +1410,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -964,6 +1432,7 @@ impl RuntimeFiles {
         if !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1002,6 +1471,7 @@ impl RuntimeFiles {
         if !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_directory_creates.is_empty()
             || self
                 .writable_profile
                 .as_ref()
@@ -2227,6 +2697,34 @@ impl RuntimeFiles {
         }
     }
 
+    pub(super) fn plan_writable_directory_create_cancellation(
+        &self,
+        request_ids: &[u64],
+    ) -> RuntimeWritableDirectoryCreateCancellationPlan {
+        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
+        RuntimeWritableDirectoryCreateCancellationPlan {
+            requests: self
+                .pending_directory_creates
+                .iter()
+                .filter_map(|(request_id, pending)| {
+                    selected.contains(request_id).then_some(pending.clone())
+                })
+                .collect(),
+        }
+    }
+
+    pub(super) fn commit_writable_directory_create_cancellation(
+        &mut self,
+        plan: RuntimeWritableDirectoryCreateCancellationPlan,
+    ) {
+        for pending in plan.requests {
+            let removed = self
+                .pending_directory_creates
+                .remove(&pending.request.request_id);
+            debug_assert_eq!(removed, Some(pending));
+        }
+    }
+
     pub(super) fn plan_seek(
         &self,
         id: RuntimeSourceFileId,
@@ -2303,6 +2801,22 @@ impl RuntimeFiles {
             })
     }
 
+    fn writable_directory(
+        &self,
+        directory_id: u32,
+    ) -> Result<&RuntimeWritableDirectory, RuntimeStateError> {
+        self.writable_profile
+            .as_ref()
+            .and_then(|profile| profile.directories.get(&directory_id))
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-vfs",
+                    "writable-directory-identity-missing",
+                    "writable profile directory identity is missing",
+                )
+            })
+    }
+
     fn require_no_pending_file_operation(
         &self,
         id: RuntimeSourceFileId,
@@ -2362,14 +2876,18 @@ fn validate_source_profile_separation_opt(
             "immutable source and writable profile require the same title and mount root",
         ));
     }
-    if source
-        .path_index
-        .keys()
-        .any(|path| profile.path_index.contains_key(path))
-    {
+    if source.path_index.keys().any(|path| {
+        profile.path_index.contains_key(path)
+            || profile.directory_path_index.contains_key(path)
+            || profile.directory_path_index.keys().any(|directory| {
+                directory.len() > path.len()
+                    && directory.starts_with(path)
+                    && directory.get(path.len()) == Some(&b'\\')
+            })
+    }) {
         return Err(vfs_invalid(
             "source-profile-path-overlap",
-            "writable profile paths may not shadow immutable source objects",
+            "writable profile paths may not shadow or descend from immutable source objects",
         ));
     }
     Ok(())
@@ -2731,7 +3249,178 @@ mod tests {
                 byte_length: if exists { bytes.len() as u64 } else { 0 },
                 sha256: exists.then(|| hex_sha256(bytes)),
             }],
+            directories: Vec::new(),
         }
+    }
+
+    fn writable_directory_manifest(
+        relative_path_a: &[u8],
+        exists: bool,
+    ) -> RuntimeWritableProfileManifest {
+        let mut manifest = writable_manifest(false, &[]);
+        manifest.directories.push(RuntimeWritableDirectoryManifest {
+            directory_id: 31,
+            relative_path_a: relative_path_a.to_vec(),
+            exists,
+            generation: u64::from(exists),
+        });
+        manifest
+    }
+
+    #[test]
+    fn writable_directory_create_is_failure_atomic_and_generation_checked() {
+        let mut files = RuntimeFiles::default();
+        let registration = files
+            .plan_writable_profile_registration(writable_directory_manifest(b"UserData", false))
+            .unwrap();
+        files
+            .commit_writable_profile_registration(registration)
+            .unwrap();
+        assert_eq!(
+            files
+                .resolve_path_kind(b"C:\\Vine\\UserData\0", b"C:\\Vine\0")
+                .unwrap(),
+            RuntimePathResolution::MissingFile
+        );
+
+        let failed_begin = files
+            .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 7)
+            .unwrap();
+        files
+            .preflight_writable_directory_create(&failed_begin)
+            .unwrap();
+        let failed_request = files.commit_writable_directory_create_begin(failed_begin);
+        assert_eq!(failed_request.directory_id, 31);
+        assert_eq!(failed_request.relative_path_a, b"UserData");
+        assert_eq!(failed_request.base_generation, 0);
+        let failed = files
+            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
+                request_id: 7,
+                directory_id: 31,
+                base_generation: 0,
+                committed_generation: 0,
+                win32_error: 29,
+            })
+            .unwrap();
+        let failed = files.commit_writable_directory_create_completion(failed);
+        assert!(!failed.succeeded);
+        assert_eq!(failed.win32_error, 29);
+        let directory = &files.writable_profile().unwrap().directories[&31];
+        assert!(!directory.exists);
+        assert_eq!(directory.generation, 0);
+        assert_eq!(directory.revision, 0);
+
+        let begin = files
+            .plan_writable_directory_create(b"c:\\vine\\userdata\0", b"C:\\Vine\0", 8)
+            .unwrap();
+        let request = files.commit_writable_directory_create_begin(begin);
+        assert_eq!(request.base_generation, 0);
+        let invalid_before = files.clone();
+        let invalid = files
+            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
+                request_id: 8,
+                directory_id: 31,
+                base_generation: 0,
+                committed_generation: 2,
+                win32_error: 0,
+            })
+            .unwrap_err();
+        assert_eq!(
+            invalid.code,
+            "writable-directory-create-completion-generation-invalid"
+        );
+        assert_eq!(files, invalid_before);
+
+        let completion = files
+            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
+                request_id: 8,
+                directory_id: 31,
+                base_generation: 0,
+                committed_generation: 1,
+                win32_error: 0,
+            })
+            .unwrap();
+        let stale_completion = completion.clone();
+        let completion = files.commit_writable_directory_create_completion(completion);
+        assert!(completion.succeeded);
+        assert_eq!(completion.committed_generation, 1);
+        assert_eq!(
+            files
+                .preflight_writable_directory_create_completion(&stale_completion)
+                .unwrap_err()
+                .code,
+            "writable-directory-create-completion-plan-stale"
+        );
+        assert_eq!(
+            files
+                .resolve_path_kind(b"C:\\Vine\\UserData\0", b"C:\\Vine\0")
+                .unwrap(),
+            RuntimePathResolution::Directory
+        );
+        assert_eq!(
+            files
+                .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 9)
+                .unwrap_err()
+                .code,
+            "writable-directory-already-exists"
+        );
+    }
+
+    #[test]
+    fn writable_directory_create_rejects_unregistered_parent_and_cancels_pending_request() {
+        let mut files = RuntimeFiles::default();
+        let registration = files
+            .plan_writable_profile_registration(writable_directory_manifest(
+                b"UserData\\Save",
+                false,
+            ))
+            .unwrap();
+        files
+            .commit_writable_profile_registration(registration)
+            .unwrap();
+        assert_eq!(
+            files
+                .plan_writable_directory_create(b"UserData\\Save\0", b"C:\\Vine\0", 10,)
+                .unwrap_err()
+                .code,
+            "writable-directory-parent-missing"
+        );
+        assert_eq!(
+            files
+                .plan_writable_directory_create(b"Other\0", b"C:\\Vine\0", 11)
+                .unwrap_err()
+                .code,
+            "writable-directory-unregistered"
+        );
+        assert_eq!(
+            files
+                .plan_writable_directory_create(b"BGI.gdb\0", b"C:\\Vine\0", 12)
+                .unwrap_err()
+                .code,
+            "writable-directory-file-conflict"
+        );
+
+        let mut cancellable = RuntimeFiles::default();
+        let registration = cancellable
+            .plan_writable_profile_registration(writable_directory_manifest(b"UserData", false))
+            .unwrap();
+        cancellable
+            .commit_writable_profile_registration(registration)
+            .unwrap();
+        let begin = cancellable
+            .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 13)
+            .unwrap();
+        cancellable.commit_writable_directory_create_begin(begin);
+        let cancellation = cancellable.plan_writable_directory_create_cancellation(&[13]);
+        cancellable.commit_writable_directory_create_cancellation(cancellation);
+        assert_eq!(
+            cancellable
+                .writable_directory_create_request(13)
+                .unwrap_err()
+                .code,
+            "writable-directory-create-request-unknown"
+        );
+        assert!(!cancellable.writable_profile().unwrap().directories[&31].exists);
     }
 
     #[test]
@@ -3073,6 +3762,7 @@ mod tests {
                 byte_length: content.len() as u64,
                 sha256: Some(hex_sha256(&content)),
             }],
+            directories: Vec::new(),
         };
         let bootstrap = serde_json::to_vec(&manifest).unwrap();
         assert!(bootstrap.len() < 4096);

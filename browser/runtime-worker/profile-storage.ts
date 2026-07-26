@@ -18,6 +18,14 @@ export function writableCommitFailureControl(
   return control;
 }
 
+export function writableDirectoryCreateFailureControl(
+  directoryId: number,
+  baseGeneration: bigint,
+  win32Error: number,
+): Uint8Array {
+  return writableCommitFailureControl(directoryId, baseGeneration, win32Error);
+}
+
 export function recoverableCommitHttpError(
   status: number,
   errorCode: string | null,
@@ -49,10 +57,11 @@ export function recoverableCommitHttpError(
     return 112;
   }
   if (
-    errorCode === "writable-profile-generation-stale" ||
+    (errorCode !== null && errorCode.includes("generation-stale")) ||
     errorCode?.startsWith("ERR_SQLITE") === true ||
     errorCode?.startsWith("SQLITE_") === true ||
-    errorCode === "writable-profile-storage-failure"
+    errorCode === "writable-profile-storage-failure" ||
+    errorCode === "writable-profile-directory-storage-failure"
   ) {
     return 29;
   }

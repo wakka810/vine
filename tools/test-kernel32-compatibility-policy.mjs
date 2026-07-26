@@ -52,6 +52,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
   "fixtures/runtime-policies/kernel32-global-memory-status-v1.json",
   "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json",
+  "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -278,7 +279,8 @@ for (const relative of policyFiles) {
     assert(
       policy.id === "kernel32-sleep-zero-v1" ||
         policy.id === "kernel32-global-memory-status-v1" ||
-        policy.id === "kernel32-get-file-attributes-a-v1",
+        policy.id === "kernel32-get-file-attributes-a-v1" ||
+        policy.id === "kernel32-create-directory-a-v1",
     );
   }
   const loadLibraryA = policy.loadLibraryA ?? null;

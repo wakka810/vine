@@ -104,8 +104,10 @@ delta and resume the existing structured-stop path.
 
 The private BGI path obtains a `vine.writable-profile-snapshot` from the same
 origin instead of registering `BGI.gdb` as immutable source. The Worker compares
-title fingerprint, profile ID, root, quota, object path, generation, length, hash,
-with Rust prepared metadata. Version 2 omits object bytes from this JSON bootstrap.
+title fingerprint, profile ID, root, quota, file／directory path and identity,
+existence, generation, length, and hash with Rust prepared metadata. Version 3
+keeps file bytes out of this JSON bootstrap and adds a separate directory allowlist;
+an allowlisted absent directory is not treated as existing.
 The Worker acquires a server epoch lease, fetches existing content in bounded binary
 ranges, verifies its complete hash, and hydrates one Rust-owned object at a time
 before guest entry. Clean reads carry reserved source ID zero and fetch a
@@ -115,7 +117,7 @@ staged bytes directly.
 For a flush or dirty close, Rust emits `storage.profile-commit.v1` metadata while
 retaining payload and Win32 state authority. The Worker obtains the payload through
 the Wasm bridge, verifies its length and SHA-256, and posts it to the same-origin
-SQLite profile-v2 endpoint with an epoch lease and session/request idempotency key.
+SQLite profile-v3 endpoint with an epoch lease and session/request idempotency key.
 The server revalidates the lease inside the publication transaction. One
 transport/5xx retry uses the same key. Recoverable quota, conflict, lock, and storage
 failures become binary Win32 failure completions so Rust retains the dirty handle
@@ -128,6 +130,15 @@ SQLite and Rust both accept the completion; it does not decide generation, dirty
 state, or handle lifetime. The local runner seeds a new database from an existing
 distribution `BGI.gdb` only once and asserts the distribution file is unchanged
 after Node and Chrome execution.
+
+For `storage.profile-directory-create.v1`, Rust retains the directory identity,
+base generation, existence decision, pending request, and Win32 result authority.
+The Worker forwards only prepared profile/session/request/directory metadata. SQLite
+revalidates the lease, generation, and idempotency key in one transaction; Rust
+publishes existence only after validating the durable completion. Storage failure,
+stale or malformed completion, cancellation, and terminal cleanup cannot leave a
+TypeScript-owned Windows directory state. Private target checks use a run-local
+database so neither the shared profile nor the distribution directory is mutated.
 
 Protocol version 12 adds writable profile configuration and commit completion
 metadata. The current private checkpoint reads the profile but does not reach a
@@ -189,6 +200,12 @@ EAX preservation, LastError, zero guest writes, created logical-window
 lifecycle, and the effective `WS_EX_ACCEPTFILES` bit. It records that no
 browser resource or `WM_DROPFILES` path was created. The style bit and window
 generation remain private `RuntimeUser32` authority.
+
+Protocol version 24 inherits the version 23 file-attribute snapshot and adds
+writable-profile version 3 directory metadata plus the typed
+`storage.profile-directory-create.v1` request／completion. It carries opaque Rust
+request and directory IDs, base／committed generations, and Win32 error, without
+carrying a guest pointer, Win32 handle, or host path.
 
 Timer pacing, immutable source reads, writable profile reads, and writable
 commits are synchronous-stream services: the issuing guest thread parks on a

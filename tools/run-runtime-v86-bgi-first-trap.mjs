@@ -25,12 +25,14 @@ import {
 } from "./source-snapshot.mjs";
 import {
   acquireWritableProfileLease,
+  commitWritableDirectory,
   commitWritableProfile,
   openWritableProfile,
   readWritableProfile,
   revokeWritableProfileLease,
   snapshotWritableProfile,
   writableProfileCommitService,
+  writableProfileDirectoryCreateService,
 } from "./writable-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -197,6 +199,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-sleep-zero",
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
+        "kernel32-create-directory-a",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -303,6 +306,7 @@ assert(
       "kernel32-sleep-zero",
       "kernel32-global-memory-status",
       "kernel32-get-file-attributes-a",
+      "kernel32-create-directory-a",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -311,7 +315,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-get-file-attributes-a"
+    genericRuntimeCapability === "kernel32-create-directory-a"
+      ? "kernel32-create-directory-a-v1.json"
+      : genericRuntimeCapability === "kernel32-get-file-attributes-a"
       ? "kernel32-get-file-attributes-a-v1.json"
       : genericRuntimeCapability === "kernel32-global-memory-status"
       ? "kernel32-global-memory-status-v1.json"
@@ -517,7 +523,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const createDirectoryACheckpointEnabled =
+  genericRuntimeCapability === "kernel32-create-directory-a";
 const getFileAttributesACheckpointEnabled =
+  createDirectoryACheckpointEnabled ||
   genericRuntimeCapability === "kernel32-get-file-attributes-a";
 const globalMemoryStatusCheckpointEnabled =
   getFileAttributesACheckpointEnabled ||
@@ -834,7 +843,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? getFileAttributesACheckpointEnabled
+      ? createDirectoryACheckpointEnabled
+      ? "v86-bgi-create-directory-a"
+      : getFileAttributesACheckpointEnabled
       ? "v86-bgi-get-file-attributes-a"
       : globalMemoryStatusCheckpointEnabled
       ? "v86-bgi-global-memory-status"
@@ -4738,14 +4749,21 @@ async function run() {
     : null;
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
+  const writableProfileBaseDirectory = path.join(
+    root,
+    ".work",
+    "private-profiles",
+    expected.source.sha256,
+  );
+  fs.mkdirSync(writableProfileBaseDirectory, { recursive: true });
+  const writableProfileRunDirectory = createDirectoryACheckpointEnabled
+    ? fs.mkdtempSync(path.join(writableProfileBaseDirectory, "create-directory-run-"))
+    : null;
   const writableProfile = sourceFileReadEnabled &&
     (sourceRegistration === null || archiveSourceReadEnabled)
     ? openWritableProfile({
         databasePath: path.join(
-          root,
-          ".work",
-          "private-profiles",
-          expected.source.sha256,
+          writableProfileRunDirectory ?? writableProfileBaseDirectory,
           "default.sqlite",
         ),
         titleFingerprint: expected.source.sha256,
@@ -4761,15 +4779,20 @@ async function run() {
               : null,
           },
         ],
+        directories: createDirectoryACheckpointEnabled
+          ? [
+              {
+                directoryId: 1,
+                relativePathA: Buffer.from("UserData", "ascii"),
+              },
+            ]
+          : [],
       })
     : null;
   const writableProfileManifestPath = writableProfile === null
     ? null
     : path.join(
-        root,
-        ".work",
-        "private-profiles",
-        expected.source.sha256,
+        writableProfileRunDirectory ?? writableProfileBaseDirectory,
         `snapshot-${process.pid}.json`,
       );
   if (writableProfileManifestPath !== null) {
@@ -4955,6 +4978,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (createDirectoryACheckpointEnabled) {
+        validateCreateDirectoryAResult(genericResult);
       } else if (getFileAttributesACheckpointEnabled) {
         validateGetFileAttributesAResult(genericResult);
       } else if (globalMemoryStatusCheckpointEnabled) {
@@ -5198,6 +5223,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : createDirectoryACheckpointEnabled
+          ? "bgi durable Runtime VFS CreateDirectoryA"
           : getFileAttributesACheckpointEnabled
           ? "bgi Runtime VFS GetFileAttributesA"
           : globalMemoryStatusCheckpointEnabled
@@ -5593,6 +5620,9 @@ async function run() {
     if (writableProfileManifestPath !== null) {
       fs.rmSync(writableProfileManifestPath, { force: true });
     }
+    if (writableProfileRunDirectory !== null) {
+      fs.rmSync(writableProfileRunDirectory, { recursive: true, force: true });
+    }
     const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
     assert.deepEqual(
       bgiGdbAfter,
@@ -5637,6 +5667,10 @@ async function runGenericRuntimeReentry({
     assert.deepEqual(runtimeReady.writableProfile.rootPathA, profile.rootPathA);
     assert.equal(runtimeReady.writableProfile.quotaBytes, profile.quotaBytes);
     assert.equal(Object.keys(runtimeReady.writableProfile.files).length, profile.files.length);
+    assert.equal(
+      Object.keys(runtimeReady.writableProfile.directories).length,
+      profile.directories.length,
+    );
   }
   let generation = runtimeReady.memory.acknowledgedGeneration;
   let continuation = execution;
@@ -5646,6 +5680,7 @@ async function runGenericRuntimeReentry({
   const hostDeltas = [];
   const sourceReads = [];
   const writableCommits = [];
+  const writableDirectoryCreates = [];
   const timerPacing = [];
   assert.equal(writableProfileLease === null, writableProfile === null);
   const stackGrowths = [];
@@ -5891,6 +5926,9 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDirectoryCreates.length === 0
+          ? {}
+          : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
@@ -6353,6 +6391,9 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDirectoryCreates.length === 0
+          ? {}
+          : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
@@ -6424,6 +6465,7 @@ async function runGenericRuntimeReentry({
         writableProfileLease,
         sourceReads,
         writableCommits,
+        writableDirectoryCreates,
         timerPacing,
         sequence,
       });
@@ -6535,6 +6577,9 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDirectoryCreates.length === 0
+          ? {}
+          : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
         stackGrowths,
         heapPageMaterializations,
@@ -7021,6 +7066,7 @@ async function completeStorageHostRequest({
   writableProfileLease,
   sourceReads,
   writableCommits,
+  writableDirectoryCreates,
   timerPacing,
   sequence,
 }) {
@@ -7098,6 +7144,61 @@ async function completeStorageHostRequest({
     sourceRegistration !== null || writableProfile !== null,
     "runtime emitted storage I/O without a registered backing",
   );
+  if (metadata.service === writableProfileDirectoryCreateService) {
+    assert.notEqual(writableProfile, null, "directory create has no profile database");
+    assert.notEqual(
+      writableProfileLease,
+      null,
+      "directory create has no profile session lease",
+    );
+    assert.equal(response.payload.length, 0);
+    assert.equal(metadata.endpoint.endpoint.symbol.name, "CreateDirectoryA");
+    assert.equal(metadata.arguments.length, 4);
+    const [version, directoryId, baseLow, baseHigh] = metadata.arguments;
+    assert.equal(version, 1);
+    const baseGeneration = Number(BigInt(baseLow) | (BigInt(baseHigh) << 32n));
+    assert(Number.isSafeInteger(baseGeneration));
+    const profile = snapshotWritableProfile(writableProfile);
+    const directory = profile.directories.find(
+      (candidate) => candidate.directoryId === directoryId,
+    );
+    assert.notEqual(directory, undefined, "writable directory is not allowlisted");
+    assert.equal(directory.exists, false);
+    assert.equal(directory.generation, baseGeneration);
+    const result = commitWritableDirectory(writableProfile, {
+      requestKey: `${writableProfileLease.sessionKey}:${metadata.requestId}`,
+      titleFingerprint: profile.titleFingerprint,
+      profileId: profile.profileId,
+      directoryId,
+      relativePathA: directory.relativePathA,
+      baseGeneration,
+      sessionKey: writableProfileLease.sessionKey,
+      sessionEpoch: writableProfileLease.epoch,
+    });
+    const requestIdentity = Buffer.alloc(8);
+    requestIdentity.writeBigUInt64LE(BigInt(metadata.requestId));
+    const control = encodeWritableDirectoryCreateResponse(result);
+    await writeRuntimeFrame(
+      child.stdin,
+      runtimeFrame.hostCompletion,
+      Buffer.concat([requestIdentity, control]),
+      Buffer.alloc(0),
+    );
+    writableDirectoryCreates.push({
+      sequence,
+      requestId: String(metadata.requestId),
+      directoryId,
+      relativePathA: directory.relativePathA,
+      baseGeneration,
+      committedGeneration: result.committedGeneration,
+      duplicate: result.duplicate,
+    });
+    return readRuntimeFrame(
+      protocolReader,
+      null,
+      "generic writable directory create completion",
+    );
+  }
   if (metadata.service === writableProfileCommitService) {
     assert.notEqual(writableProfile, null, "writable commit has no profile database");
     assert.notEqual(writableProfileLease, null, "writable commit has no profile session lease");
@@ -7215,6 +7316,13 @@ function encodeWritableCommitResponse(result) {
   return control;
 }
 
+function encodeWritableDirectoryCreateResponse(result) {
+  return encodeWritableCommitResponse({
+    ...result,
+    objectId: result.directoryId,
+  });
+}
+
 function buildGenericCallRecord(
   sequence,
   endpoint,
@@ -7304,6 +7412,12 @@ function buildGenericCallRecord(
     ...(completionFrame.sourceRead === undefined
       ? {}
       : { sourceRead: completionFrame.sourceRead }),
+    ...(completionFrame.writableCommit === undefined
+      ? {}
+      : { writableCommit: completionFrame.writableCommit }),
+    ...(completionFrame.writableDirectoryCreate === undefined
+      ? {}
+      : { writableDirectoryCreate: completionFrame.writableDirectoryCreate }),
     ...(completionFrame.runtimeModule === undefined
       ? {}
       : { runtimeModule: completionFrame.runtimeModule }),
@@ -7367,6 +7481,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : createDirectoryACheckpointEnabled
+        ? 102
         : getFileAttributesACheckpointEnabled
         ? 101
         : globalMemoryStatusCheckpointEnabled
@@ -8292,6 +8408,13 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
       endpoint.symbol === "GetDC" &&
       fault.fault.class === "invalid-call" &&
       fault.fault.code === "null-logical-handle-forbidden"
+    ) &&
+    !(
+      createDirectoryACheckpointEnabled &&
+      endpoint.module.toLowerCase() === "user32.dll" &&
+      endpoint.symbol === "SetWindowPos" &&
+      fault.fault.class === "invalid-call" &&
+      fault.fault.code === "set-window-pos-activation-state-invalid"
     )
   ) {
     assert.equal(
@@ -17914,6 +18037,88 @@ function validateGetFileAttributesAResult(result) {
   );
 }
 
+function validateCreateDirectoryAResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 108_717);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    108_717,
+  );
+  assert.equal(result.callbackEvents.length, 48);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 62);
+  assert.equal(result.sourceReads.length, 10);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "kernel32.create-directory-a.runtime-vfs.v1",
+  );
+  assert.equal(calls.length, 1, "CreateDirectoryA completion count changed");
+  const call = calls[0];
+  assert.equal(call.sequence, 108_206);
+  assert.equal(call.trapInstructionCount, 16_446_219);
+  assert.deepEqual(call.arguments, [0x202e_2448, 0]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.returnAddress, 0x1008_25e8);
+  assert.equal(call.stackPointerBefore, 0x006f_f684);
+  assert.equal(call.stackPointerAfter, 0x006f_f690);
+  assert.equal(call.lastError, 2);
+  assert.equal(call.guestWrites.length, 0);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 12);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.writableDirectoryCreates[0].sequence, call.sequence);
+  assert.equal(result.writableDirectoryCreates[0].directoryId, 1);
+  assert.deepEqual(
+    result.writableDirectoryCreates[0].relativePathA,
+    [...Buffer.from("UserData", "ascii")],
+  );
+  assert.equal(result.writableDirectoryCreates[0].baseGeneration, 0);
+  assert.equal(result.writableDirectoryCreates[0].committedGeneration, 1);
+  assert.equal(result.writableDirectoryCreates[0].duplicate, false);
+  assert.equal(call.writableDirectoryCreate.succeeded, true);
+  assert.equal(call.writableDirectoryCreate.committedGeneration, 1);
+  assert.equal(call.writableDirectoryCreate.win32Error, 0);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_526);
+  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_526,
+    threadExits: [],
+  });
+  assert.equal(result.timerPacing.length, 6_974);
+  assert.equal(result.finalGeneration, 202_575);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 202,
+    address: 0x7f00_0c90,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "SetWindowPos" },
+    iatAddress: 0x100d_1400,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.fault.fault.class, "invalid-call");
+  assert.equal(
+    result.fault.fault.code,
+    "set-window-pos-activation-state-invalid",
+  );
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+  );
+  assert.equal(result.terminal.instructionCount, 28_273_977);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_cb4b);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
+    0x4801_0001,
+    0xffff_fffe,
+    0,
+    0,
+    1_286,
+    749,
+    266,
+  ]);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -22130,7 +22335,11 @@ function buildGenericRuntimeReentryReport({
         if (sleepZeroCheckpointEnabled) {
           assert.equal(
             setWaitableTimerCalls.length,
-            getFileAttributesACheckpointEnabled ? 6_937 : 6_910,
+            createDirectoryACheckpointEnabled
+              ? 6_974
+              : getFileAttributesACheckpointEnabled
+                ? 6_937
+                : 6_910,
           );
         } else {
           assert.equal(
@@ -22162,7 +22371,11 @@ function buildGenericRuntimeReentryReport({
         if (sleepZeroCheckpointEnabled) {
           assert.equal(
             waitForSingleObjectExCalls.length,
-            getFileAttributesACheckpointEnabled ? 6_937 : 6_910,
+            createDirectoryACheckpointEnabled
+              ? 6_974
+              : getFileAttributesACheckpointEnabled
+                ? 6_937
+                : 6_910,
           );
         } else {
           assert.equal(
@@ -22273,34 +22486,69 @@ function buildGenericRuntimeReentryReport({
       "GetFileAttributesA report summary has no completion",
     );
   }
+  const createDirectoryACalls = createDirectoryACheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId === "kernel32.create-directory-a.runtime-vfs.v1",
+      )
+    : [];
+  if (createDirectoryACheckpointEnabled) {
+    assert.equal(
+      createDirectoryACalls.length,
+      1,
+      "CreateDirectoryA report summary requires one durable completion",
+    );
+    assert.equal(
+      genericResult.writableDirectoryCreates.length,
+      1,
+      "CreateDirectoryA report summary requires one storage commit",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
-  const archiveSourceReads = archiveSourceReadEnabled
+  const archiveSourceCheckpointCreateFileCalls =
+    archiveSourceCreateFileCalls.slice(0, 5);
+  const allArchiveSourceReads = archiveSourceReadEnabled
     ? genericResult.sourceReads.filter((read) => read.sourceId === 1)
     : [];
+  const archiveSourceReads = allArchiveSourceReads.slice(0, 3);
   const archiveSourceLooseProbeCall = archiveSourceReadEnabled
-    ? archiveSourceCreateFileCalls[2] ?? null
+    ? archiveSourceCheckpointCreateFileCalls[2] ?? null
     : null;
   const archiveSourceOpenCalls = archiveSourceReadEnabled
-    ? archiveSourceCreateFileCalls.slice(3)
+    ? archiveSourceCheckpointCreateFileCalls.slice(3)
     : [];
   if (archiveSourceReadEnabled) {
-    assert.equal(
-      archiveSourceCreateFileCalls.length,
-      5,
-      "archive source read report summary requires the frozen CreateFileA completions",
-    );
+    if (createDirectoryACheckpointEnabled) {
+      assert(
+        archiveSourceCreateFileCalls.length >= 5,
+        "downstream CreateDirectoryA evidence omitted the frozen CreateFileA prefix",
+      );
+    } else {
+      assert.equal(
+        archiveSourceCreateFileCalls.length,
+        5,
+        "archive source read report summary requires the frozen CreateFileA completions",
+      );
+    }
     assert.equal(
       archiveSourceLooseProbeCall.result.value,
       0xffff_ffff,
       "the loose-file probe before the archive opens must remain not-found",
     );
-    assert.equal(
-      archiveSourceReads.length,
-      3,
-      "archive source read report summary requires the frozen bounded reads",
-    );
+    if (createDirectoryACheckpointEnabled) {
+      assert(
+        allArchiveSourceReads.length >= 3,
+        "downstream CreateDirectoryA evidence omitted the frozen source-read prefix",
+      );
+    } else {
+      assert.equal(
+        allArchiveSourceReads.length,
+        3,
+        "archive source read report summary requires the frozen bounded reads",
+      );
+    }
   }
   const repeatedCallEvidence = (calls) =>
     primaryMainLoopContinuationWorkloadEnabled && evidenceLevel === "summary"
@@ -22322,6 +22570,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : createDirectoryACheckpointEnabled
+        ? "vine.v86-bgi-kernel32-create-directory-a"
         : getFileAttributesACheckpointEnabled
         ? "vine.v86-bgi-kernel32-get-file-attributes-a"
         : globalMemoryStatusCheckpointEnabled
@@ -22799,10 +23049,25 @@ function buildGenericRuntimeReentryReport({
             lastCall: getFileAttributesACalls.at(-1),
             pathAuthority: "rust-runtime-vfs",
             fileExistenceAuthority: "registered-source-and-writable-manifests",
-            directoryExistence: "registered-path-ancestor-derivation",
+            directoryExistence: createDirectoryACheckpointEnabled
+              ? "registered-path-ancestors-and-writable-directory-state"
+              : "registered-path-ancestor-derivation",
             hostFileSystemImported: false,
             browserFileSystemImported: false,
             mutation: false,
+          },
+        }
+      : {}),
+    ...(createDirectoryACheckpointEnabled
+      ? {
+          createDirectoryA: {
+            call: createDirectoryACalls[0],
+            directoryAuthority: "rust-runtime-vfs-writable-profile",
+            durableAuthority: "sqlite-writable-profile-directory-generation",
+            transaction: "validate-plan-host-publish-targeted-commit",
+            sourceMutation: false,
+            hostPathCreated: false,
+            browserFileSystemImported: false,
           },
         }
       : {}),

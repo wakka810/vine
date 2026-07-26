@@ -49,7 +49,10 @@ runtime execution. It contains only target-independent bounded data:
   Windows-932 name scan;
 - opt-in unnamed `CreateWaitableTimerA` reset modes with null security
   attributes;
-- opt-in immutable source files with duplicate-free exact desired-access／share／creation／flags variants, bounded Windows-932 path scan, and bounded read length;
+- opt-in immutable source files and writable-profile objects with duplicate-free
+  exact desired-access／share／creation／flags variants, bounded Windows-932 path
+  scan, bounded read／write lengths, policy-owned file attributes, and an explicit
+  writable-directory-create switch;
 - opt-in callback-free runtime-system DLL basenames, bounded ASCII scan, and
   required logical export names;
 - enabled `HeapAlloc` flags, an ordinary maximum nonzero size, and explicit
@@ -116,6 +119,8 @@ band, and one callback-free runtime-system module catalog:
 | `kernel32-source-file-read-v1` | stdin, stdout, stderr | preceding schema-v2 options + exact read-only `OPEN_EXISTING`／share-read／measured flags, 32 KiB path and 1 MiB read bounds | ordinary nonzero sizes through 16 MiB plus exact 64 MiB; `HeapFree` flags `0`; `HeapSize` flags `0`／`HEAP_NO_SERIALIZE` |
 | `kernel32-d3dx-runtime-module-v1` | stdin, stdout, stderr | preceding schema-v2 options + `d3dx9_43.dll` logical runtime-system module／`D3DXCreateEffect` export, 260-byte ASCII basename bound | same bounded allocation/free/size variants |
 | `kernel32-create-thread-v1` | stdin, stdout, stderr | preceding schema-v2 options + 1 MiB reserve／4 KiB commit, flags `0`／`CREATE_SUSPENDED`, maximum 256 threads | same bounded allocation/free/size variants |
+| `kernel32-get-file-attributes-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + RuntimeFiles-only regular `0x20`／directory `0x30` projection | same bounded file／allocation variants |
+| `kernel32-create-directory-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + one explicit writable-profile directory create variant; NULL security only | same bounded file／allocation variants |
 
 Unlisted selectors, file classifications, file access／share／creation／flags, overlapped reads, and high-DWORD size／seek variants remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before
@@ -516,14 +521,29 @@ paths are mutation-free. Detailed consumer and non-claim evidence is in
 `RuntimeFiles` path authority. The optional policy object supplies only bounded
 regular-file `0x20` and directory `0x30` values; it contains no path, callsite,
 occurrence, host metadata, or next-stop identity. Exact registered existing files
-are regular files. Mount roots and ancestors derived from registered source／writable
-paths are directories. A missing final component returns
+are regular files. Mount roots, ancestors derived from registered source／writable
+paths, and committed writable-profile directory entries are directories. A missing final component returns
 `INVALID_FILE_ATTRIBUTES`／`ERROR_FILE_NOT_FOUND`; a missing parent or mount escape
 returns `ERROR_PATH_NOT_FOUND`; success preserves LastError. NULL, malformed,
 disabled-policy, and resolution failures do not mutate VFS or guest memory. Neither
 Node nor the browser host filesystem is an attribute authority. Detailed consumer
 and non-claim evidence is in
 [bgi-get-file-attributes-a.md](bgi-get-file-attributes-a.md).
+
+`CreateDirectoryA` uses one two-argument semantic handler over a separate
+`RuntimeFiles` directory plan. The policy contains only an enable bit; allowed path,
+directory ID, existence, parent relation, and generation belong to the versioned
+writable profile. The reached variant requires NULL security attributes and an
+allowlisted absent child. Rust validates and suspends before the Worker asks SQLite
+to publish the directory generation. Rust commits the owner plan only after a
+matching durable completion. Success returns TRUE and preserves LastError;
+duplicate directory and regular-file conflict return
+`ERROR_ALREADY_EXISTS`, while a missing parent returns `ERROR_PATH_NOT_FOUND`.
+Malformed, stale, duplicate, storage-failure, cancel, and wrong-lifecycle paths do
+not partially update VFS, guest memory, or SQLite. The policy stores no path,
+callsite, occurrence, browser resource, host directory, or next-stop identity.
+Detailed evidence is in
+[bgi-create-directory-a.md](bgi-create-directory-a.md).
 
 `GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
 in/out contract bounded from the four-byte size field through the 156-byte

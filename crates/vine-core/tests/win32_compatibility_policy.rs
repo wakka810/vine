@@ -82,6 +82,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-global-memory-status-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-create-directory-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -121,6 +122,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .expect("VFS file-attributes policy");
     assert_eq!(attributes.regular_file_attributes, 0x20);
     assert_eq!(attributes.directory_attributes, 0x30);
+    assert!(!file_attributes.create_directory_a_enabled());
     let mut invalid_attributes = file_attributes;
     invalid_attributes
         .source_files
@@ -132,6 +134,19 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .directory_attributes = 0x10;
     assert_eq!(
         invalid_attributes.validate().unwrap_err().code,
+        "kernel32-policy-source-files-invalid"
+    );
+    let create_directory: Kernel32CompatibilityPolicy =
+        serde_json::from_str(policies.last().unwrap()).unwrap();
+    assert!(create_directory.create_directory_a_enabled());
+    let mut create_without_writable_files = create_directory;
+    let source_files = create_without_writable_files.source_files.as_mut().unwrap();
+    source_files
+        .allowed_desired_access
+        .retain(|access| *access != 0x4000_0000);
+    source_files.maximum_write_bytes = 0;
+    assert_eq!(
+        create_without_writable_files.validate().unwrap_err().code,
         "kernel32-policy-source-files-invalid"
     );
     let mut missing_system_info = memory_status;

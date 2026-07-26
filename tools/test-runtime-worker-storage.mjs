@@ -20,10 +20,12 @@ await build({
 const {
   recoverableCommitHttpError,
   writableCommitFailureControl,
+  writableDirectoryCreateFailureControl,
 } = await import(`${pathToFileURL(output).href}?v=${Date.now()}`);
 
 for (const [status, errorCode, win32Error] of [
   [409, "writable-profile-generation-stale", 29],
+  [409, "writable-profile-directory-generation-stale", 29],
   [413, "writable-profile-quota-exceeded", 112],
   [423, null, 33],
   [429, null, 33],
@@ -55,6 +57,10 @@ assert.deepEqual(
   Array.from({ length: 8 }, (_, index) => view.getUint32(index * 4, true)),
   [1, 7, 0x89ab_cdef, 0x0123_4567, 0x89ab_cdef, 0x0123_4567, 112, 0],
 );
+assert.deepEqual(
+  writableDirectoryCreateFailureControl(9, 5n, 29),
+  writableCommitFailureControl(9, 5n, 29),
+);
 
 const worker = fs.readFileSync(
   path.join(root, "browser", "runtime-worker", "runtime-worker.ts"),
@@ -69,7 +75,7 @@ const cancellation = methodSource(worker, "#cancelAndFinish(", "#abortSourceRead
 assertOrdered(cancellation, [
   "await this.#settleProfileLeaseAcquisition()",
   "await this.#drainProfileTransports()",
-  "await this.#drainWritableCommits()",
+  "await this.#drainWritableMutations()",
   "await this.#revokeWritableProfileLease()",
   "this.#bridge.cancel<CancellationMetadata>()",
   "this.#finishNow({",
@@ -81,7 +87,7 @@ const completion = methodSource(
 );
 assertOrdered(completion, [
   "await this.#drainProfileTransports()",
-  "await this.#drainWritableCommits()",
+  "await this.#drainWritableMutations()",
   "await this.#revokeWritableProfileLease()",
   "this.#finishNow(final)",
 ]);

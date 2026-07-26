@@ -5181,3 +5181,27 @@ Node／browser host filesystemを照会せず、queryはVFS、handle、guest mem
 23 completions中3件のmissing fileと20件のmissing path、zero guest writes、ordered semantic／terminal memory digestを
 一致させ、次stopを`KERNEL32.dll!CreateDirectoryA`とした。Detailed contractとnon-claimsは
 [bgi-get-file-attributes-a.md](bgi-get-file-attributes-a.md)を正とする。
+
+## 152. BGI `CreateDirectoryA` durable directory semantics
+
+Focused `create-directory-a` oracleを同じsource executableから独立に二回取得した。Primary raw traceは
+19,956 bytes／SHA-256 `0c01634feb7e51f0262ebfccc0b658332681ec0ce66e5067c54b3c44d491f708`、
+summaryは15,494 bytes／SHA-256 `134b233dd57e51e7bd022484fd75fdd05132a0d1a5a52956755c72649044cb69`である。
+Confirmation raw traceは20,183 bytes／SHA-256
+`95a096c7fd2e05c8d746a1e9d70391ee5659a0a288d83b9cf36dc416f4169d67`、summaryは15,797 bytes／
+SHA-256 `c75f6ae211f77feb45f7a10e42c4d2bff93642a5212fc5deee57e7d12aedeb41`である。各runは4
+`CreateDirectoryA` callsを含み、diagnostics／hook errors 0である。Raw trace／summaryは`.work/windows-traces/`に
+保持しGitへ追加しない。Source executableは実行前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+全callはNULL security attributesを使う。Absent childの作成はTRUEを返してsentinel LastErrorを保存し、同じpathの
+再作成はFALSE／`ERROR_ALREADY_EXISTS` 183、absent parent配下はFALSE／`ERROR_PATH_NOT_FOUND` 3、existing
+regular fileとの衝突はFALSE／183となった。作成したdirectoryのcleanupは両runで成功した。Primary callerはreturn RVA
+`0x000825E8`でBOOL resultを消費する。Native absolute path、directory identity、timestamp、ACL、host filesystem
+generationはartifact observationでありpolicyへimportしない。
+
+Runtimeはwritable-profile version 3のallowlisted directory identityとgenerationを`RuntimeFiles`へ登録し、SQLiteが
+lease／base generation／idempotencyを一transactionでdurably publishした後だけRust existenceをcommitする。Node／Chromeは
+同じrequest／directory／generation、TRUE、preserved LastError、zero guest writes、source不変、semantic／memory digestを
+一致させた。次stopは既存logical windowへ到達した`USER32.dll!SetWindowPos` repeat activation variantである。Detailed
+transaction contractとnon-claimsは[bgi-create-directory-a.md](bgi-create-directory-a.md)を正とする。

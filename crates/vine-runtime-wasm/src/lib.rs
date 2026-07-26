@@ -19,20 +19,22 @@ use vine_core::{
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE, ReentrancyPolicy,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization, RuntimeModule,
-    RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
+    RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
     StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
     bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
     complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
-    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
     dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
@@ -238,6 +240,23 @@ impl Bridge {
         let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
             .map_err(error_string)?;
         let metadata = self.runtime_mut()?.complete_writable_commit(response)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
+    fn complete_writable_directory_create(
+        &mut self,
+        request_id: u64,
+        control_length: usize,
+    ) -> Result<(), String> {
+        let control = self.input.get(..control_length).ok_or_else(|| {
+            "writable directory create input length exceeds the bridge buffer".to_owned()
+        })?;
+        let response =
+            RuntimeWritableDirectoryCreateHostResponse::decode_binary(request_id, control)
+                .map_err(error_string)?;
+        let metadata = self
+            .runtime_mut()?
+            .complete_writable_directory_create(response)?;
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
@@ -2221,6 +2240,86 @@ impl BrowserRuntime {
             "endpoint": endpoint,
             "completion": completion,
             "writableCommit": writable_completion,
+            "memory": self.memory.synchronization_state(),
+        }))
+    }
+
+    fn complete_writable_directory_create(
+        &mut self,
+        response: RuntimeWritableDirectoryCreateHostResponse,
+    ) -> Result<Value, String> {
+        let request_id = response.request_id;
+        let pending = self.pending_host.get(&request_id).cloned().ok_or_else(|| {
+            "writable directory create completion has no pending API call".to_owned()
+        })?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
+        {
+            return Err(
+                "writable directory create completion request identity is corrupt".to_owned(),
+            );
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, directory_completion) = complete_kernel32_writable_directory_create(
+            &self.dispatcher,
+            pending.call.clone(),
+            response,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(
+                    "writable directory create completion produced a suspended outcome".to_owned(),
+                );
+            }
+        };
+        let directory_completion = directory_completion.ok_or_else(|| {
+            "CreateDirectoryA completed without committing its VFS state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                if completion.request_id == request_id
+                    && completion.thread_id == owner_thread_id => {}
+            _ => {
+                return Err(
+                    "writable directory create scheduler completion event mismatch".to_owned(),
+                );
+            }
+        }
+        let removed = self.pending_host.remove(&request_id).ok_or_else(|| {
+            "writable directory create pending call disappeared before commit".to_owned()
+        })?;
+        debug_assert_eq!(removed.call.request.request_id, request_id);
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err(
+                "Rust scheduler did not resume the writable directory create request".to_owned(),
+            );
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "writableDirectoryCreate": directory_completion,
             "memory": self.memory.synchronization_state(),
         }))
     }
@@ -4210,6 +4309,18 @@ pub extern "C" fn vine_bridge_complete_writable_commit(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         bridge.complete_writable_commit(request_id, control_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_writable_directory_create(
+    request_low: u32,
+    request_high: u32,
+    control_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.complete_writable_directory_create(request_id, control_length as usize)
     })
 }
 

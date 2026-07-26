@@ -27,13 +27,14 @@ use vine_core::{
     Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
     RESUME_THREAD_IMPLEMENTATION, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor,
-    RuntimeModule, RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass,
-    RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState,
+    RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
+    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor, RuntimeModule,
+    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode,
+    RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
     RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
@@ -41,26 +42,28 @@ use vine_core::{
     RuntimeThreadExecutionSelection, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
     RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerClockState,
     RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
-    RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse, RuntimeWritableProfile,
-    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
+    RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
+    RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
     SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
     TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL, UnsupportedPoint,
     User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION, WinmmCompatibilityPolicy,
     bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
     complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
-    complete_kernel32_writable_commit, d3d9_contract_for_endpoint, dinput8_contract_for_endpoint,
-    dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call,
-    dispatch_dsound_api, dispatch_dsound_com_call, dispatch_gdi32_api_with_policy,
-    dispatch_gdiplus_api_with_policy, dispatch_imm32_api_with_policy, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_ole32_api, dispatch_shell32_api,
-    dispatch_user32_api_with_policy, dispatch_winmm_api_with_policy, dsound_contract_for_endpoint,
-    encode_pointer_contract, gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint,
-    get_current_process_id_contract, get_current_thread_id_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_system_time_as_file_time_contract,
-    get_tick_count_contract, heap_create_contract, heap_set_information_contract,
-    imm32_contract_for_endpoint, install_callback_return_sentinel,
-    install_controlled_initial_stack, install_controlled_process_environment,
+    complete_kernel32_writable_commit, complete_kernel32_writable_directory_create,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
+    dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
+    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
+    gdi32_contract_for_endpoint, gdiplus_contract_for_endpoint, get_current_process_id_contract,
+    get_current_thread_id_contract, get_module_handle_w_contract, get_proc_address_contract,
+    get_startup_info_w_contract, get_system_time_as_file_time_contract, get_tick_count_contract,
+    heap_create_contract, heap_set_information_contract, imm32_contract_for_endpoint,
+    install_callback_return_sentinel, install_controlled_initial_stack,
+    install_controlled_process_environment,
     install_controlled_process_environment_with_command_line,
     install_controlled_process_environment_with_command_line_and_ansi,
     install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
@@ -242,6 +245,7 @@ enum GenericRuntimeCapability {
     SleepZero,
     GlobalMemoryStatus,
     GetFileAttributesA,
+    CreateDirectoryA,
 }
 
 struct GenericRuntimeProcess {
@@ -532,6 +536,8 @@ struct GenericRuntimeCompletion {
     source_read: Option<RuntimeSourceReadCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     writable_commit: Option<RuntimeWritableCommitCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    writable_directory_create: Option<RuntimeWritableDirectoryCreateCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime_module: Option<GenericRuntimeModuleLoad>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2636,6 +2642,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SleepZero
                     | GenericRuntimeCapability::GlobalMemoryStatus
                     | GenericRuntimeCapability::GetFileAttributesA
+                    | GenericRuntimeCapability::CreateDirectoryA
             )
         ) {
             let loader = kernel32_policy
@@ -3301,10 +3308,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let get_file_attributes_a_enabled = matches!(
+    let create_directory_a_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::GetFileAttributesA)
+        Some(GenericRuntimeCapability::CreateDirectoryA)
     );
+    let get_file_attributes_a_enabled = create_directory_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::GetFileAttributesA)
+        );
     let global_memory_status_enabled = get_file_attributes_a_enabled
         || matches!(
             enabled_capability,
@@ -4191,6 +4203,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             get_file_attributes_a_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "CreateDirectoryA".to_owned(),
+            },
+        ) {
+            create_directory_a_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -4649,6 +4668,7 @@ fn run_v86_generic_runtime_session(
                             timer_resolution: None,
                             source_read: None,
                             writable_commit: None,
+                            writable_directory_create: None,
                             runtime_module: None,
                             gdi,
                             gdiplus,
@@ -5583,6 +5603,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution,
                                 source_read: None,
                                 writable_commit: None,
+                                writable_directory_create: None,
                                 runtime_module,
                                 gdi,
                                 gdiplus,
@@ -5721,62 +5742,89 @@ fn run_v86_generic_runtime_session(
                                 "storage completion identifies a different pending request",
                             ));
                         }
-                        let (outcome, source_read, writable_commit, waitable_timer_pacing) =
-                            if timer_pacing {
-                                if !response_frame.payload.is_empty() {
-                                    return Err(LoaderError::invalid_input(
-                                        "runtime-reentry",
-                                        "timer-pacing-completion-payload-invalid",
-                                        "timer pacing completion must not contain a payload",
-                                    ));
-                                }
-                                let acknowledgement = u32::from_le_bytes(
-                                    response_frame.control[8..12]
-                                        .try_into()
-                                        .expect("checked timer pacing acknowledgement"),
-                                );
-                                let (outcome, completion) = complete_kernel32_waitable_timer_pacing(
-                                    &dispatcher,
-                                    call,
-                                    acknowledgement,
-                                    &mut session,
-                                );
-                                (outcome, None, None, completion)
-                            } else if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
-                                if !response_frame.payload.is_empty() {
-                                    return Err(LoaderError::invalid_input(
-                                        "runtime-reentry",
-                                        "writable-commit-completion-payload-invalid",
-                                        "writable commit completion must not contain a payload",
-                                    ));
-                                }
-                                let response = RuntimeWritableCommitHostResponse::decode_binary(
+                        let (
+                            outcome,
+                            source_read,
+                            writable_commit,
+                            writable_directory_create,
+                            waitable_timer_pacing,
+                        ) = if timer_pacing {
+                            if !response_frame.payload.is_empty() {
+                                return Err(LoaderError::invalid_input(
+                                    "runtime-reentry",
+                                    "timer-pacing-completion-payload-invalid",
+                                    "timer pacing completion must not contain a payload",
+                                ));
+                            }
+                            let acknowledgement = u32::from_le_bytes(
+                                response_frame.control[8..12]
+                                    .try_into()
+                                    .expect("checked timer pacing acknowledgement"),
+                            );
+                            let (outcome, completion) = complete_kernel32_waitable_timer_pacing(
+                                &dispatcher,
+                                call,
+                                acknowledgement,
+                                &mut session,
+                            );
+                            (outcome, None, None, None, completion)
+                        } else if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
+                            if !response_frame.payload.is_empty() {
+                                return Err(LoaderError::invalid_input(
+                                    "runtime-reentry",
+                                    "writable-commit-completion-payload-invalid",
+                                    "writable commit completion must not contain a payload",
+                                ));
+                            }
+                            let response = RuntimeWritableCommitHostResponse::decode_binary(
+                                request_id,
+                                &response_frame.control[8..],
+                            )
+                            .map_err(runtime_state_error)?;
+                            let (outcome, completion) = complete_kernel32_writable_commit(
+                                &dispatcher,
+                                call,
+                                response,
+                                &mut session,
+                            );
+                            (outcome, None, completion, None, None)
+                        } else if call.request.service == RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
+                        {
+                            if !response_frame.payload.is_empty() {
+                                return Err(LoaderError::invalid_input(
+                                    "runtime-reentry",
+                                    "writable-directory-create-completion-payload-invalid",
+                                    "writable directory create completion must not contain a payload",
+                                ));
+                            }
+                            let response =
+                                RuntimeWritableDirectoryCreateHostResponse::decode_binary(
                                     request_id,
                                     &response_frame.control[8..],
                                 )
                                 .map_err(runtime_state_error)?;
-                                let (outcome, completion) = complete_kernel32_writable_commit(
-                                    &dispatcher,
-                                    call,
-                                    response,
-                                    &mut session,
-                                );
-                                (outcome, None, completion, None)
-                            } else {
-                                let response = RuntimeSourceReadHostResponse::decode_binary(
-                                    request_id,
-                                    &response_frame.control[8..],
-                                    &response_frame.payload,
-                                )
-                                .map_err(runtime_state_error)?;
-                                let (outcome, completion) = complete_kernel32_source_read(
-                                    &dispatcher,
-                                    call,
-                                    response,
-                                    &mut session,
-                                );
-                                (outcome, completion, None, None)
-                            };
+                            let (outcome, completion) = complete_kernel32_writable_directory_create(
+                                &dispatcher,
+                                call,
+                                response,
+                                &mut session,
+                            );
+                            (outcome, None, None, completion, None)
+                        } else {
+                            let response = RuntimeSourceReadHostResponse::decode_binary(
+                                request_id,
+                                &response_frame.control[8..],
+                                &response_frame.payload,
+                            )
+                            .map_err(runtime_state_error)?;
+                            let (outcome, completion) = complete_kernel32_source_read(
+                                &dispatcher,
+                                call,
+                                response,
+                                &mut session,
+                            );
+                            (outcome, completion, None, None, None)
+                        };
                         let completion = match outcome {
                             DispatchOutcome::Immediate(completion) => completion,
                             DispatchOutcome::Fault(fault) => {
@@ -5798,6 +5846,7 @@ fn run_v86_generic_runtime_session(
                         if [
                             source_read.is_some(),
                             writable_commit.is_some(),
+                            writable_directory_create.is_some(),
                             waitable_timer_pacing.is_some(),
                         ]
                         .into_iter()
@@ -5817,6 +5866,11 @@ fn run_v86_generic_runtime_session(
                             || writable_commit.as_ref().is_some_and(|completion| {
                                 completion.request.request_id != request_id
                             })
+                            || writable_directory_create
+                                .as_ref()
+                                .is_some_and(|completion| {
+                                    completion.request.request_id != request_id
+                                })
                             || waitable_timer_pacing.as_ref().is_some_and(|completion| {
                                 completion
                                     .registration
@@ -5904,6 +5958,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read,
                                 writable_commit,
+                                writable_directory_create,
                                 runtime_module: None,
                                 gdi: None,
                                 gdiplus: None,
@@ -6019,6 +6074,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read: None,
                                 writable_commit: None,
+                                writable_directory_create: None,
                                 runtime_module: None,
                                 gdi: None,
                                 gdiplus: None,
@@ -13692,6 +13748,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-sleep-zero" => GenericRuntimeCapability::SleepZero,
                 "kernel32-global-memory-status" => GenericRuntimeCapability::GlobalMemoryStatus,
                 "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
+                "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

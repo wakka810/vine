@@ -1,15 +1,17 @@
 use vine_core::{
-    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiReturnSchema,
-    DispatchOutcome, ExecutionSession, GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE,
-    GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy, LastErrorPolicy,
-    MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate,
-    RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeThreadId, RuntimeWritableCommitHostResponse, RuntimeWritableFileManifest,
-    RuntimeWritableProfileManifest, SchedulerThreadState, complete_kernel32_source_read,
-    complete_kernel32_writable_commit, dispatch_kernel32_api_with_policy,
+    ApiBehavior, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass,
+    ApiReturnSchema, CREATE_DIRECTORY_A_IMPLEMENTATION, DispatchOutcome, ExecutionSession,
+    GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange,
+    Kernel32CompatibilityPolicy, LastErrorPolicy, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
+    PageProtection, ProcessAddressSpaceLayout, RUNTIME_WRITABLE_PROFILE_SCHEMA,
+    RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
+    RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
+    RuntimeWritableDirectoryManifest, RuntimeWritableFileManifest, RuntimeWritableProfileManifest,
+    SchedulerThreadState, complete_kernel32_source_read, complete_kernel32_writable_commit,
+    complete_kernel32_writable_directory_create, dispatch_kernel32_api_with_policy,
     kernel32_contract_for_endpoint,
 };
 
@@ -115,6 +117,222 @@ fn get_file_attributes_a_projects_only_registered_vfs_paths() {
                 && fault.code == "get-file-attributes-a-policy-disabled"
     ));
     assert_eq!(runtime, before);
+}
+
+#[test]
+fn create_directory_a_publishes_only_after_durable_host_completion() {
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
+    ))
+    .expect("CreateDirectoryA policy JSON");
+    policy.validate().expect("valid CreateDirectoryA policy");
+    let endpoint = endpoint(31, "CreateDirectoryA");
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("valid CreateDirectoryA contract")
+        .expect("implemented CreateDirectoryA contract");
+    assert_eq!(
+        contract.implementation_id,
+        CREATE_DIRECTORY_A_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.behavior, ApiBehavior::ImmediateOrDeferred);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+
+    let (mut memory, owner) = initialized_memory();
+    let paths = [
+        (PATH_ADDRESS, b"UserData\0".as_slice()),
+        (PATH_ADDRESS + 0x80, b"Missing\\Child\0".as_slice()),
+        (PATH_ADDRESS + 0x100, b"BGI.gdb\0".as_slice()),
+        (PATH_ADDRESS + 0x180, b"Cache\0".as_slice()),
+    ];
+    for (address, path) in paths {
+        write_initialization(&mut memory, owner, GuestAddress(address), path);
+    }
+    let frames = [
+        (MEMORY_BASE.0, PATH_ADDRESS, 0),
+        (MEMORY_BASE.0 + 0x20, PATH_ADDRESS + 0x80, 0),
+        (MEMORY_BASE.0 + 0x40, PATH_ADDRESS + 0x100, 0),
+        (MEMORY_BASE.0 + 0x60, PATH_ADDRESS, 0x2000_2200),
+        (MEMORY_BASE.0 + 0x80, PATH_ADDRESS + 0x180, 0),
+    ];
+    for (stack, path, security_attributes) in frames {
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(stack),
+            &[0x1000_1000, path, security_attributes]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    memory.seal_owner(owner).expect("seal fixture memory");
+    acknowledge_initial_reflection(&mut memory);
+
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_writable_profile(RuntimeWritableProfileManifest {
+            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
+            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
+            title_fingerprint: "sha256:test-title".to_owned(),
+            profile_id: "default".to_owned(),
+            root_path_a: b"C:\\Vine\0".to_vec(),
+            quota_bytes: 1024,
+            files: vec![RuntimeWritableFileManifest {
+                object_id: 21,
+                relative_path_a: b"BGI.gdb".to_vec(),
+                exists: false,
+                generation: 0,
+                byte_length: 0,
+                sha256: None,
+            }],
+            directories: vec![
+                RuntimeWritableDirectoryManifest {
+                    directory_id: 31,
+                    relative_path_a: b"UserData".to_vec(),
+                    exists: false,
+                    generation: 0,
+                },
+                RuntimeWritableDirectoryManifest {
+                    directory_id: 32,
+                    relative_path_a: b"Missing\\Child".to_vec(),
+                    exists: false,
+                    generation: 0,
+                },
+                RuntimeWritableDirectoryManifest {
+                    directory_id: 33,
+                    relative_path_a: b"Cache".to_vec(),
+                    exists: false,
+                    generation: 0,
+                },
+            ],
+        })
+        .expect("register writable directories");
+
+    let before_security_rejection = runtime.clone();
+    let security_rejection = dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[3].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    );
+    assert!(matches!(
+        security_rejection,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "create-directory-a-security-attributes-unsupported"
+    ));
+    assert_eq!(runtime, before_security_rejection);
+
+    runtime.set_current_last_error(0x1122_3344).unwrap();
+    let create = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[0].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(decode_words(&create.request.payload), vec![1, 31, 0, 0]);
+    assert!(!runtime.writable_profile().unwrap().directories[&31].exists);
+    let runtime_before_invalid_completion = runtime.clone();
+    let (invalid, invalid_completion) = complete_kernel32_writable_directory_create(
+        &dispatcher,
+        create.clone(),
+        RuntimeWritableDirectoryCreateHostResponse {
+            request_id: create.request.request_id,
+            directory_id: 31,
+            base_generation: 0,
+            committed_generation: 2,
+            win32_error: 0,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    assert!(matches!(invalid, DispatchOutcome::Fault(_)));
+    assert!(invalid_completion.is_none());
+    assert_eq!(runtime, runtime_before_invalid_completion);
+
+    let (created, completion) = complete_kernel32_writable_directory_create(
+        &dispatcher,
+        create,
+        RuntimeWritableDirectoryCreateHostResponse {
+            request_id: 1,
+            directory_id: 31,
+            base_generation: 0,
+            committed_generation: 1,
+            win32_error: 0,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let created = expect_immediate(created);
+    assert_eq!(created.eax, RegisterUpdate::Set(1));
+    assert_eq!(created.last_error, 0x1122_3344);
+    assert!(completion.expect("directory completion").succeeded);
+    assert!(runtime.writable_profile().unwrap().directories[&31].exists);
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
+
+    let duplicate = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[0].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(duplicate.eax, RegisterUpdate::Set(0));
+    assert_eq!(duplicate.last_error, 183);
+    let parent_missing = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[1].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(parent_missing.eax, RegisterUpdate::Set(0));
+    assert_eq!(parent_missing.last_error, 3);
+    let file_conflict = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[2].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(file_conflict.eax, RegisterUpdate::Set(0));
+    assert_eq!(file_conflict.last_error, 183);
+
+    let failed = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoint,
+        frames[4].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    let (failed, failed_completion) = complete_kernel32_writable_directory_create(
+        &dispatcher,
+        failed,
+        RuntimeWritableDirectoryCreateHostResponse {
+            request_id: 2,
+            directory_id: 33,
+            base_generation: 0,
+            committed_generation: 0,
+            win32_error: 29,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let failed = expect_immediate(failed);
+    assert_eq!(failed.eax, RegisterUpdate::Set(0));
+    assert_eq!(failed.last_error, 29);
+    assert!(!failed_completion.expect("failed completion").succeeded);
+    assert!(!runtime.writable_profile().unwrap().directories[&33].exists);
 }
 
 #[test]
@@ -562,6 +780,7 @@ fn writable_profile_api_generates_commits_and_reopens_without_source_shadowing()
                 byte_length: 0,
                 sha256: None,
             }],
+            directories: Vec::new(),
         })
         .expect("register writable profile");
 

@@ -161,8 +161,11 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const createDirectoryAActive =
+    root.activeRuntimeCheckpoint?.profile === "kernel32-create-directory-a";
   const getFileAttributesAActive =
-    root.activeRuntimeCheckpoint?.profile === "kernel32-get-file-attributes-a";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-get-file-attributes-a" ||
+    createDirectoryAActive;
   const archiveSourceReadActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-archive-source-read" ||
     root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero" ||
@@ -181,7 +184,9 @@ export function validateCurrentCheckpoint(manifest) {
     leaveCriticalSectionContinuationActive ||
     dragAcceptFilesActive ||
     archiveSourceReadActive;
-  const timerCycleCount = getFileAttributesAActive
+  const timerCycleCount = createDirectoryAActive
+    ? 6_974
+    : getFileAttributesAActive
     ? 6_937
     : sleepZeroActive
     ? 6_910
@@ -192,7 +197,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? 7
       : 3;
-  const timerSetSequences = getFileAttributesAActive
+  const timerSetSequences = createDirectoryAActive
+    ? "18681,108706"
+    : getFileAttributesAActive
     ? "18681,108148"
     : sleepZeroActive
     ? "18681,107739"
@@ -203,7 +210,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "18681,18689,18697,18705,18713,18721,18729"
       : "18681,18689,18697";
-  const timerSetInstructionCounts = getFileAttributesAActive
+  const timerSetInstructionCounts = createDirectoryAActive
+    ? "11974074,28269117"
+    : getFileAttributesAActive
     ? "11973553,16432845"
     : sleepZeroActive
     ? "11973553,16291292"
@@ -214,7 +223,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
       : "11973553,11973700,11973847";
-  const timerWaitSequences = getFileAttributesAActive
+  const timerWaitSequences = createDirectoryAActive
+    ? "18682,108707"
+    : getFileAttributesAActive
     ? "18682,108149"
     : sleepZeroActive
     ? "18682,107740"
@@ -225,7 +236,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "18682,18690,18698,18706,18714,18722,18730"
       : "18682,18690,18698";
-  const timerWaitInstructionCounts = getFileAttributesAActive
+  const timerWaitInstructionCounts = createDirectoryAActive
+    ? "11974080,28269123"
+    : getFileAttributesAActive
     ? "11973559,16432851"
     : sleepZeroActive
     ? "11973559,16291298"
@@ -236,7 +249,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
       : "11973559,11973706,11973853";
-  const timerGenerations = getFileAttributesAActive
+  const timerGenerations = createDirectoryAActive
+    ? "1,6974"
+    : getFileAttributesAActive
     ? "1,6937"
     : sleepZeroActive
     ? "1,6910"
@@ -247,7 +262,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerDeadlines = getFileAttributesAActive
+  const timerDeadlines = createDirectoryAActive
+    ? "5000,34870000"
+    : getFileAttributesAActive
     ? "5000,34685000"
     : sleepZeroActive
     ? "5000,34550000"
@@ -258,7 +275,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "5000,10000,15000,20000,25000,30000,35000"
       : "5000,10000,15000";
-  const timerPacingRequestIds = getFileAttributesAActive
+  const timerPacingRequestIds = createDirectoryAActive
+    ? "3,6985"
+    : getFileAttributesAActive
     ? "3,6942"
     : sleepZeroActive
     ? "3,6915"
@@ -269,7 +288,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "3,4,5,6,7,8,9"
       : "3,4,5";
-  const timerPacingRegistrationIds = getFileAttributesAActive
+  const timerPacingRegistrationIds = createDirectoryAActive
+    ? "1,6974"
+    : getFileAttributesAActive
     ? "1,6937"
     : sleepZeroActive
     ? "1,6910"
@@ -280,7 +301,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerPacingClockGenerations = getFileAttributesAActive
+  const timerPacingClockGenerations = createDirectoryAActive
+    ? "0,6973"
+    : getFileAttributesAActive
     ? "0,6936"
     : sleepZeroActive
     ? "0,6909"
@@ -291,7 +314,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "0,1,2,3,4,5,6"
       : "0,1,2";
-  const timerNextRegistrationIds = getFileAttributesAActive
+  const timerNextRegistrationIds = createDirectoryAActive
+    ? "2,6975"
+    : getFileAttributesAActive
     ? "2,6938"
     : sleepZeroActive
     ? "2,6911"
@@ -302,7 +327,24 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "2,3,4,5,6,7,8"
       : "2,3,4";
-  const profileExpectations = getFileAttributesAActive
+  const profileExpectations = createDirectoryAActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 92_815,
+        browserMappingDirtyPages: 95_893,
+        browserSuccessExecutionTransitions: 353_486,
+        latestSchema: "vine.v86-bgi-kernel32-create-directory-a",
+        latestWritebackBatches: 108_810,
+        latestWritebackDirtyPages: 150_254,
+        latestWritebackChangedBytes: 6_368_965,
+        latestHostDeltaBatches: 92_815,
+        latestFinalMemoryGeneration: 202_575,
+        semanticCallDigestSha256:
+          "e925e87a010017aa85316f8564a8bcbdac81fe59f87b84e5c288a865db0adb65",
+        memoryContentSha256:
+          "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+      }
+    : getFileAttributesAActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 92_492,
@@ -789,8 +831,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v23") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v23");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v24") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v24");
   }
   if (
     browser.executionEngineProfile !==
@@ -1572,7 +1614,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (getFileAttributesAActive
+      (createDirectoryAActive
+        ? 1_526
+        : getFileAttributesAActive
         ? 1_518
         : sleepZeroActive
         ? 1_512
@@ -1602,7 +1646,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.largeHeapBrowserMaterializationFromGeneration !== 1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (archiveSourceReadActive ? 5 : 2) ||
+      (createDirectoryAActive ? 10 : archiveSourceReadActive ? 5 : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
     bgiBrowserEvidence.callbackEntries !== 24 ||
     bgiBrowserEvidence.callbackReplacements !== 13 ||
@@ -2327,7 +2371,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.setWaitableTimerSequences?.join(",") !== timerSetSequences ||
     bgiBrowserEvidence.setWaitableTimerInstructionCounts?.join(",") !==
       timerSetInstructionCounts ||
-    bgiBrowserEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
+    bgiBrowserEvidence.setWaitableTimerInstructionCount !==
+      (createDirectoryAActive ? 11_974_074 : 11_973_553) ||
     bgiBrowserEvidence.setWaitableTimerArguments?.join(",") !==
       "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
     bgiBrowserEvidence.setWaitableTimerResult !== 1 ||
@@ -2443,7 +2488,8 @@ export function validateCurrentCheckpoint(manifest) {
     (dragAcceptFilesActive || archiveSourceReadActive) &&
     (bgiBrowserEvidence.dragAcceptFilesCompletions !== 1 ||
       bgiBrowserEvidence.dragAcceptFilesSequence !== 89_249 ||
-      bgiBrowserEvidence.dragAcceptFilesInstructionCount !== 15_601_759 ||
+      bgiBrowserEvidence.dragAcceptFilesInstructionCount !==
+        (createDirectoryAActive ? 15_602_280 : 15_601_759) ||
       bgiBrowserEvidence.dragAcceptFilesArguments?.join(",") !==
         "0x48010001,0x00000000" ||
       bgiBrowserEvidence.dragAcceptFilesReturnAddress !== "0x1005f272" ||
@@ -4167,6 +4213,8 @@ export function validateCurrentCheckpoint(manifest) {
              "runtime::kernel::tests::direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime" &&
           test !==
             "user32_dispatcher::set_timer_registers_and_replaces_owned_window_timer_atomically" &&
+          test !==
+            "source_file_gateway::create_directory_a_publishes_only_after_durable_host_completion" &&
           !test.startsWith("dinput8_dispatcher::") &&
           !test.startsWith("dsound_dispatcher::") &&
           !test.startsWith("gdi32_dispatcher::") &&
@@ -4175,6 +4223,11 @@ export function validateCurrentCheckpoint(manifest) {
       )
       .join(",") !==
       "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,source_file_gateway::get_file_attributes_a_projects_only_registered_vfs_paths,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+          "source_file_gateway::create_directory_a_publishes_only_after_durable_host_completion",
+    ).length !== 1 ||
     representativeAtomicTests.filter(
       (test) =>
         test ===
@@ -7161,7 +7214,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
     kernel32Policy.id !==
-      (getFileAttributesAActive
+      (createDirectoryAActive
+        ? "kernel32-create-directory-a-v1"
+        : getFileAttributesAActive
         ? "kernel32-get-file-attributes-a-v1"
         : globalMemoryStatusActive
         ? "kernel32-global-memory-status-v1"
@@ -7169,7 +7224,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "kernel32-sleep-zero-v1"
         : "kernel32-wait-for-single-object-ex-v1") ||
     kernel32Policy.source !==
-      (getFileAttributesAActive
+      (createDirectoryAActive
+        ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
+        : getFileAttributesAActive
         ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
         : globalMemoryStatusActive
         ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
@@ -7231,6 +7288,9 @@ export function validateCurrentCheckpoint(manifest) {
     (getFileAttributesAActive &&
       (getFileAttributesA?.regularFileAttributes !== 0x20 ||
         getFileAttributesA?.directoryAttributes !== 0x30)) ||
+    (createDirectoryAActive
+      ? sourceFiles.createDirectoryA !== true
+      : sourceFiles.createDirectoryA !== undefined) ||
     loadLibraryA.maximumModuleNameBytes !== 260 ||
     JSON.stringify(loadLibraryA.runtimeSystemModules) !==
       JSON.stringify([
@@ -7328,7 +7388,7 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     writableProfile.schema !== "vine.writable-profile-snapshot" ||
-    writableProfile.schemaVersion !== 2 ||
+    writableProfile.schemaVersion !== 3 ||
     writableProfile.titleFingerprint !==
       "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
     writableProfile.profileId !== "default" ||
@@ -7339,12 +7399,24 @@ export function validateCurrentCheckpoint(manifest) {
     writableProfile.fileCount !== 1 ||
     writableProfile.objectId !== 1 ||
     writableProfile.relativePathA?.join(",") !== "66,71,73,46,103,100,98" ||
+    writableProfile.directoryCount !== 1 ||
+    writableProfile.directoryId !== 1 ||
+    writableProfile.directoryRelativePathA?.join(",") !==
+      "85,115,101,114,68,97,116,97" ||
+    writableProfile.directoryInitialExists !== false ||
+    writableProfile.directoryInitialGeneration !== 0 ||
+    writableProfile.directoryStateAuthority !== "rust-runtime-vfs" ||
+    writableProfile.directoryDurableStateAuthority !== "same-origin-sqlite" ||
+    writableProfile.directoryCreateService !==
+      "storage.profile-directory-create.v1" ||
+    writableProfile.directoryCommit !==
+      "validate-plan-host-publish-targeted-commit" ||
     writableProfile.reservedReadSourceId !== 0 ||
     writableProfile.initialization !==
       "distribution-seed-only-when-database-is-new" ||
     writableProfile.stagedStateAuthority !== "rust-runtime-vfs" ||
     writableProfile.durableStateAuthority !== "same-origin-sqlite" ||
-    writableProfile.httpApi !== "same-origin-profile-v2" ||
+    writableProfile.httpApi !== "same-origin-profile-v3" ||
     writableProfile.bootstrap !==
       "metadata-json-plus-bounded-binary-object-hydration" ||
     writableProfile.maximumObjectTransferBytes !== 1024 * 1024 ||
@@ -13328,7 +13400,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (getFileAttributesAActive
+      (createDirectoryAActive
+        ? "Rust-owned durable CreateDirectoryA over RuntimeFiles and SQLite writable-profile authority"
+        : getFileAttributesAActive
         ? "Rust-owned GetFileAttributesA over RuntimeFiles registered VFS and derived directory authority"
         : globalMemoryStatusActive
         ? "Rust-owned deterministic x86 MEMORYSTATUS over Kernel32CompatibilityPolicy and system-info virtual-span authority"
@@ -13883,13 +13957,17 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSleepZeroExecutableHashUnchanged !== true ||
       latestEvidence.sleepZeroImplemented !== true ||
       latestEvidence.sleepZeroPolicyId !==
-        (getFileAttributesAActive
+        (createDirectoryAActive
+          ? "kernel32-create-directory-a-v1"
+          : getFileAttributesAActive
           ? "kernel32-get-file-attributes-a-v1"
           : globalMemoryStatusActive
           ? "kernel32-global-memory-status-v1"
           : "kernel32-sleep-zero-v1") ||
       latestEvidence.sleepZeroPolicySource !==
-        (getFileAttributesAActive
+        (createDirectoryAActive
+          ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
+          : getFileAttributesAActive
           ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
           : globalMemoryStatusActive
           ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
@@ -13898,7 +13976,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.sleepZeroSequences?.join(",") !== "89430,107670" ||
       latestEvidence.sleepZeroOccurrences?.join(",") !== "1,240" ||
       latestEvidence.sleepZeroInstructionCounts?.join(",") !==
-        "15953766,16290005" ||
+        (createDirectoryAActive
+          ? "15954287,16290526"
+          : "15953766,16290005") ||
       latestEvidence.sleepZeroArguments?.join(",") !== "0x00000000" ||
       latestEvidence.sleepZeroResult !== "void-eax-preserved" ||
       latestEvidence.sleepZeroReturnAddress !== "0x1006a2f5" ||
@@ -13915,7 +13995,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.sleepZeroSchedulerSelectionSequences?.join(",") !==
         "89430,107670" ||
       latestEvidence.sleepZeroSchedulerSelectionInstructionCounts?.join(",") !==
-        "15953766,16290005" ||
+        (createDirectoryAActive
+          ? "15954287,16290526"
+          : "15953766,16290005") ||
       latestEvidence.sleepZeroSchedulerPreviousThreadId !== 8_192 ||
       latestEvidence.sleepZeroSchedulerSelectedThreadId !== 8_193 ||
       latestEvidence.sleepZeroNoCompetitorCompletions !== 0 ||
@@ -13929,7 +14011,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.sleepZeroSequences?.join(",") !== "89430,107670" ||
       bgiBrowserEvidence.sleepZeroOccurrences?.join(",") !== "1,240" ||
       bgiBrowserEvidence.sleepZeroInstructionCounts?.join(",") !==
-        "15953766,16290005" ||
+        (createDirectoryAActive
+          ? "15954287,16290526"
+          : "15953766,16290005") ||
       bgiBrowserEvidence.sleepZeroArguments?.join(",") !== "0x00000000" ||
       bgiBrowserEvidence.sleepZeroResult !== "void-eax-preserved" ||
       bgiBrowserEvidence.sleepZeroReturnAddress !== "0x1006a2f5" ||
@@ -13945,7 +14029,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.sleepZeroSchedulerSelectionSequences?.join(",") !==
         "89430,107670" ||
       bgiBrowserEvidence.sleepZeroSchedulerSelectionInstructionCounts?.join(",") !==
-        "15953766,16290005" ||
+        (createDirectoryAActive
+          ? "15954287,16290526"
+          : "15953766,16290005") ||
       bgiBrowserEvidence.sleepZeroSchedulerPreviousThreadId !== 8_192 ||
       bgiBrowserEvidence.sleepZeroSchedulerSelectedThreadId !== 8_193 ||
       bgiBrowserEvidence.sleepZeroNoCompetitorCompletions !== 0 ||
@@ -13984,16 +14070,21 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGlobalMemoryStatusExecutableHashUnchanged !== true ||
       latestEvidence.globalMemoryStatusImplemented !== true ||
       latestEvidence.globalMemoryStatusPolicyId !==
-        (getFileAttributesAActive
+        (createDirectoryAActive
+          ? "kernel32-create-directory-a-v1"
+          : getFileAttributesAActive
           ? "kernel32-get-file-attributes-a-v1"
           : "kernel32-global-memory-status-v1") ||
       latestEvidence.globalMemoryStatusPolicySource !==
-        (getFileAttributesAActive
+        (createDirectoryAActive
+          ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
+          : getFileAttributesAActive
           ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
           : "fixtures/runtime-policies/kernel32-global-memory-status-v1.json") ||
       latestEvidence.globalMemoryStatusCallCount !== 1 ||
       latestEvidence.globalMemoryStatusSequence !== 107_757 ||
-      latestEvidence.globalMemoryStatusInstructionCount !== 16_384_108 ||
+      latestEvidence.globalMemoryStatusInstructionCount !==
+        (createDirectoryAActive ? 16_384_629 : 16_384_108) ||
       latestEvidence.globalMemoryStatusArgument !== "0x006ff674" ||
       latestEvidence.globalMemoryStatusReturnAddress !== "0x10081fae" ||
       latestEvidence.globalMemoryStatusStackPointers?.join(",") !==
@@ -14021,7 +14112,8 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.globalMemoryStatusNodeChromeOrderedSemanticsMatched !== true ||
       bgiBrowserEvidence.globalMemoryStatusCompletions !== 1 ||
       bgiBrowserEvidence.globalMemoryStatusSequence !== 107_757 ||
-      bgiBrowserEvidence.globalMemoryStatusInstructionCount !== 16_384_108 ||
+      bgiBrowserEvidence.globalMemoryStatusInstructionCount !==
+        (createDirectoryAActive ? 16_384_629 : 16_384_108) ||
       bgiBrowserEvidence.globalMemoryStatusArgument !== "0x006ff674" ||
       bgiBrowserEvidence.globalMemoryStatusReturnAddress !== "0x10081fae" ||
       bgiBrowserEvidence.globalMemoryStatusStackPointers?.join(",") !==
@@ -14084,17 +14176,25 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGetFileAttributesAExecutableHashUnchanged !== true ||
       latestEvidence.getFileAttributesAImplemented !== true ||
       latestEvidence.getFileAttributesAPolicyId !==
-        "kernel32-get-file-attributes-a-v1" ||
+        (createDirectoryAActive
+          ? "kernel32-create-directory-a-v1"
+          : "kernel32-get-file-attributes-a-v1") ||
       latestEvidence.getFileAttributesAPolicySource !==
-        "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json" ||
+        (createDirectoryAActive
+          ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
+          : "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json") ||
       latestEvidence.getFileAttributesACallCount !== 23 ||
       latestEvidence.getFileAttributesASequences?.join(",") !==
         "107788,108205" ||
       latestEvidence.getFileAttributesAOccurrences?.join(",") !== "1,23" ||
       latestEvidence.getFileAttributesAInstructionCounts?.join(",") !==
-        "16396079,16445360" ||
+        (createDirectoryAActive
+          ? "16396600,16445881"
+          : "16396079,16445360") ||
       latestEvidence.getFileAttributesAArguments?.join(",") !==
-        "0x006ff048,0x202e2418" ||
+        (createDirectoryAActive
+          ? "0x006ff048,0x202e2448"
+          : "0x006ff048,0x202e2418") ||
       latestEvidence.getFileAttributesAReturnAddresses?.join(",") !==
         "0x10061c80,0x10082648" ||
       latestEvidence.getFileAttributesAStackPointers?.join(",") !==
@@ -14111,7 +14211,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.getFileAttributesAFileExistenceAuthority !==
         "registered-source-and-writable-manifests" ||
       latestEvidence.getFileAttributesADirectoryExistence !==
-        "registered-path-ancestor-derivation" ||
+        (createDirectoryAActive
+          ? "registered-path-ancestors-and-writable-directory-state"
+          : "registered-path-ancestor-derivation") ||
       latestEvidence.getFileAttributesAHostFileSystemImported !== false ||
       latestEvidence.getFileAttributesABrowserFileSystemImported !== false ||
       latestEvidence.getFileAttributesAMutation !== false ||
@@ -14125,9 +14227,13 @@ export function validateCurrentCheckpoint(manifest) {
         "107788,108205" ||
       bgiBrowserEvidence.getFileAttributesAOccurrences?.join(",") !== "1,23" ||
       bgiBrowserEvidence.getFileAttributesAInstructionCounts?.join(",") !==
-        "16396079,16445360" ||
+        (createDirectoryAActive
+          ? "16396600,16445881"
+          : "16396079,16445360") ||
       bgiBrowserEvidence.getFileAttributesAArguments?.join(",") !==
-        "0x006ff048,0x202e2418" ||
+        (createDirectoryAActive
+          ? "0x006ff048,0x202e2448"
+          : "0x006ff048,0x202e2418") ||
       bgiBrowserEvidence.getFileAttributesAReturnAddresses?.join(",") !==
         "0x10061c80,0x10082648" ||
       bgiBrowserEvidence.getFileAttributesAStackPointers?.join(",") !==
@@ -14141,7 +14247,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.getFileAttributesAFileExistenceAuthority !==
         "registered-source-and-writable-manifests" ||
       bgiBrowserEvidence.getFileAttributesADirectoryExistence !==
-        "registered-path-ancestor-derivation" ||
+        (createDirectoryAActive
+          ? "registered-path-ancestors-and-writable-directory-state"
+          : "registered-path-ancestor-derivation") ||
       bgiBrowserEvidence.getFileAttributesAHostFileSystemImported !== false ||
       bgiBrowserEvidence.getFileAttributesABrowserFileSystemImported !== false ||
       bgiBrowserEvidence.getFileAttributesAMutation !== false ||
@@ -14149,6 +14257,108 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push(
       "GetFileAttributesA native, VFS, policy, Rust, Node, and Chrome evidence is invalid",
+    );
+  }
+  if (
+    createDirectoryAActive &&
+    (latestEvidence.nativeCreateDirectoryAOracleProfile !==
+      "ansi-null-security-create-duplicate-parent-and-file-conflict-v1" ||
+      latestEvidence.nativeCreateDirectoryAPrimaryTraceBytes !== 19_956 ||
+      latestEvidence.nativeCreateDirectoryAPrimaryTraceSha256 !==
+        "0c01634feb7e51f0262ebfccc0b658332681ec0ce66e5067c54b3c44d491f708" ||
+      latestEvidence.nativeCreateDirectoryAPrimarySummaryBytes !== 15_494 ||
+      latestEvidence.nativeCreateDirectoryAPrimarySummarySha256 !==
+        "134b233dd57e51e7bd022484fd75fdd05132a0d1a5a52956755c72649044cb69" ||
+      latestEvidence.nativeCreateDirectoryAConfirmationTraceBytes !== 20_183 ||
+      latestEvidence.nativeCreateDirectoryAConfirmationTraceSha256 !==
+        "95a096c7fd2e05c8d746a1e9d70391ee5659a0a288d83b9cf36dc416f4169d67" ||
+      latestEvidence.nativeCreateDirectoryAConfirmationSummaryBytes !== 15_797 ||
+      latestEvidence.nativeCreateDirectoryAConfirmationSummarySha256 !==
+        "c75f6ae211f77feb45f7a10e42c4d2bff93642a5212fc5deee57e7d12aedeb41" ||
+      latestEvidence.nativeCreateDirectoryATraceDiagnostics !== 0 ||
+      latestEvidence.nativeCreateDirectoryACallsPerTrace !== 4 ||
+      latestEvidence.nativeCreateDirectoryAPrimaryCallerReturnRva !==
+        "0x000825e8" ||
+      latestEvidence.nativeCreateDirectoryASecurityAttributesNull !== true ||
+      latestEvidence.nativeCreateDirectoryASuccessResult !== 1 ||
+      latestEvidence.nativeCreateDirectoryASuccessPreservesLastError !== true ||
+      latestEvidence.nativeCreateDirectoryADuplicateResult !== 0 ||
+      latestEvidence.nativeCreateDirectoryADuplicateLastError !== 183 ||
+      latestEvidence.nativeCreateDirectoryAMissingParentResult !== 0 ||
+      latestEvidence.nativeCreateDirectoryAMissingParentLastError !== 3 ||
+      latestEvidence.nativeCreateDirectoryAFileConflictResult !== 0 ||
+      latestEvidence.nativeCreateDirectoryAFileConflictLastError !== 183 ||
+      latestEvidence.nativeCreateDirectoryACleanupSucceeded !== true ||
+      latestEvidence.nativeCreateDirectoryAExecutableHashUnchanged !== true ||
+      latestEvidence.createDirectoryAImplemented !== true ||
+      latestEvidence.createDirectoryAPolicyId !==
+        "kernel32-create-directory-a-v1" ||
+      latestEvidence.createDirectoryAPolicySource !==
+        "fixtures/runtime-policies/kernel32-create-directory-a-v1.json" ||
+      latestEvidence.createDirectoryACallCount !== 1 ||
+      latestEvidence.createDirectoryASequence !== 108_206 ||
+      latestEvidence.createDirectoryAInstructionCount !== 16_446_219 ||
+      latestEvidence.createDirectoryAArguments?.join(",") !==
+        "0x202e2448,0x00000000" ||
+      latestEvidence.createDirectoryAReturnAddress !== "0x100825e8" ||
+      latestEvidence.createDirectoryAStackPointers?.join(",") !==
+        "0x006ff684,0x006ff690" ||
+      latestEvidence.createDirectoryAResult !== 1 ||
+      latestEvidence.createDirectoryALastError !== 2 ||
+      latestEvidence.createDirectoryAGuestWriteBytes !== 0 ||
+      latestEvidence.createDirectoryAImplementationId !==
+        "kernel32.create-directory-a.runtime-vfs.v1" ||
+      latestEvidence.createDirectoryARequestId !== 6_943 ||
+      latestEvidence.createDirectoryADirectoryId !== 1 ||
+      latestEvidence.createDirectoryARelativePathA !== "UserData" ||
+      latestEvidence.createDirectoryABaseGeneration !== 0 ||
+      latestEvidence.createDirectoryACommittedGeneration !== 1 ||
+      latestEvidence.createDirectoryAWin32Error !== 0 ||
+      latestEvidence.createDirectoryADirectoryAuthority !==
+        "runtime/files.rs::RuntimeFiles" ||
+      latestEvidence.createDirectoryADurableAuthority !== "same-origin-sqlite" ||
+      latestEvidence.createDirectoryATransaction !==
+        "validate-plan-host-publish-targeted-commit" ||
+      latestEvidence.createDirectoryASourceMutation !== false ||
+      latestEvidence.createDirectoryAHostPathCreated !== false ||
+      latestEvidence.createDirectoryABrowserFileSystemImported !== false ||
+      latestEvidence.createDirectoryAFailureAtomicity !== true ||
+      latestEvidence.createDirectoryAPendingCancellation !== true ||
+      latestEvidence.createDirectoryANodeCompletions !== 1 ||
+      latestEvidence.createDirectoryAChromeCompletions !== 1 ||
+      latestEvidence.createDirectoryANodeChromeOrderedSemanticsMatched !== true ||
+      bgiBrowserEvidence.createDirectoryACompletions !== 1 ||
+      bgiBrowserEvidence.createDirectoryASequence !== 108_206 ||
+      bgiBrowserEvidence.createDirectoryAInstructionCount !== 16_446_219 ||
+      bgiBrowserEvidence.createDirectoryAArguments?.join(",") !==
+        "0x202e2448,0x00000000" ||
+      bgiBrowserEvidence.createDirectoryAReturnAddress !== "0x100825e8" ||
+      bgiBrowserEvidence.createDirectoryAStackPointers?.join(",") !==
+        "0x006ff684,0x006ff690" ||
+      bgiBrowserEvidence.createDirectoryAResult !== 1 ||
+      bgiBrowserEvidence.createDirectoryALastError !== 2 ||
+      bgiBrowserEvidence.createDirectoryAGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.createDirectoryAImplementationId !==
+        "kernel32.create-directory-a.runtime-vfs.v1" ||
+      bgiBrowserEvidence.createDirectoryARequestId !== 6_943 ||
+      bgiBrowserEvidence.createDirectoryADirectoryId !== 1 ||
+      bgiBrowserEvidence.createDirectoryARelativePathA !== "UserData" ||
+      bgiBrowserEvidence.createDirectoryABaseGeneration !== 0 ||
+      bgiBrowserEvidence.createDirectoryACommittedGeneration !== 1 ||
+      bgiBrowserEvidence.createDirectoryAWin32Error !== 0 ||
+      bgiBrowserEvidence.createDirectoryADirectoryAuthority !==
+        "rust-runtime-vfs-writable-profile" ||
+      bgiBrowserEvidence.createDirectoryADurableAuthority !==
+        "sqlite-writable-profile-directory-generation" ||
+      bgiBrowserEvidence.createDirectoryATransaction !==
+        "validate-plan-host-publish-targeted-commit" ||
+      bgiBrowserEvidence.createDirectoryASourceMutation !== false ||
+      bgiBrowserEvidence.createDirectoryAHostPathCreated !== false ||
+      bgiBrowserEvidence.createDirectoryABrowserFileSystemImported !== false ||
+      bgiBrowserEvidence.createDirectoryANodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "CreateDirectoryA native, VFS, durable storage, Rust, Node, and Chrome evidence is invalid",
     );
   }
   if (

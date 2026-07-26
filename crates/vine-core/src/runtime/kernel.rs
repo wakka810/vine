@@ -52,14 +52,18 @@ use super::com::{
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::files::{
-    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_READ_SERVICE,
-    RuntimeFiles, RuntimeSourceFile, RuntimeSourceFileRetirementPlan, RuntimeSourceReadBeginPlan,
+    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFiles,
+    RuntimeSourceFile, RuntimeSourceFileRetirementPlan, RuntimeSourceReadBeginPlan,
     RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
     RuntimeSourceReadCompletionPlan, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeWritableCommitBeginPlan,
     RuntimeWritableCommitCancellationPlan, RuntimeWritableCommitCompletion,
     RuntimeWritableCommitCompletionPlan, RuntimeWritableCommitHostResponse,
-    RuntimeWritableCommitRequest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
+    RuntimeWritableCommitRequest, RuntimeWritableDirectoryCreateBeginPlan,
+    RuntimeWritableDirectoryCreateCancellationPlan, RuntimeWritableDirectoryCreateCompletion,
+    RuntimeWritableDirectoryCreateCompletionPlan, RuntimeWritableDirectoryCreateHostResponse,
+    RuntimeWritableDirectoryCreateRequest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
     RuntimeWritableReadPlan, RuntimeWritableReadResult, RuntimeWritableWritePlan,
     RuntimeWritableWriteResult,
 };
@@ -221,6 +225,7 @@ struct RuntimeThreadExitRequestPlan {
     host_request_cancellation: RuntimeHostRequestCancellationPlan,
     source_read_cancellation: RuntimeSourceReadCancellationPlan,
     writable_commit_cancellation: RuntimeWritableCommitCancellationPlan,
+    writable_directory_create_cancellation: RuntimeWritableDirectoryCreateCancellationPlan,
     message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
 }
@@ -264,6 +269,11 @@ pub(crate) struct RuntimeWritableCommitAggregateCompletionPlan {
     retirement: Option<RuntimeSourceFileRetirementPlan>,
 }
 
+pub(crate) struct RuntimeWritableDirectoryCreateAggregateCompletionPlan {
+    scheduler: super::scheduler::RuntimeHostCompletionPlan,
+    directory_create: RuntimeWritableDirectoryCreateCompletionPlan,
+}
+
 pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
     scheduler: RuntimeHostCompletionPlan,
     registration: RuntimeWaitRegistration,
@@ -282,6 +292,12 @@ impl RuntimeWaitableTimerPacingCompletionPlan {
 impl RuntimeWritableCommitAggregateCompletionPlan {
     pub(crate) fn completion(&self) -> &RuntimeWritableCommitCompletion {
         self.writable_commit.completion()
+    }
+}
+
+impl RuntimeWritableDirectoryCreateAggregateCompletionPlan {
+    pub(crate) fn completion(&self) -> &RuntimeWritableDirectoryCreateCompletion {
+        self.directory_create.completion()
     }
 }
 
@@ -998,6 +1014,80 @@ impl RuntimeKernel {
             requested_path,
             &self.process.current_directory_a().bytes_with_nul,
         )
+    }
+
+    pub fn begin_writable_directory_create(
+        &mut self,
+        requested_path: &[u8],
+    ) -> Result<RuntimeWritableDirectoryCreateRequest, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let current_directory = self.process.current_directory_a().bytes_with_nul.clone();
+        let scheduler = self
+            .scheduler
+            .plan_host_request(RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE.to_owned())?;
+        let directory: RuntimeWritableDirectoryCreateBeginPlan =
+            self.files.plan_writable_directory_create(
+                requested_path,
+                &current_directory,
+                scheduler.request().request_id,
+            )?;
+        self.files.preflight_writable_directory_create(&directory)?;
+        let runtime_request = self.scheduler.commit_host_request(scheduler);
+        let request = self.files.commit_writable_directory_create_begin(directory);
+        debug_assert_eq!(runtime_request.request_id, request.request_id);
+        debug_assert_eq!(
+            runtime_request.service,
+            RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
+        );
+        Ok(request)
+    }
+
+    pub fn writable_directory_create_request(
+        &self,
+        request_id: u64,
+    ) -> Result<&RuntimeWritableDirectoryCreateRequest, RuntimeStateError> {
+        self.files.writable_directory_create_request(request_id)
+    }
+
+    pub(crate) fn plan_writable_directory_create_completion(
+        &self,
+        response: RuntimeWritableDirectoryCreateHostResponse,
+    ) -> Result<RuntimeWritableDirectoryCreateAggregateCompletionPlan, RuntimeStateError> {
+        let scheduler = self.scheduler.plan_host_completion(response.request_id)?;
+        if scheduler.request().service != RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-vfs",
+                "writable-directory-create-host-service-mismatch",
+                "directory create completion belongs to another host service",
+            ));
+        }
+        let directory_create = self
+            .files
+            .plan_writable_directory_create_completion(response)?;
+        self.files
+            .preflight_writable_directory_create_completion(&directory_create)?;
+        Ok(RuntimeWritableDirectoryCreateAggregateCompletionPlan {
+            scheduler,
+            directory_create,
+        })
+    }
+
+    pub(crate) fn commit_writable_directory_create_completion(
+        &mut self,
+        plan: RuntimeWritableDirectoryCreateAggregateCompletionPlan,
+    ) -> RuntimeWritableDirectoryCreateCompletion {
+        debug_assert!(
+            self.files
+                .preflight_writable_directory_create_completion(&plan.directory_create)
+                .is_ok()
+        );
+        let scheduler_completion = self.scheduler.commit_host_completion(plan.scheduler);
+        debug_assert_eq!(
+            scheduler_completion.request_id,
+            plan.directory_create.completion().request.request_id
+        );
+        self.files
+            .commit_writable_directory_create_completion(plan.directory_create)
     }
 
     pub fn hydrate_writable_profile_object(
@@ -8014,6 +8104,9 @@ impl RuntimeKernel {
         let writable_commit_cancellation = self
             .files
             .plan_writable_commit_cancellation(host_request_cancellation.request_ids());
+        let writable_directory_create_cancellation = self
+            .files
+            .plan_writable_directory_create_cancellation(host_request_cancellation.request_ids());
         let message_clear = self.messages.plan_clear(thread_id)?;
         let messages_discarded = message_clear.message_count;
         let host_requests_cancelled = host_request_cancellation.request_count();
@@ -8026,6 +8119,7 @@ impl RuntimeKernel {
             host_request_cancellation,
             source_read_cancellation,
             writable_commit_cancellation,
+            writable_directory_create_cancellation,
             message_clear,
             cancellation: RuntimeCancellation {
                 thread_id,
@@ -8045,6 +8139,9 @@ impl RuntimeKernel {
             .commit_read_cancellation(plan.source_read_cancellation);
         self.files
             .commit_writable_commit_cancellation(plan.writable_commit_cancellation);
+        self.files.commit_writable_directory_create_cancellation(
+            plan.writable_directory_create_cancellation,
+        );
         self.scheduler
             .commit_host_request_cancellation(plan.host_request_cancellation);
         if let Some(registration) = plan.cancelled_wait {

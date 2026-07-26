@@ -74,15 +74,18 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const createDirectoryAProfile =
+  bgiProfile === "kernel32-create-directory-a";
+const createDirectoryAInstructionOffset = createDirectoryAProfile ? 521 : 0;
 const getFileAttributesAProfile =
-  bgiProfile === "kernel32-get-file-attributes-a";
+  createDirectoryAProfile || bgiProfile === "kernel32-get-file-attributes-a";
 const globalMemoryStatusProfile =
   getFileAttributesAProfile || bgiProfile === "kernel32-global-memory-status";
 const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v23";
+const runtimeProtocol = "vine.browser-runtime-worker.v24";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -617,6 +620,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-sleep-zero",
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
+        "kernel32-create-directory-a",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -638,6 +642,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-sleep-zero",
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
+        "kernel32-create-directory-a",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -658,8 +663,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-sleep-zero",
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
+        "kernel32-create-directory-a",
       ].includes(bgiProfile) && scenario === "success"
-        ? getFileAttributesAProfile
+        ? createDirectoryAProfile
+          ? 1_526
+          : getFileAttributesAProfile
           ? 1_518
           : sleepZeroProfile
           ? 1_512
@@ -722,9 +730,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-sleep-zero" ||
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
+        || bgiProfile === "kernel32-create-directory-a"
       ) {
         const pacingCount =
-          getFileAttributesAProfile
+          createDirectoryAProfile
+            ? 6_974
+            : getFileAttributesAProfile
             ? 6_937
             : sleepZeroProfile
             ? 6_910
@@ -755,11 +766,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-sleep-zero" ||
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
+        || bgiProfile === "kernel32-create-directory-a"
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
         assert.equal(dragAcceptFiles.call.sequence, 89_249);
-        assert.equal(dragAcceptFiles.call.trapInstructionCount, 15_601_759);
+        assert.equal(
+          dragAcceptFiles.call.trapInstructionCount,
+          15_601_759 + createDirectoryAInstructionOffset,
+        );
         assert.deepEqual(dragAcceptFiles.call.arguments, [0x4801_0001, 0]);
         assert.deepEqual(dragAcceptFiles.call.result, { action: "preserve" });
         assert.equal(dragAcceptFiles.call.returnAddress, 0x1005_f272);
@@ -788,16 +803,17 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (
         archiveSourceReadProfile
       ) {
-        assert.deepEqual(
-          evidence.report.sourceReads
-            .filter((read) => read.request.sourceId === 1)
-            .map((read) => ({
+        const archiveReads = evidence.report.sourceReads
+          .filter((read) => read.request.sourceId === 1)
+          .map((read) => ({
               objectId: read.request.objectId,
               offset: read.request.offset,
               requestedBytes: read.request.requestedBytes,
               transferredBytes: read.transferredBytes,
               succeeded: read.succeeded,
-            })),
+            }));
+        assert.deepEqual(
+          archiveReads,
           [
             {
               objectId: 1,
@@ -820,6 +836,31 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
               transferredBytes: 2_328,
               succeeded: true,
             },
+            ...(createDirectoryAProfile
+              ? [
+                  {
+                    objectId: 2,
+                    offset: 0,
+                    requestedBytes: 16,
+                    transferredBytes: 16,
+                    succeeded: true,
+                  },
+                  {
+                    objectId: 2,
+                    offset: 16,
+                    requestedBytes: 7_296,
+                    transferredBytes: 7_296,
+                    succeeded: true,
+                  },
+                  {
+                    objectId: 2,
+                    offset: 7_312,
+                    requestedBytes: 1_530,
+                    transferredBytes: 1_530,
+                    succeeded: true,
+                  },
+                ]
+              : []),
           ],
           "Chrome Worker primary boot-archive reads differ from the frozen slice",
         );
@@ -832,7 +873,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(sleepZero.callCount, 240);
         assert.equal(sleepZero.firstCall.sequence, 89_430);
         assert.equal(sleepZero.firstCall.occurrence, 1);
-        assert.equal(sleepZero.firstCall.trapInstructionCount, 15_953_766);
+        assert.equal(
+          sleepZero.firstCall.trapInstructionCount,
+          15_953_766 + createDirectoryAInstructionOffset,
+        );
         assert.deepEqual(sleepZero.firstCall.arguments, [0]);
         assert.deepEqual(sleepZero.firstCall.result, { action: "preserve" });
         assert.equal(sleepZero.firstCall.returnAddress, 0x1006_a2f5);
@@ -845,7 +889,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(sleepZero.firstCall.executionBoundary, "yield-current-thread");
         assert.equal(sleepZero.lastCall.sequence, 107_670);
         assert.equal(sleepZero.lastCall.occurrence, 240);
-        assert.equal(sleepZero.lastCall.trapInstructionCount, 16_290_005);
+        assert.equal(
+          sleepZero.lastCall.trapInstructionCount,
+          16_290_005 + createDirectoryAInstructionOffset,
+        );
         assert.equal(sleepZero.schedulerSelections.selectionCount, 240);
         assert.equal(sleepZero.schedulerSelections.firstSelection?.sequence, 89_430);
         assert.equal(sleepZero.schedulerSelections.lastSelection?.sequence, 107_670);
@@ -863,7 +910,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.equal(memoryStatus.call.sequence, 107_757);
         assert.equal(memoryStatus.call.occurrence, 1);
-        assert.equal(memoryStatus.call.trapInstructionCount, 16_384_108);
+        assert.equal(
+          memoryStatus.call.trapInstructionCount,
+          16_384_108 + createDirectoryAInstructionOffset,
+        );
         assert.deepEqual(memoryStatus.call.arguments, [0x006f_f674]);
         assert.deepEqual(memoryStatus.call.result, { action: "preserve" });
         assert.equal(memoryStatus.call.returnAddress, 0x1008_1fae);
@@ -914,7 +964,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           module: "kernel32.dll",
           symbol: "GetFileAttributesA",
           occurrence: 1,
-          trapInstructionCount: 16_396_079,
+          trapInstructionCount:
+            16_396_079 + createDirectoryAInstructionOffset,
           arguments: [0x006f_f048],
           result: { action: "set", value: 0xffff_ffff },
           implementationId: "kernel32.get-file-attributes-a.runtime-vfs.v1",
@@ -926,8 +977,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         });
         assert.equal(fileAttributes.lastCall.sequence, 108_205);
         assert.equal(fileAttributes.lastCall.occurrence, 23);
-        assert.equal(fileAttributes.lastCall.trapInstructionCount, 16_445_360);
-        assert.deepEqual(fileAttributes.lastCall.arguments, [0x202e_2418]);
+        assert.equal(
+          fileAttributes.lastCall.trapInstructionCount,
+          16_445_360 + createDirectoryAInstructionOffset,
+        );
+        assert.deepEqual(fileAttributes.lastCall.arguments, [
+          createDirectoryAProfile ? 0x202e_2448 : 0x202e_2418,
+        ]);
         assert.equal(fileAttributes.lastCall.returnAddress, 0x1008_2648);
         assert.equal(fileAttributes.lastCall.stackPointerBefore, 0x006f_f688);
         assert.equal(fileAttributes.lastCall.stackPointerAfter, 0x006f_f690);
@@ -940,13 +996,66 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.equal(
           fileAttributes.directoryExistence,
-          "registered-path-ancestor-derivation",
+          createDirectoryAProfile
+            ? "registered-path-ancestors-and-writable-directory-state"
+            : "registered-path-ancestor-derivation",
         );
         assert.equal(fileAttributes.hostFileSystemImported, false);
         assert.equal(fileAttributes.browserFileSystemImported, false);
         assert.equal(fileAttributes.mutation, false);
       } else {
         assert.equal(evidence.report.getFileAttributesA, null);
+      }
+      if (createDirectoryAProfile) {
+        const directory = evidence.report.createDirectoryA;
+        assert(directory !== null, "Chrome Worker omitted CreateDirectoryA evidence");
+        assert.deepEqual(directory.call, {
+          sequence: 108_206,
+          module: "kernel32.dll",
+          symbol: "CreateDirectoryA",
+          occurrence: 1,
+          trapInstructionCount: 16_446_219,
+          arguments: [0x202e_2448, 0],
+          result: { action: "set", value: 1 },
+          implementationId: "kernel32.create-directory-a.runtime-vfs.v1",
+          returnAddress: 0x1008_25e8,
+          stackPointerBefore: 0x006f_f684,
+          stackPointerAfter: 0x006f_f690,
+          lastError: 2,
+          guestWrites: [],
+          writableDirectoryCreate: {
+            request: {
+              requestId: 6_943,
+              directoryId: 1,
+              relativePathA: [85, 115, 101, 114, 68, 97, 116, 97],
+              baseGeneration: 0,
+            },
+            succeeded: true,
+            committedGeneration: 1,
+            win32Error: 0,
+          },
+        });
+        assert.equal(
+          directory.directoryAuthority,
+          "rust-runtime-vfs-writable-profile",
+        );
+        assert.equal(
+          directory.durableAuthority,
+          "sqlite-writable-profile-directory-generation",
+        );
+        assert.equal(
+          directory.transaction,
+          "validate-plan-host-publish-targeted-commit",
+        );
+        assert.equal(directory.sourceMutation, false);
+        assert.equal(directory.hostPathCreated, false);
+        assert.equal(directory.browserFileSystemImported, false);
+        assert.deepEqual(evidence.report.writableDirectoryCreates, [
+          directory.call.writableDirectoryCreate,
+        ]);
+      } else {
+        assert.equal(evidence.report.createDirectoryA, null);
+        assert.deepEqual(evidence.report.writableDirectoryCreates, []);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1569,6 +1678,19 @@ function normalizeGetFileAttributesA(snapshot) {
   };
 }
 
+function normalizeCreateDirectoryA(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    ...snapshot,
+    call: {
+      ...snapshot.call,
+      module: snapshot.call.module.toLowerCase(),
+    },
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1618,6 +1740,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeGetFileAttributesA(browser.report.getFileAttributesA),
     normalizeGetFileAttributesA(oracle.getFileAttributesA),
     "Chrome Worker GetFileAttributesA evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeCreateDirectoryA(browser.report.createDirectoryA),
+    normalizeCreateDirectoryA(oracle.createDirectoryA),
+    "Chrome Worker CreateDirectoryA evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(
@@ -1984,7 +2111,7 @@ async function checkSourceApi(baseUrl, registration) {
 }
 
 async function checkWritableProfileApi(baseUrl, profile) {
-  const leaseResponse = await fetch(`${baseUrl}api/profile/v2/sessions`, {
+  const leaseResponse = await fetch(`${baseUrl}api/profile/v3/sessions`, {
     method: "POST",
     cache: "no-store",
     headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
@@ -1996,7 +2123,7 @@ async function checkWritableProfileApi(baseUrl, profile) {
     "X-Vine-Session-Key": "browser-runner-preflight",
     "X-Vine-Session-Epoch": sessionEpoch,
   };
-  const snapshotResponse = await fetch(`${baseUrl}api/profile/v2/snapshot`, {
+  const snapshotResponse = await fetch(`${baseUrl}api/profile/v3/snapshot`, {
     cache: "no-store",
     headers: leaseHeaders,
   });
@@ -2007,7 +2134,7 @@ async function checkWritableProfileApi(baseUrl, profile) {
   if (file.exists) {
     const length = Math.min(7, file.byteLength);
     const rangeUrl =
-      `${baseUrl}api/profile/v2/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
+      `${baseUrl}api/profile/v3/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
       `/profiles/${encodeURIComponent(snapshot.profileId)}/objects/${file.objectId}` +
       `?generation=${file.generation}&offset=0&length=${length}`;
     const rangeResponse = await fetch(rangeUrl, { cache: "no-store", headers: leaseHeaders });
@@ -2039,7 +2166,7 @@ async function checkWritableProfileApi(baseUrl, profile) {
       404,
     );
   }
-  const revokeResponse = await fetch(`${baseUrl}api/profile/v2/sessions/${sessionEpoch}`, {
+  const revokeResponse = await fetch(`${baseUrl}api/profile/v3/sessions/${sessionEpoch}`, {
     method: "DELETE",
     cache: "no-store",
     headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
@@ -2171,13 +2298,24 @@ const sourceRegistration = bgiMode
       objectFiles: { 1: sourceObjectPath },
     });
 const bgiGdbBefore = bgiMode && fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+const writableProfileBaseDirectory = bgiMode
+  ? path.join(
+      root,
+      ".work",
+      "private-profiles",
+      checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
+    )
+  : null;
+if (writableProfileBaseDirectory !== null) {
+  fs.mkdirSync(writableProfileBaseDirectory, { recursive: true });
+}
+const writableProfileRunDirectory = bgiMode && createDirectoryAProfile
+  ? await mkdtemp(path.join(writableProfileBaseDirectory, "browser-create-directory-run-"))
+  : null;
 const writableProfile = bgiMode
   ? openWritableProfile({
       databasePath: path.join(
-        root,
-        ".work",
-        "private-profiles",
-        checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
+        writableProfileRunDirectory ?? writableProfileBaseDirectory,
         "default.sqlite",
       ),
       titleFingerprint: checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
@@ -2191,6 +2329,14 @@ const writableProfile = bgiMode
           ...(bgiGdbBefore === null ? {} : { seedBytes: bgiGdbBefore }),
         },
       ],
+      directories: createDirectoryAProfile
+        ? [
+            {
+              directoryId: 1,
+              relativePathA: Buffer.from("UserData", "ascii"),
+            },
+          ]
+        : [],
     })
   : null;
 const { server, port } = await startServer(requestedPort, sourceRegistration, writableProfile);
@@ -2207,6 +2353,7 @@ if (serveOnly) {
   await waitForShutdown();
   await closeServer(server);
   writableProfile?.close();
+  await cleanupWritableProfileRunDirectory();
 } else {
   const temporaryRoot = path.resolve(os.tmpdir());
   let profile = null;
@@ -2545,6 +2692,7 @@ if (serveOnly) {
           await closeServer(server);
         } finally {
           writableProfile?.close();
+          await cleanupWritableProfileRunDirectory();
           if (bgiMode) {
             const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
             assert.deepEqual(
@@ -2562,4 +2710,24 @@ if (serveOnly) {
       }
     }
   }
+}
+
+async function cleanupWritableProfileRunDirectory() {
+  if (writableProfileRunDirectory === null) {
+    return;
+  }
+  const safePrefix = path.join(
+    writableProfileBaseDirectory,
+    "browser-create-directory-run-",
+  );
+  assert(
+    writableProfileRunDirectory.startsWith(safePrefix),
+    "refusing to remove an unexpected writable profile run directory",
+  );
+  await rm(writableProfileRunDirectory, {
+    force: true,
+    maxRetries: 5,
+    recursive: true,
+    retryDelay: 100,
+  });
 }

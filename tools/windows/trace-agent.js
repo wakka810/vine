@@ -443,6 +443,9 @@ let sourceFileReadCompletionRecorded = false;
 let getFileAttributesAOracleScheduled = false;
 let getFileAttributesAOracleCall = null;
 let getFileAttributesAConsumerRecorded = false;
+let createDirectoryAOracleScheduled = false;
+let createDirectoryAOracleCall = null;
+let createDirectoryAConsumerRecorded = false;
 let getCurrentThreadOracleScheduled = false;
 let setThreadAffinityMaskOracleScheduled = false;
 let setThreadAffinityMaskOracleSentinel = null;
@@ -6088,6 +6091,98 @@ function attachGetFileAttributesAHook(module) {
             isInvalid: attributes === 0xffff_ffff,
             isDirectory:
               attributes !== 0xffff_ffff && (attributes & 0x10) !== 0,
+          },
+        },
+        this.lastError,
+      );
+    },
+  });
+}
+
+function attachCreateDirectoryAHook(module) {
+  const name = "CreateDirectoryA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && createDirectoryAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.path = args[0];
+      this.securityAttributes = args[1];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = createDirectoryAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.pathBefore = snapshotNulTerminatedString(this.path, "ansi");
+      const recordsConsumer = isMainModuleCaller && !createDirectoryAConsumerRecorded;
+      if (recordsConsumer) {
+        createDirectoryAConsumerRecorded = true;
+      }
+      this.immediateConsumer = recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              4,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.path.toString(), this.securityAttributes.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          createDirectoryA: {
+            pathBefore: this.pathBefore,
+            securityAttributes: this.securityAttributes.toString(),
+            securityAttributesNull: this.securityAttributes.isNull(),
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const succeeded = result.toUInt32() !== 0;
+      if (this.oracleCaller) {
+        createDirectoryAOracleCall.hookResult = succeeded;
+        createDirectoryAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          createDirectoryA: {
+            succeeded,
           },
         },
         this.lastError,
@@ -20163,6 +20258,202 @@ function scheduleGetFileAttributesAOracle(module) {
   });
 }
 
+function scheduleCreateDirectoryAOracle(module) {
+  if (createDirectoryAOracleScheduled) {
+    return;
+  }
+  createDirectoryAOracleScheduled = true;
+  setImmediate(() => {
+    let basePath = null;
+    let createdPath = null;
+    let filePath = null;
+    let removeDirectory = null;
+    let deleteFile = null;
+    try {
+      const createDirectoryAddress = findExport(module, "CreateDirectoryA");
+      const removeDirectoryAddress = findExport(module, "RemoveDirectoryA");
+      const createFileAddress = findExport(module, "CreateFileA");
+      const deleteFileAddress = findExport(module, "DeleteFileA");
+      const closeHandleAddress = findExport(module, "CloseHandle");
+      const getTempPathAddress = findExport(module, "GetTempPathA");
+      if (
+        createDirectoryAddress === null ||
+        removeDirectoryAddress === null ||
+        createFileAddress === null ||
+        deleteFileAddress === null ||
+        closeHandleAddress === null ||
+        getTempPathAddress === null
+      ) {
+        throw new Error("CreateDirectoryA oracle exports are unavailable");
+      }
+      const createDirectoryA = new SystemFunction(
+        createDirectoryAddress,
+        "uint32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const createDirectoryRaw = new NativeFunction(
+        createDirectoryAddress,
+        "uint32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      removeDirectory = new NativeFunction(
+        removeDirectoryAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const createFileA = new NativeFunction(
+        createFileAddress,
+        "pointer",
+        ["pointer", "uint32", "uint32", "pointer", "uint32", "uint32", "pointer"],
+        "stdcall",
+      );
+      deleteFile = new NativeFunction(
+        deleteFileAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const closeHandle = new NativeFunction(
+        closeHandleAddress,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const getTempPathA = new SystemFunction(
+        getTempPathAddress,
+        "uint32",
+        ["uint32", "pointer"],
+        "stdcall",
+      );
+      const temporaryBuffer = Memory.alloc(32 * 1024);
+      const temporary = getTempPathA(32 * 1024, temporaryBuffer);
+      const temporaryLength = Number(temporary.value) >>> 0;
+      if (temporaryLength === 0 || temporaryLength >= 32 * 1024) {
+        throw new Error("GetTempPathA failed for the CreateDirectoryA oracle");
+      }
+      const temporaryRoot = temporaryBuffer.readUtf8String(temporaryLength);
+      basePath = `${temporaryRoot}vine-create-directory-a-${Process.id}-${Date.now()}`;
+      createdPath = `${basePath}\\created`;
+      filePath = `${basePath}\\existing-file.bin`;
+      const basePointer = Memory.allocUtf8String(basePath);
+      if (createDirectoryRaw(basePointer, ptr(0)) === 0) {
+        throw new Error("CreateDirectoryA oracle could not create its temporary root");
+      }
+      const filePointer = Memory.allocUtf8String(filePath);
+      const fileHandle = createFileA(
+        filePointer,
+        0x4000_0000,
+        0,
+        ptr(0),
+        1,
+        0x80,
+        ptr(0),
+      );
+      if (fileHandle.equals(ptr("0xffffffff"))) {
+        throw new Error("CreateDirectoryA oracle could not create its file conflict");
+      }
+      closeHandle(fileHandle);
+
+      const invoke = ({ id, path, sentinel }) => {
+        const pathPointer = Memory.allocUtf8String(path);
+        createDirectoryAOracleCall = {
+          id,
+          path,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = createDirectoryA(pathPointer, ptr(0));
+          const systemResult = (Number(outcome.value) >>> 0) !== 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            createDirectoryAOracleCall.hookResult === null ||
+            createDirectoryAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("CreateDirectoryA oracle did not pass through the hook");
+          }
+          return {
+            id,
+            path,
+            sentinel,
+            hookResult: createDirectoryAOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter:
+              createDirectoryAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              createDirectoryAOracleCall.hookResult === systemResult,
+            hookLastErrorMatchesSystem:
+              createDirectoryAOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          createDirectoryAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "create",
+          path: createdPath,
+          sentinel: 0x1122_3344,
+        },
+        {
+          id: "duplicate-directory",
+          path: createdPath,
+          sentinel: 0x5566_7788,
+        },
+        {
+          id: "missing-parent",
+          path: `${basePath}\\missing-parent\\child`,
+          sentinel: 0x7a6b_5c4d,
+        },
+        {
+          id: "file-conflict",
+          path: filePath,
+          sentinel: 0x89ab_cdef,
+        },
+      ].map(invoke);
+      const cleanup = {
+        fileRemoved: deleteFile(filePointer) !== 0,
+        directoryRemoved:
+          removeDirectory(Memory.allocUtf8String(createdPath)) !== 0,
+        rootRemoved: removeDirectory(basePointer) !== 0,
+      };
+      filePath = null;
+      createdPath = null;
+      basePath = null;
+      emit("create-directory-a-oracle", {
+        profile: "ansi-null-security-create-duplicate-parent-and-file-conflict-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookLastErrorMatchesSystem,
+        ),
+        cleanup,
+      });
+      if (stopOnEvent === "create-directory-a-oracle") {
+        recv("vine-trace-stop", () => {}).wait();
+      }
+    } catch (error) {
+      emit("create-directory-a-oracle-error", { error: error.message });
+    } finally {
+      createDirectoryAOracleCall = null;
+      if (filePath !== null && deleteFile !== null) {
+        deleteFile(Memory.allocUtf8String(filePath));
+      }
+      if (createdPath !== null && removeDirectory !== null) {
+        removeDirectory(Memory.allocUtf8String(createdPath));
+      }
+      if (basePath !== null && removeDirectory !== null) {
+        removeDirectory(Memory.allocUtf8String(basePath));
+      }
+    }
+  });
+}
+
 function scheduleGetVersionExAOracle(module) {
   if (getVersionExAOracleScheduled) {
     return;
@@ -21920,6 +22211,21 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetFileAttributesA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("create-directory-a")
+    ) {
+      try {
+        attachCreateDirectoryAHook(module);
+        scheduleCreateDirectoryAOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "CreateDirectoryA",
           error: error.message,
         });
       }

@@ -17,9 +17,10 @@ that its bytes remain unchanged.
   object identity, heap state, synchronization, and Win32 compatibility semantics.
 - The Runtime Worker owns bounded execution orchestration and browser adapters. It
   does not maintain a second Windows-state authority.
-- Rust `RuntimeFiles` owns the immutable manifest, path／file identity, typed handle,
-  cursor, and pending read. The Worker binds Rust IDs to the prepared manifest and
-  performs only title／snapshot／object-addressed same-origin byte requests.
+- Rust `RuntimeFiles` owns the immutable manifest, path／file／directory identity,
+  typed handle, cursor, generation, and pending read／commit／directory-create plans.
+  The Worker binds Rust IDs to the prepared manifest／profile and performs only
+  title／snapshot／profile／object-addressed same-origin storage requests.
 - Node is a deterministic semantic oracle, not a production scheduler or memory
   authority.
 - The execution engine sees versioned CPU contexts, checked memory reflections and
@@ -78,16 +79,18 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `kernel32-get-file-attributes-a` and uses protocol
-`vine.browser-runtime-worker.v23`. It inherits the immutable boot-archive snapshot,
-writable-profile separation, 240 Rust-owned `Sleep(0)` yields, and the deterministic
-32-byte x86 `GlobalMemoryStatus` output, then accepts 23 `GetFileAttributesA` path
-queries. Node and Chrome require the same call identity, missing-file／missing-path
-errors, zero guest writes, Rust VFS authority, semantic digest, memory digest, and
-`CreateDirectoryA` terminal endpoint. Protocol version 22 remains the frozen
-predecessor for the typed memory-status snapshot; version 23 adds the typed
-file-attribute snapshot without moving Windows path or filesystem state to
-TypeScript.
+The active private profile is `kernel32-create-directory-a` and uses protocol
+`vine.browser-runtime-worker.v24`. It inherits the immutable boot-archive snapshot,
+writable-profile separation, 240 Rust-owned `Sleep(0)` yields, deterministic 32-byte
+x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
+creates the run-local allowlisted `UserData` directory through SQLite before Rust
+publishes directory existence. Node and Chrome require the same request／directory／
+generation identity, BOOL／LastError, zero guest writes, Rust VFS authority, semantic
+digest, memory digest, and repeat-activation `SetWindowPos` terminal variant.
+Protocol version 23 remains the frozen predecessor for the typed file-attribute
+snapshot; version 24 adds writable-profile snapshot version 3 and typed directory
+create request／completion without moving Windows path, directory, or filesystem
+state to TypeScript.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -107,8 +110,9 @@ fingerprint before and after execution.
 
 ## Non-claims
 
-- The checkpoint is not title rendering, input, audio, writable persistence, save/load, or full-play
-  acceptance.
+- The checkpoint is not title rendering, input, audio, complete save/load, or full-play
+  acceptance. It proves one bounded durable directory mutation, not general writable
+  persistence.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.
 - `Sleep` intervals greater than zero, no-competitor timing, host wall-clock delay,

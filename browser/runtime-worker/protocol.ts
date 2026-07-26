@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 23 as const;
+export const protocolVersion = 24 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -16,7 +16,8 @@ export type BgiCapabilityProfile =
   | "kernel32-archive-source-read"
   | "kernel32-sleep-zero"
   | "kernel32-global-memory-status"
-  | "kernel32-get-file-attributes-a";
+  | "kernel32-get-file-attributes-a"
+  | "kernel32-create-directory-a";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -76,6 +77,23 @@ export interface RuntimeGetFileAttributesACallSnapshot {
   stackPointerAfter: number;
   lastError: 2 | 3;
   guestWrites: [];
+}
+
+export interface RuntimeCreateDirectoryACallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "CreateDirectoryA";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number, 0];
+  result: { action: "set"; value: 0 | 1 };
+  implementationId: "kernel32.create-directory-a.runtime-vfs.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+  writableDirectoryCreate: RuntimeWritableDirectoryCreateSnapshot;
 }
 
 export interface PageLifecycleSnapshot {
@@ -469,6 +487,7 @@ export interface SessionReport {
     comApartment?: RuntimeComApartmentSnapshot;
     sourceRead?: RuntimeSourceReadSnapshot;
     writableCommit?: RuntimeWritableCommitSnapshot;
+    writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
     gdi?: RuntimeGdiSnapshot;
     gdiplus?: RuntimeGdiplusSnapshot;
     imm32?: RuntimeImm32Snapshot;
@@ -476,6 +495,7 @@ export interface SessionReport {
   }>;
   sourceReads: RuntimeSourceReadSnapshot[];
   writableCommits: RuntimeWritableCommitSnapshot[];
+  writableDirectoryCreates: RuntimeWritableDirectoryCreateSnapshot[];
   dragAcceptFiles: {
     call: {
       sequence: number;
@@ -526,10 +546,21 @@ export interface SessionReport {
     lastCall: RuntimeGetFileAttributesACallSnapshot;
     pathAuthority: "rust-runtime-vfs";
     fileExistenceAuthority: "registered-source-and-writable-manifests";
-    directoryExistence: "registered-path-ancestor-derivation";
+    directoryExistence:
+      | "registered-path-ancestor-derivation"
+      | "registered-path-ancestors-and-writable-directory-state";
     hostFileSystemImported: false;
     browserFileSystemImported: false;
     mutation: false;
+  } | null;
+  createDirectoryA: {
+    call: RuntimeCreateDirectoryACallSnapshot;
+    directoryAuthority: "rust-runtime-vfs-writable-profile";
+    durableAuthority: "sqlite-writable-profile-directory-generation";
+    transaction: "validate-plan-host-publish-targeted-commit";
+    sourceMutation: false;
+    hostPathCreated: false;
+    browserFileSystemImported: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;
@@ -690,6 +721,18 @@ export interface RuntimeWritableCommitSnapshot {
     byteLength: number;
     contentSha256: string;
     closeAfterCommit: boolean;
+  };
+  succeeded: boolean;
+  committedGeneration: number;
+  win32Error: number;
+}
+
+export interface RuntimeWritableDirectoryCreateSnapshot {
+  request: {
+    requestId: number;
+    directoryId: number;
+    relativePathA: number[];
+    baseGeneration: number;
   };
   succeeded: boolean;
   committedGeneration: number;

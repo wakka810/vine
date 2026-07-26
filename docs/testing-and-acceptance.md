@@ -1159,7 +1159,7 @@ API count だけを coverage としない。status ごとに implementation vari
 - runtime schema upgrade／downgrade refusal、backup／restore
 - import 後／delay-load 前の host source replacement と、managed module snapshot の restart 後 hash
 
-最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v2 range／commitを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handleとstaged bytesを保持する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてSQLiteから読み、Node／Chromeのordered semantics、terminal commit barrier／lease revoke、配布file不変を比較する。
+最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。Version 3 profileではfileと別namespaceのallowlisted directory identity／generationを持ち、host-first durable `CreateDirectoryA`、duplicate、missing parent、file conflict、stale／malformed completion、cancelのfailure atomicityも検証する。SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v3 range／commit／directory createを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handle／staged bytesまたはuncommitted directory planをcontractに従って保持または破棄する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてSQLiteから読み、run-local SQLiteへ`UserData` directoryを作成し、Node／Chromeのordered semantics、terminal commit barrier／lease revoke、配布fileとshared profile不変を比較する。
 
 Controlled guestによるChrome上のWrite／durable Close、browser／Worker／server停止後の再load、各commit段階のkill injection、permission revokeは未完了である。Primary titleのsave UI、複数slot、registry、general mapped fileもこのstorage foundationからclaimしない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
@@ -1273,7 +1273,18 @@ VFS snapshot、allocator、guest bytes、LastErrorが部分更新されないこ
 111 calls、regular-file／directory oracle、success sentinel preserve、primary callerのinvalid-result後のarchive／directory bit
 testをgoldenにする。Node／Chromeは23 completions、3 missing-file／20 missing-path classifications、first／last identity、
 Rust VFS authority、host／browser filesystem non-import、semantic／memory digest、次の`CreateDirectoryA` stopを一致させる。
-Wildcard、reparse point、general DOS attributes、host filesystem enumeration、directory mutationは実装済みとしない。
+Wildcard、reparse point、general DOS attributes、host filesystem enumeration、general directory mutationは実装済みとしない。
+
+Reached `CreateDirectoryA` leafはtwo-argument x86 stdcall、NULL security attributes、一件のallowlisted initially-absent
+writable-profile directory、success BOOL／LastError preserve、guest write zeroを固定する。Native oracleは独立2 runで
+success、duplicate `ERROR_ALREADY_EXISTS` 183、missing parent `ERROR_PATH_NOT_FOUND` 3、regular-file conflict 183、
+cleanup、source hash不変を検査する。RuntimeFiles model／dispatcher testsはdirectory identity／generation、parent／file
+classification、mutation-free plan、host-first SQLite publication、stale／duplicate／malformed completion、storage failure、
+cancel、process exitでのfailure atomicityを要求する。SQLite／Worker testsはprofile schema version 3、epoch lease、CAS、
+idempotency ledger、transaction rollback、terminal drainを検査する。Node／Chromeは一completionのrequest／directory／
+generation identity、BOOL／LastError、zero guest writes、Rust／SQLite authority、semantic／memory digestを一致させ、次の
+`SetWindowPos` repeat-activation variantでstructured stopする。General directory create／enumeration／delete／rename、ACL、
+host filesystem mutation、primary save/loadは実装済みとしない。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
@@ -1281,11 +1292,12 @@ W3 representative browser contractは、このW2 harnessが成功後にemitす�
 deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、
 writable profile read／commit transport、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureは
 Rust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeを
-guest自身とrunnerの両方で検証する。Current protocol version 23は`thread-switch`／`thread-exit`を含むclosed
+guest自身とrunnerの両方で検証する。Current protocol version 24は`thread-switch`／`thread-exit`を含むclosed
 execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、
 Rust-owned logical windowとGDI+ session completion metadata、versioned writable commit completion、normal capability completion、
 versioned waitable-timer pacing／page lifecycle、read-only `DragAcceptFiles` window snapshot、Rust-selected immediate API
-execution-boundary disposition、typed `GlobalMemoryStatus`／`GetFileAttributesA` snapshotsに加え、
+execution-boundary disposition、typed `GlobalMemoryStatus`／`GetFileAttributesA` snapshots、writable-profile
+version 3 directory-create request／completionに加え、
 compact／summary／full evidence levelを明示する。
 
 Capability completionはrequired／observed count、last sequence／instruction、次のowned endpoint、final memory digestを持ち、

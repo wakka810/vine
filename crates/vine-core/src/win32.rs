@@ -19,14 +19,16 @@ use crate::runtime::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
     RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
-    RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
-    RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeMutexNameA, RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE,
+    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE,
+    RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest, RuntimeCriticalSection,
+    RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA,
+    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
     RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
     RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitForSingleObjectExResult, RuntimeWritableCommitHostResponse,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeWritableDirectoryCreateHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -87,6 +89,7 @@ pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
 pub const GET_FILE_ATTRIBUTES_A_IMPLEMENTATION: &str =
     "kernel32.get-file-attributes-a.runtime-vfs.v1";
+pub const CREATE_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.create-directory-a.runtime-vfs.v1";
 pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
 pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
@@ -203,6 +206,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
     }
     if contract.implementation_id == FLUSH_FILE_BUFFERS_IMPLEMENTATION {
         return handle_flush_file_buffers(policy, contract, frame, session);
+    }
+    if contract.implementation_id == CREATE_DIRECTORY_A_IMPLEMENTATION {
+        return handle_create_directory_a(policy, contract, frame, session);
     }
     if contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION {
         return handle_close_handle(policy, contract, frame, session);
@@ -386,6 +392,7 @@ pub fn kernel32_contract_for_endpoint(
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
         "GetFileAttributesA" => get_file_attributes_a_contract(endpoint)?,
+        "CreateDirectoryA" => create_directory_a_contract(endpoint)?,
         "CreateFileA" => create_file_a_contract(endpoint)?,
         "GetFileSize" => get_file_size_contract(endpoint)?,
         "ReadFile" => read_file_contract(endpoint)?,
@@ -2024,6 +2031,97 @@ fn handle_get_file_attributes_a(
     Ok(ApiImmediate::new(ApiReturnValue::U32(attributes)).with_last_error(last_error))
 }
 
+fn handle_create_directory_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let file_policy = require_source_file_policy(policy)?;
+        if !policy.create_directory_a_enabled() {
+            return Err(ApiFault::unsupported(
+                "win32-vfs",
+                "create-directory-a-policy-disabled",
+                format!(
+                    "compatibility policy {} does not enable writable directory creation",
+                    policy.id
+                ),
+            ));
+        }
+        let path_address = required_argument(contract, frame, 0, "ANSI directory path")?;
+        let security_attributes = required_argument(contract, frame, 1, "security attributes")?;
+        if path_address == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_PATH_NOT_FOUND),
+            ));
+        }
+        if security_attributes != 0 {
+            return Err(ApiFault::unsupported(
+                "win32-vfs",
+                "create-directory-a-security-attributes-unsupported",
+                "the writable-profile directory slice supports NULL security attributes only",
+            ));
+        }
+        let path = read_nul_terminated_source_path(
+            contract,
+            session,
+            GuestAddress(path_address),
+            file_policy.maximum_path_bytes,
+        )?;
+        let request = match session.runtime_mut().begin_writable_directory_create(&path) {
+            Ok(request) => request,
+            Err(error)
+                if matches!(
+                    error.code,
+                    "writable-directory-already-exists"
+                        | "writable-directory-file-conflict"
+                        | "writable-directory-create-pending"
+                ) =>
+            {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::Bool32(false))
+                        .with_last_error(ERROR_ALREADY_EXISTS),
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.code,
+                    "writable-directory-parent-missing" | "source-path-outside-mount"
+                ) =>
+            {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::Bool32(false))
+                        .with_last_error(ERROR_PATH_NOT_FOUND),
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.code,
+                    "writable-profile-missing" | "writable-directory-unregistered"
+                ) =>
+            {
+                return Err(ApiFault::unsupported(
+                    "win32-vfs",
+                    "create-directory-a-path-unsupported",
+                    error.message,
+                ));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        };
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE.to_owned(),
+            payload: request.encode_host_payload().to_vec(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
 fn handle_create_file_a(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -2684,6 +2782,96 @@ pub fn complete_kernel32_writable_commit(
         let completion = session
             .runtime_mut()
             .commit_writable_file_commit_completion(plan);
+        (outcome, Some(completion))
+    } else {
+        (outcome, None)
+    }
+}
+
+pub fn complete_kernel32_writable_directory_create(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    response: RuntimeWritableDirectoryCreateHostResponse,
+    session: &mut ExecutionSession<'_>,
+) -> (
+    DispatchOutcome,
+    Option<crate::runtime::RuntimeWritableDirectoryCreateCompletion>,
+) {
+    if call.contract.implementation_id != CREATE_DIRECTORY_A_IMPLEMENTATION
+        || call.request.request_id != response.request_id
+        || call.request.service != RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "writable-directory-create-suspended-call-mismatch",
+                "directory create host completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let request = match session
+        .runtime()
+        .writable_directory_create_request(response.request_id)
+    {
+        Ok(request) => request,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    if call.request.payload != request.encode_host_payload() {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "writable-directory-create-payload-mismatch",
+                "directory create host payload differs from the Rust VFS authority",
+            )),
+            None,
+        );
+    }
+    let plan = match session
+        .runtime()
+        .plan_writable_directory_create_completion(response)
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let completion_last_error = if plan.completion().succeeded {
+        match session.last_error() {
+            Ok(last_error) => last_error,
+            Err(error) => {
+                return (
+                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                    None,
+                );
+            }
+        }
+    } else {
+        plan.completion().win32_error
+    };
+    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
+        .with_last_error(completion_last_error);
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let completion = session
+            .runtime_mut()
+            .commit_writable_directory_create_completion(plan);
         (outcome, Some(completion))
     } else {
         (outcome, None)
@@ -4874,6 +5062,22 @@ pub fn get_file_attributes_a_contract(
         ApiReturnSchema::U32,
         GET_FILE_ATTRIBUTES_A_IMPLEMENTATION,
     )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn create_directory_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateDirectoryA",
+        vec![
+            dynamic_in_bytes("pathName", false, 1, 1, 32_768),
+            opaque_pointer("securityAttributes", true, 4),
+        ],
+        ApiReturnSchema::Bool32,
+        CREATE_DIRECTORY_A_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
 }

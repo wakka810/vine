@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-get-file-attributes-a`: 108205 calls across 116 endpoint contracts / 114 APIs, memory generation 201672 |
+| Runtime diagnostics | `kernel32-create-directory-a`: 108717 calls across 117 endpoint contracts / 115 APIs, memory generation 202575 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `KERNEL32.dll!CreateDirectoryA(0x202e2418, 0x00000000)` at instruction 16445698: `endpoint-contract-missing` |
+| Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00000000, 0x00000000, 0x00000506, 0x000002ed, 0x0000010a)` at instruction 28273977: `set-window-pos-activation-state-invalid` |
 
-The active semantic report is 450,433 bytes with SHA-256
-`2d4d32418462acbf645b595ad70a673257a55393d32038a16878452b3b2a3315`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 476,190 bytes with SHA-256
+`fffb97f94e56efd20d6544d40778eed2644b10ea3868fd78bba1907ddc0c9a54`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -152,6 +152,7 @@ The active semantic report is 450,433 bytes with SHA-256
 - `KERNEL32.dll!Sleep`
 - `KERNEL32.dll!GlobalMemoryStatus`
 - `KERNEL32.dll!GetFileAttributesA`
+- `KERNEL32.dll!CreateDirectoryA`
 - `SHELL32.dll!DragAcceptFiles`
 
 ### Reproduce Current Checkpoint

@@ -108,6 +108,15 @@ export interface PreparedMetadata {
         dirty: boolean;
       }
     >;
+    directories: Record<
+      string,
+      {
+        directoryId: number;
+        relativePathA: number[];
+        exists: boolean;
+        generation: number;
+      }
+    >;
   };
   endpoints: Array<{
     id: number;
@@ -184,6 +193,11 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   ): number;
   vine_bridge_writable_commit_payload(low: number, high: number): number;
   vine_bridge_complete_writable_commit(
+    low: number,
+    high: number,
+    controlLength: number,
+  ): number;
+  vine_bridge_complete_writable_directory_create(
     low: number,
     high: number,
     controlLength: number,
@@ -419,6 +433,21 @@ export class RuntimeBridge {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() =>
       this.#exports.vine_bridge_complete_writable_commit(low, high, control.byteLength),
+    );
+  }
+
+  completeWritableDirectoryCreate<T = Record<string, unknown>>(
+    requestId: bigint,
+    control: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([control]);
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_complete_writable_directory_create(
+        low,
+        high,
+        control.byteLength,
+      ),
     );
   }
 

@@ -20,8 +20,10 @@ import {
   type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
   type RuntimeWritableCommitSnapshot,
+  type RuntimeWritableDirectoryCreateSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
+  type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
   type RuntimeImm32Snapshot,
   type RuntimeThreadSelectionSnapshot,
@@ -59,6 +61,7 @@ import {
 import {
   recoverableCommitHttpError,
   writableCommitFailureControl,
+  writableDirectoryCreateFailureControl,
 } from "./profile-storage.js";
 import {
   TaskTimerPacingDriver,
@@ -206,6 +209,7 @@ interface CompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
@@ -286,6 +290,7 @@ interface HostCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
@@ -310,7 +315,7 @@ interface SourceManifest {
 
 interface WritableProfileManifest {
   schema: "vine.writable-profile-snapshot";
-  schemaVersion: 2;
+  schemaVersion: 3;
   titleFingerprint: string;
   profileId: string;
   rootPathA: number[];
@@ -322,6 +327,12 @@ interface WritableProfileManifest {
     generation: number;
     byteLength: number;
     sha256: string | null;
+  }>;
+  directories: Array<{
+    directoryId: number;
+    relativePathA: number[];
+    exists: boolean;
+    generation: number;
   }>;
 }
 
@@ -362,6 +373,7 @@ interface CallbackCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
@@ -568,7 +580,7 @@ class BrowserRuntimeSession {
   readonly #sourceReadControllers = new Map<string, AbortController>();
   readonly #profileTransportControllers = new Set<AbortController>();
   readonly #profileTransportTasks = new Set<Promise<unknown>>();
-  readonly #writableCommitTasks = new Set<Promise<void>>();
+  readonly #writableMutationTasks = new Set<Promise<void>>();
   #sourceManifest: SourceManifest | null = null;
   #writableProfile: WritableProfileManifest | null = null;
   readonly #profileSessionKey = crypto.randomUUID();
@@ -658,10 +670,12 @@ class BrowserRuntimeSession {
     supportedCalls: [] as SessionReport["supportedCalls"],
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
+    writableDirectoryCreates: [] as SessionReport["writableDirectoryCreates"],
     dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
     sleepZero: null as SessionReport["sleepZero"],
     globalMemoryStatus: null as SessionReport["globalMemoryStatus"],
     getFileAttributesA: null as SessionReport["getFileAttributesA"],
+    createDirectoryA: null as SessionReport["createDirectoryA"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -695,7 +709,9 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile ===
               "kernel32-global-memory-status" ||
             this.#configuration.capabilityProfile ===
-              "kernel32-get-file-attributes-a"));
+              "kernel32-get-file-attributes-a" ||
+            this.#configuration.capabilityProfile ===
+              "kernel32-create-directory-a"));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -939,7 +955,7 @@ class BrowserRuntimeSession {
     invariant(this.#profileLease === null, "writable profile lease is already active");
     const url = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
-      "/api/profile/v2/",
+      "/api/profile/v3/",
       "writable profile API URL",
     );
     url.pathname = `${url.pathname.replace(/\/?$/u, "/")}sessions`;
@@ -975,7 +991,7 @@ class BrowserRuntimeSession {
     const lease = this.#requireProfileLease();
     const url = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileUrl,
-      "/api/profile/v2/snapshot",
+      "/api/profile/v3/snapshot",
       "writable profile URL",
     );
     return this.#runProfileTransport(async (signal) => {
@@ -1075,7 +1091,7 @@ class BrowserRuntimeSession {
       this.#writableProfile ?? failInvariant("writable profile object URL has no manifest");
     const base = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
-      "/api/profile/v2/",
+      "/api/profile/v3/",
       "writable profile API URL",
     );
     if (!base.pathname.endsWith("/")) {
@@ -1084,6 +1100,25 @@ class BrowserRuntimeSession {
     return new URL(
       `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
         `profiles/${encodeURIComponent(profile.profileId)}/objects/${objectId}`,
+      base,
+    );
+  }
+
+  #profileDirectoryCommitUrl(directoryId: number): URL {
+    const profile =
+      this.#writableProfile ?? failInvariant("writable profile directory URL has no manifest");
+    const base = this.#sameOriginStorageUrl(
+      this.#configuration.writableProfileApiUrl,
+      "/api/profile/v3/",
+      "writable profile API URL",
+    );
+    if (!base.pathname.endsWith("/")) {
+      base.pathname += "/";
+    }
+    return new URL(
+      `titles/${encodeURIComponent(profile.titleFingerprint)}/` +
+        `profiles/${encodeURIComponent(profile.profileId)}/` +
+        `directories/${directoryId}/commits`,
       base,
     );
   }
@@ -1201,7 +1236,7 @@ class BrowserRuntimeSession {
   #parseWritableProfile(bytes: Uint8Array): WritableProfileManifest {
     const profile = JSON.parse(new TextDecoder().decode(bytes)) as WritableProfileManifest;
     invariant(
-      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 2,
+      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 3,
       "writable profile schema mismatch",
     );
     invariant(
@@ -1216,7 +1251,7 @@ class BrowserRuntimeSession {
       "writable profile identity or quota is invalid",
     );
     invariant(
-      profile.files.length > 0 && profile.files.length <= 64,
+      Array.isArray(profile.files) && profile.files.length > 0 && profile.files.length <= 64,
       "writable profile file count is invalid",
     );
     const objectIds = new Set<number>();
@@ -1249,6 +1284,29 @@ class BrowserRuntimeSession {
       paths.add(pathIdentity);
       totalBytes += file.byteLength;
     }
+    invariant(
+      Array.isArray(profile.directories) && profile.directories.length <= 64,
+      "writable profile directory count is invalid",
+    );
+    const directoryIds = new Set<number>();
+    for (const directory of profile.directories) {
+      const pathIdentity = directory.relativePathA
+        .map((byte) => (byte >= 0x41 && byte <= 0x5a ? byte + 0x20 : byte))
+        .join(",");
+      invariant(
+        Number.isInteger(directory.directoryId) &&
+          directory.directoryId > 0 &&
+          !directoryIds.has(directory.directoryId) &&
+          validByteArray(directory.relativePathA, false) &&
+          !paths.has(pathIdentity) &&
+          typeof directory.exists === "boolean" &&
+          Number.isSafeInteger(directory.generation) &&
+          (directory.exists ? directory.generation > 0 : directory.generation === 0),
+        "writable profile directory descriptor is invalid or duplicated",
+      );
+      directoryIds.add(directory.directoryId);
+      paths.add(pathIdentity);
+    }
     invariant(totalBytes <= profile.quotaBytes, "writable profile content exceeds its quota");
     return profile;
   }
@@ -1280,6 +1338,21 @@ class BrowserRuntimeSession {
           preparedFile.sha256 === file.sha256 &&
           !preparedFile.dirty,
         `Rust and browser writable object ${file.objectId} differ`,
+      );
+    }
+    invariant(
+      Object.keys(runtime.directories).length === profile.directories.length,
+      "Rust and browser writable profile directory counts differ",
+    );
+    for (const directory of profile.directories) {
+      const preparedDirectory = runtime.directories[String(directory.directoryId)];
+      invariant(
+        preparedDirectory !== undefined &&
+          preparedDirectory.directoryId === directory.directoryId &&
+          byteArraysEqual(preparedDirectory.relativePathA, directory.relativePathA) &&
+          preparedDirectory.exists === directory.exists &&
+          preparedDirectory.generation === directory.generation,
+        `Rust and browser writable directory ${directory.directoryId} differ`,
       );
     }
   }
@@ -1678,6 +1751,93 @@ class BrowserRuntimeSession {
     });
   }
 
+  async #serviceWritableDirectoryCreate(metadata: HostRequestMetadata): Promise<void> {
+    const profile =
+      this.#writableProfile ?? failInvariant("directory create has no registered profile");
+    invariant(
+      metadata.service === "storage.profile-directory-create.v1",
+      "unexpected writable directory create service",
+    );
+    invariant(
+      metadata.arguments.length === 4,
+      "writable directory create request must contain four words",
+    );
+    const [version, directoryId, baseLow, baseHigh] = metadata.arguments;
+    invariant(version === 1, "writable directory create request version mismatch");
+    const baseGeneration = BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
+    invariant(
+      baseGeneration <= BigInt(Number.MAX_SAFE_INTEGER),
+      "writable directory create generation exceeds the profile bound",
+    );
+    const directory = profile.directories.find(
+      (candidate) => candidate.directoryId === directoryId,
+    );
+    invariant(directory !== undefined, "writable directory create identity is not allowlisted");
+    invariant(
+      !directory.exists && BigInt(directory.generation) === baseGeneration,
+      "writable directory create base state differs from the browser snapshot",
+    );
+    const url = this.#profileDirectoryCommitUrl(directoryId ?? 0);
+    const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
+      try {
+        const candidate = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "X-Vine-Request-Key": requestKey,
+            "X-Vine-Base-Generation": baseGeneration.toString(),
+            ...this.#profileLeaseHeaders(),
+          },
+        });
+        if (candidate.status >= 500 && attempt === 0) {
+          continue;
+        }
+        response = candidate;
+      } catch {}
+    }
+    if (response === null) {
+      throw new Error(
+        "writable directory create transport ended with an unknown publication outcome",
+      );
+    }
+    if (response.status !== 200) {
+      const win32Error = recoverableCommitHttpError(
+        response.status,
+        response.headers.get("x-vine-error-code"),
+      );
+      invariant(win32Error !== null, `writable directory create failed with ${response.status}`);
+      this.#completeWritableDirectoryCreate(
+        metadata,
+        writableDirectoryCreateFailureControl(
+          directoryId ?? 0,
+          baseGeneration,
+          win32Error,
+        ),
+      );
+      return;
+    }
+    invariant(
+      response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+        response.headers.get("x-vine-profile-id") === profile.profileId &&
+        response.headers.get("x-vine-directory-id") === String(directoryId) &&
+        response.headers.get("x-vine-base-generation") === baseGeneration.toString() &&
+        response.headers.get("x-vine-session-epoch") ===
+          String(this.#requireProfileLease().epoch),
+      "writable directory create response identity mismatch",
+    );
+    const control = new Uint8Array(await response.arrayBuffer());
+    invariant(control.byteLength === 32, "writable directory create response size mismatch");
+    this.#deliverInIssueOrder(metadata.requestId, () => {
+      const completion = this.#completeWritableDirectoryCreate(metadata, control);
+      if (completion.succeeded) {
+        directory.exists = true;
+        directory.generation = completion.committedGeneration;
+      }
+    });
+  }
+
   #completeSourceRead(
     request: HostRequestMetadata,
     control: Uint8Array,
@@ -1788,6 +1948,68 @@ class BrowserRuntimeSession {
     }
     this.#status("running", `${pending.service} completed`);
     return completion.writableCommit;
+  }
+
+  #completeWritableDirectoryCreate(
+    request: HostRequestMetadata,
+    control: Uint8Array,
+  ): RuntimeWritableDirectoryCreateSnapshot {
+    if (this.#terminal) {
+      throw new SessionStopped("writable directory create completed after the session stopped");
+    }
+    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
+    const output = this.#requireBridge().completeWritableDirectoryCreate<HostCompletionMetadata>(
+      BigInt(pending.requestId),
+      control,
+    );
+    const completion = output.metadata;
+    invariant(
+      completion.kind === "host-complete" &&
+        completion.threadId === pending.threadId &&
+        completion.writableDirectoryCreate !== undefined &&
+        output.control.byteLength === 0 &&
+        output.payload.byteLength === 0,
+      "invalid writable directory create completion metadata",
+    );
+    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const expectedResumeState =
+      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+    invariant(
+      resumeState === expectedResumeState,
+      "writable directory create resume policy mismatch",
+    );
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#recordBgiCompletion(completion);
+    }
+    this.#report.writableDirectoryCreates.push(completion.writableDirectoryCreate);
+    this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+    this.#threadExecutionStates.set(completion.threadId, resumeState);
+    if (this.#hostBarrierRequestId === pending.requestId) {
+      invariant(
+        this.#hostBarrierResume === null,
+        "host completion barrier retained an unconsumed owner resume",
+      );
+      this.#hostBarrierResume = {
+        requestId: pending.requestId,
+        threadId: completion.threadId,
+        scheduler: completion.scheduler,
+      };
+    }
+    this.#report.rustSchedulerTransitions += 1;
+    pending.resolve({
+      result: completion.writableDirectoryCreate.succeeded ? 1 : 0,
+      completionPolicy: pending.completionPolicy,
+    });
+    if (this.#execution.state() === "waiting-host") {
+      this.#execution.transition("host-completion", {
+        cause: "writable-directory-create-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      this.#signalRunnable();
+    }
+    this.#status("running", `${pending.service} completed`);
+    return completion.writableDirectoryCreate;
   }
 
   cancel(): void {
@@ -1997,7 +2219,8 @@ class BrowserRuntimeSession {
           metadata.service === "runtime.timer-delay.v1" ||
             metadata.service === "storage.source-read.v1" ||
             metadata.service === "storage.profile-read.v1" ||
-            metadata.service === "storage.profile-commit.v1",
+            metadata.service === "storage.profile-commit.v1" ||
+            metadata.service === "storage.profile-directory-create.v1",
         );
         this.#synchronousApiBoundariesSinceYield = 0;
         break;
@@ -2218,6 +2441,12 @@ class BrowserRuntimeSession {
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
+    const isWritableDirectoryCreate =
+      completion.implementationId === "kernel32.create-directory-a.runtime-vfs.v1";
+    invariant(
+      isWritableDirectoryCreate === (metadata.writableDirectoryCreate !== undefined),
+      "BGI writable directory completion metadata mismatch",
+    );
     const isWaitableTimerMutation =
       completion.implementationId === "kernel32.create-waitable-timer-a.v1" ||
       completion.implementationId === "kernel32.set-waitable-timer.relative-one-shot.v1" ||
@@ -2381,6 +2610,9 @@ class BrowserRuntimeSession {
       ...(metadata.writableCommit === undefined
         ? {}
         : { writableCommit: metadata.writableCommit }),
+      ...(metadata.writableDirectoryCreate === undefined
+        ? {}
+        : { writableDirectoryCreate: metadata.writableDirectoryCreate }),
       ...(metadata.gdi === undefined ? {} : { gdi: metadata.gdi }),
       ...(metadata.gdiplus === undefined ? {} : { gdiplus: metadata.gdiplus }),
       ...(metadata.imm32 === undefined ? {} : { imm32: metadata.imm32 }),
@@ -2462,7 +2694,9 @@ class BrowserRuntimeSession {
           this.#configuration.capabilityProfile ===
             "kernel32-global-memory-status" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-get-file-attributes-a") &&
+            "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "Sleep",
@@ -2523,7 +2757,9 @@ class BrowserRuntimeSession {
         (this.#configuration.capabilityProfile ===
           "kernel32-global-memory-status" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-get-file-attributes-a") &&
+            "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a") &&
           this.#report.globalMemoryStatus === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -2582,12 +2818,77 @@ class BrowserRuntimeSession {
     }
     if (
       completion.implementationId ===
+      "kernel32.create-directory-a.runtime-vfs.v1"
+    ) {
+      const [pathAddress, securityAttributes] = call.arguments;
+      const directoryCreate = metadata.writableDirectoryCreate;
+      invariant(
+        this.#configuration.capabilityProfile ===
+          "kernel32-create-directory-a" &&
+          this.#report.createDirectoryA === null &&
+          endpoint.module.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "CreateDirectoryA" &&
+          call.arguments.length === 2 &&
+          typeof pathAddress === "number" &&
+          Number.isInteger(pathAddress) &&
+          pathAddress !== 0 &&
+          securityAttributes === 0 &&
+          completion.eax.action === "set" &&
+          completion.eax.value === 1 &&
+          Number.isInteger(completion.lastError) &&
+          completion.lastError >= 0 &&
+          completion.lastError <= 0xffff_ffff &&
+          guestWrites.length === 0 &&
+          directoryCreate !== undefined &&
+          directoryCreate.request.requestId > 0 &&
+          directoryCreate.request.directoryId === 1 &&
+          directoryCreate.request.baseGeneration === 0 &&
+          directoryCreate.request.relativePathA.length === 8 &&
+          directoryCreate.request.relativePathA.every(
+            (byte, index) => byte === [85, 115, 101, 114, 68, 97, 116, 97][index],
+          ) &&
+          directoryCreate.succeeded &&
+          directoryCreate.committedGeneration === 1 &&
+          directoryCreate.win32Error === 0,
+        "CreateDirectoryA ABI or durable VFS transaction changed",
+      );
+      const directoryCall: RuntimeCreateDirectoryACallSnapshot = {
+        sequence,
+        module: endpoint.module,
+        symbol: "CreateDirectoryA",
+        occurrence: 1,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [pathAddress, 0],
+        result: { action: "set", value: 1 },
+        implementationId: "kernel32.create-directory-a.runtime-vfs.v1",
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [],
+        writableDirectoryCreate: structuredClone(directoryCreate),
+      };
+      this.#report.createDirectoryA = {
+        call: directoryCall,
+        directoryAuthority: "rust-runtime-vfs-writable-profile",
+        durableAuthority: "sqlite-writable-profile-directory-generation",
+        transaction: "validate-plan-host-publish-targeted-commit",
+        sourceMutation: false,
+        hostPathCreated: false,
+        browserFileSystemImported: false,
+      };
+    }
+    if (
+      completion.implementationId ===
       "kernel32.get-file-attributes-a.runtime-vfs.v1"
     ) {
       const [pathAddress] = call.arguments;
       invariant(
-        this.#configuration.capabilityProfile ===
-          "kernel32-get-file-attributes-a" &&
+        (this.#configuration.capabilityProfile ===
+          "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "GetFileAttributesA" &&
@@ -2624,7 +2925,11 @@ class BrowserRuntimeSession {
           lastCall: attributeCall,
           pathAuthority: "rust-runtime-vfs",
           fileExistenceAuthority: "registered-source-and-writable-manifests",
-          directoryExistence: "registered-path-ancestor-derivation",
+          directoryExistence:
+            this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a"
+              ? "registered-path-ancestors-and-writable-directory-state"
+              : "registered-path-ancestor-derivation",
           hostFileSystemImported: false,
           browserFileSystemImported: false,
           mutation: false,
@@ -3211,7 +3516,9 @@ class BrowserRuntimeSession {
           this.#configuration.capabilityProfile ===
             "kernel32-global-memory-status" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-get-file-attributes-a") &&
+            "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a") &&
           sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
@@ -3250,7 +3557,8 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
       this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
       this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
-      this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a"
+      this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a" ||
+      this.#configuration.capabilityProfile === "kernel32-create-directory-a"
     ) {
       const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
@@ -3689,13 +3997,29 @@ class BrowserRuntimeSession {
     } else if (metadata.service === "storage.profile-commit.v1") {
       if (this.#configuration.mode === "success") {
         const task = this.#serviceWritableCommit(metadata);
-        this.#writableCommitTasks.add(task);
+        this.#writableMutationTasks.add(task);
         void task.then(
           () => {
-            this.#writableCommitTasks.delete(task);
+            this.#writableMutationTasks.delete(task);
           },
           (error: unknown) => {
-            this.#writableCommitTasks.delete(task);
+            this.#writableMutationTasks.delete(task);
+            if (!this.#terminal && !this.#stopping) {
+              this.#fail(error instanceof Error ? error : new Error(String(error)));
+            }
+          },
+        );
+      }
+    } else if (metadata.service === "storage.profile-directory-create.v1") {
+      if (this.#configuration.mode === "success") {
+        const task = this.#serviceWritableDirectoryCreate(metadata);
+        this.#writableMutationTasks.add(task);
+        void task.then(
+          () => {
+            this.#writableMutationTasks.delete(task);
+          },
+          (error: unknown) => {
+            this.#writableMutationTasks.delete(task);
             if (!this.#terminal && !this.#stopping) {
               this.#fail(error instanceof Error ? error : new Error(String(error)));
             }
@@ -3980,7 +4304,7 @@ class BrowserRuntimeSession {
         cleanupErrors.push(`profile read transport: ${String(cleanupError)}`);
       }
       try {
-        await this.#drainWritableCommits();
+        await this.#drainWritableMutations();
       } catch (cleanupError) {
         cleanupErrors.push(`writable commit transport: ${String(cleanupError)}`);
       }
@@ -4052,7 +4376,7 @@ class BrowserRuntimeSession {
       try {
         await this.#settleProfileLeaseAcquisition();
         await this.#drainProfileTransports();
-        await this.#drainWritableCommits();
+        await this.#drainWritableMutations();
         await this.#revokeWritableProfileLease();
       } catch (cleanupError) {
         final = {
@@ -4080,11 +4404,11 @@ class BrowserRuntimeSession {
     }
   }
 
-  async #drainWritableCommits(): Promise<void> {
-    if (this.#writableCommitTasks.size === 0) {
+  async #drainWritableMutations(): Promise<void> {
+    if (this.#writableMutationTasks.size === 0) {
       return;
     }
-    await Promise.allSettled([...this.#writableCommitTasks]);
+    await Promise.allSettled([...this.#writableMutationTasks]);
   }
 
   async #revokeWritableProfileLease(): Promise<void> {
@@ -4094,7 +4418,7 @@ class BrowserRuntimeSession {
     }
     const base = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
-      "/api/profile/v2/",
+      "/api/profile/v3/",
       "writable profile API URL",
     );
     if (!base.pathname.endsWith("/")) {
@@ -4146,7 +4470,9 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile ===
           "kernel32-global-memory-status" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-get-file-attributes-a") &&
+          "kernel32-get-file-attributes-a" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-create-directory-a") &&
       terminal.outcome === "structured-stop"
     ) {
       const sleepZero = this.#report.sleepZero;
@@ -4162,7 +4488,9 @@ class BrowserRuntimeSession {
     if (
       (this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-get-file-attributes-a") &&
+          "kernel32-get-file-attributes-a" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-create-directory-a") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4171,13 +4499,25 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      this.#configuration.capabilityProfile ===
-        "kernel32-get-file-attributes-a" &&
+      (this.#configuration.capabilityProfile ===
+        "kernel32-get-file-attributes-a" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-create-directory-a") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
         this.#report.getFileAttributesA?.callCount === 23,
         "GetFileAttributesA report omitted a VFS path-query completion",
+      );
+    }
+    if (
+      this.#configuration.capabilityProfile === "kernel32-create-directory-a" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      invariant(
+        this.#report.createDirectoryA?.call.writableDirectoryCreate.succeeded === true &&
+          this.#report.writableDirectoryCreates.length === 1,
+        "CreateDirectoryA report omitted its durable VFS transaction",
       );
     }
     if (this.#configuration.evidenceLevel === "full") {
@@ -4329,10 +4669,12 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             supportedCalls: [],
             sourceReads: [],
             writableCommits: [],
+            writableDirectoryCreates: [],
             dragAcceptFiles: null,
             sleepZero: null,
             globalMemoryStatus: null,
             getFileAttributesA: null,
+            createDirectoryA: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

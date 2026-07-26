@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import {
   acquireWritableProfileLease,
+  commitWritableDirectory,
   commitWritableProfile,
   handleWritableProfileHttp,
   openWritableProfile,
@@ -25,6 +26,10 @@ const configuration = {
   rootPathA: Buffer.from("C:\\Vine\0", "binary"),
   quotaBytes: 32,
   files: [{ objectId: 1, relativePathA: Buffer.from("BGI.gdb", "ascii") }],
+  directories: [
+    { directoryId: 1, relativePathA: Buffer.from("UserData", "ascii") },
+    { directoryId: 2, relativePathA: Buffer.from("Cache", "ascii") },
+  ],
 };
 
 try {
@@ -38,6 +43,55 @@ try {
     byteLength: 0,
     sha256: null,
   });
+  assert.deepEqual(snapshotWritableProfile(profile).directories, [
+    {
+      directoryId: 1,
+      relativePathA: [...Buffer.from("UserData", "ascii")],
+      exists: false,
+      generation: 0,
+    },
+    {
+      directoryId: 2,
+      relativePathA: [...Buffer.from("Cache", "ascii")],
+      exists: false,
+      generation: 0,
+    },
+  ]);
+  const firstDirectoryRequest = directoryRequest("session-a:directory:1", 1, 0, directLease);
+  assert.deepEqual(commitWritableDirectory(profile, firstDirectoryRequest), {
+    directoryId: 1,
+    baseGeneration: 0,
+    committedGeneration: 1,
+    win32Error: 0,
+    duplicate: false,
+  });
+  assert.equal(commitWritableDirectory(profile, firstDirectoryRequest).duplicate, true);
+  assert.throws(
+    () =>
+      commitWritableDirectory(
+        profile,
+        directoryRequest("session-a:directory:1", 2, 0, directLease),
+      ),
+    { code: "writable-profile-directory-request-key-conflict" },
+  );
+  assert.throws(
+    () =>
+      commitWritableDirectory(
+        profile,
+        directoryRequest("session-a:directory:stale", 1, 0, directLease),
+      ),
+    { code: "writable-profile-directory-generation-stale" },
+  );
+  assert.throws(
+    () =>
+      commitWritableDirectory(
+        profile,
+        directoryRequest("session-a:directory:rollback", 2, 0, directLease),
+        { failpoint: "after-write-before-commit" },
+      ),
+    { code: "writable-profile-directory-failpoint" },
+  );
+  assert.equal(snapshotWritableProfile(profile).directories[1].exists, false);
 
   const firstBytes = Buffer.from("SDC FORMAT 1.00", "ascii");
   const firstRequest = request("session-a:1", 0, firstBytes, directLease);
@@ -133,7 +187,7 @@ try {
     profile.database
       .prepare("SELECT schema_version FROM profile_metadata WHERE singleton = 1")
       .get().schema_version,
-    2,
+    3,
   );
   const migratedLeaseState = profile.database
     .prepare("SELECT epoch, session_key, active FROM profile_lease WHERE singleton = 1")
@@ -181,7 +235,7 @@ try {
     }
   });
   const port = await listen(server);
-  const baseUrl = `http://127.0.0.1:${port}/api/profile/v2`;
+  const baseUrl = `http://127.0.0.1:${port}/api/profile/v3`;
   try {
     assert.equal(
       (await fetch(`http://127.0.0.1:${port}/api/profile/v1/snapshot`)).status,
@@ -260,6 +314,48 @@ try {
     assert.equal(decodeCommitResponse(await staleResponse.arrayBuffer()).win32Error, 29);
     assert.equal(snapshotWritableProfile(profile).files[0].generation, 3);
 
+    const directoryUrl =
+      `${baseUrl}/titles/${configuration.titleFingerprint}/profiles/default/` +
+      "directories/2/commits";
+    const directoryHeaders = {
+      "X-Vine-Request-Key": "http-session:directory:1",
+      "X-Vine-Base-Generation": "0",
+      ...leaseHeaders,
+    };
+    const directoryResponse = await fetch(directoryUrl, {
+      method: "POST",
+      headers: directoryHeaders,
+    });
+    assert.equal(directoryResponse.status, 200);
+    assert.deepEqual(decodeDirectoryResponse(await directoryResponse.arrayBuffer()), {
+      version: 1,
+      directoryId: 2,
+      baseGeneration: 0,
+      committedGeneration: 1,
+      win32Error: 0,
+      reserved: 0,
+    });
+    assert.equal(directoryResponse.headers.get("x-vine-duplicate"), "false");
+    const duplicateDirectoryResponse = await fetch(directoryUrl, {
+      method: "POST",
+      headers: directoryHeaders,
+    });
+    assert.equal(duplicateDirectoryResponse.status, 200);
+    assert.equal(duplicateDirectoryResponse.headers.get("x-vine-duplicate"), "true");
+    const staleDirectoryResponse = await fetch(directoryUrl, {
+      method: "POST",
+      headers: {
+        ...directoryHeaders,
+        "X-Vine-Request-Key": "http-session:directory:stale",
+      },
+    });
+    assert.equal(staleDirectoryResponse.status, 200);
+    assert.equal(
+      decodeDirectoryResponse(await staleDirectoryResponse.arrayBuffer()).win32Error,
+      29,
+    );
+    assert.equal(snapshotWritableProfile(profile).directories[1].generation, 1);
+
     const revokeResponse = await fetch(`${baseUrl}/sessions/${httpEpoch}`, {
       method: "DELETE",
       headers: { "X-Vine-Session-Key": "http-session" },
@@ -324,6 +420,16 @@ try {
     }).bytes,
     Buffer.from("http commit", "ascii"),
   );
+  assert.deepEqual(
+    snapshotWritableProfile(profile).directories.map(({ exists, generation }) => ({
+      exists,
+      generation,
+    })),
+    [
+      { exists: true, generation: 1 },
+      { exists: true, generation: 1 },
+    ],
+  );
   profile.close();
 
   const failureProfile = openWritableProfile({
@@ -344,7 +450,7 @@ try {
     }
   });
   const failurePort = await listen(failureServer);
-  const failureBase = `http://127.0.0.1:${failurePort}/api/profile/v2`;
+  const failureBase = `http://127.0.0.1:${failurePort}/api/profile/v3`;
   try {
     const leaseResponse = await fetch(`${failureBase}/sessions`, {
       method: "POST",
@@ -448,6 +554,23 @@ function request(requestKey, baseGeneration, bytes, lease) {
   };
 }
 
+function directoryRequest(requestKey, directoryId, baseGeneration, lease) {
+  const directory = configuration.directories.find(
+    (candidate) => candidate.directoryId === directoryId,
+  );
+  assert(directory !== undefined);
+  return {
+    requestKey,
+    titleFingerprint: configuration.titleFingerprint,
+    profileId: configuration.profileId,
+    directoryId,
+    relativePathA: directory.relativePathA,
+    baseGeneration,
+    sessionKey: lease.sessionKey,
+    sessionEpoch: lease.epoch,
+  };
+}
+
 function commitHeadersFor(requestKey, baseGeneration, bytes, sessionEpoch) {
   return {
     "Content-Type": "application/octet-stream",
@@ -484,5 +607,17 @@ function decodeCommitResponse(buffer) {
     committedGeneration: words[4] + words[5] * 0x1_0000_0000,
     win32Error: words[6],
     reserved: words[7],
+  };
+}
+
+function decodeDirectoryResponse(buffer) {
+  const decoded = decodeCommitResponse(buffer);
+  return {
+    version: decoded.version,
+    directoryId: decoded.objectId,
+    baseGeneration: decoded.baseGeneration,
+    committedGeneration: decoded.committedGeneration,
+    win32Error: decoded.win32Error,
+    reserved: decoded.reserved,
   };
 }

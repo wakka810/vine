@@ -31,8 +31,8 @@ checkpointで偶然動いたことだけではResolvedにしない。
 | Q-THREADS | Required SEH／VEH／APCとadvanced thread behavior | Reached CreateThread／ResumeThread、dynamic stack／TEB／CPU bootstrap、logical priority state、multiple guest context、host-wait schedulingは成立。priority-weighted selectionと高度なWindows delivery semanticsは未確定 | Primary fairness／wait traceとcontrolled block／wake／timeout／cancel／exception fixture |
 | Q-LOADER | Required PE／DLL feature setとdeterministic module resolution | Mapped image、import／export、module graph、process attach／detach foundationは成立 | 到達dynamic load／unload、TLS／delay import、alias／manifest、search order、failure unwind trace |
 | Q-ABI | ABI metadata生成と到達Win32／COM／variadic support band | Generic checked dispatchとexplicit unsupported stopがbaseline | Nested structure、callback、union、size-versioned API、COM class use、caller consumer、format grammar fixture |
-| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource／profile lifecycle | Immutable manifestとmetadata-only writable profileをpath-disjointに登録し、Rustがhandle／cursor／hydrated committed bytes／staged bytes／generation、same-origin serviceがsource bytes／SQLite committed generationを所有する。Profile contentはbounded binary rangeでhydrateし、bounded read／write／seek／flush／close、cancel、failed commit retryは成立 | Replacement／TOCTOU、large-corpus streaming、broader path／share、rename／delete、mapped file test |
-| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | Title/profile-scoped SQLite、generation CAS、idempotency ledger、quota、rollback、restart／response-loss modelに加え、transaction内epoch lease検証、terminal commit barrier、recoverable Win32 failure completionが成立。既存BGI.gdbはnew DBだけへseedし配布fileへ書き戻さない | Controlled Chrome guest write／browser restart／load、commit各段階のbrowser／Worker／server kill、permission revoke、migration、export／import test |
+| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource／profile lifecycle | Immutable manifestとmetadata-only writable profile version 3をpath-disjointに登録し、Rustがhandle／cursor／hydrated committed bytes／staged bytes／file・directory identity／generation、same-origin serviceがsource bytes／SQLite committed generationを所有する。Profile contentはbounded binary rangeでhydrateし、bounded read／write／seek／flush／close、allowlisted durable directory create、cancel、failed commit retryは成立 | Replacement／TOCTOU、large-corpus streaming、broader path／share、rename／delete、enumeration、mapped file test |
+| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | Title/profile-scoped SQLite、file／directory generation CAS、idempotency ledger、quota、rollback、restart／response-loss modelに加え、transaction内epoch lease検証、terminal commit barrier、recoverable Win32 failure completionが成立。既存BGI.gdbはnew DBだけへseedし配布fileへ書き戻さず、private directory checkはrun-local DBだけを変更する | Controlled Chrome guest file write／browser restart／load、commit各段階のbrowser／Worker／server kill、permission revoke、migration、export／import test |
 | Q-GRAPHICS | Bounded DirectInput／D3D9、common surface boundary、renderer、日本語font behavior | Logical frontend stateとbrowser／GPU resourceを分離する | Primary vtable／state／format／draw／input trace、upload／readback benchmark、context loss、glyph／metric／visual oracle |
 | Q-AUDIO | Audio transport、clock／drift、到達WinMM／media scope | Rust-owned DirectSound8 root、primary／secondary buffer descriptor、PCM format、full-range secondary Lock／Unlock backing、content generation、looping playback stateをbrowser audio resourceから分離し、AudioWorkletをconsumer候補とする | Cursor／notification／Stop／Restore oracle、browser PCM transport、long playback drift／underrun、activation／background recovery、到達command trace |
 | Q-055 | Full-play performance、fingerprint内容、soak／fuzz budget、acceptance evidence | Component／browser workload gateはあるがfull-play behaviorの代用ではない | Representative scene、versioned fuzz profile、long-run distribution、save／restart session、fingerprint collision／update test |
@@ -81,11 +81,12 @@ failure-atomicに更新し、`WM_SIZE`内の`GetSystemMenu(hwnd,FALSE) -> Enable
 外側resize planをstaleにしない。続く`Sleep(0)`は既存scheduler authorityへ接続するbounded yieldとして閉じ、
 `GlobalMemoryStatus`は既存system-information policyから分離しないdeterministic x86 snapshotとして閉じた。Host
 wall-clock、browser timer、host／browser memory pressure、runtime allocator quotaはguest-visible authorityへimportしない。
-`GetFileAttributesA`は既存VFS ownerのregistered fileとderived directoryだけを照会し、host／browser filesystemを
-authorityへしないsemantic leafとして閉じた。現在のsemantic stopは`KERNEL32.dll!CreateDirectoryA`である。
-これはwritable overlayのdirectory identity、parent existence、create／duplicate result、path-to-file conflict、
-save lifecycleへ新しいmutation責務を加えるためsubsystem gatewayとして扱う。API単体stubを追加せず、
-`RuntimeFiles` ownerのdirectory collection／plan／commit、failure atomicity、persistent-profile relationを先に固定する。
+`GetFileAttributesA`は既存VFS ownerのregistered file、derived directory、committed writable directoryだけを照会し、
+host／browser filesystemをauthorityへしないsemantic leafとして閉じた。続く`CreateDirectoryA` gatewayは
+`RuntimeFiles` ownerの別directory collection／identity／generation／planを導入し、SQLite lease／CAS／idempotencyが
+durably publishした後だけRust existenceをcommitする。Private Node／Chromeはshared profileを変更しないrun-local DBで
+success、duplicate／parent／file-conflict oracle、cancel、terminal drainを固定した。現在のsemantic stopは既存logical
+windowへ到達した`USER32.dll!SetWindowPos` repeat activation variantであり、新しいstorage blockerではない。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

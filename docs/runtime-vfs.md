@@ -5,8 +5,8 @@
 - State owner: Rust `runtime/files.rs::RuntimeFiles`
 - Aggregate coordinator: `runtime/kernel.rs::RuntimeKernel`
 - Immutable adapter: same-origin `storage.source-read.v1`
-- Writable adapters: same-origin `storage.profile-read.v1` and
-  `storage.profile-commit.v1`
+- Writable adapters: same-origin `storage.profile-read.v1`,
+  `storage.profile-commit.v1`, and `storage.profile-directory-create.v1`
 - Durable backend: title/profile-scoped SQLite under ignored `.work/`
 - Primary save/browser-restart/load acceptance: not yet complete
 
@@ -23,8 +23,9 @@ When both mounts exist they must have the same title fingerprint and normalized
 Windows root.
 
 `RuntimeFiles` privately owns normalized Windows-932 path identity, monotonic file
-IDs, open-file access/share/cursor state, profile generations, committed and staged
-bytes, dirty revisions, and pending read/commit records. `RuntimeObjectTable` owns
+and directory IDs, open-file access/share/cursor state, profile file／directory
+generations, committed and staged bytes, dirty revisions, and pending
+read/commit/create records. `RuntimeObjectTable` owns
 typed handle generation and staleness. The Worker and local server never own a
 Win32 handle, cursor, guest pointer, LastError, or dirty-file decision.
 
@@ -39,9 +40,11 @@ mounts share one title fingerprint and root, and writable paths may not shadow
 immutable objects. Unregistered paths, including the engine's loose-file member
 probes, resolve to not-found exactly as on the native disk.
 
-A `vine.writable-profile-snapshot` version 2 binds a title fingerprint, profile ID,
-root, quota, and path allowlist to per-object existence, generation, length, and
-hash. It is metadata-only: committed bytes are never expanded into JSON or
+A `vine.writable-profile-snapshot` version 3 binds a title fingerprint, profile ID,
+root, quota, and disjoint file／directory allowlists to per-object existence and
+generation, plus file length and hash. A directory allowlist entry grants only the
+ability to create that logical directory; it does not imply existence. The snapshot
+is metadata-only: committed bytes are never expanded into JSON or
 concatenated with the executable and policy Wasm bootstrap. Before guest entry,
 the Worker reads each existing object through generation-bound binary ranges of at
 most 1 MiB, verifies the complete SHA-256, and hydrates that object into Rust in one
@@ -68,7 +71,11 @@ The versioned Kernel32 policy supports these bounded variants:
 
 - `GetFileAttributesA`: exact registered existing source／writable files project
   the policy-owned regular-file attributes, while the mount root and ancestors of
-  registered paths project directory attributes;
+  registered paths and committed writable-profile directories project directory
+  attributes;
+- `CreateDirectoryA`: one allowlisted absent writable-profile directory with NULL
+  security attributes, durable SQLite publication, and exact duplicate／missing
+  parent／file-conflict errors;
 - immutable open: `GENERIC_READ`, share-read, `OPEN_EXISTING`;
 - writable open: `GENERIC_WRITE`, share none, `CREATE_ALWAYS` or
   `OPEN_ALWAYS`;
@@ -90,10 +97,10 @@ keeps both the handle and dirty staging available for retry.
 missing final component returns `ERROR_FILE_NOT_FOUND`; a missing parent or mount
 escape returns `ERROR_PATH_NOT_FOUND`. Success preserves LastError. It never probes
 the Node／browser host filesystem, and an absent writable object does not become an
-existing file merely because its path is allowlisted.
+existing file or directory merely because its path is allowlisted.
 Sparse writes zero-fill the gap. Immutable writes and source/profile shadowing are
 denied before mutation. Directory enumeration, rename/delete, mapped files, locks,
-general directory mutation, volume resolution, arbitrary DOS attributes,
+directory mutation outside the explicit create allowlist, volume resolution, arbitrary DOS attributes,
 access/share/disposition combinations, and registry projection are not claimed.
 
 ## Read, write, and commit transactions
@@ -114,7 +121,7 @@ and guest output unchanged.
 A dirty flush or close creates a versioned commit request containing object ID, base
 generation, length, hash, and close intent. The payload remains Rust-owned. The
 adapter adds a session/request idempotency key and sends it to the same-origin
-profile-v2 endpoint. Session startup first acquires a SQLite-backed monotonic epoch
+profile-v3 endpoint. Session startup first acquires a SQLite-backed monotonic epoch
 lease. Every snapshot, object read, and commit carries the opaque session key and
 epoch. A commit revalidates that lease inside the same `BEGIN IMMEDIATE`
 transaction that performs generation compare-and-swap, hash/length verification,
@@ -128,6 +135,17 @@ retried with the same idempotency key; the SQLite commit ledger returns the orig
 generation without applying the bytes twice. Stale generations, duplicate keys with
 different content, malformed responses, and quota failures do not partially update
 either authority.
+
+Directory creation follows the same host-first publication rule without borrowing
+file-object state. Rust validates path classification, parent existence, file
+conflict, directory generation, request identity, and lifecycle, then suspends the
+owner thread with an opaque create plan. SQLite revalidates the epoch lease and base
+generation inside one immediate transaction, records the idempotency result, and
+publishes the directory generation. Only a matching durable success completion lets
+`RuntimeFiles` commit existence and generation. Duplicate, stale, malformed,
+cancelled, or failed requests leave both authorities unchanged. Successful
+`CreateDirectoryA` preserves the thread's incoming LastError and writes no guest
+bytes.
 
 Quota exhaustion, generation conflict, a revoked lease, SQLite busy/locked, and
 other ordinary SQLite write failures return a validated 32-byte commit failure
@@ -152,17 +170,21 @@ Rust model and integration tests cover path separation, create/truncate/open
 semantics, sharing, sparse writes, quota, guest-memory atomicity, successful durable
 close, malformed completion, failed-close retry, stale/duplicate completion,
 metadata-only atomic hydration, process-exit discard, and read-only file／derived
-directory attribute classification without host filesystem import. The SQLite tests cover
+directory attribute classification without host filesystem import. They also cover
+allowlisted directory identity, host-first durable creation, duplicate／missing-parent／
+file-conflict classification, stale plans, malformed completion, failure retry, and
+cancellation. The SQLite tests cover
 first creation, restart, idempotent duplicate, stale generation, identity/hash
 rejection, transaction rollback, post-commit response loss, quota, a held SQLite
 write lock, lease revoke and replacement, rejected late commits, a 4 MiB
-high-expansion profile, and the same-origin HTTP-v2 range/commit protocol.
+high-expansion profile, and the same-origin HTTP-v3 range/commit/directory protocol.
 The public immutable fixture continues to cover open/size/read/seek/close and browser
 read cancellation/watchdog cleanup.
 
 The private Node and Chrome checks import `BGI.gdb` through the writable profile,
-serve it from SQLite, and verify that the distribution file is unchanged. This
-checkpoint establishes the storage authority and durable commit path. It does not
+serve it from SQLite, create the run-local allowlisted `UserData` directory, and
+verify that the distribution file and shared profile are unchanged. This checkpoint
+establishes the storage authority and durable file／directory commit paths. It does not
 yet claim that a controlled guest fixture has performed a browser commit and loaded
 it after a browser restart, nor that the primary title's full save/load UI,
 multi-slot lifecycle, registry settings, migration UI, crash recovery matrix, or
