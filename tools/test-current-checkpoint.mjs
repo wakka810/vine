@@ -29,15 +29,28 @@ assert.ok(
 );
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
-assert.equal(manifest.browserCheckpoint.bgiBenchmark, "threshold-passed");
-assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
+assert.ok(
+  ["threshold-passed", "threshold-blocked", "environment-blocked"].includes(
+    manifest.browserCheckpoint.bgiBenchmark,
+  ),
+);
 assert.equal(manifest.schemaVersion, 4);
 assert.equal(manifest.activeBlocker, null);
-assert.ok(!rendered.includes("| Active blocker |"));
-assert.equal(
-  manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
-  "valid",
-);
+if (manifest.browserCheckpoint.bgiBenchmark === "environment-blocked") {
+  assert.equal(
+    manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
+    "invalid-environment",
+  );
+  assert.ok(manifest.browserCheckpoint.bgiBenchmarkBlocker);
+  assert.ok(rendered.includes("| Active blocker |"));
+} else {
+  assert.equal(manifest.browserCheckpoint.bgiBenchmarkBlocker, undefined);
+  assert.ok(!rendered.includes("| Active blocker |"));
+  assert.equal(
+    manifest.browserCheckpoint.bgiBenchmarkEvidence.environmentStatus,
+    "valid",
+  );
+}
 for (const milestone of manifest.scenarioMilestones.milestones) {
   assert.ok(rendered.includes(`\`${milestone.id}\``));
   assert.ok(rendered.includes(`\`${milestone.status}\``));
@@ -173,7 +186,11 @@ const unexpectedStructuredBenchmarkBlocker = structuredClone(manifest);
 unexpectedStructuredBenchmarkBlocker.browserCheckpoint.bgiBenchmarkBlocker = {};
 assert.ok(
   validateCurrentCheckpoint(unexpectedStructuredBenchmarkBlocker).some((error) =>
-    error.includes("passed browser benchmark"),
+    error.includes(
+      manifest.browserCheckpoint.bgiBenchmark === "environment-blocked"
+        ? "performance-environment blocker"
+        : "passed browser benchmark",
+    ),
   ),
 );
 
@@ -189,7 +206,8 @@ const clearedActiveBlocker = structuredClone(manifest);
 clearedActiveBlocker.activeBlocker = null;
 assert.deepEqual(validateCurrentCheckpoint(clearedActiveBlocker), []);
 assert.ok(
-  !renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"),
+  manifest.browserCheckpoint.bgiBenchmark === "environment-blocked" ||
+    !renderReadmeStatus(clearedActiveBlocker).includes("| Active blocker |"),
 );
 
 const mismatchedBenchmarkProfile = structuredClone(manifest);

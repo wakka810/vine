@@ -204,6 +204,7 @@ function assertCapabilityCheckpoint(actual, expected) {
   for (const field of [
     "criticalSectionAddress",
     "releaseThreadId",
+    "acquisitionThreadId",
     "lastError",
   ]) {
     if (expected.completion[field] !== undefined) {

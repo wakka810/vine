@@ -95,34 +95,18 @@ The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).
 
-The BGI benchmark command is a separate three-minute private workload gate. Its
-current capacity workload is selected by the checkpoint manifest and pinned by
-[`bgi-browser-dinput8-enum-devices-v1.json`](../fixtures/benchmarks/bgi-browser-dinput8-enum-devices-v1.json).
-The command prepares Chrome for Testing `151.0.7922.34` from the official
-archive and verifies both the 201,068,834-byte archive SHA-256
-`045621e45a9dd27002c7fc1d8e10fe9f5f71f4cadbf44ec6f397f56f0179725c`
-and the extracted executable SHA-256
-`409805a16d6416087e6b2f778df1cf8f7bbb267d6b99f6b5bb0a618eace234f2`.
-The prepared form refuses installed Chrome and any executable that does not
-match the tracked artifact manifest.
-It repeats the complete current session through the first texture's surface
-`GetDC`, stock-brush `FillRect`, `ReleaseDC`, surface retirement, then the
-static-default and dynamic-default texture creations, device slot 26
-`CreateVertexBuffer`, vertex-buffer slot 11／12 `Lock`／`Unlock`, and the exact
-four device slot 57 `SetRenderState` calls, then completes slot 19
-`GetRasterStatus`, reads the 10 MHz performance frequency, and advances the
-deterministic performance counter through the reached raster-polling loop before
-publishing `GetMonitorInfoA`, creating the Rust-owned `IDirectInput8A` root,
-  completing the exact empty attached-game-controller `EnumDevices` query, creating
-  the DirectSound root, and establishing its priority cooperative level. Every summary-evidence
-repetition checks call count, digest algorithm／SHA, terminal semantics, and
-teardown while the standalone Chrome check retains ordered-call equivalence, and
-applies versioned latency, heartbeat, heap／backing-storage slope, linear-memory,
-  and Wasm-crossing thresholds. This accepted observation predates the current
-  primary／secondary buffer initialization slice and is not evidence for buffer
-  content or transport performance. Its result and non-claims are recorded in
-[bgi-browser-benchmark.md](bgi-browser-benchmark.md). It is not part of public CI
-because the private executable is never distributed.
+The BGI benchmark command is a separate three-minute private workload gate.
+The checkpoint manifest selects the active profile, while
+[`bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
+pins its duration, terminal workload identity, and 17 thresholds. The command
+prepares the SHA-pinned Chrome for Testing artifact and refuses installed
+Chrome or an artifact outside the tracked manifest. Every summary-evidence
+repetition verifies semantic digest, terminal completion, memory identity, and
+teardown before latency, heartbeat, heap／backing-storage slope, linear-memory,
+and Wasm-crossing evaluation. Methodology, historical observations, and
+non-claims are recorded in
+[bgi-browser-benchmark.md](bgi-browser-benchmark.md). This gate is not part of
+public CI because the private executable is never distributed.
 
 On Windows the runner starts a separate low-overhead environment sampler before
 the workload and keeps it active until the 180-second execution ends. The
@@ -139,14 +123,14 @@ workload pass or failure. Target-creation QoS changes in the first five samples
 remain recorded. These qualification limits do not alter the 17 workload
 thresholds.
 
-`threshold-blocked` remains a required failure outcome, not a soft pass. The
-current manifest is `threshold-passed`, retains no active blocker, and records
-the fixed Chrome artifact, environment qualification, all 17 evaluations, and
-accepted report identity.
-The current waitable-timer pacing workload passed the same 180-second gate in a
-valid environment without changing the 17 workload thresholds; downstream work
-therefore proceeds to the manifested `EnterCriticalSection` stop after the
-main-thread `LeaveCriticalSection` release.
+`threshold-blocked` and `environment-blocked` remain required failure outcomes,
+not soft passes. The current workload passed all 17 unchanged thresholds, but
+two post-cleanup confirmations were still invalidated by
+`sustained-external-cpu`. The manifest therefore retains a structured
+performance-environment blocker with the fixed Chrome artifact, both report
+identities, attempted isolation, required authority, and resume condition.
+Downstream primary execution does not advance beyond the manifested
+`LeaveCriticalSection` endpoint until the unchanged 180-second gate is valid.
 
 The canonical commit-bound private target gate is:
 

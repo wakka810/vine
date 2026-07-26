@@ -170,6 +170,14 @@ round trip, and reports the next owned endpoint
 Rust scheduler transaction; it does not make browser timing or TypeScript a
 second thread-state authority.
 
+Protocol version 17 adds the typed main-thread `LeaveCriticalSection`
+completion. Protocol version 18 adds
+`kernel32-enter-critical-section-continuation`, verifies that the immediately
+following acquisition uses the same critical-section address and selected
+main thread, and carries `acquisitionThreadId` in the terminal completion.
+Both versions observe Rust-owned synchronization transactions; they do not
+move recursion, ownership, guest bytes, or lifecycle state into TypeScript.
+
 ## Execution engine contract
 
 Protocol version 9 binds the production loop to `ExecutionEngine`, not to v86

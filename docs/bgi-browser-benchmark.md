@@ -2,8 +2,8 @@
 
 ## Status
 
-- Status: accepted threshold pass in a valid environment
-- Workload: `kernel32-leave-critical-section` private BGI generic session
+- Status: workload thresholds passed; performance environment blocked
+- Workload: `kernel32-enter-critical-section-continuation` private BGI generic session
 - Duration: 180 seconds
 - Configuration:
   [`fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json`](../fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json)
@@ -14,13 +14,14 @@ main-loop progression path in one Chrome Dedicated Worker. Every session starts
 a fresh Rust runtime and v86 mirror, executes seven bounded
 `SetWaitableTimer`／`WaitForSingleObjectEx` pairs, records the
 `8192 -> 8193 -> 8192` Rust scheduler round trip, completes one
-`LeaveCriticalSection` release on thread `8192`, and stops at
-`KERNEL32.dll!EnterCriticalSection`. Rust remains authority for the logical
+`LeaveCriticalSection` release and the immediately following
+`EnterCriticalSection` acquisition on thread `8192`, and stops at the next
+`KERNEL32.dll!LeaveCriticalSection`. Rust remains authority for the logical
 clock, timer state, wait result, scheduler owner, synchronization state, guest
 memory, and terminal endpoint. The browser owns only cancellable delay
 resources.
 
-Protocol version 17 carries full-width request, registration, arm-generation,
+Protocol version 18 carries full-width request, registration, arm-generation,
 clock-generation, and owner-thread identities. The benchmark checks the
 manifest-selected call count, instruction stop, canonical semantic digest,
 memory digest, completion count, next endpoint, pending-work cleanup, and
@@ -48,7 +49,8 @@ gate plus a separate hard freeze ceiling. The report stores all 17 threshold eva
 including observed value, comparison, limit, and pass result; an unavailable
 required sample is a failure. Report schema version 3 stores the workload
 decision and an independent environment qualification. The current workload
-and independent environment decisions are both `passed`／`valid`.
+decision is `passed`, while the environment decision is
+`invalid-environment`.
 
 Schema version 3 qualifies the workload distribution with a separate Windows
 environment observation. The canonical browser is the
@@ -69,25 +71,25 @@ by bytes and SHA-256. The P99 heartbeat limit remains 25 ms.
 
 ## Result
 
-The current main-loop workload passed all 17 versioned workload thresholds with
-zero semantic failures in the accepted valid-environment run. The first
-candidate
-also exposed a duplicated full-memory reflection at terminal publication. A
-copy-free Rust memory summary removed that observer-only allocation and brought
-the runtime-core linear-memory observation back below its unchanged ceiling
-without changing guest bytes, scheduling semantics, or any threshold.
+The current continuation workload passed all 17 versioned workload thresholds
+with zero semantic failures. The environment monitor nevertheless observed the
+policy-defined consecutive external-CPU excursion, so the report is not
+accepted as a performance pass. After two verified stale agent-owned search
+processes were stopped, two unchanged prepared confirmations reproduced
+`sustained-external-cpu`; neither report is converted into a pass.
 
-The first two full runs remain historical diagnostics because the independent
-environment monitor observed the policy-defined consecutive external-CPU
-excursion. The original aggregate sampler could not identify the responsible
-process. The versioned replacement records bounded process attribution without
-excluding any process or relaxing a threshold. Its unchanged 180-second run
-passed both the workload and environment decisions, so the structured blocker
-is resolved. The current follow-on workload completes the main-thread
-`LeaveCriticalSection` release and advances to `KERNEL32.dll!EnterCriticalSection`.
-Exact
-accepted metrics and report identity live only in
-[current-checkpoint.json](current-checkpoint.json).
+The active structured blocker records both report identities, the environment
+sample evidence, attempted isolation, protected invariants, required authority,
+and the unchanged-gate resume condition in
+[current-checkpoint.json](current-checkpoint.json). Acceptance requires the
+same 180-second fixture and all 17 thresholds to pass in a valid environment.
+No threshold, runtime authority, source file, or browser artifact is changed to
+resolve ambient load.
+
+The preceding `kernel32-leave-critical-section` workload remains historical
+accepted evidence: it passed both workload and environment decisions before
+the active profile advanced. It does not substitute for the continuation
+profile's current environment qualification.
 
 ### Historical accepted DirectInput observation
 

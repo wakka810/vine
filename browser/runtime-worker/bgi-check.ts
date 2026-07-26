@@ -155,7 +155,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
   return value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||
-    value === "kernel32-leave-critical-section"
+    value === "kernel32-leave-critical-section" ||
+    value === "kernel32-enter-critical-section-continuation"
     ? value
     : undefined;
 }

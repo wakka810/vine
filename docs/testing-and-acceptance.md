@@ -1246,12 +1246,14 @@ process counterで説明できない残差を各sampleへ保存する。Benchmar
 SHA-256も固定し、aggregate external CPUだけを残す再現不能な診断を禁止する。
 監視欠測、Updater、versionedな持続CPU／disk excursion、同一processのQoS変化はworkload threshold failureと
 混ぜず`invalid-environment`として破棄する。Heartbeat P99 25 msを含む17 thresholdは不変である。
-Current waitable-timer pacing workloadの先行二runは17 thresholdをすべて通過した一方、sustained
-external CPUで`invalid-environment`となった。Process attribution追加後の同一fixture／thresholdによる
-再実行は17／17 workload threshold、environment qualificationともに通過したため、旧blockerを解除して
-`kernel32-leave-critical-section`をactive checkpointとする。現在はRust schedulerの
-`8192 -> 8193 -> 8192`選択とmain-thread `LeaveCriticalSection` releaseを確認し、
-`EnterCriticalSection`直前で停止する。Exact current値はmanifestだけを正本とする。
+先行するwaitable-timer pacing profileは同一fixture／thresholdでworkloadとenvironment qualificationを
+通過し、main-thread releaseまでのsemantic checkpointを閉じた。Active continuation profileはRust
+schedulerの`8192 -> 8193 -> 8192`選択後、同じcritical-sectionをmain threadがreleaseして直後に
+reacquireすることをNode／Chromeで一致させ、次の`LeaveCriticalSection` endpointで停止する。
+同profileの180秒gateは17／17 workload thresholdを通過した一方、agent-owned stale searchを除去した
+二回の確認でも`sustained-external-cpu`により`invalid-environment`となった。このためthresholdや
+authorityを変更せずperformance-environment blockerを保持し、valid environmentでのunchanged gateを
+再開条件とする。Exact current値、report identity、attempted optionsはmanifestだけを正本とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

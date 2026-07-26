@@ -13610,6 +13610,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-enter-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
+                "kernel32-enter-critical-section-continuation" => {
+                    GenericRuntimeCapability::WaitForSingleObjectEx
+                }
                 "primary-main-loop-progression" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

@@ -8,6 +8,8 @@
 - Previous capability checkpoint: `primary-main-loop-progression`
 - Completed subsystem gateway: `runtime-waitable-timer-pacing`
 - Next owned endpoint: `KERNEL32.dll!EnterCriticalSection`
+- Follow-on checkpoint:
+  [`kernel32-enter-critical-section-continuation`](bgi-enter-critical-section-continuation.md)
 
 This checkpoint closes the scheduler continuation at the first reached
 `LeaveCriticalSection` call. It does not add a second synchronization authority:
@@ -46,11 +48,16 @@ guest-memory digest
 Current report sizes, generation counters, and artifact hashes remain
 manifest-owned in [current-checkpoint.json](current-checkpoint.json).
 
-The accepted prepared-Chrome 180-second workload uses this same profile. It
+The historical accepted prepared-Chrome 180-second workload uses this same profile. It
 completed 93 sessions with zero failures; session P95 was 2,101.625 ms,
 maximum-slice P99 was 5.900 ms, heartbeat P99 was 6.395 ms, and all 17
 versioned thresholds passed in a valid environment. The benchmark report and
 artifact identities are recorded only in the manifest.
+
+The follow-on continuation checkpoint now consumes the endpoint recorded here,
+verifies the same-address main-thread reacquisition, and stops at the next
+`LeaveCriticalSection`. Its performance gate has a separate structured
+environment blocker and does not invalidate this frozen semantic evidence.
 
 ## Ownership and invariants
 
@@ -64,7 +71,7 @@ partially release the record.
 The Worker transports typed completion metadata and opaque CPU context. It does
 not own Windows thread IDs, critical-section recursion, guest pointers, or
 browser-side synchronization state. The `EnterCriticalSection` endpoint shown
-above is the next structured stop and is intentionally not dispatched here.
+above is intentionally not dispatched within this historical checkpoint.
 
 Representative checks:
 

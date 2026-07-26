@@ -153,8 +153,13 @@ export function validateCurrentCheckpoint(manifest) {
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-leave-critical-section";
+  const enterCriticalSectionContinuationActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "kernel32-enter-critical-section-continuation";
   const mainLoopContinuationActive =
-    primaryMainLoopProgressionActive || leaveCriticalSectionActive;
+    primaryMainLoopProgressionActive ||
+    leaveCriticalSectionActive ||
+    enterCriticalSectionContinuationActive;
   const timerCycleCount = mainLoopContinuationActive ? 7 : 3;
   const timerSetSequences = mainLoopContinuationActive
     ? "18681,18689,18697,18705,18713,18721,18729"
@@ -183,7 +188,26 @@ export function validateCurrentCheckpoint(manifest) {
   const timerPacingClockGenerations = mainLoopContinuationActive
     ? "0,1,2,3,4,5,6"
     : "0,1,2";
-  const profileExpectations = leaveCriticalSectionActive
+  const profileExpectations = enterCriticalSectionContinuationActive
+    ? {
+        benchmarkObservation:
+          "current-critical-section-acquisition-observation",
+        browserMappingDeltas: 17_383,
+        browserMappingDirtyPages: 18_890,
+        browserSuccessExecutionTransitions: 58_461,
+        latestSchema:
+          "vine.v86-bgi-kernel32-enter-critical-section-continuation.v1",
+        latestWritebackBatches: 18_792,
+        latestWritebackDirtyPages: 37_788,
+        latestWritebackChangedBytes: 2_933_171,
+        latestHostDeltaBatches: 17_383,
+        latestFinalMemoryGeneration: 36_748,
+        semanticCallDigestSha256:
+          "da20a011071131b44421f357e9dd1fa044ff1ee2ec33e509ed28a38137bec04b",
+        memoryContentSha256:
+          "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df",
+      }
+    : leaveCriticalSectionActive
     ? {
         benchmarkObservation:
           "current-critical-section-release-observation",
@@ -545,8 +569,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v17") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v17");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v18") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v18");
   }
   if (
     browser.executionEngineProfile !==
@@ -12586,6 +12610,7 @@ export function validateCurrentCheckpoint(manifest) {
       for (const field of [
         "criticalSectionAddress",
         "releaseThreadId",
+        "acquisitionThreadId",
         "lastError",
       ]) {
         if (
@@ -12593,7 +12618,7 @@ export function validateCurrentCheckpoint(manifest) {
           actual[field] !== expectedCompletion[field]
         ) {
           errors.push(
-            `${label} critical-section release must match nextStructuredStop`,
+            `${label} critical-section checkpoint must match nextStructuredStop`,
           );
         }
       }
@@ -12752,6 +12777,34 @@ export function validateCurrentCheckpoint(manifest) {
           "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636"
       ) {
         errors.push(`${label} critical-section release checkpoint evidence is invalid`);
+      }
+    }
+  } else if (
+    active.profile === "kernel32-enter-critical-section-continuation"
+  ) {
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !==
+          "kernel32-enter-critical-section-continuation" ||
+        completion.implementationId !==
+          "kernel32.enter-critical-section.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 18_736 ||
+        completion.lastCompletionInstructionCount !== 11_974_730 ||
+        completion.criticalSectionAddress !== 0x100fd9cc ||
+        completion.acquisitionThreadId !== 8_192 ||
+        completion.lastError !== 0 ||
+        completion.instructionCount !== 11_974_905 ||
+        completion.memoryContentSha256 !==
+          "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df"
+      ) {
+        errors.push(
+          `${label} critical-section continuation checkpoint evidence is invalid`,
+        );
       }
     }
   }
@@ -12960,6 +13013,9 @@ export function renderReadmeStatus(manifest) {
               ? "scheduler thread selections"
               : next.completion.capability === "kernel32-leave-critical-section"
                 ? "critical-section release"
+                : next.completion.capability ===
+                    "kernel32-enter-critical-section-continuation"
+                  ? "critical-section continuation acquisition"
                 : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
