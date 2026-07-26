@@ -198,6 +198,9 @@ function assertCapabilityCheckpoint(actual, expected) {
   if (expected.completion.roundtrips !== undefined) {
     assert.deepEqual(actual.roundtrips, expected.completion.roundtrips);
   }
+  if (expected.completion.threadSelections !== undefined) {
+    assert.deepEqual(actual.threadSelections, expected.completion.threadSelections);
+  }
 }
 
 function executionStateEvidence(report) {
@@ -251,6 +254,8 @@ function assertReportSemantics({
   const active = checkpoint.activeRuntimeCheckpoint;
   const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
   const expectedNext = checkpoint.nextStructuredStop;
+  const expectedPacingCount =
+    expectedBrowser.waitForSingleObjectExPacingRequestIds.length;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
   assert.deepEqual(nodeReport.source, sourceIdentity, "Node source fingerprint mismatch");
   assert.deepEqual(browserReport.source, sourceIdentity, "browser source fingerprint mismatch");
@@ -337,11 +342,11 @@ function assertReportSemantics({
   );
   assert.deepEqual(
     nodeReport.waitableTimerWait.pacingRequests.map((request) => request.outcome),
-    Array(3).fill(expectedBrowser.waitForSingleObjectExPacingOutcome),
+    Array(expectedPacingCount).fill(expectedBrowser.waitForSingleObjectExPacingOutcome),
   );
   assert.deepEqual(
     nodeReport.waitableTimerWait.pacingRequests.map((request) => request.pacing),
-    Array(3).fill(expectedBrowser.waitForSingleObjectExNodePacingMode),
+    Array(expectedPacingCount).fill(expectedBrowser.waitForSingleObjectExNodePacingMode),
   );
   assert.equal(
     nodeReport.waitableTimerWait.logicalCompletionAuthority,
