@@ -1,10 +1,13 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 14 as const;
+export const protocolVersion = 15 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
+export type BgiCapabilityProfile =
+  | "kernel32-wait-for-single-object-ex"
+  | "kernel32-enter-critical-section";
 
 export interface PageLifecycleSnapshot {
   state: PageLifecycleState;
@@ -186,6 +189,7 @@ export interface SessionConfiguration {
   mode: SessionMode;
   evidenceLevel: "full" | "summary";
   workload?: SessionWorkload;
+  capabilityProfile?: BgiCapabilityProfile;
   executableUrl?: string;
   policyUrl?: string;
   sourceManifestUrl?: string;
@@ -409,22 +413,55 @@ export interface SessionReport {
     instructionCount: number;
     memoryContentSha256: string;
   } | null;
-  checkpointCompletion: {
-    capability: "kernel32-wait-for-single-object-ex";
-    implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
-    requiredCompletions: number;
-    completionCount: number;
-    lastCompletionSequence: number;
-    lastCompletionInstructionCount: number;
-    instructionCount: number;
-    nextEndpoint: {
-      id: number;
-      address: number;
-      module?: string;
-      symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
-    };
-    memoryContentSha256: string;
-  } | null;
+  checkpointCompletion:
+    | {
+        capability: "kernel32-wait-for-single-object-ex";
+        implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+        requiredCompletions: number;
+        completionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-enter-critical-section";
+        implementationId: "kernel32.enter-critical-section.v1";
+        requiredCompletions: 3;
+        completionCount: 3;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        roundtrips: Array<{
+          criticalSectionAddress: number;
+          acquisition: {
+            implementationId: "kernel32.enter-critical-section.v1";
+            sequence: number;
+            occurrence: number;
+            instructionCount: number;
+          };
+          release: {
+            implementationId: "kernel32.leave-critical-section.v1";
+            sequence: number;
+            occurrence: number;
+            instructionCount: number;
+          };
+        }>;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | null;
   error: string | null;
 }
 

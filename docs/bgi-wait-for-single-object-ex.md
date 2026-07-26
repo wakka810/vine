@@ -155,6 +155,15 @@ policy-defined sustained external-CPU condition, so neither is accepted
 performance evidence. Exact reports, protected invariants, and the isolated-host
 resume condition are recorded only in the current manifest.
 
+The follow-on `kernel32-enter-critical-section` profile has since consumed
+three balanced `EnterCriticalSection`／`LeaveCriticalSection` pairs in this
+same idle cycle and stops at the next `SetWaitableTimer` arm. That continuation
+uses the existing Rust synchronization authority and an explicit Worker
+capability profile; the wait policy remains the dependency policy rather than
+a second state authority. Its 180-second repeated-session observation passed
+all versioned thresholds in a valid performance environment; exact current
+metrics remain manifest-owned.
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not
@@ -171,8 +180,9 @@ resume condition are recorded only in the current manifest.
 - Auto-reset expiration is covered by Rust model tests but remains outside the
   active primary creation policy.
 
-## Next checkpoint
+## Historical next checkpoint
 
-The pacing gateway is complete. The next owned endpoint is ID 144,
-`KERNEL32.dll!EnterCriticalSection` at `0x7F0008F0`. Exact current stop metadata
-remains in the current checkpoint manifest.
+The pacing gateway's original next endpoint was ID 144,
+`KERNEL32.dll!EnterCriticalSection` at `0x7F0008F0`. That historical stop has
+been consumed; the active structured stop is the primary main-loop progression
+boundary recorded in the current checkpoint manifest.

@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-25
-- Browser: Chrome `150.0.7871.130`
-- Protocol: `vine.browser-runtime-worker` version `12`
+- Date: 2026-07-26
+- Browser: Chrome `150.0.7871.187`
+- Protocol: `vine.browser-runtime-worker` version `15`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -150,6 +150,17 @@ callbacks, and catch-up is bounded to one completion per task. During this
 service only, the Worker holds guest CPU execution until completion and consumes
 the Rust-authorized owner lane once, so browser timing cannot select a different
 guest order. Other host services retain their existing multi-lane behavior.
+
+Protocol version 15 makes the private-BGI capability profile explicit in the
+session configuration. The profile selects which evidence checkpoint the Worker
+arms (`kernel32-wait-for-single-object-ex` or
+`kernel32-enter-critical-section`); the compatibility policy ID remains a
+dependency policy and cannot select a stop by itself. The profile is validated
+only for the private BGI workload, while Rust continues to own guest bytes,
+Windows object identity, synchronization state, and lifecycle. The current
+critical-section profile requires three balanced acquisition/release roundtrips
+and reports the next owned `SetWaitableTimer` endpoint through the same
+checkpoint-complete protocol.
 
 ## Execution engine contract
 

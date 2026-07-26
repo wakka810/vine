@@ -456,8 +456,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v14") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v14");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v15") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v15");
   }
   if (
     browser.executionEngineProfile !==
@@ -1206,12 +1206,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiMappingOperations.protect !== 28 ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !== 4 ||
-    bgiBrowserEvidence.mappingDeltas !== 17_353 ||
-    bgiBrowserEvidence.mappingDirtyPages !== 18_860 ||
+    bgiBrowserEvidence.mappingDeltas !== 17_359 ||
+    bgiBrowserEvidence.mappingDirtyPages !== 18_866 ||
     bgiBrowserEvidence.mappingAtomicRejections !== 0 ||
     bgiBrowserEvidence.mappingStaleAccessStops !== 0 ||
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
-    bgiBrowserEvidence.successExecutionTransitionCount !== 58_334 ||
+    bgiBrowserEvidence.successExecutionTransitionCount !== 58_352 ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
@@ -2678,9 +2678,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBenchmarkEvidence.configuration !==
       "fixtures/benchmarks/bgi-browser-waitable-timer-pacing-v1.json" ||
     bgiBenchmarkEvidence.runtimeProfile !==
-      "kernel32-wait-for-single-object-ex" ||
+      "kernel32-enter-critical-section" ||
     bgiBenchmarkEvidence.observationStatus !==
-      "current-waitable-timer-pacing-observation" ||
+      "current-critical-section-idle-cycle-observation" ||
     bgiBenchmarkEvidence.performanceClassification !== "repeated-distribution-threshold" ||
     bgiBenchmarkEvidence.chromeArtifactId !== "chrome-for-testing-151.0.7922.34-win64" ||
     bgiBenchmarkEvidence.environmentPolicy !==
@@ -7545,7 +7545,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     latestEvidence.schema !==
-      "vine.v86-bgi-kernel32-wait-for-single-object-ex.v1" ||
+      "vine.v86-bgi-kernel32-enter-critical-section.v1" ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceBytes !== 256_897 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryTraceLines !== 779 ||
     latestEvidence.nativeCreateWaitableTimerAPrimaryBalancedApiPairs !== 354 ||
@@ -8181,11 +8181,11 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.loadImageAProcessExitRetiresIdentity !== true ||
     latestEvidence.loadImageAHostIconImported !== false ||
     latestEvidence.loadImageABrowserIconImported !== false ||
-    latestEvidence.writebackBatches !== 18_754 ||
-    latestEvidence.writebackDirtyPages !== 37_732 ||
-    latestEvidence.writebackChangedBytes !== 2_932_699 ||
-    latestEvidence.hostDeltaBatches !== 17_353 ||
-    latestEvidence.finalMemoryGeneration !== 36_680
+    latestEvidence.writebackBatches !== 18_760 ||
+    latestEvidence.writebackDirtyPages !== 37_740 ||
+    latestEvidence.writebackChangedBytes !== 2_932_769 ||
+    latestEvidence.hostDeltaBatches !== 17_359 ||
+    latestEvidence.finalMemoryGeneration !== 36_692
   ) {
     errors.push("latest LoadImageA small-icon evidence is invalid");
   }
@@ -10110,10 +10110,10 @@ export function validateCurrentCheckpoint(manifest) {
   if (
     latestEvidence.semanticCallDigestAlgorithm !== "sha256-canonical-json-v1" ||
     latestEvidence.semanticCallDigestSha256 !==
-      "31b7d2d7d3d14452f93d45fa9a00c962dfaaf8b9516186855d6f4e4208080332" ||
+      "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da" ||
     latestEvidence.semanticCallDigestSha256 !== bgiBrowserEvidence.callSemanticsSha256 ||
     latestEvidence.memoryContentSha256 !==
-      "975002521bc7cc363fbc870a484d935b1cba9dc700b5afb8113b189c7929b828" ||
+      "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5" ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceBytes !== 382_086 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceLines !== 801 ||
     latestEvidence.nativeDirectSoundInitialBuffersPrimaryTraceSha256 !==
@@ -12465,6 +12465,109 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push(`${label} capability checkpoint must match nextStructuredStop`);
       }
+      if (
+        expectedCompletion.roundtrips !== undefined &&
+        JSON.stringify(actual.roundtrips) !==
+          JSON.stringify(expectedCompletion.roundtrips)
+      ) {
+        errors.push(`${label} critical-section roundtrips must match nextStructuredStop`);
+      }
+    }
+  }
+  if (active.profile === "kernel32-enter-critical-section") {
+    const expectedEnterSequences = [18_699, 18_701, 18_703];
+    const expectedEnterOccurrences = [32, 33, 34];
+    const expectedEnterInstructions = [11_973_878, 11_973_919, 11_973_950];
+    const expectedEnterAddresses = [
+      "0x1014c8d0",
+      "0x1014c8d0",
+      "0x100ff820",
+    ];
+    const expectedEnterReturns = ["0x10091796", "0x10091796", "0x100010db"];
+    const expectedLeaveSequences = [18_700, 18_702, 18_704];
+    const expectedLeaveOccurrences = [31, 32, 33];
+    const expectedLeaveInstructions = [11_973_883, 11_973_924, 11_973_959];
+    const expectedLeaveAddresses = [
+      "0x1014c8d0",
+      "0x1014c8d0",
+      "0x100ff820",
+    ];
+    const expectedLeaveReturns = ["0x100917aa", "0x100917aa", "0x100010eb"];
+    const criticalEvidenceValid =
+      latestEvidence.enterCriticalSectionCheckpointCompletions === 3 &&
+      JSON.stringify(latestEvidence.enterCriticalSectionSequences) ===
+        JSON.stringify(expectedEnterSequences) &&
+      JSON.stringify(latestEvidence.enterCriticalSectionOccurrences) ===
+        JSON.stringify(expectedEnterOccurrences) &&
+      JSON.stringify(latestEvidence.enterCriticalSectionInstructionCounts) ===
+        JSON.stringify(expectedEnterInstructions) &&
+      JSON.stringify(latestEvidence.enterCriticalSectionAddresses) ===
+        JSON.stringify(expectedEnterAddresses) &&
+      JSON.stringify(latestEvidence.enterCriticalSectionReturnAddresses) ===
+        JSON.stringify(expectedEnterReturns) &&
+      JSON.stringify(latestEvidence.enterCriticalSectionLastErrors) ===
+        JSON.stringify([0, 0, 0]) &&
+      latestEvidence.enterCriticalSectionGuestWriteBytes === 24 &&
+      latestEvidence.enterCriticalSectionLockedHex ===
+        "fffffffffeffffff010000000120000000000000d0070002" &&
+      latestEvidence.leaveCriticalSectionCheckpointCompletions === 3 &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionSequences) ===
+        JSON.stringify(expectedLeaveSequences) &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionOccurrences) ===
+        JSON.stringify(expectedLeaveOccurrences) &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionInstructionCounts) ===
+        JSON.stringify(expectedLeaveInstructions) &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionAddresses) ===
+        JSON.stringify(expectedLeaveAddresses) &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionReturnAddresses) ===
+        JSON.stringify(expectedLeaveReturns) &&
+      JSON.stringify(latestEvidence.leaveCriticalSectionLastErrors) ===
+        JSON.stringify([0, 0, 0]) &&
+      latestEvidence.leaveCriticalSectionGuestWriteBytes === 24 &&
+      latestEvidence.leaveCriticalSectionUnlockedHex ===
+        "ffffffffffffffff000000000000000000000000d0070002" &&
+      latestEvidence.criticalSectionCheckpointOwnerThreadId === 8_193 &&
+      latestEvidence.criticalSectionCheckpointStateAuthority ===
+        "runtime/synchronization.rs::RuntimeSynchronization" &&
+      latestEvidence.criticalSectionCheckpointBrowserOwnsWindowsState === false &&
+      latestEvidence.criticalSectionCheckpointNodeChromeOrderedSemanticsMatched ===
+        true &&
+      bgiBrowserEvidence.enterCriticalSectionCheckpointCompletions === 3 &&
+      JSON.stringify(bgiBrowserEvidence.enterCriticalSectionSequences) ===
+        JSON.stringify(expectedEnterSequences) &&
+      JSON.stringify(bgiBrowserEvidence.enterCriticalSectionOccurrences) ===
+        JSON.stringify(expectedEnterOccurrences) &&
+      JSON.stringify(bgiBrowserEvidence.enterCriticalSectionInstructionCounts) ===
+        JSON.stringify(expectedEnterInstructions) &&
+      JSON.stringify(bgiBrowserEvidence.enterCriticalSectionAddresses) ===
+        JSON.stringify(expectedEnterAddresses) &&
+      JSON.stringify(bgiBrowserEvidence.enterCriticalSectionReturnAddresses) ===
+        JSON.stringify(expectedEnterReturns) &&
+      bgiBrowserEvidence.enterCriticalSectionGuestWriteBytes === 24 &&
+      bgiBrowserEvidence.enterCriticalSectionLockedHex ===
+        "fffffffffeffffff010000000120000000000000d0070002" &&
+      bgiBrowserEvidence.leaveCriticalSectionCheckpointCompletions === 3 &&
+      JSON.stringify(bgiBrowserEvidence.leaveCriticalSectionSequences) ===
+        JSON.stringify(expectedLeaveSequences) &&
+      JSON.stringify(bgiBrowserEvidence.leaveCriticalSectionOccurrences) ===
+        JSON.stringify(expectedLeaveOccurrences) &&
+      JSON.stringify(bgiBrowserEvidence.leaveCriticalSectionInstructionCounts) ===
+        JSON.stringify(expectedLeaveInstructions) &&
+      JSON.stringify(bgiBrowserEvidence.leaveCriticalSectionAddresses) ===
+        JSON.stringify(expectedLeaveAddresses) &&
+      JSON.stringify(bgiBrowserEvidence.leaveCriticalSectionReturnAddresses) ===
+        JSON.stringify(expectedLeaveReturns) &&
+      bgiBrowserEvidence.leaveCriticalSectionGuestWriteBytes === 24 &&
+      bgiBrowserEvidence.leaveCriticalSectionUnlockedHex ===
+        "ffffffffffffffff000000000000000000000000d0070002" &&
+      bgiBrowserEvidence.criticalSectionCheckpointOwnerThreadId === 8_193 &&
+      bgiBrowserEvidence.criticalSectionCheckpointStateAuthority ===
+        "runtime/synchronization.rs::RuntimeSynchronization" &&
+      bgiBrowserEvidence.criticalSectionCheckpointBrowserOwnsWindowsState === false &&
+      bgiBrowserEvidence.criticalSectionCheckpointNodeChromeOrderedSemanticsMatched ===
+        true;
+    if (!criticalEvidenceValid) {
+      errors.push("critical-section checkpoint evidence is invalid");
     }
   }
   if (
@@ -12664,7 +12767,12 @@ export function renderReadmeStatus(manifest) {
     .join("\n");
   const nextSummary =
     next.kind === "capability-checkpoint"
-      ? `\`${next.completion.capability}\` completed ${next.completion.completionCount} recurring waits ` +
+      ? `\`${next.completion.capability}\` completed ${next.completion.completionCount} ` +
+        `${
+          next.completion.capability === "kernel32-enter-critical-section"
+            ? "balanced critical-section acquisitions"
+            : "recurring waits"
+        } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
         `(\`${next.reason}\`)`

@@ -11,7 +11,7 @@
 
 ## Purpose
 
-The generic BGI session first stopped at
+The historical generic BGI session first stopped at
 `InitializeCriticalSectionAndSpinCount(0x100FF630, 4000)`. This checkpoint
 measures the reached x86 contract on native Windows, adds process-owned critical
 section state to the Rust runtime, and continues through the same generic
@@ -108,7 +108,7 @@ validation throws.
 ## Runtime contract
 
 Private `runtime/synchronization.rs::RuntimeSynchronization` owns a bounded map
-of at most 4,096 critical sections keyed by their nonzero, 4-byte-aligned guest
+of at most 32,768 critical sections keyed by their nonzero, 4-byte-aligned guest
 storage address. Each record owns the spin count, optional controlled thread ID,
 and recursion count. `RuntimeKernel`（compatibility alias `RuntimeState`）only
 coordinates process／thread／scheduler preflight and the owner-local commit.
@@ -154,9 +154,9 @@ npm run check:runtime:bgi -- --profile kernel32-critical-section-synchronization
 
 It registers 16 Kernel32 contracts, validates the frozen 17-call semantics,
 returns the four later `EncodePointer` occurrences, and initializes all 14
-contiguous BGI critical sections. No enter or leave call is reached in this
-bounded continuation; those semantics are fixed by the native evidence and the
-public controlled test.
+contiguous BGI critical sections. That historical bounded continuation stops
+before an enter or leave call; those semantics are fixed by the native evidence
+and the public controlled test.
 
 | Evidence | Result |
 |---|---:|
@@ -177,7 +177,30 @@ The frozen 140,660-byte report remains byte-identical with SHA-256
 The separate Step 10 generic report also remains 96,244 bytes with SHA-256
 `a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa`.
 
-## Next structured stop
+## Primary idle-cycle reachability
+
+The active primary profile now consumes the existing synchronization contract
+inside the reached timer-driven idle cycle:
+
+```powershell
+npm run check:runtime:bgi -- --profile kernel32-enter-critical-section
+node tools/run-browser-runtime-check.mjs --bgi `
+  --bgi-profile kernel32-enter-critical-section `
+  --bgi-policy fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json
+```
+
+The profile completes three balanced acquisitions and releases before the next
+`SetWaitableTimer` arm. The pairs are two uses of guest storage `0x1014C8D0`
+followed by one use of `0x100FF820`; all run on controlled thread `8193`.
+Node and Chrome agree on the ordered semantic digest and final guest memory.
+The Rust `RuntimeSynchronization` object remains the only Windows-visible
+critical-section authority, and the browser owns no Windows synchronization
+state. This is reachability evidence for the existing handler, not a claim for
+cross-thread blocking, APC delivery, or general critical-section scheduling.
+Exact sequences, instruction counts, bytes, hashes, and current stop metadata
+remain in [current-checkpoint.json](current-checkpoint.json).
+
+## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:
 

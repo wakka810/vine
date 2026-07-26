@@ -62,12 +62,17 @@ behaviorとgeneral fairnessである。
 | R-PERFORMANCE | Ambient host loadまたはtitle workload growthでversioned latency／memory thresholdを外れ、clean oracleを判定できない | Fixed fixture／duration／threshold、repeated distribution、same-host bounded comparison、structured blocker | 外部workloadを勝手に停止せずisolated hostで同条件を再実行する。再現時だけprofileに基づくbounded optimizationを行う |
 | R-MAINTENANCE | Toolchain drift、solo maintainerのcontext switch、demo優先がreproducibility／correctness gateを弱める | Locked dependency、WIP one、checkpoint evidence、authority rule | 一つのreproducible blockerへ戻り、source／save safetyとsemantic testを削らない |
 
-Current waitable-timer pacing workloadは全versioned thresholdを通過したが、同じ
-external-CPU environment policyで初回とunchanged confirmationがともに無効化された。
-Repository外processを停止せず、invalid environmentをacceptせず、同じ180秒fixtureを
-isolatedまたは明示的にquiescentなhostで再実行することが現在のR-PERFORMANCE再開条件である。
-Exact evidenceとmachine-readable resume conditionは
-[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+Current critical-section idle-cycle workloadは全versioned thresholdを通過し、
+performance environmentも有効と判定された。これは現checkpointのbounded
+Worker workload gateを閉じるが、representative sceneやfull-play性能の代用ではない。
+Exact evidenceは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
+
+Primary BGI execution has now crossed the three balanced critical-section
+roundtrips that follow the bounded wait, and Node／Chrome ordered semantics
+remain equivalent at the next idle-cycle boundary. The next uncertainty is
+main-loop progression and user-visible scenario reachability; this evidence
+does not close cross-thread contention, full message/input flow, or graphics／audio
+milestones.
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
 
@@ -107,7 +112,8 @@ Primary `SetWaitableTimer`のrelative one-shot armと
 `WaitForSingleObjectEx(handle,10,TRUE)`のlogical deadline、exact generation expiration、manual-reset signal、
 finite timeout、alertable-flag acceptanceはtimer／object／wait／schedulerのjoint preflightで成立した。
 Current semantic handlerはhost／browser clockをauthorityへimportせずdeadlineまでdeterministically fast-forwardする。
-残るriskはresult correctnessではなくcontinuous loopのreal-time pacingである。Async delay completionは
+wait result correctnessと到達idle-cycle pacingはbounded profileで固定された。残るriskはcontinuous
+main-loop progressionとreal-time pacingの長時間／browser-lifecycle挙動である。Async delay completionは
 thread／request／generation／lifetimeを再検証し、cancel／teardown、background freeze／resume、bounded catch-upを
 partial mutationなしで順序付ける必要がある。APC deliveryは別scopeである。
 

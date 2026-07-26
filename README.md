@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-wait-for-single-object-ex`: 18698 calls across 112 endpoint contracts / 110 APIs, memory generation 36680 |
+| Runtime diagnostics | `kernel32-enter-critical-section`: 18704 calls across 112 endpoint contracts / 110 APIs, memory generation 36692 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (106 sessions) |
+| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (102 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `kernel32-wait-for-single-object-ex` completed 3 recurring waits by instruction 11973853; verification stopped at `kernel32.dll!EnterCriticalSection` on instruction 11973878 (`waitable-timer-pacing-complete`) |
+| Next structured stop | `kernel32-enter-critical-section` completed 3 balanced critical-section acquisitions by instruction 11973950; verification stopped at `kernel32.dll!SetWaitableTimer` on instruction 11973994 (`critical-section-idle-cycle-complete`) |
 
-The active semantic report is 409,861 bytes with SHA-256
-`bbe7befd631b7fe3c366f3fd16dd544e8d59475b7f286925658f7742d7ebbfe2`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 411,234 bytes with SHA-256
+`200537ac822a87f90d35fe77363a0405171b118c4003a3c832678168c2aca140`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

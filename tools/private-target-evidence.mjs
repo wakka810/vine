@@ -487,6 +487,14 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
         errors,
       );
+      if (expectedCompletion.roundtrips !== undefined) {
+        checkEqual(
+          JSON.stringify(completion.roundtrips),
+          JSON.stringify(expectedCompletion.roundtrips),
+          `evidence.semantic.${label}.checkpointCompletion.roundtrips`,
+          errors,
+        );
+      }
     }
   }
   checkEqual(

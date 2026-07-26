@@ -248,6 +248,10 @@ assert.equal(
   bgiProfileOutputDirectory("kernel32-wait-for-single-object-ex"),
   "v86-bgi-wait-for-single-object-ex",
 );
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-enter-critical-section"),
+  "v86-bgi-enter-critical-section",
+);
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 
 console.log("generic BGI checkpoint command contract passed");

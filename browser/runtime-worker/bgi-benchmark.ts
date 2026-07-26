@@ -1,5 +1,6 @@
 import {
   assertProtocolVersion,
+  type BgiCapabilityProfile,
   type MainToWorkerMessage,
   protocolVersion,
   type SessionReport,
@@ -155,9 +156,16 @@ async function runBenchmark(): Promise<void> {
   try {
     const checkpoint = await fetchJson("./current-checkpoint.json");
     const expected = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+    const capabilityProfile = parseCapabilityProfile(
+      expected.checkpointCompletion?.capability,
+    );
+    invariant(
+      expected.checkpointCompletion == null || capabilityProfile !== undefined,
+      "BGI benchmark checkpoint profile is unsupported",
+    );
     while (performance.now() - startedAt < requestedDurationMilliseconds) {
       const sequence = nextSessionId;
-      const report = await runSession(sequence);
+      const report = await runSession(sequence, capabilityProfile);
       validateSession(report, expected);
       invariant(report.executionEngine !== null, "BGI execution engine identity is missing");
       if (executionEngineIdentity === null) {
@@ -223,7 +231,10 @@ function releaseCompletedSessionPayload(report: SessionReport): void {
   report.threadExits.length = 0;
 }
 
-function runSession(sessionId: number): Promise<SessionReport> {
+function runSession(
+  sessionId: number,
+  capabilityProfile: BgiCapabilityProfile | undefined,
+): Promise<SessionReport> {
   invariant(activeSession === null, "BGI benchmark session overlap");
   worker.postMessage({
     type: "start-session",
@@ -233,6 +244,7 @@ function runSession(sessionId: number): Promise<SessionReport> {
       mode: "success",
       evidenceLevel: "summary",
       workload: "private-bgi",
+      ...(capabilityProfile === undefined ? {} : { capabilityProfile }),
       executableUrl: "./private/BGI.exe",
       policyUrl: "./private/kernel32-policy.json",
       instructionBudget: 16_384,
@@ -244,6 +256,13 @@ function runSession(sessionId: number): Promise<SessionReport> {
   return new Promise((resolve, reject) => {
     activeSession = { id: sessionId, resolve, reject };
   });
+}
+
+function parseCapabilityProfile(value: unknown): BgiCapabilityProfile | undefined {
+  return value === "kernel32-wait-for-single-object-ex" ||
+    value === "kernel32-enter-critical-section"
+    ? value
+    : undefined;
 }
 
 function validateSession(report: SessionReport, expected: any): void {

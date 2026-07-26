@@ -11,8 +11,9 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 14 as const/u);
+assert.match(protocol, /protocolVersion = 15 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
+assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
 
 assert.match(worker, /readonly #semanticCallDigest = new SemanticCallDigest\(\)/u);
@@ -24,8 +25,17 @@ assert.doesNotMatch(worker, /supportedCalls\.some\(/u);
 assert.equal(worker.match(/supportedCalls\.sort\(/gu)?.length, 1);
 assert.match(worker, /summary runtime evidence is only supported for the private BGI workload/u);
 assert.match(worker, /summary BGI evidence retained detailed call payloads/u);
+assert.match(
+  worker,
+  /this\.#configuration\.capabilityProfile ===\s*"kernel32-wait-for-single-object-ex"/u,
+);
+assert.match(
+  worker,
+  /this\.#configuration\.capabilityProfile === "kernel32-enter-critical-section"/u,
+);
 
 assert.match(fullProbe, /searchParams\.get\("evidence"\) === "full" \? "full" : "summary"/u);
+assert.match(fullProbe, /parseCapabilityProfile\(searchParams\.get\("profile"\)\)/u);
 assert.match(fullProbe, /instructionBudget: scenario === "watchdog" \? 4 : 16_384/u);
 assert.match(benchmark, /evidenceLevel: "summary"/u);
 assert.match(benchmark, /instructionBudget: 16_384/u);

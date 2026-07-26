@@ -57,7 +57,7 @@ assert.equal(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const runtimeProtocol = "vine.browser-runtime-worker.v14";
+const runtimeProtocol = "vine.browser-runtime-worker.v15";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -535,7 +535,7 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}${fullEvidence ? "&evidence=full" : ""}`,
+    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}`,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
@@ -564,6 +564,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
+        "kernel32-enter-critical-section",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -575,6 +576,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
+        "kernel32-enter-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -585,6 +587,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "imm32-default-ime-context",
         "kernel32-set-waitable-timer",
         "kernel32-wait-for-single-object-ex",
+        "kernel32-enter-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? 1
         : 0,
@@ -600,7 +603,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       const capabilityCheckpoint =
-        bgiProfile === "kernel32-wait-for-single-object-ex";
+        bgiProfile === "kernel32-wait-for-single-object-ex" ||
+        bgiProfile === "kernel32-enter-critical-section";
       assert.equal(
         evidence.report.outcome,
         capabilityCheckpoint ? "checkpoint-complete" : "structured-stop",
@@ -1218,6 +1222,13 @@ function validateBgiEquivalence(browser, oracle) {
       browserCheckpoint.nextEndpoint.symbol,
       oracleCheckpoint.nextEndpoint.symbol,
     );
+    if (oracleCheckpoint.capability === "kernel32-enter-critical-section") {
+      assert.deepEqual(
+        browserCheckpoint.roundtrips,
+        oracleCheckpoint.roundtrips,
+        "Chrome Worker critical-section checkpoint differs from the Node oracle",
+      );
+    }
     return;
   }
   assert.equal(browserCheckpoint, null);

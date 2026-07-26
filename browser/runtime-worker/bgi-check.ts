@@ -1,6 +1,7 @@
 import { observePageLifecycle } from "./page-lifecycle.js";
 import {
   assertProtocolVersion,
+  type BgiCapabilityProfile,
   type MainToWorkerMessage,
   protocolVersion,
   type SessionMode,
@@ -33,6 +34,7 @@ const status = requiredElement<HTMLOutputElement>("#status");
 const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
 const evidenceLevel = searchParams.get("evidence") === "full" ? "full" : "summary";
+const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
 const sessionId = 1;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   worker.postMessage({
@@ -96,6 +98,7 @@ worker.postMessage({
     mode: scenario,
     evidenceLevel,
     workload: "private-bgi",
+    ...(capabilityProfile === undefined ? {} : { capabilityProfile }),
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget: scenario === "watchdog" ? 4 : 16_384,
@@ -146,6 +149,13 @@ function fail(error: Error): void {
 
 function parseScenario(value: string | null): SessionMode {
   return value === "cancel-pending" || value === "watchdog" ? value : "success";
+}
+
+function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | undefined {
+  return value === "kernel32-wait-for-single-object-ex" ||
+    value === "kernel32-enter-critical-section"
+    ? value
+    : undefined;
 }
 
 function invariant(condition: unknown, message: string): asserts condition {

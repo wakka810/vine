@@ -13607,6 +13607,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-wait-for-single-object-ex" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
+                "kernel32-enter-critical-section" => {
+                    GenericRuntimeCapability::WaitForSingleObjectEx
+                }
                 _ => return Err(usage_error()),
             };
             if generic_runtime_capability.replace(capability).is_some() {

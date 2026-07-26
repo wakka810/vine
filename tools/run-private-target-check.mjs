@@ -195,6 +195,9 @@ function assertCapabilityCheckpoint(actual, expected) {
     )}`.toLowerCase(),
     expected.nextEndpoint.api.toLowerCase(),
   );
+  if (expected.completion.roundtrips !== undefined) {
+    assert.deepEqual(actual.roundtrips, expected.completion.roundtrips);
+  }
 }
 
 function executionStateEvidence(report) {

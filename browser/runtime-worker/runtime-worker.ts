@@ -562,6 +562,29 @@ class BrowserRuntimeSession {
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
+  #enterCriticalSectionCompletions = 0;
+  #leaveCriticalSectionCompletions = 0;
+  #enterCriticalSectionAcquisition: {
+    sequence: number;
+    occurrence: number;
+    instructionCount: number;
+    criticalSectionAddress: number;
+  } | null = null;
+  readonly #enterCriticalSectionRoundtrips: Array<{
+    criticalSectionAddress: number;
+    acquisition: {
+      implementationId: "kernel32.enter-critical-section.v1";
+      sequence: number;
+      occurrence: number;
+      instructionCount: number;
+    };
+    release: {
+      implementationId: "kernel32.leave-critical-section.v1";
+      sequence: number;
+      occurrence: number;
+      instructionCount: number;
+    };
+  }> = [];
   #bgiCheckpointPending = false;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -641,6 +664,10 @@ class BrowserRuntimeSession {
       );
       const sourceBackedWorkload = workload === "controlled-source-read";
       const profileBackedWorkload = workload === "private-bgi";
+      invariant(
+        this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
+        "capability profiles are only supported for the private BGI workload",
+      );
       this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
       const executableUrl = new URL(
@@ -1980,6 +2007,7 @@ class BrowserRuntimeSession {
     const checkpoint = this.#report.checkpointCompletion;
     invariant(
       checkpoint !== null &&
+        this.#configuration.capabilityProfile === checkpoint.capability &&
         this.#requirePrepared().runtime.kernel32Policy ===
           "kernel32-wait-for-single-object-ex-v1",
       "BGI capability checkpoint has no matching compatibility profile",
@@ -2013,7 +2041,9 @@ class BrowserRuntimeSession {
     checkpoint.memoryContentSha256 = reflection.contentSha256;
     this.#cancelAndFinish(
       "checkpoint-complete",
-      "WaitForSingleObjectEx recurring-wait checkpoint completed",
+      checkpoint.capability === "kernel32-enter-critical-section"
+        ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
+        : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
   }
@@ -2217,8 +2247,8 @@ class BrowserRuntimeSession {
     if (
       completion.implementationId ===
         "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
-      this.#requirePrepared().runtime.kernel32Policy ===
-        "kernel32-wait-for-single-object-ex-v1"
+      this.#configuration.capabilityProfile ===
+        "kernel32-wait-for-single-object-ex"
     ) {
       this.#waitForSingleObjectExCompletions += 1;
       if (this.#waitForSingleObjectExCompletions === 3) {
@@ -2235,6 +2265,79 @@ class BrowserRuntimeSession {
           memoryContentSha256: "",
         };
         this.#bgiCheckpointPending = true;
+      }
+    }
+    if (this.#configuration.capabilityProfile === "kernel32-enter-critical-section") {
+      if (completion.implementationId === "kernel32.enter-critical-section.v1") {
+        this.#enterCriticalSectionCompletions += 1;
+        if (
+          this.#enterCriticalSectionCompletions >= 32 &&
+          this.#enterCriticalSectionCompletions <= 34
+        ) {
+          invariant(
+            this.#enterCriticalSectionAcquisition === null,
+            "primary critical-section checkpoint nested an acquisition",
+          );
+          const criticalSectionAddress = call.arguments[0];
+          invariant(
+            typeof criticalSectionAddress === "number" &&
+              Number.isInteger(criticalSectionAddress) &&
+              criticalSectionAddress > 0,
+            "EnterCriticalSection checkpoint omitted its section address",
+          );
+          this.#enterCriticalSectionAcquisition = {
+            sequence,
+            occurrence: this.#enterCriticalSectionCompletions,
+            instructionCount: this.#report.instructions,
+            criticalSectionAddress,
+          };
+        }
+      } else if (completion.implementationId === "kernel32.leave-critical-section.v1") {
+        this.#leaveCriticalSectionCompletions += 1;
+        const acquisition = this.#enterCriticalSectionAcquisition;
+        if (
+          acquisition !== null &&
+          this.#leaveCriticalSectionCompletions === acquisition.occurrence - 1
+        ) {
+          invariant(
+            call.arguments[0] === acquisition.criticalSectionAddress,
+            "primary EnterCriticalSection continuation released a different section",
+          );
+          this.#enterCriticalSectionRoundtrips.push({
+            criticalSectionAddress: acquisition.criticalSectionAddress,
+            acquisition: {
+              implementationId: "kernel32.enter-critical-section.v1",
+              sequence: acquisition.sequence,
+              occurrence: acquisition.occurrence,
+              instructionCount: acquisition.instructionCount,
+            },
+            release: {
+              implementationId: "kernel32.leave-critical-section.v1",
+              sequence,
+              occurrence: this.#leaveCriticalSectionCompletions,
+              instructionCount: this.#report.instructions,
+            },
+          });
+          this.#enterCriticalSectionAcquisition = null;
+          if (this.#enterCriticalSectionRoundtrips.length === 3) {
+            const lastRoundtrip = this.#enterCriticalSectionRoundtrips.at(-1);
+            invariant(lastRoundtrip !== undefined, "critical-section cycle is empty");
+            this.#report.checkpointCompletion = {
+              capability: "kernel32-enter-critical-section",
+              implementationId: "kernel32.enter-critical-section.v1",
+              requiredCompletions: 3,
+              completionCount: 3,
+              lastCompletionSequence: lastRoundtrip.acquisition.sequence,
+              lastCompletionInstructionCount:
+                lastRoundtrip.acquisition.instructionCount,
+              roundtrips: structuredClone(this.#enterCriticalSectionRoundtrips),
+              instructionCount: 0,
+              nextEndpoint: { id: 0, address: 0 },
+              memoryContentSha256: "",
+            };
+            this.#bgiCheckpointPending = true;
+          }
+        }
       }
     }
   }
