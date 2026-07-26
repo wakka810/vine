@@ -5151,3 +5151,33 @@ application spanから導出する。Host／browser memory pressure、runtime al
 Node／Chromeは一completion、exact 32 bytes、EAX／LastError preserve、semantic／memory digestを一致させ、次stopを
 `KERNEL32.dll!GetFileAttributesA`とした。詳細contractは
 [bgi-global-memory-status.md](bgi-global-memory-status.md)を正とする。
+
+## 151. BGI `GetFileAttributesA` path classification
+
+Focused `get-file-attributes-a` observationを同じsource executableから独立に二回取得した。Primary raw traceは
+2,389,154 bytes／SHA-256 `14fa7ccf73bbb30840ca3f794da4e163cecc7c32c3ca17a4485de5973b76769e`、
+summaryは53,988 bytes／SHA-256 `6539b3a90e9ee256e822c88744b0eabfbf48be3e609872e5f5e0530d97e7977d`である。
+Confirmation raw traceは2,374,144 bytes／SHA-256
+`6f9f9ac9dcbd5e54af0a55877b771dcabe606637c2940b6d6c5928dd2b50cdcd`、summaryは54,162 bytes／
+SHA-256 `b5b31c250590cb5b31d78024773a957c031b6805f90f6465d9fcac9b13089e2c`である。各runは111
+`GetFileAttributesA` callsを含み、diagnostics／hook errors 0である。Raw trace／summaryは`.work/windows-traces/`に
+保持しGitへ追加しない。Source executableは実行前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+最初のprimary callはcaller return RVA `0x00061C80`からabsolute `debug.inf`を照会し、
+`INVALID_FILE_ATTRIBUTES`／`ERROR_FILE_NOT_FOUND` 2を返す。後続search-root callはRVA `0x00061CDD`で
+`ERROR_PATH_NOT_FOUND` 3を返す。RVA `0x00082648`の`UserData` queryは`0x30`を返し、callerはinvalid resultを
+先に除外してからdirectory bit `0x10`を読む。Regular-file consumerはresultを4 bit shiftして反転し、archive bitの
+absenceをfile-not-presentへ写像する。したがってcaller contractはwhole attribute wordではなくinvalid sentinel、archive bit、
+directory bit、not-found error classである。
+
+独立oracleは`BGI.exe`をregular fileとして`0x20`、`.`をdirectoryとして`0x30`、missing relative fileを
+`0xFFFFFFFF`／2とした。Successful regular／directory queriesはsentinel LastErrorを保存する。Native absolute path、
+directory内容、timestamp、filesystem IDはartifact observationでありcompatibility policyへimportしない。
+
+Runtimeは`RuntimeFiles`のregistered source／existing writable objectsをregular file、mount rootとregistered pathの
+ancestorsをdirectoryへ分類する。Missing final componentはerror 2、missing parent／mount escapeはerror 3である。
+Node／browser host filesystemを照会せず、queryはVFS、handle、guest memoryを変更しない。Primary Node／Chromeは
+23 completions中3件のmissing fileと20件のmissing path、zero guest writes、ordered semantic／terminal memory digestを
+一致させ、次stopを`KERNEL32.dll!CreateDirectoryA`とした。Detailed contractとnon-claimsは
+[bgi-get-file-attributes-a.md](bgi-get-file-attributes-a.md)を正とする。

@@ -51,6 +51,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-wait-for-single-object-ex-v1.json",
   "fixtures/runtime-policies/kernel32-sleep-zero-v1.json",
   "fixtures/runtime-policies/kernel32-global-memory-status-v1.json",
+  "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -222,6 +223,13 @@ for (const relative of policyFiles) {
     assert.equal(sourceFiles.maximumReadBytes, 1024 * 1024);
     assert.equal(sourceFiles.maximumWriteBytes, 1024 * 1024);
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
+    const fileAttributes = sourceFiles.getFileAttributesA ?? null;
+    if (fileAttributes !== null) {
+      assert.deepEqual(fileAttributes, {
+        regularFileAttributes: 0x20,
+        directoryAttributes: 0x30,
+      });
+    }
   }
   const driveType = policy.getDriveTypeA ?? null;
   if (driveType !== null) {
@@ -269,7 +277,8 @@ for (const relative of policyFiles) {
     assert.equal(policy.schemaVersion, 2);
     assert(
       policy.id === "kernel32-sleep-zero-v1" ||
-        policy.id === "kernel32-global-memory-status-v1",
+        policy.id === "kernel32-global-memory-status-v1" ||
+        policy.id === "kernel32-get-file-attributes-a-v1",
     );
   }
   const loadLibraryA = policy.loadLibraryA ?? null;

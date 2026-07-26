@@ -196,6 +196,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-archive-source-read",
         "kernel32-sleep-zero",
         "kernel32-global-memory-status",
+        "kernel32-get-file-attributes-a",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -301,6 +302,7 @@ assert(
       "kernel32-archive-source-read",
       "kernel32-sleep-zero",
       "kernel32-global-memory-status",
+      "kernel32-get-file-attributes-a",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -309,7 +311,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-global-memory-status"
+    genericRuntimeCapability === "kernel32-get-file-attributes-a"
+      ? "kernel32-get-file-attributes-a-v1.json"
+      : genericRuntimeCapability === "kernel32-global-memory-status"
       ? "kernel32-global-memory-status-v1.json"
       : genericRuntimeCapability === "kernel32-sleep-zero"
       ? "kernel32-sleep-zero-v1.json"
@@ -513,7 +517,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const getFileAttributesACheckpointEnabled =
+  genericRuntimeCapability === "kernel32-get-file-attributes-a";
 const globalMemoryStatusCheckpointEnabled =
+  getFileAttributesACheckpointEnabled ||
   genericRuntimeCapability === "kernel32-global-memory-status";
 const sleepZeroCheckpointEnabled =
   globalMemoryStatusCheckpointEnabled ||
@@ -827,7 +834,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? globalMemoryStatusCheckpointEnabled
+      ? getFileAttributesACheckpointEnabled
+      ? "v86-bgi-get-file-attributes-a"
+      : globalMemoryStatusCheckpointEnabled
       ? "v86-bgi-global-memory-status"
       : sleepZeroCheckpointEnabled
       ? "v86-bgi-sleep-zero"
@@ -4946,6 +4955,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (getFileAttributesACheckpointEnabled) {
+        validateGetFileAttributesAResult(genericResult);
       } else if (globalMemoryStatusCheckpointEnabled) {
         validateGlobalMemoryStatusResult(genericResult);
       } else if (sleepZeroCheckpointEnabled) {
@@ -5187,6 +5198,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getFileAttributesACheckpointEnabled
+          ? "bgi Runtime VFS GetFileAttributesA"
           : globalMemoryStatusCheckpointEnabled
           ? "bgi deterministic x86 GlobalMemoryStatus"
           : sleepZeroCheckpointEnabled
@@ -7354,6 +7367,8 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
+        : getFileAttributesACheckpointEnabled
+        ? 101
         : globalMemoryStatusCheckpointEnabled
         ? 100
         : sleepZeroCheckpointEnabled
@@ -17803,6 +17818,102 @@ function validateGlobalMemoryStatusResult(result) {
   assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f048]);
 }
 
+function validateGetFileAttributesAResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 108_205);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    108_205,
+  );
+  assert.equal(result.callbackEvents.length, 48);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 31);
+  assert.equal(result.sourceReads.length, 5);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.get-file-attributes-a.runtime-vfs.v1",
+  );
+  assert.equal(calls.length, 23, "GetFileAttributesA completion count changed");
+  assert.deepEqual(
+    calls.map((call) => call.sequence),
+    [
+      107_788, 107_797, 107_806, 107_888, 107_897, 107_906, 107_915,
+      107_924, 107_933, 107_942, 108_024, 108_033, 108_042, 108_051,
+      108_060, 108_069, 108_078, 108_160, 108_169, 108_178, 108_187,
+      108_196, 108_205,
+    ],
+  );
+  assert.deepEqual(
+    calls.map((call) => call.occurrence),
+    Array.from({ length: 23 }, (_, index) => index + 1),
+  );
+  assert(
+    calls.every(
+      (call) =>
+        call.symbol === "GetFileAttributesA" &&
+        call.result.action === "set" &&
+        call.result.value === 0xffff_ffff &&
+        call.guestWrites.length === 0 &&
+        call.stackPointerAfter - call.stackPointerBefore === 8,
+    ),
+    "GetFileAttributesA missing-path result contract changed",
+  );
+  assert.deepEqual(calls[0], {
+    sequence: 107_788,
+    module: "KERNEL32.dll",
+    symbol: "GetFileAttributesA",
+    occurrence: 1,
+    trapInstructionCount: 16_396_079,
+    arguments: [0x006f_f048],
+    result: { action: "set", value: 0xffff_ffff },
+    implementationId: "kernel32.get-file-attributes-a.runtime-vfs.v1",
+    returnAddress: 0x1006_1c80,
+    stackPointerBefore: 0x006f_f02c,
+    stackPointerAfter: 0x006f_f034,
+    lastError: 2,
+    guestWrites: [],
+  });
+  assert.equal(calls.filter((call) => call.lastError === 2).length, 3);
+  assert.equal(calls.filter((call) => call.lastError === 3).length, 20);
+  const last = calls.at(-1);
+  assert.equal(last.trapInstructionCount, 16_445_360);
+  assert.deepEqual(last.arguments, [0x202e_2418]);
+  assert.equal(last.returnAddress, 0x1008_2648);
+  assert.equal(last.stackPointerBefore, 0x006f_f688);
+  assert.equal(last.lastError, 2);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_518);
+  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_518,
+    threadExits: [],
+  });
+  assert.equal(result.finalGeneration, 201_672);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 45,
+    address: 0x7f00_02c0,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "CreateDirectoryA" },
+    iatAddress: 0x100d_115c,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+  );
+  assert.equal(result.terminal.instructionCount, 16_445_698);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_25e8);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x202e_2418, 0],
+  );
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -22017,7 +22128,10 @@ function buildGenericRuntimeReentryReport({
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
         if (sleepZeroCheckpointEnabled) {
-          assert.equal(setWaitableTimerCalls.length, 6_910);
+          assert.equal(
+            setWaitableTimerCalls.length,
+            getFileAttributesACheckpointEnabled ? 6_937 : 6_910,
+          );
         } else {
           assert.equal(
             setWaitableTimerCalls.length,
@@ -22046,7 +22160,10 @@ function buildGenericRuntimeReentryReport({
     if (mainLoopProgressionEnabled) {
       if (primaryMainLoopContinuationWorkloadEnabled) {
         if (sleepZeroCheckpointEnabled) {
-          assert.equal(waitForSingleObjectExCalls.length, 6_910);
+          assert.equal(
+            waitForSingleObjectExCalls.length,
+            getFileAttributesACheckpointEnabled ? 6_937 : 6_910,
+          );
         } else {
           assert.equal(
             waitForSingleObjectExCalls.length,
@@ -22143,6 +22260,19 @@ function buildGenericRuntimeReentryReport({
       "GlobalMemoryStatus report summary has no primary completion",
     );
   }
+  const getFileAttributesACalls = getFileAttributesACheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "kernel32.get-file-attributes-a.runtime-vfs.v1",
+      )
+    : [];
+  if (getFileAttributesACheckpointEnabled) {
+    assert(
+      getFileAttributesACalls.length > 0,
+      "GetFileAttributesA report summary has no completion",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -22192,6 +22322,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : getFileAttributesACheckpointEnabled
+        ? "vine.v86-bgi-kernel32-get-file-attributes-a"
         : globalMemoryStatusCheckpointEnabled
         ? "vine.v86-bgi-kernel32-global-memory-status"
         : sleepZeroCheckpointEnabled
@@ -22656,6 +22788,21 @@ function buildGenericRuntimeReentryReport({
             hostMemoryImported: false,
             browserMemoryImported: false,
             allocatorQuotaAuthority: false,
+          },
+        }
+      : {}),
+    ...(getFileAttributesACheckpointEnabled
+      ? {
+          getFileAttributesA: {
+            callCount: getFileAttributesACalls.length,
+            firstCall: getFileAttributesACalls[0],
+            lastCall: getFileAttributesACalls.at(-1),
+            pathAuthority: "rust-runtime-vfs",
+            fileExistenceAuthority: "registered-source-and-writable-manifests",
+            directoryExistence: "registered-path-ancestor-derivation",
+            hostFileSystemImported: false,
+            browserFileSystemImported: false,
+            mutation: false,
           },
         }
       : {}),

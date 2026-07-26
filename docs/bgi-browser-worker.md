@@ -78,19 +78,19 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `kernel32-global-memory-status` and uses protocol
-`vine.browser-runtime-worker.v22`. It inherits the immutable boot-archive snapshot,
-writable-profile separation, and 240 Rust-owned `Sleep(0)` yields, then accepts one
-32-byte x86 `GlobalMemoryStatus` output. Node and Chrome require the same call identity,
-structure bytes, EAX／LastError preservation, compatibility-policy authority,
-system-info-derived virtual span, semantic digest, memory digest, and
-`GetFileAttributesA` terminal endpoint. Protocol version 21 remains the frozen
-predecessor for the execution-boundary disposition; version 22 adds the typed
-memory-status snapshot without moving Windows memory state or allocator authority to
+The active private profile is `kernel32-get-file-attributes-a` and uses protocol
+`vine.browser-runtime-worker.v23`. It inherits the immutable boot-archive snapshot,
+writable-profile separation, 240 Rust-owned `Sleep(0)` yields, and the deterministic
+32-byte x86 `GlobalMemoryStatus` output, then accepts 23 `GetFileAttributesA` path
+queries. Node and Chrome require the same call identity, missing-file／missing-path
+errors, zero guest writes, Rust VFS authority, semantic digest, memory digest, and
+`CreateDirectoryA` terminal endpoint. Protocol version 22 remains the frozen
+predecessor for the typed memory-status snapshot; version 23 adds the typed
+file-attribute snapshot without moving Windows path or filesystem state to
 TypeScript.
 
-The semantic gate passes independently from the repeated workload gate. This bounded
-scheduler and system-information leaves do not change the Worker transport, memory topology, browser-resource
+The semantic gate passes independently from the repeated workload gate. These bounded
+scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
 evidence and is not relabelled as a measurement of the longer active profile. Exact
 current semantic and artifact values remain manifest-owned.

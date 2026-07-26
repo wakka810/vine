@@ -241,6 +241,7 @@ enum GenericRuntimeCapability {
     DragAcceptFiles,
     SleepZero,
     GlobalMemoryStatus,
+    GetFileAttributesA,
 }
 
 struct GenericRuntimeProcess {
@@ -2634,6 +2635,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::DragAcceptFiles
                     | GenericRuntimeCapability::SleepZero
                     | GenericRuntimeCapability::GlobalMemoryStatus
+                    | GenericRuntimeCapability::GetFileAttributesA
             )
         ) {
             let loader = kernel32_policy
@@ -3299,10 +3301,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let global_memory_status_enabled = matches!(
+    let get_file_attributes_a_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::GlobalMemoryStatus)
+        Some(GenericRuntimeCapability::GetFileAttributesA)
     );
+    let global_memory_status_enabled = get_file_attributes_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::GlobalMemoryStatus)
+        );
     let sleep_zero_enabled = global_memory_status_enabled
         || matches!(
             enabled_capability,
@@ -4177,6 +4184,13 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             global_memory_status_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "GetFileAttributesA".to_owned(),
+            },
+        ) {
+            get_file_attributes_a_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -13677,6 +13691,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-archive-source-read" => GenericRuntimeCapability::DragAcceptFiles,
                 "kernel32-sleep-zero" => GenericRuntimeCapability::SleepZero,
                 "kernel32-global-memory-status" => GenericRuntimeCapability::GlobalMemoryStatus,
+                "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

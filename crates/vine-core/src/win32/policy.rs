@@ -162,6 +162,15 @@ pub struct Kernel32SourceFilePolicy {
     pub maximum_read_bytes: u32,
     #[serde(default)]
     pub maximum_write_bytes: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub get_file_attributes_a: Option<Kernel32GetFileAttributesAPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32GetFileAttributesAPolicy {
+    pub regular_file_attributes: u32,
+    pub directory_attributes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -587,6 +596,10 @@ impl Kernel32CompatibilityPolicy {
                 || flags.iter().any(|value| *value != 0x0800_0020)
                 || !(4..=32_768).contains(&files.maximum_path_bytes)
                 || !(1..=RUNTIME_SOURCE_READ_MAX_BYTES).contains(&files.maximum_read_bytes)
+                || files.get_file_attributes_a.is_some_and(|attributes| {
+                    attributes.regular_file_attributes != 0x20
+                        || attributes.directory_attributes != 0x30
+                })
                 || (writable
                     && (!share_modes.contains(&0)
                         || !dispositions.contains(&4)
@@ -1026,6 +1039,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn source_files(&self) -> Option<&Kernel32SourceFilePolicy> {
         self.source_files.as_ref()
+    }
+
+    pub fn get_file_attributes_a(&self) -> Option<Kernel32GetFileAttributesAPolicy> {
+        self.source_files.as_ref()?.get_file_attributes_a
     }
 
     pub fn load_library_a(&self) -> Option<&Kernel32LoadLibraryAPolicy> {

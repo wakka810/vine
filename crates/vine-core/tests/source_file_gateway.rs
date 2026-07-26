@@ -1,6 +1,7 @@
 use vine_core::{
-    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, DispatchOutcome, ExecutionSession,
-    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy,
+    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiReturnSchema,
+    DispatchOutcome, ExecutionSession, GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE,
+    GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy, LastErrorPolicy,
     MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
     RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate,
     RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind,
@@ -19,6 +20,102 @@ const PATH_ADDRESS: u32 = 0x2000_1000;
 const BUFFER_ADDRESS: u32 = 0x2000_2000;
 const BYTES_READ_ADDRESS: u32 = 0x2000_2f00;
 const FIRST_FILE_HANDLE: u32 = 0x4601_0001;
+
+#[test]
+fn get_file_attributes_a_projects_only_registered_vfs_paths() {
+    let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
+    ))
+    .expect("file-attributes policy JSON");
+    policy.validate().expect("valid file-attributes policy");
+    let (mut memory, owner) = initialized_memory();
+    let endpoint = endpoint(30, "GetFileAttributesA");
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("valid GetFileAttributesA contract")
+        .expect("implemented GetFileAttributesA contract");
+    assert_eq!(
+        contract.implementation_id,
+        GET_FILE_ATTRIBUTES_A_IMPLEMENTATION
+    );
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let cases = [
+        (b".\0".as_slice(), 0x30, 0x1234),
+        (b"fixtures\0".as_slice(), 0x30, 0x1234),
+        (b"fixtures\\storage\0".as_slice(), 0x30, 0x1234),
+        (
+            b"fixtures\\storage\\source-read-v1.dat\0".as_slice(),
+            0x20,
+            0x1234,
+        ),
+        (b"fixtures\\storage\\missing.dat\0".as_slice(), u32::MAX, 2),
+        (b"missing\\file.dat\0".as_slice(), u32::MAX, 3),
+        (
+            b"D:\\Vine\\fixtures\\storage\\source-read-v1.dat\0".as_slice(),
+            u32::MAX,
+            3,
+        ),
+    ];
+    for (index, (path, _, _)) in cases.iter().enumerate() {
+        let path_address = PATH_ADDRESS + u32::try_from(index).unwrap() * 0x80;
+        let stack = MEMORY_BASE.0 + u32::try_from(index).unwrap() * 0x20;
+        write_initialization(&mut memory, owner, GuestAddress(path_address), path);
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(stack),
+            &[0x1000_1000 + u32::try_from(index).unwrap(), path_address]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    memory.seal_owner(owner).expect("seal fixture memory");
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_source_snapshot(source_manifest())
+        .expect("register controlled source snapshot");
+
+    for (index, (_, expected_attributes, expected_last_error)) in cases.into_iter().enumerate() {
+        runtime.set_current_last_error(0x1234).unwrap();
+        let before = runtime.clone();
+        let completion = expect_immediate(dispatch(
+            &dispatcher,
+            &endpoint,
+            MEMORY_BASE.0 + u32::try_from(index).unwrap() * 0x20,
+            &policy,
+            &mut memory,
+            &mut runtime,
+        ));
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected_attributes));
+        assert_eq!(completion.last_error, expected_last_error);
+        let mut expected_runtime = before;
+        expected_runtime
+            .set_current_last_error(expected_last_error)
+            .unwrap();
+        assert_eq!(runtime, expected_runtime);
+    }
+
+    runtime.set_current_last_error(0x5566_7788).unwrap();
+    let before = runtime.clone();
+    let disabled = dispatch(
+        &dispatcher,
+        &endpoint,
+        MEMORY_BASE.0,
+        &source_policy(),
+        &mut memory,
+        &mut runtime,
+    );
+    assert!(matches!(
+        disabled,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "get-file-attributes-a-policy-disabled"
+    ));
+    assert_eq!(runtime, before);
+}
 
 #[test]
 fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {

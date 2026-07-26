@@ -105,7 +105,8 @@ worker.postMessage({
     watchdogInstructionLimit: scenario === "watchdog" ? 1 : 20_000_000,
     watchdogWallMilliseconds:
       capabilityProfile === "kernel32-sleep-zero" ||
-      capabilityProfile === "kernel32-global-memory-status"
+      capabilityProfile === "kernel32-global-memory-status" ||
+      capabilityProfile === "kernel32-get-file-attributes-a"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
           capabilityProfile === "kernel32-archive-source-read"
@@ -168,7 +169,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
     value === "shell32-drag-accept-files" ||
     value === "kernel32-archive-source-read" ||
     value === "kernel32-sleep-zero" ||
-    value === "kernel32-global-memory-status"
+    value === "kernel32-global-memory-status" ||
+    value === "kernel32-get-file-attributes-a"
     ? value
     : undefined;
 }

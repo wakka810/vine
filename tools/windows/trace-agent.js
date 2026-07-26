@@ -440,6 +440,9 @@ let largeHeapAllocationCompletionCandidate = null;
 let largeHeapAllocationCompletionRecorded = false;
 const observedSourceFileHandles = new Map();
 let sourceFileReadCompletionRecorded = false;
+let getFileAttributesAOracleScheduled = false;
+let getFileAttributesAOracleCall = null;
+let getFileAttributesAConsumerRecorded = false;
 let getCurrentThreadOracleScheduled = false;
 let setThreadAffinityMaskOracleScheduled = false;
 let setThreadAffinityMaskOracleSentinel = null;
@@ -5995,6 +5998,100 @@ function attachCreateWaitableTimerAHook(module) {
         });
         setImmediate(maybeCompleteCreateWaitableTimerAObservation);
       }
+    },
+  });
+}
+
+function attachGetFileAttributesAHook(module) {
+  const name = "GetFileAttributesA";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" &&
+        getFileAttributesAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.path = args[0];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getFileAttributesAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.pathBefore = snapshotNulTerminatedString(this.path, "ansi");
+      const recordsConsumer =
+        isMainModuleCaller && !getFileAttributesAConsumerRecorded;
+      if (recordsConsumer) {
+        getFileAttributesAConsumerRecorded = true;
+      }
+      this.immediateConsumer = recordsConsumer
+        ? {
+            apiContinuation: snapshotInstructionsFollowingDirectJump(
+              this.returnAddress,
+              32,
+            ),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              4,
+              16,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.path.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          getFileAttributesA: {
+            pathBefore: this.pathBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const attributes = result.toUInt32();
+      if (this.oracleCaller) {
+        getFileAttributesAOracleCall.hookResult = attributes;
+        getFileAttributesAOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getFileAttributesA: {
+            attributes,
+            isInvalid: attributes === 0xffff_ffff,
+            isDirectory:
+              attributes !== 0xffff_ffff && (attributes & 0x10) !== 0,
+          },
+        },
+        this.lastError,
+      );
     },
   });
 }
@@ -19970,6 +20067,102 @@ function maybeCompleteGetVersionExAObservation() {
   }, 250);
 }
 
+function scheduleGetFileAttributesAOracle(module) {
+  if (getFileAttributesAOracleScheduled) {
+    return;
+  }
+  getFileAttributesAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetFileAttributesA");
+      if (address === null) {
+        throw new Error("GetFileAttributesA export is unavailable");
+      }
+      const getFileAttributesA = new SystemFunction(
+        address,
+        "uint32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = ({ id, path, sentinel }) => {
+        const pathPointer = Memory.allocUtf8String(path);
+        getFileAttributesAOracleCall = {
+          id,
+          path,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = getFileAttributesA(pathPointer);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getFileAttributesAOracleCall.hookResult === null ||
+            getFileAttributesAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              "GetFileAttributesA oracle did not pass through the hook",
+            );
+          }
+          return {
+            id,
+            path,
+            sentinel,
+            hookResult: getFileAttributesAOracleCall.hookResult,
+            systemResult,
+            hookLastErrorAfter:
+              getFileAttributesAOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              getFileAttributesAOracleCall.hookResult === systemResult,
+            hookLastErrorMatchesSystem:
+              getFileAttributesAOracleCall.hookLastErrorAfter ===
+              systemLastError,
+            isInvalid: systemResult === 0xffff_ffff,
+            isDirectory:
+              systemResult !== 0xffff_ffff && (systemResult & 0x10) !== 0,
+          };
+        } finally {
+          getFileAttributesAOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "existing-file",
+          path: "BGI.exe",
+          sentinel: 0x1122_3344,
+        },
+        {
+          id: "existing-directory",
+          path: ".",
+          sentinel: 0x5566_7788,
+        },
+        {
+          id: "missing-file",
+          path: "vine-get-file-attributes-a-missing.bin",
+          sentinel: 0x7a6b_5c4d,
+        },
+      ].map(invoke);
+      emit("get-file-attributes-a-oracle", {
+        profile: "ansi-relative-file-directory-and-missing-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookLastErrorMatchesSystem,
+        ),
+        existingFileIsRegular:
+          !calls[0].isInvalid && !calls[0].isDirectory,
+        existingDirectoryIsDirectory:
+          !calls[1].isInvalid && calls[1].isDirectory,
+        missingFileIsInvalid: calls[2].isInvalid,
+      });
+    } catch (error) {
+      emit("get-file-attributes-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
 function scheduleGetVersionExAOracle(module) {
   if (getVersionExAOracleScheduled) {
     return;
@@ -21714,6 +21907,21 @@ Process.attachModuleObserver({
             error: error.message,
           });
         }
+      }
+    }
+    if (
+      module.name.toLowerCase() === "kernel32.dll" &&
+      selectedObservations.has("get-file-attributes-a")
+    ) {
+      try {
+        attachGetFileAttributesAHook(module);
+        scheduleGetFileAttributesAOracle(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetFileAttributesA",
+          error: error.message,
+        });
       }
     }
     if (

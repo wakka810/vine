@@ -512,6 +512,19 @@ EAX and LastError. NULL, read-only, cross-page, disabled, and malformed-policy
 paths are mutation-free. Detailed consumer and non-claim evidence is in
 [bgi-global-memory-status.md](bgi-global-memory-status.md).
 
+`GetFileAttributesA` uses one one-argument semantic handler over the existing
+`RuntimeFiles` path authority. The optional policy object supplies only bounded
+regular-file `0x20` and directory `0x30` values; it contains no path, callsite,
+occurrence, host metadata, or next-stop identity. Exact registered existing files
+are regular files. Mount roots and ancestors derived from registered source／writable
+paths are directories. A missing final component returns
+`INVALID_FILE_ATTRIBUTES`／`ERROR_FILE_NOT_FOUND`; a missing parent or mount escape
+returns `ERROR_PATH_NOT_FOUND`; success preserves LastError. NULL, malformed,
+disabled-policy, and resolution failures do not mutate VFS or guest memory. Neither
+Node nor the browser host filesystem is an attribute authority. Detailed consumer
+and non-claim evidence is in
+[bgi-get-file-attributes-a.md](bgi-get-file-attributes-a.md).
+
 `GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
 in/out contract bounded from the four-byte size field through the 156-byte
 extended layout. Exact sizes 148 and 156 read the full caller span, merge the

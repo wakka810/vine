@@ -148,6 +148,15 @@ pub enum RuntimeFileBacking {
     WritableProfile { object_id: u32 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimePathResolution {
+    RegularFile,
+    Directory,
+    MissingFile,
+    MissingPath,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSourceFile {
@@ -607,6 +616,109 @@ impl RuntimeFiles {
 
     pub(super) fn writable_profile(&self) -> Option<&RuntimeWritableProfile> {
         self.writable_profile.as_ref()
+    }
+
+    pub(super) fn resolve_path_kind(
+        &self,
+        requested_path: &[u8],
+        current_directory: &[u8],
+    ) -> Result<RuntimePathResolution, RuntimeStateError> {
+        let normalized = resolve_path(requested_path, current_directory)?;
+        let root_identity = self
+            .writable_profile
+            .as_ref()
+            .map(|profile| profile.root_identity.as_slice())
+            .or_else(|| {
+                self.snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.root_identity.as_slice())
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "file-mount-unregistered",
+                    "runtime process has no immutable source or writable profile mount",
+                )
+            })?;
+        if normalized.identity == root_identity {
+            return Ok(RuntimePathResolution::Directory);
+        }
+        if normalized.identity.len() <= root_identity.len()
+            || !normalized.identity.starts_with(root_identity)
+            || normalized.identity.get(root_identity.len()) != Some(&b'\\')
+        {
+            return Ok(RuntimePathResolution::MissingPath);
+        }
+        let relative = &normalized.identity[root_identity.len() + 1..];
+        if let Some(object_id) = self
+            .writable_profile
+            .as_ref()
+            .and_then(|profile| profile.path_index.get(relative).copied())
+        {
+            let profile = self
+                .writable_profile
+                .as_ref()
+                .expect("writable path requires profile");
+            let file = profile.files.get(&object_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-vfs",
+                    "writable-path-index-corrupt",
+                    "writable path index points to a missing object",
+                )
+            })?;
+            return Ok(if file.exists {
+                RuntimePathResolution::RegularFile
+            } else {
+                RuntimePathResolution::MissingFile
+            });
+        }
+        if let Some(object_id) = self
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.path_index.get(relative).copied())
+        {
+            let snapshot = self
+                .snapshot
+                .as_ref()
+                .expect("source path requires snapshot");
+            if !snapshot.files.contains_key(&object_id) {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-vfs",
+                    "source-path-index-corrupt",
+                    "source path index points to a missing object descriptor",
+                ));
+            }
+            return Ok(RuntimePathResolution::RegularFile);
+        }
+        if self.registered_directory_exists(relative) {
+            return Ok(RuntimePathResolution::Directory);
+        }
+        let parent = relative
+            .iter()
+            .rposition(|byte| *byte == b'\\')
+            .map_or(&[][..], |separator| &relative[..separator]);
+        Ok(
+            if parent.is_empty() || self.registered_directory_exists(parent) {
+                RuntimePathResolution::MissingFile
+            } else {
+                RuntimePathResolution::MissingPath
+            },
+        )
+    }
+
+    fn registered_directory_exists(&self, relative: &[u8]) -> bool {
+        let is_descendant = |path: &[u8]| {
+            path.len() > relative.len()
+                && path.starts_with(relative)
+                && (relative.is_empty() || path.get(relative.len()) == Some(&b'\\'))
+        };
+        self.snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.path_index.keys().any(|path| is_descendant(path)))
+            || self
+                .writable_profile
+                .as_ref()
+                .is_some_and(|profile| profile.path_index.keys().any(|path| is_descendant(path)))
     }
 
     pub(super) fn open_file(
@@ -2664,6 +2776,64 @@ mod tests {
             "source-path-outside-mount"
         );
         assert_eq!(files, before);
+    }
+
+    #[test]
+    fn path_resolution_derives_registered_directories_without_mutation() {
+        let mut files = RuntimeFiles::default();
+        let source_registration = files.plan_snapshot_registration(manifest()).unwrap();
+        files
+            .commit_snapshot_registration(source_registration)
+            .unwrap();
+        let writable_registration = files
+            .plan_writable_profile_registration(writable_manifest(false, &[]))
+            .unwrap();
+        files
+            .commit_writable_profile_registration(writable_registration)
+            .unwrap();
+        let before = files.clone();
+
+        for (path, expected) in [
+            (b"C:\\Vine\0".as_slice(), RuntimePathResolution::Directory),
+            (b"data\0".as_slice(), RuntimePathResolution::Directory),
+            (
+                b"DATA\\bgi.GDB\0".as_slice(),
+                RuntimePathResolution::RegularFile,
+            ),
+            (
+                b"Data\\missing.bin\0".as_slice(),
+                RuntimePathResolution::MissingFile,
+            ),
+            (
+                b"Missing\\file.bin\0".as_slice(),
+                RuntimePathResolution::MissingPath,
+            ),
+            (b"BGI.gdb\0".as_slice(), RuntimePathResolution::MissingFile),
+            (
+                b"D:\\Vine\\Data\\BGI.gdb\0".as_slice(),
+                RuntimePathResolution::MissingPath,
+            ),
+        ] {
+            assert_eq!(
+                files.resolve_path_kind(path, b"C:\\Vine\0").unwrap(),
+                expected,
+                "path {}",
+                String::from_utf8_lossy(path)
+            );
+        }
+        assert_eq!(files, before);
+
+        let create = files
+            .plan_open_with_disposition(b"BGI.gdb\0", b"C:\\Vine\0", 0x4000_0000, 0, 4, 0x0800_0020)
+            .unwrap()
+            .unwrap();
+        files.commit_open(create);
+        assert_eq!(
+            files
+                .resolve_path_kind(b"bgi.GDB\0", b"C:\\Vine\0")
+                .unwrap(),
+            RuntimePathResolution::RegularFile
+        );
     }
 
     #[test]

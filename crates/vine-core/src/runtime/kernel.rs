@@ -989,6 +989,17 @@ impl RuntimeKernel {
         self.files.writable_profile()
     }
 
+    pub fn resolve_file_system_path_a(
+        &self,
+        requested_path: &[u8],
+    ) -> Result<super::RuntimePathResolution, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        self.files.resolve_path_kind(
+            requested_path,
+            &self.process.current_directory_a().bytes_with_nul,
+        )
+    }
+
     pub fn hydrate_writable_profile_object(
         &mut self,
         object_id: u32,

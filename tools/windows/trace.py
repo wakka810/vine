@@ -36,6 +36,7 @@ SUPPORTED_OBSERVATIONS = (
     "wide-char-to-multi-byte",
     "multi-byte-to-wide-char",
     "set-current-directory-a",
+    "get-file-attributes-a",
     "source-file-read",
     "create-mutex-a",
     "create-waitable-timer-a",

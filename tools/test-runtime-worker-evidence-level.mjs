@@ -11,10 +11,13 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 22 as const/u);
+assert.match(protocol, /protocolVersion = 23 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
+assert.match(protocol, /kernel32-get-file-attributes-a/u);
+assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
+assert.match(protocol, /getFileAttributesA:/u);
 
 assert.match(worker, /readonly #semanticCallDigest = new SemanticCallDigest\(\)/u);
 assert.doesNotMatch(worker, /completedBgiCallSequences/u);

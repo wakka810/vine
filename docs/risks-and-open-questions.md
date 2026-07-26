@@ -81,8 +81,11 @@ failure-atomicに更新し、`WM_SIZE`内の`GetSystemMenu(hwnd,FALSE) -> Enable
 外側resize planをstaleにしない。続く`Sleep(0)`は既存scheduler authorityへ接続するbounded yieldとして閉じ、
 `GlobalMemoryStatus`は既存system-information policyから分離しないdeterministic x86 snapshotとして閉じた。Host
 wall-clock、browser timer、host／browser memory pressure、runtime allocator quotaはguest-visible authorityへimportしない。
-現在のsemantic stopはimmutable source pathを照会する`KERNEL32.dll!GetFileAttributesA`であり、既存VFS ownerへ
-接続するfile gatewayとして分類する。
+`GetFileAttributesA`は既存VFS ownerのregistered fileとderived directoryだけを照会し、host／browser filesystemを
+authorityへしないsemantic leafとして閉じた。現在のsemantic stopは`KERNEL32.dll!CreateDirectoryA`である。
+これはwritable overlayのdirectory identity、parent existence、create／duplicate result、path-to-file conflict、
+save lifecycleへ新しいmutation責務を加えるためsubsystem gatewayとして扱う。API単体stubを追加せず、
+`RuntimeFiles` ownerのdirectory collection／plan／commit、failure atomicity、persistent-profile relationを先に固定する。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

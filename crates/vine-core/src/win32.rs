@@ -22,11 +22,11 @@ use crate::runtime::{
     RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
     RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
     RuntimeCriticalSection, RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeMutexNameA, RuntimeObjectKind, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
-    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExBegin,
-    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
-    RuntimeWritableCommitHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeMutexNameA, RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
+    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitForSingleObjectExResult, RuntimeWritableCommitHostResponse,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -35,11 +35,12 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
-    Kernel32GetDriveTypeAPolicy, Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy,
-    Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32GetDriveTypeAPolicy, Kernel32GetFileAttributesAPolicy,
+    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
+    Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy,
+    Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
+    Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
     Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
@@ -84,6 +85,8 @@ pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
 pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
 pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
+pub const GET_FILE_ATTRIBUTES_A_IMPLEMENTATION: &str =
+    "kernel32.get-file-attributes-a.runtime-vfs.v1";
 pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
 pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
@@ -138,6 +141,7 @@ const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_FILE_NOT_FOUND: u32 = 2;
+const ERROR_PATH_NOT_FOUND: u32 = 3;
 const ERROR_ACCESS_DENIED: u32 = 5;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
@@ -264,6 +268,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION => {
             handle_set_current_directory_a(policy, contract, frame, session)
         }
+        GET_FILE_ATTRIBUTES_A_IMPLEMENTATION => {
+            handle_get_file_attributes_a(policy, contract, frame, session)
+        }
         CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
         GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
         WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
@@ -378,6 +385,7 @@ pub fn kernel32_contract_for_endpoint(
         "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
+        "GetFileAttributesA" => get_file_attributes_a_contract(endpoint)?,
         "CreateFileA" => create_file_a_contract(endpoint)?,
         "GetFileSize" => get_file_size_contract(endpoint)?,
         "ReadFile" => read_file_contract(endpoint)?,
@@ -1963,6 +1971,57 @@ fn read_nul_terminated_ansi_path(
             policy.maximum_path_bytes
         ),
     ))
+}
+
+fn handle_get_file_attributes_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let file_policy = require_source_file_policy(policy)?;
+    let attributes_policy = policy.get_file_attributes_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-vfs",
+            "get-file-attributes-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable VFS path attributes",
+                policy.id
+            ),
+        )
+    })?;
+    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
+    let path = read_nul_terminated_source_path(
+        contract,
+        session,
+        GuestAddress(path_address),
+        file_policy.maximum_path_bytes,
+    )?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let resolution = session
+        .runtime()
+        .resolve_file_system_path_a(&path)
+        .map_err(|error| {
+            ApiFault::unsupported(
+                "win32-vfs",
+                "get-file-attributes-a-path-unsupported",
+                error.message,
+            )
+        })?;
+    let (attributes, last_error) = match resolution {
+        RuntimePathResolution::RegularFile => (
+            attributes_policy.regular_file_attributes,
+            preserved_last_error,
+        ),
+        RuntimePathResolution::Directory => {
+            (attributes_policy.directory_attributes, preserved_last_error)
+        }
+        RuntimePathResolution::MissingFile => (u32::MAX, ERROR_FILE_NOT_FOUND),
+        RuntimePathResolution::MissingPath => (u32::MAX, ERROR_PATH_NOT_FOUND),
+    };
+    Ok(ApiImmediate::new(ApiReturnValue::U32(attributes)).with_last_error(last_error))
 }
 
 fn handle_create_file_a(
@@ -4800,6 +4859,20 @@ pub fn set_current_directory_a_contract(
         vec![dynamic_in_bytes("directoryPath", true, 1, 1, 32_768)],
         ApiReturnSchema::Bool32,
         SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn get_file_attributes_a_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetFileAttributesA",
+        vec![dynamic_in_bytes("fileName", false, 1, 1, 32_768)],
+        ApiReturnSchema::U32,
+        GET_FILE_ATTRIBUTES_A_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

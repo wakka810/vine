@@ -161,12 +161,16 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const getFileAttributesAActive =
+    root.activeRuntimeCheckpoint?.profile === "kernel32-get-file-attributes-a";
   const archiveSourceReadActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-archive-source-read" ||
     root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero" ||
-    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status" ||
+    getFileAttributesAActive;
   const globalMemoryStatusActive =
-    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-global-memory-status" ||
+    getFileAttributesAActive;
   const sleepZeroActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-sleep-zero" ||
     globalMemoryStatusActive;
@@ -177,7 +181,9 @@ export function validateCurrentCheckpoint(manifest) {
     leaveCriticalSectionContinuationActive ||
     dragAcceptFilesActive ||
     archiveSourceReadActive;
-  const timerCycleCount = sleepZeroActive
+  const timerCycleCount = getFileAttributesAActive
+    ? 6_937
+    : sleepZeroActive
     ? 6_910
     : archiveSourceReadActive
     ? 4_716
@@ -186,7 +192,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? 7
       : 3;
-  const timerSetSequences = sleepZeroActive
+  const timerSetSequences = getFileAttributesAActive
+    ? "18681,108148"
+    : sleepZeroActive
     ? "18681,107739"
     : archiveSourceReadActive
     ? "18681,89364"
@@ -195,7 +203,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "18681,18689,18697,18705,18713,18721,18729"
       : "18681,18689,18697";
-  const timerSetInstructionCounts = sleepZeroActive
+  const timerSetInstructionCounts = getFileAttributesAActive
+    ? "11973553,16432845"
+    : sleepZeroActive
     ? "11973553,16291292"
     : archiveSourceReadActive
     ? "11973553,15942875"
@@ -204,7 +214,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
       : "11973553,11973700,11973847";
-  const timerWaitSequences = sleepZeroActive
+  const timerWaitSequences = getFileAttributesAActive
+    ? "18682,108149"
+    : sleepZeroActive
     ? "18682,107740"
     : archiveSourceReadActive
     ? "18682,89365"
@@ -213,7 +225,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "18682,18690,18698,18706,18714,18722,18730"
       : "18682,18690,18698";
-  const timerWaitInstructionCounts = sleepZeroActive
+  const timerWaitInstructionCounts = getFileAttributesAActive
+    ? "11973559,16432851"
+    : sleepZeroActive
     ? "11973559,16291298"
     : archiveSourceReadActive
     ? "11973559,15942881"
@@ -222,7 +236,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
       : "11973559,11973706,11973853";
-  const timerGenerations = sleepZeroActive
+  const timerGenerations = getFileAttributesAActive
+    ? "1,6937"
+    : sleepZeroActive
     ? "1,6910"
     : archiveSourceReadActive
     ? "1,4716"
@@ -231,7 +247,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerDeadlines = sleepZeroActive
+  const timerDeadlines = getFileAttributesAActive
+    ? "5000,34685000"
+    : sleepZeroActive
     ? "5000,34550000"
     : archiveSourceReadActive
     ? "5000,23580000"
@@ -240,7 +258,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "5000,10000,15000,20000,25000,30000,35000"
       : "5000,10000,15000";
-  const timerPacingRequestIds = sleepZeroActive
+  const timerPacingRequestIds = getFileAttributesAActive
+    ? "3,6942"
+    : sleepZeroActive
     ? "3,6915"
     : archiveSourceReadActive
     ? "3,4721"
@@ -249,7 +269,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "3,4,5,6,7,8,9"
       : "3,4,5";
-  const timerPacingRegistrationIds = sleepZeroActive
+  const timerPacingRegistrationIds = getFileAttributesAActive
+    ? "1,6937"
+    : sleepZeroActive
     ? "1,6910"
     : archiveSourceReadActive
     ? "1,4716"
@@ -258,7 +280,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "1,2,3,4,5,6,7"
       : "1,2,3";
-  const timerPacingClockGenerations = sleepZeroActive
+  const timerPacingClockGenerations = getFileAttributesAActive
+    ? "0,6936"
+    : sleepZeroActive
     ? "0,6909"
     : archiveSourceReadActive
     ? "0,4715"
@@ -267,7 +291,9 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "0,1,2,3,4,5,6"
       : "0,1,2";
-  const timerNextRegistrationIds = sleepZeroActive
+  const timerNextRegistrationIds = getFileAttributesAActive
+    ? "2,6938"
+    : sleepZeroActive
     ? "2,6911"
     : archiveSourceReadActive
     ? "2,4717"
@@ -276,7 +302,24 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "2,3,4,5,6,7,8"
       : "2,3,4";
-  const profileExpectations = globalMemoryStatusActive
+  const profileExpectations = getFileAttributesAActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 92_492,
+        browserMappingDirtyPages: 94_681,
+        browserSuccessExecutionTransitions: 349_581,
+        latestSchema: "vine.v86-bgi-kernel32-get-file-attributes-a",
+        latestWritebackBatches: 108_267,
+        latestWritebackDirtyPages: 148_855,
+        latestWritebackChangedBytes: 4_925_375,
+        latestHostDeltaBatches: 92_492,
+        latestFinalMemoryGeneration: 201_672,
+        semanticCallDigestSha256:
+          "b1846ec7eb00de76f15194a14e4877f2fb1871e0ac49a00f3b81b8dc6f0583a2",
+        memoryContentSha256:
+          "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+      }
+    : globalMemoryStatusActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 92_327,
@@ -746,8 +789,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v22") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v22");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v23") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v23");
   }
   if (
     browser.executionEngineProfile !==
@@ -1529,7 +1572,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (sleepZeroActive
+      (getFileAttributesAActive
+        ? 1_518
+        : sleepZeroActive
         ? 1_512
         : archiveSourceReadActive
         ? 1_032
@@ -4129,7 +4174,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("kernel32_virtual_memory_dispatcher::"),
       )
       .join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,source_file_gateway::get_file_attributes_a_projects_only_registered_vfs_paths,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     representativeAtomicTests.filter(
       (test) =>
         test ===
@@ -7090,6 +7135,13 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.sourceFiles",
     errors,
   );
+  const getFileAttributesA = getFileAttributesAActive
+    ? requireRecord(
+        sourceFiles.getFileAttributesA,
+        "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.sourceFiles.getFileAttributesA",
+        errors,
+      )
+    : null;
   const loadLibraryA = requireRecord(
     kernel32Policy.loadLibraryA,
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.loadLibraryA",
@@ -7109,13 +7161,17 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
     kernel32Policy.id !==
-      (globalMemoryStatusActive
+      (getFileAttributesAActive
+        ? "kernel32-get-file-attributes-a-v1"
+        : globalMemoryStatusActive
         ? "kernel32-global-memory-status-v1"
         : sleepZeroActive
         ? "kernel32-sleep-zero-v1"
         : "kernel32-wait-for-single-object-ex-v1") ||
     kernel32Policy.source !==
-      (globalMemoryStatusActive
+      (getFileAttributesAActive
+        ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
+        : globalMemoryStatusActive
         ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
         : sleepZeroActive
         ? "fixtures/runtime-policies/kernel32-sleep-zero-v1.json"
@@ -7172,6 +7228,9 @@ export function validateCurrentCheckpoint(manifest) {
       "request-thread-generation-lifetime-before-commit" ||
     sourceFiles.immutableSourceAndWritableOverlaySeparated !== true ||
     sourceFiles.browserOwnsWindowsFileState !== false ||
+    (getFileAttributesAActive &&
+      (getFileAttributesA?.regularFileAttributes !== 0x20 ||
+        getFileAttributesA?.directoryAttributes !== 0x30)) ||
     loadLibraryA.maximumModuleNameBytes !== 260 ||
     JSON.stringify(loadLibraryA.runtimeSystemModules) !==
       JSON.stringify([
@@ -13269,7 +13328,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (globalMemoryStatusActive
+      (getFileAttributesAActive
+        ? "Rust-owned GetFileAttributesA over RuntimeFiles registered VFS and derived directory authority"
+        : globalMemoryStatusActive
         ? "Rust-owned deterministic x86 MEMORYSTATUS over Kernel32CompatibilityPolicy and system-info virtual-span authority"
         : sleepZeroActive
         ? "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority"
@@ -13822,11 +13883,15 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSleepZeroExecutableHashUnchanged !== true ||
       latestEvidence.sleepZeroImplemented !== true ||
       latestEvidence.sleepZeroPolicyId !==
-        (globalMemoryStatusActive
+        (getFileAttributesAActive
+          ? "kernel32-get-file-attributes-a-v1"
+          : globalMemoryStatusActive
           ? "kernel32-global-memory-status-v1"
           : "kernel32-sleep-zero-v1") ||
       latestEvidence.sleepZeroPolicySource !==
-        (globalMemoryStatusActive
+        (getFileAttributesAActive
+          ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
+          : globalMemoryStatusActive
           ? "fixtures/runtime-policies/kernel32-global-memory-status-v1.json"
           : "fixtures/runtime-policies/kernel32-sleep-zero-v1.json") ||
       latestEvidence.sleepZeroCallCount !== 240 ||
@@ -13919,9 +13984,13 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGlobalMemoryStatusExecutableHashUnchanged !== true ||
       latestEvidence.globalMemoryStatusImplemented !== true ||
       latestEvidence.globalMemoryStatusPolicyId !==
-        "kernel32-global-memory-status-v1" ||
+        (getFileAttributesAActive
+          ? "kernel32-get-file-attributes-a-v1"
+          : "kernel32-global-memory-status-v1") ||
       latestEvidence.globalMemoryStatusPolicySource !==
-        "fixtures/runtime-policies/kernel32-global-memory-status-v1.json" ||
+        (getFileAttributesAActive
+          ? "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
+          : "fixtures/runtime-policies/kernel32-global-memory-status-v1.json") ||
       latestEvidence.globalMemoryStatusCallCount !== 1 ||
       latestEvidence.globalMemoryStatusSequence !== 107_757 ||
       latestEvidence.globalMemoryStatusInstructionCount !== 16_384_108 ||
@@ -13975,6 +14044,111 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push(
       "GlobalMemoryStatus native, policy, Rust, Node, and Chrome evidence is invalid",
+    );
+  }
+  if (
+    getFileAttributesAActive &&
+    (latestEvidence.nativeGetFileAttributesAPrimaryTraceBytes !== 2_389_154 ||
+      latestEvidence.nativeGetFileAttributesAPrimaryTraceSha256 !==
+        "14fa7ccf73bbb30840ca3f794da4e163cecc7c32c3ca17a4485de5973b76769e" ||
+      latestEvidence.nativeGetFileAttributesAPrimarySummaryBytes !== 53_988 ||
+      latestEvidence.nativeGetFileAttributesAPrimarySummarySha256 !==
+        "6539b3a90e9ee256e822c88744b0eabfbf48be3e609872e5f5e0530d97e7977d" ||
+      latestEvidence.nativeGetFileAttributesAConfirmationTraceBytes !==
+        2_374_144 ||
+      latestEvidence.nativeGetFileAttributesAConfirmationTraceSha256 !==
+        "6f9f9ac9dcbd5e54af0a55877b771dcabe606637c2940b6d6c5928dd2b50cdcd" ||
+      latestEvidence.nativeGetFileAttributesAConfirmationSummaryBytes !==
+        54_162 ||
+      latestEvidence.nativeGetFileAttributesAConfirmationSummarySha256 !==
+        "b5b31c250590cb5b31d78024773a957c031b6805f90f6465d9fcac9b13089e2c" ||
+      latestEvidence.nativeGetFileAttributesATraceDiagnostics !== 0 ||
+      latestEvidence.nativeGetFileAttributesACallsPerTrace !== 111 ||
+      latestEvidence.nativeGetFileAttributesAFirstCallerReturnRva !==
+        "0x00061c80" ||
+      latestEvidence.nativeGetFileAttributesAFirstResult !== "0xffffffff" ||
+      latestEvidence.nativeGetFileAttributesAFirstLastError !== 2 ||
+      latestEvidence.nativeGetFileAttributesASearchRootCallerReturnRva !==
+        "0x00061cdd" ||
+      latestEvidence.nativeGetFileAttributesASearchRootLastError !== 3 ||
+      latestEvidence.nativeGetFileAttributesAUserDataCallerReturnRva !==
+        "0x00082648" ||
+      latestEvidence.nativeGetFileAttributesAUserDataResult !== "0x00000030" ||
+      latestEvidence.nativeGetFileAttributesARegularFileResult !== "0x00000020" ||
+      latestEvidence.nativeGetFileAttributesADirectoryResult !== "0x00000030" ||
+      latestEvidence.nativeGetFileAttributesAMissingFileResult !== "0xffffffff" ||
+      latestEvidence.nativeGetFileAttributesAMissingFileLastError !== 2 ||
+      latestEvidence.nativeGetFileAttributesASuccessPreservesLastError !== true ||
+      latestEvidence.nativeGetFileAttributesAConsumer !==
+        "invalid-result-check-then-archive-or-directory-bit-test" ||
+      latestEvidence.nativeGetFileAttributesAExecutableHashUnchanged !== true ||
+      latestEvidence.getFileAttributesAImplemented !== true ||
+      latestEvidence.getFileAttributesAPolicyId !==
+        "kernel32-get-file-attributes-a-v1" ||
+      latestEvidence.getFileAttributesAPolicySource !==
+        "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json" ||
+      latestEvidence.getFileAttributesACallCount !== 23 ||
+      latestEvidence.getFileAttributesASequences?.join(",") !==
+        "107788,108205" ||
+      latestEvidence.getFileAttributesAOccurrences?.join(",") !== "1,23" ||
+      latestEvidence.getFileAttributesAInstructionCounts?.join(",") !==
+        "16396079,16445360" ||
+      latestEvidence.getFileAttributesAArguments?.join(",") !==
+        "0x006ff048,0x202e2418" ||
+      latestEvidence.getFileAttributesAReturnAddresses?.join(",") !==
+        "0x10061c80,0x10082648" ||
+      latestEvidence.getFileAttributesAStackPointers?.join(",") !==
+        "0x006ff02c,0x006ff034,0x006ff688,0x006ff690" ||
+      latestEvidence.getFileAttributesALastErrors?.join(",") !== "2,2" ||
+      latestEvidence.getFileAttributesAMissingFileCount !== 3 ||
+      latestEvidence.getFileAttributesAMissingPathCount !== 20 ||
+      latestEvidence.getFileAttributesAResult !== "0xffffffff" ||
+      latestEvidence.getFileAttributesAGuestWriteBytes !== 0 ||
+      latestEvidence.getFileAttributesAImplementationId !==
+        "kernel32.get-file-attributes-a.runtime-vfs.v1" ||
+      latestEvidence.getFileAttributesAPathAuthority !==
+        "runtime/files.rs::RuntimeFiles" ||
+      latestEvidence.getFileAttributesAFileExistenceAuthority !==
+        "registered-source-and-writable-manifests" ||
+      latestEvidence.getFileAttributesADirectoryExistence !==
+        "registered-path-ancestor-derivation" ||
+      latestEvidence.getFileAttributesAHostFileSystemImported !== false ||
+      latestEvidence.getFileAttributesABrowserFileSystemImported !== false ||
+      latestEvidence.getFileAttributesAMutation !== false ||
+      latestEvidence.getFileAttributesANullRejectedBeforeMutation !== true ||
+      latestEvidence.getFileAttributesAFailureAtomicity !== true ||
+      latestEvidence.getFileAttributesANodeCompletions !== 23 ||
+      latestEvidence.getFileAttributesAChromeCompletions !== 23 ||
+      latestEvidence.getFileAttributesANodeChromeOrderedSemanticsMatched !== true ||
+      bgiBrowserEvidence.getFileAttributesACompletions !== 23 ||
+      bgiBrowserEvidence.getFileAttributesASequences?.join(",") !==
+        "107788,108205" ||
+      bgiBrowserEvidence.getFileAttributesAOccurrences?.join(",") !== "1,23" ||
+      bgiBrowserEvidence.getFileAttributesAInstructionCounts?.join(",") !==
+        "16396079,16445360" ||
+      bgiBrowserEvidence.getFileAttributesAArguments?.join(",") !==
+        "0x006ff048,0x202e2418" ||
+      bgiBrowserEvidence.getFileAttributesAReturnAddresses?.join(",") !==
+        "0x10061c80,0x10082648" ||
+      bgiBrowserEvidence.getFileAttributesAStackPointers?.join(",") !==
+        "0x006ff02c,0x006ff034,0x006ff688,0x006ff690" ||
+      bgiBrowserEvidence.getFileAttributesALastErrors?.join(",") !== "2,2" ||
+      bgiBrowserEvidence.getFileAttributesAResult !== "0xffffffff" ||
+      bgiBrowserEvidence.getFileAttributesAGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.getFileAttributesAImplementationId !==
+        "kernel32.get-file-attributes-a.runtime-vfs.v1" ||
+      bgiBrowserEvidence.getFileAttributesAPathAuthority !== "rust-runtime-vfs" ||
+      bgiBrowserEvidence.getFileAttributesAFileExistenceAuthority !==
+        "registered-source-and-writable-manifests" ||
+      bgiBrowserEvidence.getFileAttributesADirectoryExistence !==
+        "registered-path-ancestor-derivation" ||
+      bgiBrowserEvidence.getFileAttributesAHostFileSystemImported !== false ||
+      bgiBrowserEvidence.getFileAttributesABrowserFileSystemImported !== false ||
+      bgiBrowserEvidence.getFileAttributesAMutation !== false ||
+      bgiBrowserEvidence.getFileAttributesANodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "GetFileAttributesA native, VFS, policy, Rust, Node, and Chrome evidence is invalid",
     );
   }
   if (

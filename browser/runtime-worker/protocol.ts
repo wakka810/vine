@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 22 as const;
+export const protocolVersion = 23 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -15,7 +15,8 @@ export type BgiCapabilityProfile =
   | "shell32-drag-accept-files"
   | "kernel32-archive-source-read"
   | "kernel32-sleep-zero"
-  | "kernel32-global-memory-status";
+  | "kernel32-global-memory-status"
+  | "kernel32-get-file-attributes-a";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -59,6 +60,22 @@ export interface RuntimeGlobalMemoryStatusCallSnapshot {
   stackPointerAfter: number;
   lastError: 0;
   guestWrites: [{ address: number; bytes: number[] }];
+}
+
+export interface RuntimeGetFileAttributesACallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "GetFileAttributesA";
+  occurrence: number;
+  trapInstructionCount: number;
+  arguments: [number];
+  result: { action: "set"; value: 0xffff_ffff };
+  implementationId: "kernel32.get-file-attributes-a.runtime-vfs.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: 2 | 3;
+  guestWrites: [];
 }
 
 export interface PageLifecycleSnapshot {
@@ -502,6 +519,17 @@ export interface SessionReport {
     hostMemoryImported: false;
     browserMemoryImported: false;
     allocatorQuotaAuthority: false;
+  } | null;
+  getFileAttributesA: {
+    callCount: number;
+    firstCall: RuntimeGetFileAttributesACallSnapshot;
+    lastCall: RuntimeGetFileAttributesACallSnapshot;
+    pathAuthority: "rust-runtime-vfs";
+    fileExistenceAuthority: "registered-source-and-writable-manifests";
+    directoryExistence: "registered-path-ancestor-derivation";
+    hostFileSystemImported: false;
+    browserFileSystemImported: false;
+    mutation: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

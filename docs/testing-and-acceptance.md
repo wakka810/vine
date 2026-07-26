@@ -1264,17 +1264,29 @@ relationをgoldenにする。Host依存のmemory load／available virtualとVOID
 digest、次の`GetFileAttributesA` stopを一致させる。`GlobalMemoryStatusEx`、dynamic pressure、runtime allocator quota、
 Wasm linear-memory capacityは実装済みまたはacceptance済みとしない。
 
+Reached `GetFileAttributesA` leafはone-argument x86 stdcall、policy-owned regular `0x20`／directory `0x30`、
+success LastError preserve、missing final componentの`0xFFFFFFFF`／2、missing parentまたはmount escapeの
+`0xFFFFFFFF`／3、guest write zeroを固定する。RuntimeFiles model testsはWindows-932／ASCII-case-insensitive path、
+current-directory relative resolution、registered source／existing writable file、mount root／registered-path ancestor
+directory、absent writable objectを検査する。Dispatcher testsはNULL／malformed／disabled policyとresolution failureで
+VFS snapshot、allocator、guest bytes、LastErrorが部分更新されないことを要求する。Focused native evidenceは独立2 runの
+111 calls、regular-file／directory oracle、success sentinel preserve、primary callerのinvalid-result後のarchive／directory bit
+testをgoldenにする。Node／Chromeは23 completions、3 missing-file／20 missing-path classifications、first／last identity、
+Rust VFS authority、host／browser filesystem non-import、semantic／memory digest、次の`CreateDirectoryA` stopを一致させる。
+Wildcard、reparse point、general DOS attributes、host filesystem enumeration、directory mutationは実装済みとしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、
 deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、
 writable profile read／commit transport、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureは
 Rust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeを
-guest自身とrunnerの両方で検証する。Current protocol version 22は`thread-switch`／`thread-exit`を含むclosed
+guest自身とrunnerの両方で検証する。Current protocol version 23は`thread-switch`／`thread-exit`を含むclosed
 execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、
 Rust-owned logical windowとGDI+ session completion metadata、versioned writable commit completion、normal capability completion、
 versioned waitable-timer pacing／page lifecycle、read-only `DragAcceptFiles` window snapshot、Rust-selected immediate API
-execution-boundary disposition、typed `GlobalMemoryStatus` snapshotに加え、compact／summary／full evidence levelを明示する。
+execution-boundary disposition、typed `GlobalMemoryStatus`／`GetFileAttributesA` snapshotsに加え、
+compact／summary／full evidence levelを明示する。
 
 Capability completionはrequired／observed count、last sequence／instruction、次のowned endpoint、final memory digestを持ち、
 `firstUnsupported`とは相互排他的である。通常のprivate gateはcompactまたはsummaryを使うが、全callを外部可観測fieldへ

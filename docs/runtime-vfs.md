@@ -66,6 +66,9 @@ characters, and trailing dot/space variants fail before mutation.
 
 The versioned Kernel32 policy supports these bounded variants:
 
+- `GetFileAttributesA`: exact registered existing source／writable files project
+  the policy-owned regular-file attributes, while the mount root and ancestors of
+  registered paths project directory attributes;
 - immutable open: `GENERIC_READ`, share-read, `OPEN_EXISTING`;
 - writable open: `GENERIC_WRITE`, share none, `CREATE_ALWAYS` or
   `OPEN_ALWAYS`;
@@ -83,10 +86,15 @@ profile object is absent. Both return `ERROR_ALREADY_EXISTS` when appropriate.
 Successful deferred `CloseHandle` preserves the owner thread's LastError exactly
 like the clean immediate path; a failed commit returns its concrete Win32 error and
 keeps both the handle and dirty staging available for retry.
+`GetFileAttributesA` is a mutation-free query over this same path authority. A
+missing final component returns `ERROR_FILE_NOT_FOUND`; a missing parent or mount
+escape returns `ERROR_PATH_NOT_FOUND`. Success preserves LastError. It never probes
+the Node／browser host filesystem, and an absent writable object does not become an
+existing file merely because its path is allowlisted.
 Sparse writes zero-fill the gap. Immutable writes and source/profile shadowing are
 denied before mutation. Directory enumeration, rename/delete, mapped files, locks,
-general volume resolution, arbitrary access/share/disposition combinations, and
-registry projection are not claimed.
+general directory mutation, volume resolution, arbitrary DOS attributes,
+access/share/disposition combinations, and registry projection are not claimed.
 
 ## Read, write, and commit transactions
 
@@ -143,7 +151,8 @@ state during teardown.
 Rust model and integration tests cover path separation, create/truncate/open
 semantics, sharing, sparse writes, quota, guest-memory atomicity, successful durable
 close, malformed completion, failed-close retry, stale/duplicate completion,
-metadata-only atomic hydration, and process-exit discard. The SQLite tests cover
+metadata-only atomic hydration, process-exit discard, and read-only file／derived
+directory attribute classification without host filesystem import. The SQLite tests cover
 first creation, restart, idempotent duplicate, stale generation, identity/hash
 rejection, transaction rollback, post-commit response loss, quota, a held SQLite
 write lock, lease revoke and replacement, rejected late commits, a 4 MiB

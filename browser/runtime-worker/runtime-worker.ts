@@ -22,6 +22,7 @@ import {
   type RuntimeWritableCommitSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
+  type RuntimeGetFileAttributesACallSnapshot,
   type RuntimeImm32Snapshot,
   type RuntimeThreadSelectionSnapshot,
   type RuntimeVirtualMemorySnapshot,
@@ -660,6 +661,7 @@ class BrowserRuntimeSession {
     dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
     sleepZero: null as SessionReport["sleepZero"],
     globalMemoryStatus: null as SessionReport["globalMemoryStatus"],
+    getFileAttributesA: null as SessionReport["getFileAttributesA"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -691,7 +693,9 @@ class BrowserRuntimeSession {
           (this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
             this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
             this.#configuration.capabilityProfile ===
-              "kernel32-global-memory-status"));
+              "kernel32-global-memory-status" ||
+            this.#configuration.capabilityProfile ===
+              "kernel32-get-file-attributes-a"));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -2456,7 +2460,9 @@ class BrowserRuntimeSession {
       invariant(
         (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-global-memory-status") &&
+            "kernel32-global-memory-status" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-get-file-attributes-a") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "Sleep",
@@ -2514,8 +2520,10 @@ class BrowserRuntimeSession {
       "kernel32.global-memory-status.x86-deterministic.v1"
     ) {
       invariant(
-        this.#configuration.capabilityProfile ===
-          "kernel32-global-memory-status" &&
+        (this.#configuration.capabilityProfile ===
+          "kernel32-global-memory-status" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-get-file-attributes-a") &&
           this.#report.globalMemoryStatus === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -2571,6 +2579,60 @@ class BrowserRuntimeSession {
         browserMemoryImported: false,
         allocatorQuotaAuthority: false,
       };
+    }
+    if (
+      completion.implementationId ===
+      "kernel32.get-file-attributes-a.runtime-vfs.v1"
+    ) {
+      const [pathAddress] = call.arguments;
+      invariant(
+        this.#configuration.capabilityProfile ===
+          "kernel32-get-file-attributes-a" &&
+          endpoint.module.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GetFileAttributesA" &&
+          call.arguments.length === 1 &&
+          typeof pathAddress === "number" &&
+          Number.isInteger(pathAddress) &&
+          pathAddress !== 0 &&
+          completion.eax.action === "set" &&
+          completion.eax.value === 0xffff_ffff &&
+          (completion.lastError === 2 || completion.lastError === 3) &&
+          guestWrites.length === 0,
+        "GetFileAttributesA ABI or VFS missing-path result changed",
+      );
+      const occurrence = (this.#report.getFileAttributesA?.callCount ?? 0) + 1;
+      const attributeCall: RuntimeGetFileAttributesACallSnapshot = {
+        sequence,
+        module: endpoint.module,
+        symbol: "GetFileAttributesA",
+        occurrence,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [pathAddress],
+        result: { action: "set", value: 0xffff_ffff },
+        implementationId: "kernel32.get-file-attributes-a.runtime-vfs.v1",
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [],
+      };
+      if (this.#report.getFileAttributesA === null) {
+        this.#report.getFileAttributesA = {
+          callCount: 1,
+          firstCall: attributeCall,
+          lastCall: attributeCall,
+          pathAuthority: "rust-runtime-vfs",
+          fileExistenceAuthority: "registered-source-and-writable-manifests",
+          directoryExistence: "registered-path-ancestor-derivation",
+          hostFileSystemImported: false,
+          browserFileSystemImported: false,
+          mutation: false,
+        };
+      } else {
+        this.#report.getFileAttributesA.callCount = occurrence;
+        this.#report.getFileAttributesA.lastCall = attributeCall;
+      }
     }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
@@ -3147,7 +3209,9 @@ class BrowserRuntimeSession {
       invariant(
         (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-global-memory-status") &&
+            "kernel32-global-memory-status" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-get-file-attributes-a") &&
           sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
@@ -3185,7 +3249,8 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile === "shell32-drag-accept-files" ||
       this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
       this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
-      this.#configuration.capabilityProfile === "kernel32-global-memory-status"
+      this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
+      this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a"
     ) {
       const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
@@ -4079,7 +4144,9 @@ class BrowserRuntimeSession {
     if (
       (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-global-memory-status") &&
+          "kernel32-global-memory-status" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-get-file-attributes-a") &&
       terminal.outcome === "structured-stop"
     ) {
       const sleepZero = this.#report.sleepZero;
@@ -4093,12 +4160,24 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      this.#configuration.capabilityProfile === "kernel32-global-memory-status" &&
+      (this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
+        this.#configuration.capabilityProfile ===
+          "kernel32-get-file-attributes-a") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
         this.#report.globalMemoryStatus !== null,
         "GlobalMemoryStatus report omitted its deterministic completion",
+      );
+    }
+    if (
+      this.#configuration.capabilityProfile ===
+        "kernel32-get-file-attributes-a" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      invariant(
+        this.#report.getFileAttributesA?.callCount === 23,
+        "GetFileAttributesA report omitted a VFS path-query completion",
       );
     }
     if (this.#configuration.evidenceLevel === "full") {
@@ -4253,6 +4332,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             dragAcceptFiles: null,
             sleepZero: null,
             globalMemoryStatus: null,
+            getFileAttributesA: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

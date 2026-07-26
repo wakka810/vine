@@ -81,6 +81,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         ),
         include_str!("../../../fixtures/runtime-policies/kernel32-sleep-zero-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-global-memory-status-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();
@@ -109,6 +110,29 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
     assert_eq!(
         invalid_available.validate().unwrap_err().code,
         "kernel32-policy-memory-status-invalid"
+    );
+
+    let file_attributes: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"
+    ))
+    .unwrap();
+    let attributes = file_attributes
+        .get_file_attributes_a()
+        .expect("VFS file-attributes policy");
+    assert_eq!(attributes.regular_file_attributes, 0x20);
+    assert_eq!(attributes.directory_attributes, 0x30);
+    let mut invalid_attributes = file_attributes;
+    invalid_attributes
+        .source_files
+        .as_mut()
+        .unwrap()
+        .get_file_attributes_a
+        .as_mut()
+        .unwrap()
+        .directory_attributes = 0x10;
+    assert_eq!(
+        invalid_attributes.validate().unwrap_err().code,
+        "kernel32-policy-source-files-invalid"
     );
     let mut missing_system_info = memory_status;
     missing_system_info.system_info = None;
