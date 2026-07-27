@@ -121,9 +121,10 @@ pub use graphics::{
     RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsFrontend,
     RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateResult, RuntimeGraphicsRenderStates,
-    RuntimeGraphicsRendererAssociation, RuntimeGraphicsRendererOwnership, RuntimeGraphicsSurface,
-    RuntimeGraphicsSurfaceDescriptor, RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId,
-    RuntimeGraphicsTexture, RuntimeGraphicsTextureContent, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsRendererAssociation, RuntimeGraphicsRendererOwnership, RuntimeGraphicsScene,
+    RuntimeGraphicsSceneBeginResult, RuntimeGraphicsSurface, RuntimeGraphicsSurfaceDescriptor,
+    RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
+    RuntimeGraphicsTextureContent, RuntimeGraphicsTextureDescriptor,
     RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkResult,
     RuntimeGraphicsTextureId, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUpdate,
     RuntimeGraphicsTextureUpdateResult, RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBuffer,
@@ -134,10 +135,10 @@ pub use graphics::{
 };
 pub(crate) use graphics::{
     RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsDeviceCreateRequest,
-    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsVertexBufferCreateRequest,
-    RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
+    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureUpdateRequest,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

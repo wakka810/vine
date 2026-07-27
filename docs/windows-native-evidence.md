@@ -5410,7 +5410,7 @@ NULLは`D3D_OK`、四つのinvalid geometryは`D3DERR_INVALIDCALL 0x8876086C`で
 Goldenはlive SYSTEMMEM source relation、strict in-bounds RECT validation、NULL whole-texture semantics、
 HRESULT class、LastError preserve、zero guest writesである。Canonical Node／Chromeはsequence 127,357、
 instruction 28,761,165で同じprimary callを完了し、Rust-owned logical texture 7／COM object 22／device 3、
-whole-texture dirty state、generation 40を一致させる。Creation時点で既にwhole dirtyのため、このmarkは
+    whole-texture dirty state、generation 41を一致させる。Creation時点で既にwhole dirtyのため、このmarkは
 idempotent completionでgenerationを進めない。10 instructions後に
 `IDirect3DDevice9::UpdateTexture(source=0x01020004,destination=0x01030004)` slot 31へ停止する。Dirty-region
 consume、destination mutation、pixel storage、renderer upload、draw／Presentはこのevidenceからclaimしない。
@@ -5452,3 +5452,37 @@ generation 45、content generation 1、fill sequence 3、update sequence 1を一
 endpoint `0x010112C0`、caller return `0x1005B048`の`IDirect3DDevice9::BeginScene` slot 41である。
 Partial dirty transfer、dynamic destination、texel backing、browser upload、scene／draw／Presentはこのevidenceから
 claimしない。
+
+## 162. BGI first `BeginScene` and controlled scene lifecycle
+
+Focused primary captureを同じsource executableから独立に二回取得した。Primary raw traceは470,012
+bytes／1,171 lines／SHA-256
+`04d6a33b19276408e408478c916ac27e41565c3516bb8f5cc43136955236b150`、summaryは273,814
+bytes／SHA-256 `d3243dbdad2e54f543b1fefa6bce4080f955b102f1c21f196cffaacf45de9843`で、546 API
+pairsがbalancedである。Independent confirmation raw traceは469,761 bytes／1,174 lines／SHA-256
+`f7dd018d61e247e42f18ad315107c8755753462b697bfdf6deb3f7c2f8c90d52`、summaryは274,066
+bytes／SHA-256 `2fbd178a0cea82d37fccacb350294ca934be5b85841fd91dda6952661b157054`で、547 API
+pairsがbalancedである。両runともdiagnostics／hook errors 0、completion profileは
+`x86-bgi-first-begin-scene-v1`である。Raw trace／summaryは`.work/windows-traces/`に保持しGitへ
+追加しない。Source executableは実行前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Primary callはdevice slot 41、caller RVA `0x0005B048`、zero explicit argumentsで、両runとも
+`D3D_OK`／LastError 0を返す。直後は`test eax,eax; js`でHRESULTの符号を検査した後、first-frame
+state setupへ進む。Opaque native device pointerはrun間で異なるartifact identityでありgoldenにしない。
+
+Controlled oracle `x86-d3d9-scene-lifecycle-v1`はPE32／COFF-i386 executableである。Sourceは8,025
+bytes／SHA-256 `47e39e28ca77f7e6164e39afd3ae5448930c221aa84c7711d2e19b57230b8e77`、objectは
+8,639 bytes／SHA-256 `db268f3154fa5fd5d55763b61da9c5f768997f70a95158f3fc2b54ff73be7c34`、
+executableは5,120 bytes／SHA-256
+`092ae273c871747c88cd76fac5b476169e479ac04fad50de1ffcf30a0870c1b5`である。独立二runは
+ともにexit 0で、valid `BeginScene`／`EndScene`二cycleを`D3D_OK`、outside／repeated `EndScene`と
+nested `BeginScene`を`D3DERR_INVALIDCALL 0x8876086C`として一致させる。全七callはLastError
+sentinel 23,130 (`0x5A5A`)を保存し、device reference countは各runで1のままである。
+
+Goldenはlive device relation、inactive-to-active lifecycle、nested-begin rejection、HRESULT class、
+LastError preserve、zero guest writesである。Canonical Node／Chromeはsequence 127,359、instruction
+28,761,181、logical device 3／COM object 21、active scene sequence 1、device generation 45を一致させる。
+次stopは14 instructions後、endpoint `0x01011480`、caller return `0x1005B18A`の
+`IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69である。`EndScene`、sampler state、draw／Present、
+device loss、pixel backing、browser rendererはこのevidenceからclaimしない。

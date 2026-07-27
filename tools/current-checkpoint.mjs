@@ -170,7 +170,10 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const d3d9BeginSceneActive =
+    root.activeRuntimeCheckpoint?.profile === "d3d9-begin-scene";
   const d3d9UpdateTextureActive =
+    d3d9BeginSceneActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-update-texture";
   const d3d9AddDirtyRectActive =
     d3d9UpdateTextureActive ||
@@ -430,7 +433,24 @@ export function validateCurrentCheckpoint(manifest) {
               : mainLoopContinuationActive
                 ? "2,3,4,5,6,7,8"
                 : "2,3,4";
-  const profileExpectations = d3d9UpdateTextureActive
+  const profileExpectations = d3d9BeginSceneActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_769,
+        browserMappingDirtyPages: 109_858,
+        browserSuccessExecutionTransitions: 416_529,
+        latestSchema: "vine.v86-bgi-d3d9-begin-scene",
+        latestWritebackBatches: 127_457,
+        latestWritebackDirtyPages: 175_979,
+        latestWritebackChangedBytes: 6_619_810,
+        latestHostDeltaBatches: 106_769,
+        latestFinalMemoryGeneration: 235_509,
+        semanticCallDigestSha256:
+          "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
+        memoryContentSha256:
+          "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
+      }
+    : d3d9UpdateTextureActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_769,
@@ -1136,9 +1156,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v32") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v33") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v32",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v33",
     );
   }
   if (
@@ -2843,7 +2863,7 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9RecreatedTextureFillRect?.join(",") !==
         "0,0,1280,720" ||
       bgiBrowserEvidence.d3d9RecreatedTextureCompatibilityPolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       bgiBrowserEvidence.d3d9RecreatedTextureCreateProfileId !==
         "primary-initial-and-recreated-x8r8g8b8-textures-v2" ||
       bgiBrowserEvidence.d3d9RecreatedTextureGetSurfaceLevelProfileId !==
@@ -3025,7 +3045,7 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9ClearDeviceReferenceCount !== 5 ||
       bgiBrowserEvidence.d3d9ClearDeviceObjectRetired !== false ||
       bgiBrowserEvidence.d3d9ClearCompatibilityPolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       bgiBrowserEvidence.d3d9ClearProfileId !==
         "primary-full-render-target-black-v1" ||
       bgiBrowserEvidence.d3d9ClearTargetAuthority !==
@@ -3098,7 +3118,7 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9AddDirtyRectTextureReferenceCount !== 1 ||
       bgiBrowserEvidence.d3d9AddDirtyRectTextureObjectRetired !== false ||
       bgiBrowserEvidence.d3d9AddDirtyRectCompatibilityPolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       bgiBrowserEvidence.d3d9AddDirtyRectProfileId !==
         "primary-recreated-system-memory-texture-dirty-rect-v1" ||
       bgiBrowserEvidence.d3d9AddDirtyRectTextureAuthority !==
@@ -3144,7 +3164,7 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9UpdateTextureDeviceReferenceCount !== 5 ||
       bgiBrowserEvidence.d3d9UpdateTextureDeviceObjectRetired !== false ||
       bgiBrowserEvidence.d3d9UpdateTextureCompatibilityPolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       bgiBrowserEvidence.d3d9UpdateTextureProfileId !==
         "primary-recreated-system-memory-to-static-default-texture-update-v1" ||
       bgiBrowserEvidence.d3d9UpdateTextureContentAuthority !==
@@ -3183,6 +3203,46 @@ export function validateCurrentCheckpoint(manifest) {
         true)
   ) {
     errors.push("browser BGI D3D9 UpdateTexture evidence is invalid");
+  }
+  if (
+    d3d9BeginSceneActive &&
+    (bgiBrowserEvidence.d3d9BeginSceneCompletions !== 1 ||
+      bgiBrowserEvidence.d3d9BeginSceneSequence !== 127_359 ||
+      bgiBrowserEvidence.d3d9BeginSceneInstructionCount !== 28_761_181 ||
+      bgiBrowserEvidence.d3d9BeginSceneArguments?.join(",") !== "0x01010004" ||
+      bgiBrowserEvidence.d3d9BeginSceneResult !== "0x00000000" ||
+      bgiBrowserEvidence.d3d9BeginSceneReturnAddress !== "0x1005b048" ||
+      bgiBrowserEvidence.d3d9BeginSceneStackPointers?.join(",") !==
+        "0x006ff260,0x006ff268" ||
+      bgiBrowserEvidence.d3d9BeginSceneGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.d3d9BeginSceneDeviceReferenceCount !== 5 ||
+      bgiBrowserEvidence.d3d9BeginSceneDeviceObjectRetired !== false ||
+      bgiBrowserEvidence.d3d9BeginSceneCompatibilityPolicyId !==
+        "d3d9-primary-virtual-adapter-v21" ||
+      bgiBrowserEvidence.d3d9BeginSceneProfileId !==
+        "primary-first-frame-scene-begin-v1" ||
+      bgiBrowserEvidence.d3d9BeginSceneAuthority !==
+        "rust-runtime-graphics-logical-device" ||
+      bgiBrowserEvidence.d3d9BeginSceneLifecycle !== "inactive-to-active" ||
+      bgiBrowserEvidence.d3d9BeginSceneMutation !==
+        "validate-plan-preflight-targeted-commit" ||
+      bgiBrowserEvidence.d3d9BeginSceneFailureAtomicity !== true ||
+      bgiBrowserEvidence.d3d9BeginSceneLogicalGraphicsDeviceId !== 3 ||
+      bgiBrowserEvidence.d3d9BeginSceneLogicalGraphicsDeviceNamespace !==
+        "vine.logical-graphics-device.v1" ||
+      bgiBrowserEvidence.d3d9BeginSceneLogicalGraphicsComObjectId !== "21" ||
+      bgiBrowserEvidence.d3d9BeginScenePresentationGeometry?.join(",") !==
+        "1280,720" ||
+      bgiBrowserEvidence.d3d9BeginSceneBackBufferContentGeneration !== 1 ||
+      bgiBrowserEvidence.d3d9BeginSceneBackBufferClearSequence !== 1 ||
+      bgiBrowserEvidence.d3d9BeginSceneActiveSceneSequence !== 1 ||
+      bgiBrowserEvidence.d3d9BeginSceneLogicalGraphicsDeviceGeneration !== 45 ||
+      bgiBrowserEvidence.d3d9BeginSceneNestedBeginReturnsInvalidCall !== true ||
+      bgiBrowserEvidence.d3d9BeginSceneEndSceneImplemented !== false ||
+      bgiBrowserEvidence.d3d9BeginSceneBrowserRendererResourceCreated !== false ||
+      bgiBrowserEvidence.d3d9BeginSceneNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("browser BGI D3D9 BeginScene evidence is invalid");
   }
   if (
     bgiBrowserEvidence.setWaitableTimerCompletions !== timerArmCount ||
@@ -6741,9 +6801,91 @@ export function validateCurrentCheckpoint(manifest) {
       errors,
     );
   }
+  const d3d9BeginScene = requireRecord(
+    d3d9.beginScene,
+    "activeRuntimeCheckpoint.d3d9Frontend.beginScene",
+    errors,
+  );
+  const d3d9NativeBeginScene = requireRecord(
+    d3d9.nativeBeginSceneEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeBeginSceneEvidence",
+    errors,
+  );
+  const d3d9PrivateBeginScene = requireRecord(
+    d3d9.privateRuntimeBeginSceneEvidence,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeBeginSceneEvidence",
+    errors,
+  );
+  const d3d9NativeBeginSceneArguments = requireOrderedStringArray(
+    d3d9NativeBeginScene.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeBeginSceneEvidence.arguments",
+    errors,
+  );
+  const d3d9NativeBeginSceneOracleExitCodes = requireOrderedIntegerArray(
+    d3d9NativeBeginScene.oracleExitCodes,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeBeginSceneEvidence.oracleExitCodes",
+    errors,
+  );
+  const d3d9NativeBeginSceneOracleDeviceReferenceCounts =
+    requireOrderedIntegerArray(
+      d3d9NativeBeginScene.oracleDeviceReferenceCounts,
+      "activeRuntimeCheckpoint.d3d9Frontend.nativeBeginSceneEvidence.oracleDeviceReferenceCounts",
+      errors,
+    );
+  const d3d9PrivateBeginSceneArguments = requireOrderedStringArray(
+    d3d9PrivateBeginScene.arguments,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeBeginSceneEvidence.arguments",
+    errors,
+  );
+  const d3d9PrivateBeginSceneStackPointers = requireOrderedStringArray(
+    d3d9PrivateBeginScene.stackPointers,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeBeginSceneEvidence.stackPointers",
+    errors,
+  );
+  const d3d9PrivateBeginScenePresentationGeometry = requireOrderedIntegerArray(
+    d3d9PrivateBeginScene.presentationGeometry,
+    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeBeginSceneEvidence.presentationGeometry",
+    errors,
+  );
+  for (const [value, label] of [
+    [
+      d3d9NativeBeginScene.primaryTraceSha256,
+      "nativeBeginSceneEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeBeginScene.primarySummarySha256,
+      "nativeBeginSceneEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativeBeginScene.confirmationTraceSha256,
+      "nativeBeginSceneEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativeBeginScene.confirmationSummarySha256,
+      "nativeBeginSceneEvidence.confirmationSummarySha256",
+    ],
+    [
+      d3d9NativeBeginScene.oracleSourceSha256,
+      "nativeBeginSceneEvidence.oracleSourceSha256",
+    ],
+    [
+      d3d9NativeBeginScene.oracleObjectSha256,
+      "nativeBeginSceneEvidence.oracleObjectSha256",
+    ],
+    [
+      d3d9NativeBeginScene.oracleExecutableSha256,
+      "nativeBeginSceneEvidence.oracleExecutableSha256",
+    ],
+  ]) {
+    requireSha256(
+      value,
+      `activeRuntimeCheckpoint.d3d9Frontend.${label}`,
+      errors,
+    );
+  }
   if (
     d3d9.schema !== "vine.d3d9-frontend.v1" ||
-    d3d9.status !== "texture-logical-content-transfer-band-verified" ||
+    d3d9.status !== "device-scene-lifecycle-band-verified" ||
     d3d9.stateOwner !== "crates/vine-core/src/d3d9.rs" ||
     d3d9.comAuthority !== "runtime/com.rs::RuntimeCom" ||
     d3d9.sdkVersion !== 32 ||
@@ -6765,8 +6907,8 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 20 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v20" ||
+    d3d9CompatibilityPolicy.schemaVersion !== 21 ||
+    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v21" ||
     d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9CompatibilityPolicy.surfaceDcProfileId !==
@@ -6779,6 +6921,8 @@ export function validateCurrentCheckpoint(manifest) {
       "primary-recreated-system-memory-texture-dirty-rect-v1" ||
     d3d9CompatibilityPolicy.updateTextureProfileId !==
       "primary-recreated-system-memory-to-static-default-texture-update-v1" ||
+    d3d9CompatibilityPolicy.beginSceneProfileId !==
+      "primary-first-frame-scene-begin-v1" ||
     d3d9AdapterCount.slot !== 4 ||
     d3d9AdapterCount.explicitArgumentWords !== 0 ||
     d3d9AdapterCount.returnKind !== "u32" ||
@@ -8337,7 +8481,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateAddDirtyRect.browserRendererResourceCreated !== false ||
     d3d9PrivateAddDirtyRect.nodeChromeOrderedSemanticsMatched !== true ||
     d3d9.sharedGraphicsBoundary !==
-      "RuntimeGraphics-owned-logical-device-texture-content-dirty-region-update-surface-view-vertex-buffer-render-state-and-back-buffer-content-at-D3D9-gateways" ||
+      "RuntimeGraphics-owned-logical-device-texture-content-dirty-region-update-scene-lifecycle-surface-view-vertex-buffer-render-state-and-back-buffer-content-at-D3D9-gateways" ||
     d3d9.runtimeGraphicsCreated !== true ||
     d3d9.runtimeTextureCreated !== true ||
     d3d9.runtimeSurfaceCreated !== true ||
@@ -8347,6 +8491,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.runtimeBackBufferCleared !== true ||
     d3d9.runtimeTextureDirtyRegionTracked !== true ||
     d3d9.runtimeTextureContentUpdated !== true ||
+    d3d9.runtimeSceneBegan !== true ||
     d3d9.rendererResourceCreated !== false ||
     d3d9.d3d8Implemented !== false ||
     d3d9.d3d10Or11Implemented !== false ||
@@ -8451,6 +8596,99 @@ export function validateCurrentCheckpoint(manifest) {
     errors.push("active D3D9 UpdateTexture boundary is invalid");
   }
   if (
+    d3d9BeginScene.slot !== 41 ||
+    d3d9BeginScene.explicitArgumentWords !== 0 ||
+    d3d9BeginScene.returnKind !== "h-result" ||
+    d3d9BeginScene.profileId !== "primary-first-frame-scene-begin-v1" ||
+    d3d9BeginScene.sceneAuthority !==
+      "runtime/graphics.rs::RuntimeGraphicsDevice" ||
+    d3d9BeginScene.lifecycle !== "inactive-to-active" ||
+    d3d9BeginScene.validResult !== "0x00000000" ||
+    d3d9BeginScene.invalidResult !== "0x8876086c" ||
+    d3d9BeginScene.mutation !==
+      "validate-plan-preflight-targeted-commit" ||
+    d3d9BeginScene.failureAtomicity !== true ||
+    d3d9BeginScene.lastErrorPolicy !== "preserve" ||
+    d3d9BeginScene.guestWriteBytes !== 0 ||
+    d3d9BeginScene.nestedBeginReturnsInvalidCall !== true ||
+    d3d9BeginScene.endSceneImplemented !== false ||
+    d3d9BeginScene.browserRendererCreated !== false ||
+    d3d9NativeBeginScene.traceSchema !== "vine.win32-trace.v2" ||
+    d3d9NativeBeginScene.profileId !== "x86-bgi-first-begin-scene-v1" ||
+    d3d9NativeBeginScene.oracleProfileId !==
+      "x86-d3d9-scene-lifecycle-v1" ||
+    d3d9NativeBeginScene.primaryTraceBytes !== 470_012 ||
+    d3d9NativeBeginScene.primaryTraceLines !== 1_171 ||
+    d3d9NativeBeginScene.primaryTraceSha256 !==
+      "04d6a33b19276408e408478c916ac27e41565c3516bb8f5cc43136955236b150" ||
+    d3d9NativeBeginScene.primaryBalancedApiPairs !== 546 ||
+    d3d9NativeBeginScene.primarySummaryBytes !== 273_814 ||
+    d3d9NativeBeginScene.primarySummarySha256 !==
+      "d3243dbdad2e54f543b1fefa6bce4080f955b102f1c21f196cffaacf45de9843" ||
+    d3d9NativeBeginScene.confirmationTraceBytes !== 469_761 ||
+    d3d9NativeBeginScene.confirmationTraceLines !== 1_174 ||
+    d3d9NativeBeginScene.confirmationTraceSha256 !==
+      "f7dd018d61e247e42f18ad315107c8755753462b697bfdf6deb3f7c2f8c90d52" ||
+    d3d9NativeBeginScene.confirmationBalancedApiPairs !== 547 ||
+    d3d9NativeBeginScene.confirmationSummaryBytes !== 274_066 ||
+    d3d9NativeBeginScene.confirmationSummarySha256 !==
+      "2fbd178a0cea82d37fccacb350294ca934be5b85841fd91dda6952661b157054" ||
+    d3d9NativeBeginScene.diagnostics !== 0 ||
+    d3d9NativeBeginScene.callerRva !== "0x0005b048" ||
+    d3d9NativeBeginSceneArguments.length !== 0 ||
+    d3d9NativeBeginScene.result !== "0x00000000" ||
+    d3d9NativeBeginScene.lastErrorBefore !== 0 ||
+    d3d9NativeBeginScene.lastErrorAfter !== 0 ||
+    d3d9NativeBeginScene.immediateConsumer !==
+      "hresult-sign-test-then-first-frame-state-setup" ||
+    d3d9NativeBeginScene.oracleArchitecture !== "coff-i386-pe32" ||
+    d3d9NativeBeginScene.oracleSourceBytes !== 8_025 ||
+    d3d9NativeBeginScene.oracleSourceSha256 !==
+      "47e39e28ca77f7e6164e39afd3ae5448930c221aa84c7711d2e19b57230b8e77" ||
+    d3d9NativeBeginScene.oracleObjectBytes !== 8_639 ||
+    d3d9NativeBeginScene.oracleObjectSha256 !==
+      "db268f3154fa5fd5d55763b61da9c5f768997f70a95158f3fc2b54ff73be7c34" ||
+    d3d9NativeBeginScene.oracleExecutableBytes !== 5_120 ||
+    d3d9NativeBeginScene.oracleExecutableSha256 !==
+      "092ae273c871747c88cd76fac5b476169e479ac04fad50de1ffcf30a0870c1b5" ||
+    d3d9NativeBeginScene.oracleRuns !== 2 ||
+    d3d9NativeBeginSceneOracleExitCodes.join(",") !== "0,0" ||
+    d3d9NativeBeginScene.oracleLastErrorSentinel !== 23_130 ||
+    d3d9NativeBeginScene.oracleLastErrorPreserved !== true ||
+    d3d9NativeBeginScene.oracleBeginFirstResult !== "0x00000000" ||
+    d3d9NativeBeginScene.oracleBeginNestedResult !== "0x8876086c" ||
+    d3d9NativeBeginScene.oracleEndFirstResult !== "0x00000000" ||
+    d3d9NativeBeginScene.oracleEndOutsideResult !== "0x8876086c" ||
+    d3d9NativeBeginScene.oracleEndRepeatedResult !== "0x8876086c" ||
+    d3d9NativeBeginScene.oracleSecondCycleSucceeded !== true ||
+    d3d9NativeBeginSceneOracleDeviceReferenceCounts.join(",") !== "1,1" ||
+    d3d9NativeBeginScene.sourceExecutableHashUnchanged !== true ||
+    d3d9PrivateBeginScene.nodeSequence !== 127_359 ||
+    d3d9PrivateBeginScene.nodeInstructionCount !== 28_761_181 ||
+    d3d9PrivateBeginScene.chromeSequence !== 127_359 ||
+    d3d9PrivateBeginSceneArguments.join(",") !== "0x01010004" ||
+    d3d9PrivateBeginScene.returnAddress !== "0x1005b048" ||
+    d3d9PrivateBeginSceneStackPointers.join(",") !==
+      "0x006ff260,0x006ff268" ||
+    d3d9PrivateBeginScene.result !== "0x00000000" ||
+    d3d9PrivateBeginScene.guestWriteBytes !== 0 ||
+    d3d9PrivateBeginScene.deviceReferenceCount !== 5 ||
+    d3d9PrivateBeginScene.deviceObjectRetired !== false ||
+    d3d9PrivateBeginScene.logicalGraphicsDeviceId !== 3 ||
+    d3d9PrivateBeginScene.logicalGraphicsDeviceNamespace !==
+      "vine.logical-graphics-device.v1" ||
+    d3d9PrivateBeginScene.logicalGraphicsComObjectId !== "21" ||
+    d3d9PrivateBeginScenePresentationGeometry.join(",") !== "1280,720" ||
+    d3d9PrivateBeginScene.backBufferContentGeneration !== 1 ||
+    d3d9PrivateBeginScene.backBufferClearSequence !== 1 ||
+    d3d9PrivateBeginScene.activeSceneSequence !== 1 ||
+    d3d9PrivateBeginScene.logicalGraphicsDeviceGeneration !== 45 ||
+    d3d9PrivateBeginScene.browserRendererResourceCreated !== false ||
+    d3d9PrivateBeginScene.nodeChromeOrderedSemanticsMatched !== true
+  ) {
+    errors.push("active D3D9 BeginScene boundary is invalid");
+  }
+  if (
     d3d9NativeRecreatedTextures.traceSchema !== "vine.win32-trace.v2" ||
     d3d9NativeRecreatedTextures.profileId !== "x86-bgi-recreated-textures-v1" ||
     d3d9NativeRecreatedTextures.primaryTraceBytes !== 520_239 ||
@@ -8551,7 +8789,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateRecreatedTextureSurfaceGeometry.join(",") !== "2048,1024" ||
     d3d9PrivateRecreatedTextureFillRect.join(",") !== "0,0,1280,720" ||
     d3d9PrivateRecreatedTextures.compatibilityPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     d3d9PrivateRecreatedTextures.createTextureProfileId !==
       "primary-initial-and-recreated-x8r8g8b8-textures-v2" ||
     d3d9PrivateRecreatedTextures.getSurfaceLevelProfileId !==
@@ -11791,9 +12029,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterCountGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterCountPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetAdapterCountPolicyVersion !== 21 ||
     latestEvidence.d3d9GetAdapterCountPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetAdapterCountProfileId !==
       "single-logical-adapter-v1" ||
     latestEvidence.d3d9GetAdapterCountDisplayProfileId !==
@@ -11884,9 +12122,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterMonitorGuestWriteBytes !== 0 ||
     latestEvidence.d3d9GetAdapterMonitorPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetAdapterMonitorPolicyVersion !== 21 ||
     latestEvidence.d3d9GetAdapterMonitorPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetAdapterMonitorProfileId !==
       "primary-adapter-monitor-v1" ||
     latestEvidence.d3d9GetAdapterMonitorDisplayProfileId !==
@@ -12008,9 +12246,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterDisplayModeFormat !== 22 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 20 ||
+    latestEvidence.d3d9GetAdapterDisplayModePolicyVersion !== 21 ||
     latestEvidence.d3d9GetAdapterDisplayModePolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetAdapterDisplayModeProfileId !==
       "primary-adapter-1920x1080-60-x8r8g8b8-v1" ||
     latestEvidence.d3d9GetAdapterDisplayModeDisplayProfileId !==
@@ -12107,9 +12345,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetAdapterIdentifierWhqlLevel !== 0 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetAdapterIdentifierPolicyVersion !== 21 ||
     latestEvidence.d3d9GetAdapterIdentifierPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetAdapterIdentifierProfileId !==
       "primary-virtual-adapter-identifier-v1" ||
     latestEvidence.d3d9GetAdapterIdentifierDisplayProfileId !==
@@ -12215,9 +12453,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetDeviceCapsOtherFieldsZero !== true ||
     latestEvidence.d3d9GetDeviceCapsPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetDeviceCapsPolicyVersion !== 21 ||
     latestEvidence.d3d9GetDeviceCapsPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetDeviceCapsProfileId !==
       "primary-hal-readscanline-dynamic-textures-ps3-v1" ||
     latestEvidence.d3d9GetDeviceCapsDisplayProfileId !==
@@ -12341,9 +12579,9 @@ export function validateCurrentCheckpoint(manifest) {
       "zero-fullscreen-nonzero-windowed" ||
     latestEvidence.d3d9CheckDeviceTypePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 20 ||
+    latestEvidence.d3d9CheckDeviceTypePolicyVersion !== 21 ||
     latestEvidence.d3d9CheckDeviceTypePolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9CheckDeviceTypeProfileId !==
       "primary-hal-x8r8g8b8-windowed-fullscreen-v1" ||
     latestEvidence.d3d9CheckDeviceTypeDisplayProfileId !==
@@ -12450,9 +12688,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CheckDeviceFormatNotAvailableResult !== "0x8876086a" ||
     latestEvidence.d3d9CheckDeviceFormatPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 20 ||
+    latestEvidence.d3d9CheckDeviceFormatPolicyVersion !== 21 ||
     latestEvidence.d3d9CheckDeviceFormatPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9CheckDeviceFormatProfileId !==
       "primary-hal-x8r8g8b8-texture-basic-dynamic-v1" ||
     latestEvidence.d3d9CheckDeviceFormatDisplayProfileId !==
@@ -12549,9 +12787,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateDeviceOutputPointer !== "0x01010004" ||
     latestEvidence.d3d9CreateDevicePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateDevicePolicyVersion !== 20 ||
+    latestEvidence.d3d9CreateDevicePolicyVersion !== 21 ||
     latestEvidence.d3d9CreateDevicePolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9CreateDeviceProfileId !==
       "primary-windowed-hal-device-v1" ||
     latestEvidence.d3d9CreateDeviceDisplayProfileId !==
@@ -12700,9 +12938,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9CreateTextureOutputPointer !== "0x01020004" ||
     latestEvidence.d3d9CreateTexturePolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9CreateTexturePolicyVersion !== 20 ||
+    latestEvidence.d3d9CreateTexturePolicyVersion !== 21 ||
     latestEvidence.d3d9CreateTexturePolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9CreateTextureProfileId !==
       "primary-initial-and-recreated-x8r8g8b8-textures-v2" ||
     latestEvidence.d3d9CreateTextureGraphicsAuthority !==
@@ -12876,9 +13114,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetRasterStatusObjectRetired !== false ||
     latestEvidence.d3d9GetRasterStatusPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetRasterStatusPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetRasterStatusPolicyVersion !== 21 ||
     latestEvidence.d3d9GetRasterStatusPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetRasterStatusProfileId !==
       "primary-stable-nonblank-scanline-v1" ||
     latestEvidence.d3d9GetRasterStatusDisplayProfileId !==
@@ -15275,9 +15513,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9GetSurfaceLevelOutputPointer !== "0x01030004" ||
     latestEvidence.d3d9GetSurfaceLevelPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 20 ||
+    latestEvidence.d3d9GetSurfaceLevelPolicyVersion !== 21 ||
     latestEvidence.d3d9GetSurfaceLevelPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9GetSurfaceLevelProfileId !==
       "primary-system-memory-texture-level-zero-surfaces-v2" ||
     latestEvidence.d3d9GetSurfaceLevelGraphicsAuthority !==
@@ -15652,9 +15890,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.d3d9SurfaceDcImplemented !== true ||
     latestEvidence.d3d9SurfaceDcPolicySchema !==
       "vine.d3d9-compatibility-policy" ||
-    latestEvidence.d3d9SurfaceDcPolicyVersion !== 20 ||
+    latestEvidence.d3d9SurfaceDcPolicyVersion !== 21 ||
     latestEvidence.d3d9SurfaceDcPolicyId !==
-      "d3d9-primary-virtual-adapter-v20" ||
+      "d3d9-primary-virtual-adapter-v21" ||
     latestEvidence.d3d9SurfaceDcFailureAtomicity !== true ||
     latestEvidence.d3d9SurfaceDcBrowserOwnsWindowsOrGraphicsState !== false
   ) {
@@ -16696,9 +16934,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9ClearImplemented !== true ||
       latestEvidence.d3d9ClearPolicySchema !==
         "vine.d3d9-compatibility-policy" ||
-      latestEvidence.d3d9ClearPolicyVersion !== 20 ||
+      latestEvidence.d3d9ClearPolicyVersion !== 21 ||
       latestEvidence.d3d9ClearPolicyId !==
-        "d3d9-primary-virtual-adapter-v20"
+        "d3d9-primary-virtual-adapter-v21"
     ) {
       errors.push("latest native and private D3D9 Clear evidence is invalid");
     }
@@ -16840,9 +17078,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9AddDirtyRectGuestWriteBytes !== 0 ||
       latestEvidence.d3d9AddDirtyRectTextureReferenceCount !== 1 ||
       latestEvidence.d3d9AddDirtyRectTextureObjectRetired !== false ||
-      latestEvidence.d3d9AddDirtyRectPolicyVersion !== 20 ||
+      latestEvidence.d3d9AddDirtyRectPolicyVersion !== 21 ||
       latestEvidence.d3d9AddDirtyRectPolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       latestEvidence.d3d9AddDirtyRectProfileId !==
         "primary-recreated-system-memory-texture-dirty-rect-v1" ||
       latestEvidence.d3d9AddDirtyRectTextureAuthority !==
@@ -16940,9 +17178,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9UpdateTextureGuestWriteBytes !== 0 ||
       latestEvidence.d3d9UpdateTextureDeviceReferenceCount !== 5 ||
       latestEvidence.d3d9UpdateTextureDeviceObjectRetired !== false ||
-      latestEvidence.d3d9UpdateTexturePolicyVersion !== 20 ||
+      latestEvidence.d3d9UpdateTexturePolicyVersion !== 21 ||
       latestEvidence.d3d9UpdateTexturePolicyId !==
-        "d3d9-primary-virtual-adapter-v20" ||
+        "d3d9-primary-virtual-adapter-v21" ||
       latestEvidence.d3d9UpdateTextureProfileId !==
         "primary-recreated-system-memory-to-static-default-texture-update-v1" ||
       latestEvidence.d3d9UpdateTextureContentAuthority !==
@@ -16980,6 +17218,119 @@ export function validateCurrentCheckpoint(manifest) {
     ) {
       errors.push(
         "latest native and private D3D9 UpdateTexture evidence is invalid",
+      );
+    }
+  }
+  if (d3d9BeginSceneActive) {
+    for (const field of [
+      "nativeBeginScenePrimaryTraceSha256",
+      "nativeBeginScenePrimarySummarySha256",
+      "nativeBeginSceneConfirmationTraceSha256",
+      "nativeBeginSceneConfirmationSummarySha256",
+      "nativeBeginSceneOracleSourceSha256",
+      "nativeBeginSceneOracleObjectSha256",
+      "nativeBeginSceneOracleExecutableSha256",
+    ]) {
+      requireSha256(
+        latestEvidence[field],
+        `activeRuntimeCheckpoint.latestEvidence.${field}`,
+        errors,
+      );
+    }
+    if (
+      latestEvidence.nativeBeginSceneProfileId !==
+        "x86-bgi-first-begin-scene-v1" ||
+      latestEvidence.nativeBeginSceneOracleProfileId !==
+        "x86-d3d9-scene-lifecycle-v1" ||
+      latestEvidence.nativeBeginScenePrimaryTraceBytes !== 470_012 ||
+      latestEvidence.nativeBeginScenePrimaryTraceLines !== 1_171 ||
+      latestEvidence.nativeBeginScenePrimaryTraceSha256 !==
+        "04d6a33b19276408e408478c916ac27e41565c3516bb8f5cc43136955236b150" ||
+      latestEvidence.nativeBeginScenePrimarySummaryBytes !== 273_814 ||
+      latestEvidence.nativeBeginScenePrimarySummarySha256 !==
+        "d3243dbdad2e54f543b1fefa6bce4080f955b102f1c21f196cffaacf45de9843" ||
+      latestEvidence.nativeBeginScenePrimaryBalancedApiPairs !== 546 ||
+      latestEvidence.nativeBeginSceneConfirmationTraceBytes !== 469_761 ||
+      latestEvidence.nativeBeginSceneConfirmationTraceLines !== 1_174 ||
+      latestEvidence.nativeBeginSceneConfirmationTraceSha256 !==
+        "f7dd018d61e247e42f18ad315107c8755753462b697bfdf6deb3f7c2f8c90d52" ||
+      latestEvidence.nativeBeginSceneConfirmationSummaryBytes !== 274_066 ||
+      latestEvidence.nativeBeginSceneConfirmationSummarySha256 !==
+        "2fbd178a0cea82d37fccacb350294ca934be5b85841fd91dda6952661b157054" ||
+      latestEvidence.nativeBeginSceneConfirmationBalancedApiPairs !== 547 ||
+      latestEvidence.nativeBeginSceneTraceDiagnostics !== 0 ||
+      latestEvidence.nativeBeginSceneCallerRva !== "0x0005b048" ||
+      latestEvidence.nativeBeginSceneArguments?.length !== 0 ||
+      latestEvidence.nativeBeginSceneResult !== "0x00000000" ||
+      latestEvidence.nativeBeginSceneLastErrorBefore !== 0 ||
+      latestEvidence.nativeBeginSceneLastErrorAfter !== 0 ||
+      latestEvidence.nativeBeginSceneImmediateConsumer !==
+        "hresult-sign-test-then-first-frame-state-setup" ||
+      latestEvidence.nativeBeginSceneOracleArchitecture !== "coff-i386-pe32" ||
+      latestEvidence.nativeBeginSceneOracleSourceBytes !== 8_025 ||
+      latestEvidence.nativeBeginSceneOracleSourceSha256 !==
+        "47e39e28ca77f7e6164e39afd3ae5448930c221aa84c7711d2e19b57230b8e77" ||
+      latestEvidence.nativeBeginSceneOracleObjectBytes !== 8_639 ||
+      latestEvidence.nativeBeginSceneOracleObjectSha256 !==
+        "db268f3154fa5fd5d55763b61da9c5f768997f70a95158f3fc2b54ff73be7c34" ||
+      latestEvidence.nativeBeginSceneOracleExecutableBytes !== 5_120 ||
+      latestEvidence.nativeBeginSceneOracleExecutableSha256 !==
+        "092ae273c871747c88cd76fac5b476169e479ac04fad50de1ffcf30a0870c1b5" ||
+      latestEvidence.nativeBeginSceneOracleRuns !== 2 ||
+      latestEvidence.nativeBeginSceneOracleExitCodes?.join(",") !== "0,0" ||
+      latestEvidence.nativeBeginSceneOracleLastErrorSentinel !== 23_130 ||
+      latestEvidence.nativeBeginSceneOracleLastErrorPreserved !== true ||
+      latestEvidence.nativeBeginSceneOracleBeginFirstResult !== "0x00000000" ||
+      latestEvidence.nativeBeginSceneOracleBeginNestedResult !== "0x8876086c" ||
+      latestEvidence.nativeBeginSceneOracleEndFirstResult !== "0x00000000" ||
+      latestEvidence.nativeBeginSceneOracleEndOutsideResult !== "0x8876086c" ||
+      latestEvidence.nativeBeginSceneOracleEndRepeatedResult !== "0x8876086c" ||
+      latestEvidence.nativeBeginSceneOracleSecondCycleSucceeded !== true ||
+      latestEvidence.nativeBeginSceneOracleDeviceReferenceCounts?.join(",") !==
+        "1,1" ||
+      latestEvidence.nativeBeginSceneExecutableHashUnchanged !== true ||
+      latestEvidence.d3d9BeginSceneImplemented !== true ||
+      latestEvidence.d3d9BeginSceneSequence !== 127_359 ||
+      latestEvidence.d3d9BeginSceneInstructionCount !== 28_761_181 ||
+      latestEvidence.d3d9BeginSceneArguments?.join(",") !== "0x01010004" ||
+      latestEvidence.d3d9BeginSceneReturnAddress !== "0x1005b048" ||
+      latestEvidence.d3d9BeginSceneStackPointers?.join(",") !==
+        "0x006ff260,0x006ff268" ||
+      latestEvidence.d3d9BeginSceneResult !== "0x00000000" ||
+      latestEvidence.d3d9BeginSceneGuestWriteBytes !== 0 ||
+      latestEvidence.d3d9BeginSceneDeviceReferenceCount !== 5 ||
+      latestEvidence.d3d9BeginSceneDeviceObjectRetired !== false ||
+      latestEvidence.d3d9BeginScenePolicyVersion !== 21 ||
+      latestEvidence.d3d9BeginScenePolicyId !==
+        "d3d9-primary-virtual-adapter-v21" ||
+      latestEvidence.d3d9BeginSceneProfileId !==
+        "primary-first-frame-scene-begin-v1" ||
+      latestEvidence.d3d9BeginSceneAuthority !==
+        "rust-runtime-graphics-logical-device" ||
+      latestEvidence.d3d9BeginSceneLifecycle !== "inactive-to-active" ||
+      latestEvidence.d3d9BeginSceneMutation !==
+        "validate-plan-preflight-targeted-commit" ||
+      latestEvidence.d3d9BeginSceneLogicalGraphicsDeviceId !== 3 ||
+      latestEvidence.d3d9BeginSceneLogicalGraphicsDeviceNamespace !==
+        "vine.logical-graphics-device.v1" ||
+      latestEvidence.d3d9BeginSceneLogicalGraphicsComObjectId !== "21" ||
+      latestEvidence.d3d9BeginScenePresentationGeometry?.join(",") !==
+        "1280,720" ||
+      latestEvidence.d3d9BeginSceneBackBufferContentGeneration !== 1 ||
+      latestEvidence.d3d9BeginSceneBackBufferClearSequence !== 1 ||
+      latestEvidence.d3d9BeginSceneActiveSceneSequence !== 1 ||
+      latestEvidence.d3d9BeginSceneLogicalGraphicsDeviceGeneration !== 45 ||
+      latestEvidence.d3d9BeginSceneNestedBeginReturnsInvalidCall !== true ||
+      latestEvidence.d3d9BeginSceneFailureAtomicity !== true ||
+      latestEvidence.d3d9BeginSceneEndSceneImplemented !== false ||
+      latestEvidence.d3d9BeginSceneBrowserOwnsGraphicsState !== false ||
+      latestEvidence.d3d9BeginSceneBrowserRendererResourceCreated !== false ||
+      latestEvidence.d3d9BeginSceneNodeCompletions !== 1 ||
+      latestEvidence.d3d9BeginSceneChromeCompletions !== 1 ||
+      latestEvidence.d3d9BeginSceneNodeChromeOrderedSemanticsMatched !== true
+    ) {
+      errors.push(
+        "latest native and private D3D9 BeginScene evidence is invalid",
       );
     }
   }

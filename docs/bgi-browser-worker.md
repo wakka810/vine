@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-update-texture` and uses protocol
-`vine.browser-runtime-worker.v32`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-begin-scene` and uses protocol
+`vine.browser-runtime-worker.v33`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -148,8 +148,15 @@ TypeScript records them without creating texel storage or renderer state. Node a
 on sequence 127,358, instruction 28,761,175, source texture 7／COM 22 at generation 42,
 destination texture 8／COM 24 at generation 45, content generation 1, fill sequence 3 over
 `[0,0,1280,720]`, update sequence 1, clean source, zero guest writes, and no renderer resource.
-Both stop six instructions later at `IDirect3DDevice9::BeginScene` slot 41, endpoint
-`0x010112C0`, return address `0x1005B048`.
+Both continue six instructions later through `IDirect3DDevice9::BeginScene` slot 41.
+Rust validates the live device and inactive scene, preflights the next scene sequence and
+generation, then commits a single inactive-to-active transition. Protocol version 33 adds
+the authoritative logical-device scene snapshot and lifecycle policy. Node and Chrome agree
+on sequence 127,359, instruction 28,761,181, device 3／COM 21, reference count 5,
+`1280x720` presentation, black-clear content generation 1, active scene sequence 1,
+device generation 45, zero guest writes, and no renderer resource. Both stop fourteen
+instructions later at `IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69, endpoint
+`0x01011480`, return address `0x1005B18A`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -191,4 +198,6 @@ fingerprint before and after execution.
 - The reached AddDirtyRect stores only a bounded Rust-owned dirty region. The following
   UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
   not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
-  dynamic-destination variant, upload to a renderer, begin a scene, draw, or Present.
+  dynamic-destination variant, or upload to a renderer. The following BeginScene creates
+  only Rust-owned logical scene state; EndScene, sampler state, draw, Present, device loss,
+  and visible browser output remain unsupported.

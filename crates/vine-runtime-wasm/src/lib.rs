@@ -87,6 +87,7 @@ struct BgiCheckpointCapabilities {
     set_rect: bool,
     d3d9_add_dirty_rect: bool,
     d3d9_update_texture: bool,
+    d3d9_begin_scene: bool,
 }
 
 impl Bridge {
@@ -475,7 +476,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v20();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v21();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -662,7 +663,7 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v20();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v21();
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
@@ -671,6 +672,9 @@ impl BrowserRuntime {
         }
         if !capabilities.d3d9_update_texture {
             d3d9_policy.update_texture = None;
+        }
+        if !capabilities.d3d9_begin_scene {
+            d3d9_policy.begin_scene = None;
         }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
@@ -1817,7 +1821,7 @@ impl BrowserRuntime {
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
                 let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
-                    && completion.frame.method == "Clear"
+                    && matches!(completion.frame.method.as_str(), "Clear" | "BeginScene")
                 {
                     self.runtime
                         .graphics_devices()
@@ -4229,6 +4233,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     set_rect_enabled: u32,
     d3d9_add_dirty_rect_enabled: u32,
     d3d9_update_texture_enabled: u32,
+    d3d9_begin_scene_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4241,6 +4246,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 set_rect: set_rect_enabled != 0,
                 d3d9_add_dirty_rect: d3d9_add_dirty_rect_enabled != 0,
                 d3d9_update_texture: d3d9_update_texture_enabled != 0,
+                d3d9_begin_scene: d3d9_begin_scene_enabled != 0,
             },
         )
     })

@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-update-texture`: 127357 calls across 122 endpoint contracts / 120 APIs, memory generation 235508 |
+| Runtime diagnostics | `d3d9-begin-scene`: 127358 calls across 122 endpoint contracts / 120 APIs, memory generation 235509 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::BeginScene()` at instruction 28761181: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::SetSamplerState(0x00000000, 0x00000006, 0x00000002)` at instruction 28761195: `com-method-unsupported` |
 
-The active semantic report is 546,701 bytes with SHA-256
-`05f4656600befce0f46b594b8ea11c4c806daf8437a8a9948f3e9e0849bf9f15`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 548,846 bytes with SHA-256
+`2e6b12b6113e682af7d385e1281bb22674e5b967f2fe387505238026d680e039`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,7 +30,7 @@ The active semantic report is 546,701 bytes with SHA-256
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded raster-status query, full-target black Clear, the full-presentation RECT construction, and authoritative source-texture dirty-region tracking are complete; UpdateTexture transfer, pixel storage, renderer, draw, and Present are not reached |
+| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded raster-status query, full-target black Clear, the full-presentation RECT construction, authoritative texture update, and first scene activation are complete; sampler state, pixel storage, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |

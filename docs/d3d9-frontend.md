@@ -14,8 +14,8 @@ backing retirement use the generic COM plan／commit path.
 at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
-Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
-slot 31 `UpdateTexture`, and slot 43 `Clear` delegate to implemented handlers. `CreateTexture`
+    Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
+    slot 31 `UpdateTexture`, slot 41 `BeginScene`, and slot 43 `Clear` delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
 `AddDirtyRect` delegate to implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
@@ -46,7 +46,7 @@ relations for the private workload.
 
 ## Bounded logical adapter count
 
-Version 20 of `D3d9CompatibilityPolicy` retains profile
+Version 21 of `D3d9CompatibilityPolicy` retains profile
 `single-logical-adapter-v1`. `IDirect3D9::GetAdapterCount` returns unsigned
 value `1` after validating that `RuntimeDisplays` still exposes the coherent
 `single-monitor-1920x1080-work-1920x1032-v2` profile. The count is D3D9 policy authority; the
@@ -66,7 +66,7 @@ enumeration and host or browser GPU topology remain outside this profile.
 
 ## Bounded adapter-to-monitor mapping
 
-The version 20 `primary-adapter-monitor-v1` profile maps adapter `0` to the
+The version 21 `primary-adapter-monitor-v1` profile maps adapter `0` to the
 logical primary HMONITOR owned by `RuntimeDisplays`. The D3D9 policy owns only
 the adapter-to-display-profile mapping; it neither allocates nor copies the
 monitor identity. `GetAdapterMonitor(0)` therefore returns `0x4f010001`, the
@@ -90,7 +90,7 @@ are recorded in the current manifest.
 
 ## Bounded adapter display mode
 
-Version 20 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 21 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -123,7 +123,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 20 policy enables adapter `0`, flags `0`, and profile
+The same version 21 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -548,7 +548,7 @@ produce a visible browser frame.
 
 ## Bounded system-memory texture dirty region
 
-Version 20 retains
+Version 21 retains
 `primary-recreated-system-memory-texture-dirty-rect-v1` for texture slot 21.
 It admits only recreated source-texture variant 3: a live `2048x1024`, one-level,
 static X8R8G8B8 SYSTEMMEM texture. The primary call passes
@@ -626,6 +626,37 @@ texel backing, perform a browser upload, implement partial-dirty transfer or the
 reached dynamic-destination native variant, begin a scene, draw, Present, or
 produce visible pixels.
 
+## Bounded device scene lifecycle
+
+Version 21 adds `primary-first-frame-scene-begin-v1` for device slot 41.
+`RuntimeGraphicsDevice` is the sole active-scene authority. `BeginScene` accepts
+only a live device whose scene is inactive, creates a mutation-free plan with the
+device generation and next scene sequence, preflights sequence／generation
+capacity, and commits the inactive-to-active transition once. NULL, unknown,
+wrong-class, retired, or already-active devices return `D3DERR_INVALIDCALL`
+without consuming the sequence or changing device／graphics generations. Stale
+and duplicate state-changing plans are likewise rejected before mutation.
+
+Two focused native runs stop on the first primary `BeginScene` at caller RVA
+`0x5B048`; both return `D3D_OK`, preserve LastError 0, and immediately execute
+`test eax,eax; js`. A controlled PE32/i386 lifecycle oracle independently fixes
+`EndScene` outside a scene, nested `BeginScene`, and repeated `EndScene` as
+`D3DERR_INVALIDCALL`, while valid begin／end cycles return `D3D_OK`. All seven
+calls preserve LastError sentinel `0x5A5A`, two identical runs exit 0, and the
+device reference count remains 1. This establishes the scene-state contract
+without using a primary callsite or native COM pointer as semantic policy.
+
+Canonical Node and Chrome sessions complete `BeginScene` at sequence 127,359
+and instruction 28,761,181. They agree on device 3／COM object 21, reference
+count 5, `1280x720` presentation, existing black-clear content generation 1,
+active scene sequence 1, logical-device generation 45, zero guest writes, and
+no renderer resource. Fourteen instructions later both stop at device slot 69
+`SetSamplerState(0,6,2)`, endpoint `0x01011480`, return address `0x1005B18A`.
+
+This slice does not implement `EndScene`, sampler state, draw calls, Present,
+device loss, texel backing, renderer upload, or visible pixels. Beginning a
+logical scene alone is not a first-present milestone completion.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -639,8 +670,8 @@ the `GetSurfaceLevel` gateway creates its first logical subresource identity;
 and `CreateVertexBuffer` creates the first guest-backed logical geometry
 resource.
 The initial-resource slice leaves three logical textures live on one
-device: one system-memory static texture and two default-pool textures, the last
-of which is dynamic. The version 20 policy admits the same three descriptors at
+    device: one system-memory static texture and two default-pool textures, the last
+    of which is dynamic. The version 21 policy inherits the same three descriptors at
 `2048x1024` when the guest recreates the resources; it does not infer a general
 dimension or pool policy. The surface `GetDC` gateway adds a typed GDI acquisition
 relation. The surface is a non-owning level-zero view, while reached `FillRect`
@@ -649,8 +680,10 @@ Reached slot 43 `Clear` similarly appends authoritative uniform content to the
 logical device back buffer without crossing into a renderer adapter.
 The following `SetRect` leaf materializes the caller-owned guest structure, and
 slot 21 `AddDirtyRect` updates only the source texture's Rust-owned dirty-region
-state. Slot 31 `UpdateTexture` is the first two-resource consumer boundary and
-copies that logical texture content while consuming the source dirty region.
+    state. Slot 31 `UpdateTexture` is the first two-resource consumer boundary and
+    copies that logical texture content while consuming the source dirty region.
+    Slot 41 `BeginScene` then owns the first device-local active-scene sequence and
+    lifecycle transition without creating browser graphics state.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -667,7 +700,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-update-texture
+npm run check:runtime:bgi -- --profile d3d9-begin-scene
 npm run check:runtime:bgi-browser
 ```
 
@@ -702,9 +735,11 @@ logical device／COM relation, back-buffer generation, and the exact full-presen
 texture／COM relation, authoritative whole-texture dirty state, idempotent mark,
 texture content, and zero writes. It then records the exact slot-31
 `UpdateTexture`, both logical texture／COM relations, copied fill command, dirty
-consumption, generations, and zero writes before stopping at device slot 41
-`BeginScene`, without creating a browser renderer resource or a second content
-authority.
+    consumption, generations, and zero writes. Finally it records the exact slot-41
+    `BeginScene`, Rust-owned inactive-to-active device transition, scene sequence,
+    lifecycle policy, and zero writes before stopping at device slot 69
+    `SetSamplerState`, without creating a browser renderer resource or a second
+    graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -728,9 +763,11 @@ slot 43, while `d3d9-clear` enables only the exact Clear profile and stops at
 enables that exact User32 contract and stops at `IDirect3DTexture9::AddDirtyRect`
 slot 21. The historical `d3d9-add-dirty-rect` profile enables only the bounded
 source-texture dirty-region contract and stops at `IDirect3DDevice9::UpdateTexture`
-slot 31. The active `d3d9-update-texture` profile additionally enables the exact
-static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
-`IDirect3DDevice9::BeginScene` slot 41.
+    slot 31. The historical `d3d9-update-texture` profile additionally enables the exact
+    static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
+    `IDirect3DDevice9::BeginScene` slot 41. The active `d3d9-begin-scene` profile
+    additionally enables the exact inactive-to-active scene transition and stops at
+    `IDirect3DDevice9::SetSamplerState` slot 69.
 
 ## Non-claims
 
@@ -743,16 +780,17 @@ static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
   `CreateVertexBuffer`／full-range `Lock`／`Unlock` sequence, the exact four
   initial `SetRenderState` settings, one bounded `GetRasterStatus` query,
   one exact full-target black `Clear`, one bounded source-texture
-  `AddDirtyRect`, and one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture` are
+    `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, and one
+    exact inactive-to-active `BeginScene` are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
-  device/resource state, partial dirty-region transfer, dynamic-destination
-  `UpdateTexture`, partial／depth／stencil Clear, `BeginScene`, draw, Present, Reset,
+    device/resource state, partial dirty-region transfer, dynamic-destination
+    `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, sampler state, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect, and
-  bounded UpdateTexture create Rust logical state
+    bounded UpdateTexture, and bounded BeginScene create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

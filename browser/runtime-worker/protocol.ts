@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 32 as const;
+export const protocolVersion = 33 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -26,7 +26,8 @@ export type BgiCapabilityProfile =
   | "d3d9-clear"
   | "user32-set-rect"
   | "d3d9-add-dirty-rect"
-  | "d3d9-update-texture";
+  | "d3d9-update-texture"
+  | "d3d9-begin-scene";
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -66,6 +67,9 @@ export interface RuntimeGraphicsDeviceSnapshot {
       rect: { left: number; top: number; right: number; bottom: number };
       colorArgb: number;
     };
+  };
+  activeScene?: {
+    sequence: number;
   };
   renderer?: {
     namespace: "vine.browser-renderer-resource.v1";
@@ -898,7 +902,7 @@ export interface SessionReport {
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v21";
     createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
     getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
@@ -908,7 +912,7 @@ export interface SessionReport {
   } | null;
   d3d9Clear: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v21";
     clearProfileId: "primary-full-render-target-black-v1";
     targetAuthority: "rust-runtime-graphics-logical-device-back-buffer";
     targetScope: "full-presentation-back-buffer";
@@ -920,7 +924,7 @@ export interface SessionReport {
   } | null;
   d3d9AddDirtyRect: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v21";
     addDirtyRectProfileId: "primary-recreated-system-memory-texture-dirty-rect-v1";
     textureAuthority: "rust-runtime-graphics-logical-texture";
     initialDirtyRegion: "whole-texture";
@@ -932,7 +936,7 @@ export interface SessionReport {
   } | null;
   d3d9UpdateTexture: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v21";
     updateTextureProfileId: "primary-recreated-system-memory-to-static-default-texture-update-v1";
     contentAuthority: "rust-runtime-graphics-logical-texture";
     sourceDirtyRegionBefore: "whole-texture";
@@ -943,6 +947,18 @@ export interface SessionReport {
     failureAtomicity: true;
     partialDirtyRegionsImplemented: false;
     dynamicDestinationImplemented: false;
+    browserRendererResourceCreated: false;
+  } | null;
+  d3d9BeginScene: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v21";
+    beginSceneProfileId: "primary-first-frame-scene-begin-v1";
+    sceneAuthority: "rust-runtime-graphics-logical-device";
+    lifecycle: "inactive-to-active";
+    mutation: "validate-plan-preflight-targeted-commit";
+    nestedBeginReturnsInvalidCall: true;
+    failureAtomicity: true;
+    endSceneImplemented: false;
     browserRendererResourceCreated: false;
   } | null;
   setRect: {

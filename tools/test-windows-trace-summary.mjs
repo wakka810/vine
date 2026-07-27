@@ -4164,6 +4164,13 @@ d3d9UpdateTextureSelection.find(
 ).selectedObservations = ["d3d9-update-texture"];
 assert.doesNotThrow(() => summarizeTrace(encode(d3d9UpdateTextureSelection)));
 
+const d3d9BeginSceneSelection = structuredClone(events);
+d3d9BeginSceneSelection[0].arguments.observations = ["d3d9-begin-scene"];
+d3d9BeginSceneSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-begin-scene"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9BeginSceneSelection)));
+
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];
 windowDcSelection.find(

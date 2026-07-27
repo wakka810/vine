@@ -256,6 +256,12 @@ impl RuntimeGraphicsBackBuffer {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsScene {
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsPresentMode {
     Discard,
@@ -301,6 +307,8 @@ pub struct RuntimeGraphicsDevice {
     pub render_states: RuntimeGraphicsRenderStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_scene: Option<RuntimeGraphicsScene>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub renderer: Option<RuntimeGraphicsRendererAssociation>,
     pub generation: u64,
@@ -376,6 +384,11 @@ pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
 pub(crate) struct RuntimeGraphicsBackBufferClearRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub color_argb: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSceneBeginRequest {
+    pub device_com_object_id: RuntimeComObjectId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,6 +479,17 @@ pub(crate) struct RuntimeGraphicsBackBufferClearPlan {
     previous_uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
     clear: RuntimeGraphicsBackBufferClear,
     next_clear_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSceneBeginPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    scene: RuntimeGraphicsScene,
+    next_scene_sequence: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -594,6 +618,14 @@ pub struct RuntimeGraphicsBackBufferClearResult {
     pub device_generation: u64,
     pub content_generation: u64,
     pub clear: RuntimeGraphicsBackBufferClear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSceneBeginResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub device_generation: u64,
+    pub scene: RuntimeGraphicsScene,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -764,6 +796,8 @@ pub(super) struct RuntimeGraphics {
     next_texture_update_sequence: u64,
     #[serde(skip_serializing_if = "is_initial_sequence")]
     next_back_buffer_clear_sequence: u64,
+    #[serde(skip_serializing_if = "is_initial_sequence")]
+    next_scene_sequence: u64,
     generation: u64,
 }
 
@@ -789,6 +823,7 @@ impl Default for RuntimeGraphics {
             next_surface_fill_sequence: 1,
             next_texture_update_sequence: 1,
             next_back_buffer_clear_sequence: 1,
+            next_scene_sequence: 1,
             generation: 0,
         }
     }
@@ -869,6 +904,7 @@ impl RuntimeGraphics {
             com_object_id,
             render_states: RuntimeGraphicsRenderStates::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
+            active_scene: None,
             renderer: None,
             generation: plan.next_generation,
         };
@@ -1084,6 +1120,106 @@ impl RuntimeGraphics {
             device_generation: device.generation,
             content_generation: device.back_buffer.content_generation,
             clear: plan.clear,
+        }
+    }
+
+    pub(super) fn plan_scene_begin(
+        &self,
+        request: RuntimeGraphicsSceneBeginRequest,
+    ) -> Result<RuntimeGraphicsSceneBeginPlan, RuntimeStateError> {
+        if request.device_com_object_id.0 == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-scene-begin-request-invalid",
+                "logical scene begin requires a non-null graphics device COM object",
+            ));
+        }
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-scene-begin-device-com-object-unknown",
+                    "logical scene begin requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        if device.active_scene.is_some() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-scene-already-active",
+                "logical graphics device cannot begin a nested scene",
+            ));
+        }
+        let next_generation = checked_next_generation(self.generation)?;
+        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-device-generation-exhausted",
+                "logical graphics device generation is exhausted",
+            )
+        })?;
+        let scene = RuntimeGraphicsScene {
+            sequence: self.next_scene_sequence,
+        };
+        let next_scene_sequence = self.next_scene_sequence.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-scene-sequence-exhausted",
+                "logical graphics scene sequence is exhausted",
+            )
+        })?;
+        Ok(RuntimeGraphicsSceneBeginPlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            scene,
+            next_scene_sequence,
+        })
+    }
+
+    pub(super) fn preflight_scene_begin(
+        &self,
+        plan: &RuntimeGraphicsSceneBeginPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-scene-begin-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || device.generation != plan.device_generation
+            || device.generation.checked_add(1) != Some(plan.next_device_generation)
+            || device.active_scene.is_some()
+            || plan.scene.sequence != self.next_scene_sequence
+            || self.next_scene_sequence.checked_add(1) != Some(plan.next_scene_sequence)
+        {
+            return Err(stale_plan("graphics-scene-begin-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_scene_begin(
+        &mut self,
+        plan: RuntimeGraphicsSceneBeginPlan,
+    ) -> RuntimeGraphicsSceneBeginResult {
+        debug_assert!(self.preflight_scene_begin(&plan).is_ok());
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        device.active_scene = Some(plan.scene);
+        device.generation = plan.next_device_generation;
+        self.next_scene_sequence = plan.next_scene_sequence;
+        self.generation = plan.next_generation;
+        RuntimeGraphicsSceneBeginResult {
+            device_id: device.id,
+            device_generation: device.generation,
+            scene: plan.scene,
         }
     }
 
@@ -3475,6 +3611,83 @@ mod tests {
             "graphics-back-buffer-clear-sequence-exhausted"
         );
         assert_eq!(graphics, exhausted);
+    }
+
+    #[test]
+    fn scene_begin_owns_active_lifecycle_and_rejects_nested_or_stale_plans_atomically() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert_eq!(device.active_scene, None);
+
+        let before_plan = graphics.clone();
+        let plan = graphics
+            .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+            })
+            .unwrap();
+        assert_eq!(graphics, before_plan);
+        let stale = plan.clone();
+        graphics.preflight_scene_begin(&plan).unwrap();
+        let result = graphics.commit_scene_begin(plan);
+        assert_eq!(result.device_id, device.id);
+        assert_eq!(result.device_generation, device.generation + 1);
+        assert_eq!(result.scene.sequence, 1);
+        assert_eq!(
+            graphics.device(device.id).unwrap().active_scene,
+            Some(RuntimeGraphicsScene { sequence: 1 })
+        );
+        assert_eq!(graphics.next_scene_sequence, 2);
+
+        let before_stale = graphics.clone();
+        assert_eq!(
+            graphics.preflight_scene_begin(&stale).unwrap_err().code,
+            "graphics-scene-begin-plan-stale"
+        );
+        assert_eq!(graphics, before_stale);
+
+        let before_nested = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-scene-already-active"
+        );
+        assert_eq!(graphics, before_nested);
+
+        for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
+            let before = graphics.clone();
+            let error = graphics
+                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
+                    device_com_object_id,
+                })
+                .unwrap_err();
+            assert!(matches!(
+                error.code,
+                "graphics-scene-begin-request-invalid"
+                    | "graphics-scene-begin-device-com-object-unknown"
+            ));
+            assert_eq!(graphics, before);
+        }
+
+        let mut exhausted = RuntimeGraphics::default();
+        let device_plan = exhausted.plan_device_creation(request()).unwrap();
+        exhausted.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        exhausted.next_scene_sequence = u64::MAX;
+        let before_exhausted = exhausted.clone();
+        assert_eq!(
+            exhausted
+                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-scene-sequence-exhausted"
+        );
+        assert_eq!(exhausted, before_exhausted);
     }
 
     #[test]

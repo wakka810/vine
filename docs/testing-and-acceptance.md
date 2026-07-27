@@ -1326,6 +1326,19 @@ content generation 1、fill sequence 3、source dirty consumption、zero guest w
 Canonical stopは6 instructions後の`IDirect3DDevice9::BeginScene()` slot 41である。Texel backing、partial-dirty transfer、
 dynamic destination、browser upload、scene／draw／Presentはこのcheckpointのacceptanceへ含めない。
 
+続く`BeginScene` leafは、focused primary trace二runがcaller RVA `0x5B048`、zero explicit arguments、`D3D_OK`、
+LastError 0 preserve、直後の`test eax,eax; js` consumerを一致させることをoracleとする。Controlled PE32/i386
+lifecycle oracleは二回の同一runでvalid begin／end cycleを`D3D_OK`、outside／repeated EndSceneとnested BeginSceneを
+`D3DERR_INVALIDCALL`、全callのLastError sentinel `0x5A5A` preserve、device reference count不変として固定する。
+Focused Rust model／dispatcher testsはdevice-local scene authority、sequence／generation preflight、inactive-to-active
+targeted commit、nested／NULL／unknown／stale／duplicate failure atomicityを比較する。
+
+Node／Chrome protocol v33はsequence 127,359、instruction 28,761,181、device 3／COM 21、reference count 5、
+presentation `1280x720`、back-buffer clear generation 1、active scene sequence 1、device generation 45、zero guest writes、
+renderer resourceなし、ordered semantic／terminal-memory equalityを一致させる。Canonical stopは14 instructions後の
+`IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69である。EndScene、sampler state、draw／Present、device loss、
+texel backing、browser upload、visible outputはこのcheckpointのacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

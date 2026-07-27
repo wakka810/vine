@@ -391,11 +391,13 @@ to read-only on Unlock. The device then consumes the exact four fixed-function `
 settings through Rust-owned typed state and completes the bounded `GetRasterStatus` output before
 sampling the Rust-owned high-resolution performance frequency and deterministic counter. The
 reached loop repeatedly consumes raster status and counter values before continuing to the next
-User32 contract. Protocol v32 carries the bounded `IDirect3DTexture9::AddDirtyRect` and
-`IDirect3DDevice9::UpdateTexture` completions. Its immutable snapshots show the Rust-owned
-source／destination texture and COM relations, descriptor roles, copied logical fill, source dirty-region
-consumption, and exact generations. The Worker validates the two-resource transfer before stopping at
-`IDirect3DDevice9::BeginScene`; it stores no independent texture content, dirty region, or renderer resource.
+User32 contract. Protocol v33 carries the bounded `IDirect3DTexture9::AddDirtyRect`,
+`IDirect3DDevice9::UpdateTexture`, and `IDirect3DDevice9::BeginScene` completions. Its immutable
+snapshots show the Rust-owned source／destination texture and COM relations, descriptor roles,
+copied logical fill, source dirty-region consumption, exact generations, and the device-local
+inactive-to-active scene transition. The Worker validates those states before stopping at
+`IDirect3DDevice9::SetSamplerState`; it stores no independent texture content, dirty region,
+scene state, or renderer resource.
 The Worker observes completions and mirrors checked guest bytes, but owns neither
 identity, lock state, protection, resource content, render state, nor a second raster／performance
 clock. It does not substitute `performance.now()` or browser scheduling for guest-visible time.
