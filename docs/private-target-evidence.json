@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-27T20:14:51.121Z",
+  "recordedAt": "2026-07-27T21:37:20.396Z",
   "repository": {
-    "implementationCommit": "9578c165ce094ab49e307d2e050ef0122e75f467",
-    "implementationTree": "af8477e38d6417fab0ce91ec13953ef3b0836851",
-    "headCommit": "9578c165ce094ab49e307d2e050ef0122e75f467",
+    "implementationCommit": "3a8615442a8e0e1bcf9e29b9ed64f47a4af4f093",
+    "implementationTree": "9af807ab1ef95fb9a4f0c9e9ec3d7eea81c6aae4",
+    "headCommit": "3a8615442a8e0e1bcf9e29b9ed64f47a4af4f093",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-begin-scene",
-    "runtimeProfile": "d3d9-begin-scene",
+    "runtimeCheckpoint": "d3d9-initial-sampler-states",
+    "runtimeProfile": "d3d9-initial-sampler-states",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-begin-scene",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-initial-sampler-states",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v33",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v34",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,28 +70,28 @@
     "node": {
       "outcome": "structured-stop",
       "implementedApiContracts": 122,
-      "supportedCalls": 127358,
-      "callSemanticsSha256": "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
-      "instructions": 28761195,
-      "finalGeneration": 235509,
-      "memoryContentSha256": "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
-      "writebackBatches": 127457,
-      "dirtyPages": 175979,
-      "changedBytes": 6619810,
+      "supportedCalls": 127363,
+      "callSemanticsSha256": "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
+      "instructions": 28761237,
+      "finalGeneration": 235514,
+      "memoryContentSha256": "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
+      "writebackBatches": 127462,
+      "dirtyPages": 175984,
+      "changedBytes": 6619837,
       "hostDeltaBatches": 106769
     },
     "browser": {
       "outcome": "structured-stop",
-      "supportedCalls": 127358,
-      "callSemanticsSha256": "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
-      "instructions": 28761195,
-      "finalGeneration": 236947,
-      "memoryContentSha256": "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
-      "wasmBridgeCalls": 373300,
+      "supportedCalls": 127363,
+      "callSemanticsSha256": "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
+      "instructions": 28761237,
+      "finalGeneration": 236952,
+      "memoryContentSha256": "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
+      "wasmBridgeCalls": 373315,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 416529,
+          "transitionCount": 416539,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -138,23 +138,23 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "com-method",
-      "nextCheckpoint": "d3d9-set-sampler-state-first-frame",
-      "pausedHistoricalCheckpoint": "d3d9-begin-scene",
-      "instructionCount": 28761195,
+      "nextCheckpoint": "d3d9-set-texture-stage-state-first-frame",
+      "pausedHistoricalCheckpoint": "d3d9-initial-sampler-states",
+      "instructionCount": 28761237,
       "capabilityCluster": "d3d9-idirect3ddevice9-method",
       "reason": "com-method-unsupported",
       "endpointKind": "com-method",
       "interface": "IDirect3DDevice9",
-      "vtableSlot": 69,
-      "method": "SetSamplerState",
+      "vtableSlot": 67,
+      "method": "SetTextureStageState",
       "arguments": [
         "0x00000000",
-        "0x00000006",
-        "0x00000002"
+        "0x00000001",
+        "0x00000004"
       ],
       "thisPointer": "0x01010004",
-      "endpointAddress": "0x01011480",
-      "returnAddress": "0x1005b18a"
+      "endpointAddress": "0x01011460",
+      "returnAddress": "0x1005b1f5"
     },
     "cleanup": {
       "pendingHostCalls": 0,
@@ -169,14 +169,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-begin-scene/report.json",
-      "bytes": 548846,
-      "sha256": "2e6b12b6113e682af7d385e1281bb22674e5b967f2fe387505238026d680e039"
+      "path": ".work/v86-bgi-d3d9-initial-sampler-states/report.json",
+      "bytes": 555207,
+      "sha256": "0ecbca844e2557c2825dcd676258c556875d0abb3d338969c97be47f83b1a6a7"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1885898,
-      "sha256": "385d852e4b38c1c6412a38bb24845f4e5e267c66100e75d2ba6a015388b176d1"
+      "bytes": 1892882,
+      "sha256": "5900066cf8b42984b8835ca9ce402a315315d54baebe08eb4bb8171e4a7b4e2b"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -191,12 +191,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "aa672fed3664c8b79c55b066f2ea3df2cacacbfa44f36275c3583e15ee699aa7"
+      "sha256": "3142515b3bb7e3e980cbfa9abcffe749915e5a46f235e445730ebb0183b9e47e"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4894514,
-      "sha256": "0e77b29efe3fd4759dddfa58445bd383c359bc03bf9ef0bf3e50295092ce8dbe"
+      "bytes": 4884875,
+      "sha256": "91c087347297f07441f9c5767dc294da187f8ee3a4af540df013ebf3f6404603"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -228,5 +228,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "b865bb1135b1023a46f973bdfd6615b5bec204a4f355d57d97d7dcf143dece0c"
+  "payloadSha256": "979ab4e83c14c828137e5254135633dc9884bef4d1270bf00292fffe1e6bdd9d"
 }
