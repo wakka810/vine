@@ -11,7 +11,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 24 as const/u);
+assert.match(protocol, /protocolVersion = 25 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -21,6 +21,9 @@ assert.match(protocol, /getFileAttributesA:/u);
 assert.match(protocol, /kernel32-create-directory-a/u);
 assert.match(protocol, /RuntimeCreateDirectoryACallSnapshot/u);
 assert.match(protocol, /createDirectoryA:/u);
+assert.match(protocol, /user32-set-window-pos-repeat-activation/u);
+assert.match(protocol, /RuntimeSetWindowPosRepeatActivationCallSnapshot/u);
+assert.match(protocol, /setWindowPosRepeatActivation:/u);
 
 assert.match(worker, /readonly #semanticCallDigest = new SemanticCallDigest\(\)/u);
 assert.doesNotMatch(worker, /completedBgiCallSequences/u);
@@ -43,7 +46,7 @@ assert.match(
 assert.match(worker, /kernel32-enter-critical-section-continuation/u);
 assert.match(worker, /kernel32-leave-critical-section-continuation/u);
 assert.match(worker, /shell32-drag-accept-files/u);
-assert.match(worker, /completion\.implementationId === "user32\.set-window-pos\.v3"/u);
+assert.match(worker, /completion\.implementationId === "user32\.set-window-pos\.v4"/u);
 
 assert.match(fullProbe, /searchParams\.get\("evidence"\) === "full" \? "full" : "summary"/u);
 assert.match(fullProbe, /parseCapabilityProfile\(searchParams\.get\("profile"\)\)/u);

@@ -1219,6 +1219,15 @@ window snapshot、8 callback completions、active／focus／foreground relation�
 比較する。General resize／z-order、cross-thread／multiple-window activation、queued paint、DOM positioningは
 実装済みまたはgoldenとしない。
 
+Already-active repeat caseは同じHWND、`HWND_NOTOPMOST`、current `1286x749` outer geometry、flags `0x10A`を
+受け、`WM_WINDOWPOSCHANGING`一回だけをWndProc／`DefWindowProcA`へ送る。Focused model／dispatcher testsは
+callback result不一致とstale relation／window planがwindow、active／focus／foreground、generation、guest bytesを
+部分更新しないこと、success completionも全`RuntimeUser32` snapshotを不変に保つことを比較する。Native二runは
+BOOL 1、LastError 0、geometryと三relation不変、activation／resize／changed／move message不在を固定する。
+Node／Chromeはsequence 108,718、frame 25、scratch `0x00501000`、validate-only disposition、zero writes、
+次の`MessageBoxA` stopを同じsemantic／memory digestで再現する。General idempotent positioning、z-order変更、
+cross-thread／multi-window activationは実装済みまたはgoldenとしない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、
@@ -1282,8 +1291,8 @@ cleanup、source hash不変を検査する。RuntimeFiles model／dispatcher tes
 classification、mutation-free plan、host-first SQLite publication、stale／duplicate／malformed completion、storage failure、
 cancel、process exitでのfailure atomicityを要求する。SQLite／Worker testsはprofile schema version 3、epoch lease、CAS、
 idempotency ledger、transaction rollback、terminal drainを検査する。Node／Chromeは一completionのrequest／directory／
-generation identity、BOOL／LastError、zero guest writes、Rust／SQLite authority、semantic／memory digestを一致させ、次の
-`SetWindowPos` repeat-activation variantでstructured stopする。General directory create／enumeration／delete／rename、ACL、
+generation identity、BOOL／LastError、zero guest writes、Rust／SQLite authority、semantic／memory digestを一致させる。
+その後の`SetWindowPos` repeat-activation leafは別contractとして完了済みである。General directory create／enumeration／delete／rename、ACL、
 host filesystem mutation、primary save/loadは実装済みとしない。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
@@ -1292,7 +1301,7 @@ W3 representative browser contractは、このW2 harnessが成功後にemitす�
 deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、
 writable profile read／commit transport、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureは
 Rust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeを
-guest自身とrunnerの両方で検証する。Current protocol version 24は`thread-switch`／`thread-exit`を含むclosed
+guest自身とrunnerの両方で検証する。Current protocol version 25は`thread-switch`／`thread-exit`を含むclosed
 execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、
 Rust-owned logical windowとGDI+ session completion metadata、versioned writable commit completion、normal capability completion、
 versioned waitable-timer pacing／page lifecycle、read-only `DragAcceptFiles` window snapshot、Rust-selected immediate API

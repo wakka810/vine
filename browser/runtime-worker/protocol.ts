@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 24 as const;
+export const protocolVersion = 25 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -17,7 +17,8 @@ export type BgiCapabilityProfile =
   | "kernel32-sleep-zero"
   | "kernel32-global-memory-status"
   | "kernel32-get-file-attributes-a"
-  | "kernel32-create-directory-a";
+  | "kernel32-create-directory-a"
+  | "user32-set-window-pos-repeat-activation";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -94,6 +95,46 @@ export interface RuntimeCreateDirectoryACallSnapshot {
   lastError: number;
   guestWrites: [];
   writableDirectoryCreate: RuntimeWritableDirectoryCreateSnapshot;
+}
+
+export interface RuntimeSetWindowPosRepeatActivationCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "SetWindowPos";
+  occurrence: 5;
+  trapInstructionCount: number;
+  arguments: [number, number, number, number, number, number, number];
+  result: { action: "set"; value: 1 };
+  implementationId: "user32.set-window-pos.v4";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+  window: RuntimeWindowSnapshot;
+  callback: {
+    frameId: number;
+    target: number;
+    allocationStart: number;
+    stackPointer: number;
+    scratchAddress: number;
+    scratchBytes: number;
+    frameBytes: number;
+    returnSentinel: number;
+    returnInstructionCount: number;
+    result: number;
+  };
+}
+
+export interface RuntimeSetWindowPosRepeatActivationCallbackEvent {
+  action: "enter" | "return";
+  sequence: number;
+  frameId: number;
+  instructionCount: number;
+  target?: number;
+  stackPointer?: number;
+  arguments?: [number, number, number, number];
+  result?: number;
 }
 
 export interface PageLifecycleSnapshot {
@@ -561,6 +602,19 @@ export interface SessionReport {
     sourceMutation: false;
     hostPathCreated: false;
     browserFileSystemImported: false;
+  } | null;
+  setWindowPosRepeatActivation: {
+    callCount: 5;
+    repeatCall: RuntimeSetWindowPosRepeatActivationCallSnapshot;
+    callbackEvents: [
+      RuntimeSetWindowPosRepeatActivationCallbackEvent,
+      RuntimeSetWindowPosRepeatActivationCallbackEvent,
+    ];
+    windowAuthority: "rust-runtime-user32-logical-window";
+    relationAuthority: "rust-runtime-user32-thread-and-process-window-relations";
+    callbackDisposition: "validate-only";
+    mutation: false;
+    browserResourceCreated: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

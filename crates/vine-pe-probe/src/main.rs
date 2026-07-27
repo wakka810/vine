@@ -13690,6 +13690,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-set-window-pos-activation" => {
                     GenericRuntimeCapability::SetWindowPosActivation
                 }
+                "user32-set-window-pos-repeat-activation" => {
+                    GenericRuntimeCapability::CreateDirectoryA
+                }
                 "user32-monitor-from-window" => GenericRuntimeCapability::MonitorFromWindow,
                 "d3d9-get-adapter-count" => GenericRuntimeCapability::D3d9GetAdapterCount,
                 "d3d9-get-adapter-monitor" => GenericRuntimeCapability::D3d9GetAdapterMonitor,

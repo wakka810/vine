@@ -74,7 +74,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const setWindowPosRepeatActivationProfile =
+  bgiProfile === "user32-set-window-pos-repeat-activation";
 const createDirectoryAProfile =
+  setWindowPosRepeatActivationProfile ||
   bgiProfile === "kernel32-create-directory-a";
 const createDirectoryAInstructionOffset = createDirectoryAProfile ? 521 : 0;
 const getFileAttributesAProfile =
@@ -85,7 +88,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v24";
+const runtimeProtocol = "vine.browser-runtime-worker.v25";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -621,6 +624,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
+        "user32-set-window-pos-repeat-activation",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -643,6 +647,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
+        "user32-set-window-pos-repeat-activation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -664,6 +669,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
+        "user32-set-window-pos-repeat-activation",
       ].includes(bgiProfile) && scenario === "success"
         ? createDirectoryAProfile
           ? 1_526
@@ -731,6 +737,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
         || bgiProfile === "kernel32-create-directory-a"
+        || bgiProfile === "user32-set-window-pos-repeat-activation"
       ) {
         const pacingCount =
           createDirectoryAProfile
@@ -767,6 +774,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
         || bgiProfile === "kernel32-create-directory-a"
+        || bgiProfile === "user32-set-window-pos-repeat-activation"
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
@@ -1056,6 +1064,91 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.createDirectoryA, null);
         assert.deepEqual(evidence.report.writableDirectoryCreates, []);
+      }
+      if (setWindowPosRepeatActivationProfile) {
+        const repeat = evidence.report.setWindowPosRepeatActivation;
+        assert(
+          repeat !== null,
+          "Chrome Worker omitted SetWindowPos repeat-activation evidence",
+        );
+        assert.equal(repeat.callCount, 5);
+        assert.equal(repeat.repeatCall.sequence, 108_718);
+        assert.equal(repeat.repeatCall.module.toLowerCase(), "user32.dll");
+        assert.equal(repeat.repeatCall.symbol, "SetWindowPos");
+        assert.equal(repeat.repeatCall.occurrence, 5);
+        assert.equal(repeat.repeatCall.trapInstructionCount, 28_273_977);
+        assert.deepEqual(repeat.repeatCall.arguments, [
+          0x4801_0001,
+          0xffff_fffe,
+          0,
+          0,
+          1_286,
+          749,
+          266,
+        ]);
+        assert.deepEqual(repeat.repeatCall.result, { action: "set", value: 1 });
+        assert.equal(
+          repeat.repeatCall.implementationId,
+          "user32.set-window-pos.v4",
+        );
+        assert.equal(repeat.repeatCall.returnAddress, 0x1005_cb4b);
+        assert.equal(repeat.repeatCall.stackPointerBefore, 0x006f_f5e0);
+        assert.equal(repeat.repeatCall.stackPointerAfter, 0x006f_f600);
+        assert.equal(repeat.repeatCall.lastError, 0);
+        assert.deepEqual(repeat.repeatCall.guestWrites, []);
+        assert.deepEqual(repeat.repeatCall.window.geometry, {
+          x: 15_360,
+          y: 8_640,
+          width: 1_286,
+          height: 749,
+          clientX: 15_363,
+          clientY: 8_666,
+          clientWidth: 1_280,
+          clientHeight: 720,
+        });
+        assert.deepEqual(repeat.repeatCall.callback, {
+          frameId: 25,
+          target: 0x1009_2550,
+          allocationStart: 0x006f_f5cc,
+          stackPointer: 0x006f_f5cc,
+          scratchAddress: 0x0050_1000,
+          scratchBytes: 28,
+          frameBytes: 20,
+          returnSentinel: 0x7f01_0000,
+          returnInstructionCount: 28_274_079,
+          result: 0,
+        });
+        assert.deepEqual(repeat.callbackEvents, [
+          {
+            action: "enter",
+            sequence: 108_718,
+            frameId: 25,
+            instructionCount: 28_273_977,
+            target: 0x1009_2550,
+            stackPointer: 0x006f_f5cc,
+            arguments: [0x4801_0001, 0x0046, 0, 0x0050_1000],
+          },
+          {
+            action: "return",
+            sequence: 108_718,
+            frameId: 25,
+            instructionCount: 28_274_079,
+            result: 0,
+          },
+        ]);
+        assert.equal(
+          repeat.windowAuthority,
+          "rust-runtime-user32-logical-window",
+        );
+        assert.equal(
+          repeat.relationAuthority,
+          "rust-runtime-user32-thread-and-process-window-relations",
+        );
+        assert.equal(repeat.callbackDisposition, "validate-only");
+        assert.equal(repeat.mutation, false);
+        assert.equal(repeat.browserResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.setWindowPosRepeatActivation, null);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1691,6 +1784,21 @@ function normalizeCreateDirectoryA(snapshot) {
   };
 }
 
+function normalizeSetWindowPosRepeatActivation(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  const { calls: legacyCalls, ...rest } = snapshot;
+  return {
+    ...rest,
+    callCount: snapshot.callCount ?? legacyCalls?.length,
+    repeatCall: {
+      ...snapshot.repeatCall,
+      module: snapshot.repeatCall.module.toLowerCase(),
+    },
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1745,6 +1853,13 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeCreateDirectoryA(browser.report.createDirectoryA),
     normalizeCreateDirectoryA(oracle.createDirectoryA),
     "Chrome Worker CreateDirectoryA evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeSetWindowPosRepeatActivation(
+      browser.report.setWindowPosRepeatActivation,
+    ),
+    normalizeSetWindowPosRepeatActivation(oracle.setWindowPosRepeatActivation),
+    "Chrome Worker SetWindowPos repeat activation differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(

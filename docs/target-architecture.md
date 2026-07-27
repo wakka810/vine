@@ -707,6 +707,13 @@ operation／relation generation、window lifecycleを全てpreflightし、callba
 planではguest-visible stateを変更しない。Workerが受け取るCreateWindow／SetWindowPos final window snapshotは
 read-only observationであり、DOM／Canvas側に第二のWindows stateを作らない。
 
+既にactive／focus／foregroundの三relationが同じtargetを指し、requested outer geometryも現在値と一致する
+reached repeat variantは、初回activationを再実行しない。`RuntimeUser32`はrelationとwindow generationを含む
+mutation-free planを作り、`WM_WINDOWPOSCHANGING`一回とnested `DefWindowProcA` result 0だけを検証する。
+Completionはvalidate-onlyであり、geometry、visibility、z-order、三relation、allocator、generationを変更しない。
+Wrong callback result、stale relation／window、wrong owner／lifecycleは同じobservable stateを保ったまま拒否する。
+Workerはcallbackと最終snapshotをread-onlyに比較し、browser window resourceを作らない。
+
 Primaryのbounded resizeは同じoperation boundaryを延長し、`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE ->
 WM_SIZE -> WM_WINDOWPOSCHANGED`をsame-depth replacementで進める。NCCALCSIZE scratchは3 RECTとrelocated
 WINDOWPOS pointerを持ち、`DefWindowProcA`はnew client RECTだけをguest memoryへ返す。NCCALCSIZE completion時に

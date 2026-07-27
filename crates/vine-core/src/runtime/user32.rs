@@ -288,6 +288,7 @@ pub enum RuntimeSetWindowPosVariant {
     InitialShow,
     InitialHide,
     ActivateSameGeometry,
+    RepeatActivation,
     Resize,
 }
 
@@ -2998,10 +2999,21 @@ impl RuntimeUser32 {
         let mut next_creation = window.creation.clone();
         next_creation.geometry = request.next_geometry;
         validate_window_creation_request(&next_creation)?;
+        let target = Some(window.id);
+        let repeat_activation = self.active_windows.get(&owner_thread_id).copied() == target
+            && self.focused_windows.get(&owner_thread_id).copied() == target
+            && self.foreground_window == target;
+        let variant = if request.variant == RuntimeSetWindowPosVariant::ActivateSameGeometry
+            && repeat_activation
+        {
+            RuntimeSetWindowPosVariant::RepeatActivation
+        } else {
+            request.variant
+        };
         validate_position_geometry_transition(
             window.creation.geometry,
             request.next_geometry,
-            request.variant,
+            variant,
         )?;
         let small_icon_handle = window.small_icon.map_or(0, |icon| icon.handle);
         let next_effective_style = if request.next_visible {
@@ -3009,7 +3021,7 @@ impl RuntimeUser32 {
         } else {
             window.creation.effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
         };
-        match request.variant {
+        match variant {
             RuntimeSetWindowPosVariant::InitialShow
                 if window.visible
                     || window.topmost
@@ -3054,6 +3066,21 @@ impl RuntimeUser32 {
                     "same-geometry activation requires one visible inactive owner-thread window and no imported foreground identity",
                 ));
             }
+            RuntimeSetWindowPosVariant::RepeatActivation
+                if !window.visible
+                    || window.topmost
+                    || !request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry != window.creation.geometry
+                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                    || !repeat_activation =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-repeat-activation-state-invalid",
+                    "repeat activation requires the visible active, focused, foreground owner-thread window with unchanged geometry",
+                ));
+            }
             RuntimeSetWindowPosVariant::Resize
                 if !window.visible
                     || window.topmost
@@ -3077,7 +3104,7 @@ impl RuntimeUser32 {
             window_id: window.id,
             window_handle: window.handle,
             expected_generation: self.generation,
-            variant: request.variant,
+            variant,
             previous_geometry: window.creation.geometry,
             next_geometry: request.next_geometry,
             previous_visible: window.visible,
@@ -3242,6 +3269,23 @@ impl RuntimeUser32 {
                     "runtime-user32",
                     "set-window-pos-callback-order-mismatch",
                     "same-geometry activation received an out-of-order logical window callback",
+                ));
+            }
+            (
+                RuntimeSetWindowPosVariant::RepeatActivation,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "repeat activation WINDOWPOS")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+                }
+            }
+            (RuntimeSetWindowPosVariant::RepeatActivation, _) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "repeat activation received an out-of-order logical window callback",
                 ));
             }
             (
@@ -3518,6 +3562,20 @@ impl RuntimeUser32 {
                     "runtime-user32",
                     "set-window-pos-activation-state-stale",
                     "logical active, focused, or foreground relation changed during window positioning",
+                ));
+            }
+        }
+        if operation.variant == RuntimeSetWindowPosVariant::RepeatActivation {
+            let owner_thread_id = window.creation.owner_thread_id;
+            let target = Some(window.id);
+            if self.active_windows.get(&owner_thread_id).copied() != target
+                || self.focused_windows.get(&owner_thread_id).copied() != target
+                || self.foreground_window != target
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-repeat-activation-state-stale",
+                    "logical active, focused, or foreground relation changed during repeat activation",
                 ));
             }
         }
@@ -4832,6 +4890,61 @@ mod tests {
             }
         );
         assert_eq!(user32, before_repeated);
+
+        let owner_thread_id = RuntimeThreadId(0x2000);
+        let window_id = user32.window(window_handle).unwrap().id;
+        user32.active_windows.insert(owner_thread_id, window_id);
+        user32.focused_windows.insert(owner_thread_id, window_id);
+        user32.foreground_window = Some(window_id);
+        user32.generation += 1;
+        let repeat_request = RuntimeSetWindowPosRequest {
+            window_handle,
+            variant: RuntimeSetWindowPosVariant::ActivateSameGeometry,
+            next_geometry: show_geometry,
+            next_visible: true,
+            next_topmost: false,
+            callback_flags: 0x0000_010a,
+            callback_insert_after: 0xffff_fffe,
+            activation_insert_after: 0,
+            activation_internal_flags: 3,
+            resize_nccalc_window_pos_flags: 0x190e,
+            resize_changed_flags: 0x110e,
+        };
+        let repeat = user32
+            .preview_set_window_pos(owner_thread_id, repeat_request)
+            .unwrap();
+        assert_eq!(repeat.variant, RuntimeSetWindowPosVariant::RepeatActivation);
+        let before_wrong_result = user32.clone();
+        assert_eq!(
+            user32
+                .plan_set_window_pos_callback(
+                    repeat,
+                    RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                    1,
+                )
+                .unwrap_err()
+                .code,
+            "set-window-pos-window-procedure-result-invalid"
+        );
+        assert_eq!(user32, before_wrong_result);
+        let repeat_plan = user32
+            .plan_set_window_pos_callback(
+                repeat,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                0,
+            )
+            .unwrap();
+        assert!(matches!(
+            user32.set_window_pos_callback_action(&repeat_plan),
+            RuntimeSetWindowPosCallbackAction::Completed { window }
+                if window == user32.window(window_handle).unwrap()
+        ));
+        let before_repeat_commit = user32.clone();
+        assert!(matches!(
+            user32.commit_set_window_pos_callback(repeat_plan).unwrap(),
+            RuntimeSetWindowPosCallbackAction::Completed { .. }
+        ));
+        assert_eq!(user32, before_repeat_commit);
 
         let before_unknown = user32.clone();
         assert_eq!(

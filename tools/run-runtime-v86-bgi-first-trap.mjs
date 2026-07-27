@@ -200,6 +200,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
+        "user32-set-window-pos-repeat-activation",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -307,6 +308,7 @@ assert(
       "kernel32-global-memory-status",
       "kernel32-get-file-attributes-a",
       "kernel32-create-directory-a",
+      "user32-set-window-pos-repeat-activation",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -315,7 +317,8 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-create-directory-a"
+    genericRuntimeCapability === "kernel32-create-directory-a" ||
+    genericRuntimeCapability === "user32-set-window-pos-repeat-activation"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
       ? "kernel32-get-file-attributes-a-v1.json"
@@ -523,7 +526,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const setWindowPosRepeatActivationCheckpointEnabled =
+  genericRuntimeCapability === "user32-set-window-pos-repeat-activation";
 const createDirectoryACheckpointEnabled =
+  setWindowPosRepeatActivationCheckpointEnabled ||
   genericRuntimeCapability === "kernel32-create-directory-a";
 const getFileAttributesACheckpointEnabled =
   createDirectoryACheckpointEnabled ||
@@ -843,7 +849,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? createDirectoryACheckpointEnabled
+      ? setWindowPosRepeatActivationCheckpointEnabled
+      ? "v86-bgi-set-window-pos-repeat-activation"
+      : createDirectoryACheckpointEnabled
       ? "v86-bgi-create-directory-a"
       : getFileAttributesACheckpointEnabled
       ? "v86-bgi-get-file-attributes-a"
@@ -4978,6 +4986,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (setWindowPosRepeatActivationCheckpointEnabled) {
+        validateSetWindowPosRepeatActivationResult(genericResult);
       } else if (createDirectoryACheckpointEnabled) {
         validateCreateDirectoryAResult(genericResult);
       } else if (getFileAttributesACheckpointEnabled) {
@@ -5223,6 +5233,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : setWindowPosRepeatActivationCheckpointEnabled
+          ? "bgi SetWindowPos repeat activation"
           : createDirectoryACheckpointEnabled
           ? "bgi durable Runtime VFS CreateDirectoryA"
           : getFileAttributesACheckpointEnabled
@@ -13048,7 +13060,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_612,
       arguments: [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v3",
+      implementationId: "user32.set-window-pos.v4",
       returnAddress: 0x1006_7f88,
       stackDelta: 32,
       lastError: 0,
@@ -13103,7 +13115,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_797,
       arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 0, 0, 0x059b],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v3",
+      implementationId: "user32.set-window-pos.v4",
       returnAddress: 0x1006_7f9f,
       stackDelta: 32,
       lastError: 0,
@@ -14150,7 +14162,7 @@ function validateSetWindowPosActivationResult(result) {
         instruction: 11_806_645,
         arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
         result: { action: "set", value: 1 },
-        implementationId: "user32.set-window-pos.v3",
+        implementationId: "user32.set-window-pos.v4",
       },
       ...[
         [17_832, 9, 11_806_687, [0x4801_0001, 70, 0, 0x0050_1000], 0],
@@ -18119,6 +18131,121 @@ function validateCreateDirectoryAResult(result) {
   ]);
 }
 
+function validateSetWindowPosRepeatActivationResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 108_736);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    108_736,
+  );
+  assert.equal(result.callbackEvents.length, 50);
+  assert.equal(result.stackGrowths.length, 6);
+  assert.equal(result.heapPageMaterializations.length, 62);
+  assert.equal(result.sourceReads.length, 10);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  const calls = result.supportedCalls.filter(
+    (call) => call.implementationId === "user32.set-window-pos.v4",
+  );
+  assert.equal(calls.length, 5, "SetWindowPos completion count changed");
+  assert.deepEqual(
+    calls.map((call) => call.sequence),
+    [1_402, 1_408, 17_831, 89_387, 108_718],
+  );
+  const repeat = calls.at(-1);
+  assert.equal(repeat.symbol, "SetWindowPos");
+  assert.equal(repeat.occurrence, 5);
+  assert.equal(repeat.trapInstructionCount, 28_273_977);
+  assert.deepEqual(repeat.arguments, [
+    0x4801_0001,
+    0xffff_fffe,
+    0,
+    0,
+    1_286,
+    749,
+    266,
+  ]);
+  assert.deepEqual(repeat.result, { action: "set", value: 1 });
+  assert.equal(repeat.returnAddress, 0x1005_cb4b);
+  assert.equal(repeat.stackPointerBefore, 0x006f_f5e0);
+  assert.equal(repeat.stackPointerAfter, 0x006f_f600);
+  assert.equal(repeat.lastError, 0);
+  assert.deepEqual(repeat.guestWrites, []);
+  assert.deepEqual(repeat.window.geometry, {
+    x: 15_360,
+    y: 8_640,
+    width: 1_286,
+    height: 749,
+    clientX: 15_363,
+    clientY: 8_666,
+    clientWidth: 1_280,
+    clientHeight: 720,
+  });
+  assert.deepEqual(repeat.callback, {
+    frameId: 25,
+    target: 0x1009_2550,
+    allocationStart: 0x006f_f5cc,
+    stackPointer: 0x006f_f5cc,
+    scratchAddress: 0x0050_1000,
+    scratchBytes: 28,
+    frameBytes: 20,
+    returnSentinel: 0x7f01_0000,
+    returnInstructionCount: 28_274_079,
+    result: 0,
+  });
+  assert.deepEqual(result.callbackEvents.slice(-2), [
+    {
+      action: "enter",
+      sequence: 108_718,
+      frameId: 25,
+      instructionCount: 28_273_977,
+      target: 0x1009_2550,
+      stackPointer: 0x006f_f5cc,
+      arguments: [0x4801_0001, 0x0046, 0, 0x0050_1000],
+    },
+    {
+      action: "return",
+      sequence: 108_718,
+      frameId: 25,
+      instructionCount: 28_274_079,
+      result: 0,
+    },
+  ]);
+  assert.equal(result.schedulerContinuation.selectionCount, 1_526);
+  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8192, 8193],
+    executedThreadIds: [8192, 8193],
+    contextSwitches: 1_526,
+    threadExits: [],
+  });
+  assert.equal(result.timerPacing.length, 6_974);
+  assert.equal(result.finalGeneration, 202_769);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 221,
+    address: 0x7f00_0dc0,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "MessageBoxA" },
+    iatAddress: 0x100d_144c,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+  );
+  assert.equal(result.terminal.instructionCount, 28_274_916);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1006_6b0d);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 5), [
+    0x4801_0001,
+    0x100d_cba0,
+    0x100d_cbe0,
+    0x1010,
+  ]);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -18263,7 +18390,7 @@ function validateArchiveSourceReadResult(result) {
     [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
   );
   assert.deepEqual(completedResize.result, { action: "set", value: 1 });
-  assert.equal(completedResize.implementationId, "user32.set-window-pos.v3");
+  assert.equal(completedResize.implementationId, "user32.set-window-pos.v4");
   assert.equal(completedResize.returnAddress, 0x1005_cb4b);
   assert.equal(completedResize.lastError, 0);
   assert.deepEqual(completedResize.guestWrites, []);
@@ -22504,6 +22631,32 @@ function buildGenericRuntimeReentryReport({
       "CreateDirectoryA report summary requires one storage commit",
     );
   }
+  const setWindowPosRepeatActivationCalls =
+    setWindowPosRepeatActivationCheckpointEnabled
+      ? genericResult.supportedCalls.filter(
+          (call) => call.implementationId === "user32.set-window-pos.v4",
+        )
+      : [];
+  const setWindowPosRepeatActivationCall =
+    setWindowPosRepeatActivationCalls.at(-1) ?? null;
+  const setWindowPosRepeatActivationCallbackEvents =
+    setWindowPosRepeatActivationCall === null
+      ? []
+      : genericResult.callbackEvents.filter(
+          (event) => event.sequence === setWindowPosRepeatActivationCall.sequence,
+        );
+  if (setWindowPosRepeatActivationCheckpointEnabled) {
+    assert.equal(
+      setWindowPosRepeatActivationCalls.length,
+      5,
+      "SetWindowPos repeat-activation report summary requires the frozen calls and one repeat",
+    );
+    assert.equal(
+      setWindowPosRepeatActivationCallbackEvents.length,
+      2,
+      "SetWindowPos repeat activation requires one balanced callback",
+    );
+  }
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -22570,6 +22723,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : setWindowPosRepeatActivationCheckpointEnabled
+        ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
         : createDirectoryACheckpointEnabled
         ? "vine.v86-bgi-kernel32-create-directory-a"
         : getFileAttributesACheckpointEnabled
@@ -23068,6 +23223,21 @@ function buildGenericRuntimeReentryReport({
             sourceMutation: false,
             hostPathCreated: false,
             browserFileSystemImported: false,
+          },
+        }
+      : {}),
+    ...(setWindowPosRepeatActivationCheckpointEnabled
+      ? {
+          setWindowPosRepeatActivation: {
+            callCount: setWindowPosRepeatActivationCalls.length,
+            repeatCall: setWindowPosRepeatActivationCall,
+            callbackEvents: setWindowPosRepeatActivationCallbackEvents,
+            windowAuthority: "rust-runtime-user32-logical-window",
+            relationAuthority:
+              "rust-runtime-user32-thread-and-process-window-relations",
+            callbackDisposition: "validate-only",
+            mutation: false,
+            browserResourceCreated: false,
           },
         }
       : {}),

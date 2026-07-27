@@ -40,7 +40,7 @@ pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1"
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
-pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v3";
+pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v4";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const SET_TIMER_IMPLEMENTATION: &str = "user32.set-timer.live-window-callback-registration.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
@@ -2294,6 +2294,9 @@ fn handle_set_window_pos(
         RuntimeSetWindowPosVariant::ActivateSameGeometry => {
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
         }
+        RuntimeSetWindowPosVariant::RepeatActivation => {
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
+        }
         RuntimeSetWindowPosVariant::Resize => {
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
         }
@@ -3979,8 +3982,18 @@ fn handle_def_window_proc_activation(
                     position_policy.activation_flags,
                 ];
             if first {
+                let already_focused = session
+                    .runtime()
+                    .focused_window_handle()
+                    .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+                    == Some(handle);
                 require_window_activation_relations(
-                    session, handle, false, false, false, contract,
+                    session,
+                    handle,
+                    already_focused,
+                    already_focused,
+                    already_focused,
+                    contract,
                 )?;
             } else if internal {
                 require_window_activation_relations(session, handle, true, false, true, contract)?;

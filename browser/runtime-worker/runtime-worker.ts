@@ -25,6 +25,7 @@ import {
   type RuntimeGdiplusSnapshot,
   type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
+  type RuntimeSetWindowPosRepeatActivationCallSnapshot,
   type RuntimeImm32Snapshot,
   type RuntimeThreadSelectionSnapshot,
   type RuntimeVirtualMemorySnapshot,
@@ -588,6 +589,21 @@ class BrowserRuntimeSession {
   #profileLease: WritableProfileLease | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
+  #setWindowPosCompletionCount = 0;
+  #setWindowPosRepeatActivationCallbackEntry: {
+    action: "enter";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    target: number;
+    allocationStart: number;
+    stackPointer: number;
+    scratchAddress: number;
+    scratchBytes: number;
+    frameBytes: number;
+    returnSentinel: number;
+    arguments: [number, number, number, number];
+  } | null = null;
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #enterCriticalSectionCompletions = 0;
@@ -676,6 +692,8 @@ class BrowserRuntimeSession {
     globalMemoryStatus: null as SessionReport["globalMemoryStatus"],
     getFileAttributesA: null as SessionReport["getFileAttributesA"],
     createDirectoryA: null as SessionReport["createDirectoryA"],
+    setWindowPosRepeatActivation:
+      null as SessionReport["setWindowPosRepeatActivation"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -711,7 +729,9 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile ===
               "kernel32-get-file-attributes-a" ||
             this.#configuration.capabilityProfile ===
-              "kernel32-create-directory-a"));
+              "kernel32-create-directory-a" ||
+            this.#configuration.capabilityProfile ===
+              "user32-set-window-pos-repeat-activation"));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -2229,12 +2249,42 @@ class BrowserRuntimeSession {
         this.#takeApiResumeState();
         this.#applyRequiredDelta(output);
         if (this.#requirePrepared().workload === "private-bgi") {
+          const sequence = this.#nextBgiCallSequence + 1;
           invariant(
             !this.#bgiCallbackCallSequences.has(metadata.frameId),
             "BGI callback frame reused an active call sequence",
           );
-          this.#nextBgiCallSequence += 1;
-          this.#bgiCallbackCallSequences.set(metadata.frameId, this.#nextBgiCallSequence);
+          if (
+            this.#configuration.capabilityProfile ===
+              "user32-set-window-pos-repeat-activation" &&
+            sequence === 108_718
+          ) {
+            invariant(
+              this.#setWindowPosRepeatActivationCallbackEntry === null,
+              "SetWindowPos repeat activation entered more than one callback",
+            );
+            this.#setWindowPosRepeatActivationCallbackEntry = {
+              action: "enter",
+              sequence,
+              frameId: metadata.frameId,
+              instructionCount: this.#report.instructions,
+              target: metadata.target,
+              allocationStart: metadata.allocationStart,
+              stackPointer: metadata.stackPointer,
+              scratchAddress: metadata.scratchAddress,
+              scratchBytes: metadata.scratchBytes,
+              frameBytes: metadata.frameBytes,
+              returnSentinel: metadata.returnSentinel,
+              arguments: [
+                engine.readGuestU32(metadata.stackPointer + 4),
+                engine.readGuestU32(metadata.stackPointer + 8),
+                engine.readGuestU32(metadata.stackPointer + 12),
+                engine.readGuestU32(metadata.stackPointer + 16),
+              ],
+            };
+          }
+          this.#nextBgiCallSequence = sequence;
+          this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
         }
         this.#report.callbackEntries += 1;
         this.#report.maximumCallbackDepth = Math.max(
@@ -2417,6 +2467,7 @@ class BrowserRuntimeSession {
   #recordBgiCompletion(
     metadata: CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
     reservedSequence?: number,
+    callbackResult?: number,
   ): void {
     const endpoint = metadata.endpoint;
     invariant(endpoint !== undefined, "BGI completion omitted its endpoint identity");
@@ -2506,6 +2557,7 @@ class BrowserRuntimeSession {
       completion.implementationId === "user32.set-window-pos.v1" ||
       completion.implementationId === "user32.set-window-pos.v2" ||
       completion.implementationId === "user32.set-window-pos.v3" ||
+      completion.implementationId === "user32.set-window-pos.v4" ||
       completion.implementationId === "user32.set-window-long-a.gwl-style.v1" ||
       completion.implementationId ===
         "shell32.drag-accept-files.logical-window-style-v1";
@@ -2621,6 +2673,139 @@ class BrowserRuntimeSession {
         : { virtualMemory: metadata.virtualMemory }),
     };
     if (
+      completion.implementationId === "user32.set-window-pos.v4" &&
+      this.#configuration.capabilityProfile ===
+        "user32-set-window-pos-repeat-activation"
+    ) {
+      this.#setWindowPosCompletionCount += 1;
+      if (this.#setWindowPosCompletionCount === 5) {
+        const entry = this.#setWindowPosRepeatActivationCallbackEntry;
+        const window = metadata.window;
+        const [
+          windowHandle,
+          insertAfter,
+          x,
+          y,
+          width,
+          height,
+          flags,
+        ] = call.arguments;
+        invariant(
+          metadata.kind === "callback-complete" &&
+            metadata.remainingDepth === 0 &&
+            reservedSequence === 108_718 &&
+            callbackResult === 0 &&
+            entry !== null &&
+            entry.sequence === reservedSequence &&
+            entry.frameId === metadata.frameId &&
+            entry.instructionCount === 28_273_977 &&
+            entry.target === 0x1009_2550 &&
+            entry.allocationStart === 0x006f_f5cc &&
+            entry.stackPointer === 0x006f_f5cc &&
+            entry.scratchAddress === 0x0050_1000 &&
+            entry.scratchBytes === 28 &&
+            entry.frameBytes === 20 &&
+            entry.returnSentinel === 0x7f01_0000 &&
+            entry.arguments.length === 4 &&
+            entry.arguments[0] === 0x4801_0001 &&
+            entry.arguments[1] === 0x0046 &&
+            entry.arguments[2] === 0 &&
+            entry.arguments[3] === 0x0050_1000 &&
+            this.#report.instructions === 28_274_079 &&
+            call.arguments.length === 7 &&
+            windowHandle === 0x4801_0001 &&
+            insertAfter === 0xffff_fffe &&
+            x === 0 &&
+            y === 0 &&
+            width === 1_286 &&
+            height === 749 &&
+            flags === 266 &&
+            completion.eax.action === "set" &&
+            completion.eax.value === 1 &&
+            completion.instructionPointer === 0x1005_cb4b &&
+            frame.stackPointer === 0x006f_f5e0 &&
+            completion.stackPointer === 0x006f_f600 &&
+            completion.lastError === 0 &&
+            guestWrites.length === 0 &&
+            window !== undefined &&
+            window.handle === windowHandle &&
+            window.geometry.x === 15_360 &&
+            window.geometry.y === 8_640 &&
+            window.geometry.width === 1_286 &&
+            window.geometry.height === 749 &&
+            window.geometry.clientX === 15_363 &&
+            window.geometry.clientY === 8_666 &&
+            window.geometry.clientWidth === 1_280 &&
+            window.geometry.clientHeight === 720,
+          "SetWindowPos repeat activation ABI, callback, or authority state changed",
+        );
+        const repeatCall: RuntimeSetWindowPosRepeatActivationCallSnapshot = {
+          sequence: reservedSequence,
+          module: endpoint.module,
+          symbol: "SetWindowPos",
+          occurrence: 5,
+          trapInstructionCount: entry.instructionCount,
+          arguments: [
+            windowHandle,
+            insertAfter,
+            x,
+            y,
+            width,
+            height,
+            flags,
+          ],
+          result: { action: "set", value: 1 },
+          implementationId: "user32.set-window-pos.v4",
+          returnAddress: completion.instructionPointer,
+          stackPointerBefore: frame.stackPointer,
+          stackPointerAfter: completion.stackPointer,
+          lastError: completion.lastError,
+          guestWrites: [],
+          window: structuredClone(window),
+          callback: {
+            frameId: entry.frameId,
+            target: entry.target,
+            allocationStart: entry.allocationStart,
+            stackPointer: entry.stackPointer,
+            scratchAddress: entry.scratchAddress,
+            scratchBytes: entry.scratchBytes,
+            frameBytes: entry.frameBytes,
+            returnSentinel: entry.returnSentinel,
+            returnInstructionCount: this.#report.instructions,
+            result: callbackResult,
+          },
+        };
+        this.#report.setWindowPosRepeatActivation = {
+          callCount: 5,
+          repeatCall,
+          callbackEvents: [
+            {
+              action: "enter",
+              sequence: entry.sequence,
+              frameId: entry.frameId,
+              instructionCount: entry.instructionCount,
+              target: entry.target,
+              stackPointer: entry.stackPointer,
+              arguments: entry.arguments,
+            },
+            {
+              action: "return",
+              sequence: entry.sequence,
+              frameId: entry.frameId,
+              instructionCount: this.#report.instructions,
+              result: callbackResult,
+            },
+          ],
+          windowAuthority: "rust-runtime-user32-logical-window",
+          relationAuthority:
+            "rust-runtime-user32-thread-and-process-window-relations",
+          callbackDisposition: "validate-only",
+          mutation: false,
+          browserResourceCreated: false,
+        };
+      }
+    }
+    if (
       completion.implementationId ===
       "shell32.drag-accept-files.logical-window-style-v1"
     ) {
@@ -2696,7 +2881,9 @@ class BrowserRuntimeSession {
           this.#configuration.capabilityProfile ===
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-create-directory-a") &&
+            "kernel32-create-directory-a" ||
+          this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "Sleep",
@@ -2759,7 +2946,9 @@ class BrowserRuntimeSession {
           this.#configuration.capabilityProfile ===
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-create-directory-a") &&
+            "kernel32-create-directory-a" ||
+          this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation") &&
           this.#report.globalMemoryStatus === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -2823,8 +3012,10 @@ class BrowserRuntimeSession {
       const [pathAddress, securityAttributes] = call.arguments;
       const directoryCreate = metadata.writableDirectoryCreate;
       invariant(
-        this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a" &&
+        (this.#configuration.capabilityProfile ===
+          "kernel32-create-directory-a" ||
+          this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation") &&
           this.#report.createDirectoryA === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -2888,7 +3079,9 @@ class BrowserRuntimeSession {
         (this.#configuration.capabilityProfile ===
           "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-create-directory-a") &&
+            "kernel32-create-directory-a" ||
+          this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation") &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "GetFileAttributesA" &&
@@ -2927,7 +3120,9 @@ class BrowserRuntimeSession {
           fileExistenceAuthority: "registered-source-and-writable-manifests",
           directoryExistence:
             this.#configuration.capabilityProfile ===
-            "kernel32-create-directory-a"
+              "kernel32-create-directory-a" ||
+            this.#configuration.capabilityProfile ===
+              "user32-set-window-pos-repeat-activation"
               ? "registered-path-ancestors-and-writable-directory-state"
               : "registered-path-ancestor-derivation",
           hostFileSystemImported: false,
@@ -3419,6 +3614,11 @@ class BrowserRuntimeSession {
       );
       this.#applyRequiredDelta(output);
       if (prepared.workload === "private-bgi") {
+        invariant(
+          this.#setWindowPosRepeatActivationCallbackEntry?.frameId !==
+            metadata.replacedFrameId,
+          "SetWindowPos repeat activation unexpectedly replaced its window callback",
+        );
         const sequence = this.#bgiCallbackCallSequences.get(metadata.replacedFrameId);
         invariant(sequence !== undefined, "BGI replacement callback has no reserved call sequence");
         this.#bgiCallbackCallSequences.delete(metadata.replacedFrameId);
@@ -3447,7 +3647,7 @@ class BrowserRuntimeSession {
       const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
       invariant(sequence !== undefined, "BGI callback completion has no reserved call sequence");
       this.#bgiCallbackCallSequences.delete(metadata.frameId);
-      this.#recordBgiCompletion(metadata, sequence);
+      this.#recordBgiCompletion(metadata, sequence, result);
     }
     this.#requireEngine().applyCpuResume(metadata.completion);
     const resumeState = metadata.remainingDepth > 0 ? "guest-callback" : "ready";
@@ -3518,7 +3718,9 @@ class BrowserRuntimeSession {
           this.#configuration.capabilityProfile ===
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
-            "kernel32-create-directory-a") &&
+            "kernel32-create-directory-a" ||
+          this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation") &&
           sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
@@ -3558,7 +3760,9 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
       this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
       this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a" ||
-      this.#configuration.capabilityProfile === "kernel32-create-directory-a"
+      this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
+      this.#configuration.capabilityProfile ===
+        "user32-set-window-pos-repeat-activation"
     ) {
       const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
@@ -4472,7 +4676,9 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile ===
           "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a") &&
+          "kernel32-create-directory-a" ||
+        this.#configuration.capabilityProfile ===
+          "user32-set-window-pos-repeat-activation") &&
       terminal.outcome === "structured-stop"
     ) {
       const sleepZero = this.#report.sleepZero;
@@ -4490,7 +4696,9 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile ===
           "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a") &&
+          "kernel32-create-directory-a" ||
+        this.#configuration.capabilityProfile ===
+          "user32-set-window-pos-repeat-activation") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4502,7 +4710,9 @@ class BrowserRuntimeSession {
       (this.#configuration.capabilityProfile ===
         "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a") &&
+          "kernel32-create-directory-a" ||
+        this.#configuration.capabilityProfile ===
+          "user32-set-window-pos-repeat-activation") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4511,13 +4721,27 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      this.#configuration.capabilityProfile === "kernel32-create-directory-a" &&
+      (this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
+        this.#configuration.capabilityProfile ===
+          "user32-set-window-pos-repeat-activation") &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
         this.#report.createDirectoryA?.call.writableDirectoryCreate.succeeded === true &&
           this.#report.writableDirectoryCreates.length === 1,
         "CreateDirectoryA report omitted its durable VFS transaction",
+      );
+    }
+    if (
+      this.#configuration.capabilityProfile ===
+        "user32-set-window-pos-repeat-activation" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      invariant(
+        this.#setWindowPosCompletionCount === 5 &&
+          this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence === 5 &&
+          this.#report.setWindowPosRepeatActivation.callbackEvents.length === 2,
+        "SetWindowPos report omitted its repeat activation callback completion",
       );
     }
     if (this.#configuration.evidenceLevel === "full") {
@@ -4675,6 +4899,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             globalMemoryStatus: null,
             getFileAttributesA: null,
             createDirectoryA: null,
+            setWindowPosRepeatActivation: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

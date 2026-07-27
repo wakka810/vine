@@ -18,16 +18,16 @@ use vine_core::{
     RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind, RuntimeThreadId,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
-    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, build_pe32_load_plan,
-    create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
-    dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy, enable_menu_item_contract,
-    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
-    get_client_rect_contract, get_dc_contract, get_monitor_info_a_contract,
-    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
-    imm_associate_context_contract, imm_get_default_ime_wnd_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind,
+    RuntimeThreadId, RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy,
+    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
+    dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy,
+    enable_menu_item_contract, enum_display_monitors_contract, fill_rect_contract,
+    gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
+    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
+    get_system_metrics_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
     send_message_a_contract, set_timer_contract, set_window_long_a_contract,
     set_window_pos_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
@@ -6526,6 +6526,67 @@ fn set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc(
         &resized_window
     );
     assert_eq!(fixture.runtime.gdi_surfaces()[&surface_id], resized_surface);
+
+    fixture.runtime.set_current_last_error(0x1357_9bdf).unwrap();
+    fixture.configure_set_window_pos(
+        [window_handle, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
+        SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
+    );
+    let repeat = match fixture.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected repeat WM_WINDOWPOSCHANGING, got {other:?}"),
+    };
+    assert!(matches!(
+        &repeat.request.completion_policy,
+        GuestCallbackCompletionPolicy::SetWindowPos {
+            operation,
+            message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+        } if operation.variant == RuntimeSetWindowPosVariant::RepeatActivation
+    ));
+    assert_eq!(
+        repeat.request.scratch,
+        [window_handle, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    let repeat_prepared = begin_fixture_callback(&mut fixture, &repeat);
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(
+            window_handle,
+            0x0046,
+            repeat_prepared.scratch_address.0,
+        ),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(0)
+    ));
+    let (repeat_completion, repeat_action) =
+        complete_fixture_callback(&mut fixture, repeat, 0, repeat_prepared.frame_id);
+    assert_eq!(repeat_completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(repeat_completion.last_error, 0x1357_9bdf);
+    assert!(matches!(
+        repeat_action,
+        Some(RuntimeGuestCallbackSemanticAction::SetWindowPos(
+            RuntimeSetWindowPosCallbackAction::Completed { ref window }
+        )) if window == &resized_window
+    ));
+    assert_eq!(
+        fixture.runtime.window(window_handle).unwrap(),
+        &resized_window
+    );
+    assert_eq!(fixture.runtime.gdi_surfaces()[&surface_id], resized_surface);
+    assert_eq!(
+        fixture.runtime.active_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.focused_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.foreground_window_handle().unwrap(),
+        Some(window_handle)
+    );
     assert!(
         fixture
             .runtime

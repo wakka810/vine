@@ -289,14 +289,16 @@ function runSession(
       policyUrl: "./private/kernel32-policy.json",
       instructionBudget: 16_384,
       watchdogInstructionLimit:
-        capabilityProfile === "kernel32-create-directory-a"
+        capabilityProfile === "kernel32-create-directory-a" ||
+        capabilityProfile === "user32-set-window-pos-repeat-activation"
           ? 35_000_000
           : 20_000_000,
       watchdogWallMilliseconds:
         capabilityProfile === "kernel32-sleep-zero" ||
         capabilityProfile === "kernel32-global-memory-status" ||
         capabilityProfile === "kernel32-get-file-attributes-a" ||
-        capabilityProfile === "kernel32-create-directory-a"
+        capabilityProfile === "kernel32-create-directory-a" ||
+        capabilityProfile === "user32-set-window-pos-repeat-activation"
           ? 300_000
           : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -322,7 +324,8 @@ function parseCapabilityProfile(value: unknown): BgiCapabilityProfile | undefine
     value === "kernel32-sleep-zero" ||
     value === "kernel32-global-memory-status" ||
     value === "kernel32-get-file-attributes-a" ||
-    value === "kernel32-create-directory-a"
+    value === "kernel32-create-directory-a" ||
+    value === "user32-set-window-pos-repeat-activation"
     ? value
     : undefined;
 }

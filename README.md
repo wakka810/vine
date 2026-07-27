@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `kernel32-create-directory-a`: 108717 calls across 117 endpoint contracts / 115 APIs, memory generation 202575 |
+| Runtime diagnostics | `user32-set-window-pos-repeat-activation`: 108736 calls across 117 endpoint contracts / 115 APIs, memory generation 202769 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!SetWindowPos(0x48010001, 0xfffffffe, 0x00000000, 0x00000000, 0x00000506, 0x000002ed, 0x0000010a)` at instruction 28273977: `set-window-pos-activation-state-invalid` |
+| Next structured stop | `USER32.dll!MessageBoxA(0x48010001, 0x100dcba0, 0x100dcbe0, 0x00001010)` at instruction 28274916: `endpoint-contract-missing` |
 
-The active semantic report is 476,190 bytes with SHA-256
-`fffb97f94e56efd20d6544d40778eed2644b10ea3868fd78bba1907ddc0c9a54`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 479,626 bytes with SHA-256
+`cdc3a39f0b94a5d5502cb33286a18726bbc57bf3babdbbb331b2655b9d71c502`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

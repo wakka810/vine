@@ -86,7 +86,10 @@ host／browser filesystemをauthorityへしないsemantic leafとして閉じた
 `RuntimeFiles` ownerの別directory collection／identity／generation／planを導入し、SQLite lease／CAS／idempotencyが
 durably publishした後だけRust existenceをcommitする。Private Node／Chromeはshared profileを変更しないrun-local DBで
 success、duplicate／parent／file-conflict oracle、cancel、terminal drainを固定した。現在のsemantic stopは既存logical
-windowへ到達した`USER32.dll!SetWindowPos` repeat activation variantであり、新しいstorage blockerではない。
+windowへ到達した`USER32.dll!SetWindowPos` repeat activation variantを、既存三relationがtargetのときの
+`WM_WINDOWPOSCHANGING`一回だけのvalidate-only leafとして閉じた。Geometry、visibility、active／focus／foreground、
+generationは成功時にも不変で、Node／Chromeは次の`USER32.dll!MessageBoxA` contract-missing stopまで一致した。
+これは新しいstorage／browser capability blockerではない。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

@@ -161,7 +161,11 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const setWindowPosRepeatActivationActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-set-window-pos-repeat-activation";
   const createDirectoryAActive =
+    setWindowPosRepeatActivationActive ||
     root.activeRuntimeCheckpoint?.profile === "kernel32-create-directory-a";
   const getFileAttributesAActive =
     root.activeRuntimeCheckpoint?.profile === "kernel32-get-file-attributes-a" ||
@@ -184,6 +188,25 @@ export function validateCurrentCheckpoint(manifest) {
     leaveCriticalSectionContinuationActive ||
     dragAcceptFilesActive ||
     archiveSourceReadActive;
+  const setWindowPosCallCount = setWindowPosRepeatActivationActive ? 5 : 4;
+  const setWindowPosSequences = setWindowPosRepeatActivationActive
+    ? "1402,1408,17831,89387,108718"
+    : "1402,1408,17831,89387";
+  const setWindowPosInstructionCounts = setWindowPosRepeatActivationActive
+    ? "11336519,11336704,11666552,15952303,28273977"
+    : "11476612,11476797,11806645,15951782";
+  const setWindowPosReturnAddresses = setWindowPosRepeatActivationActive
+    ? "0x10067f88,0x10067f9f,0x1005cb4b,0x1005cb4b,0x1005cb4b"
+    : "0x10067f88,0x10067f9f,0x1005cb4b,0x1005cb4b";
+  const setWindowPosResults = setWindowPosRepeatActivationActive
+    ? "1,1,1,1,1"
+    : "1,1,1,1";
+  const setWindowPosLastErrors = setWindowPosRepeatActivationActive
+    ? "0,0,0,0,0"
+    : "0,0,0,0";
+  const setWindowPosImplementationId = setWindowPosRepeatActivationActive
+    ? "user32.set-window-pos.v4"
+    : "user32.set-window-pos.v3";
   const timerCycleCount = createDirectoryAActive
     ? 6_974
     : getFileAttributesAActive
@@ -327,7 +350,24 @@ export function validateCurrentCheckpoint(manifest) {
     : mainLoopContinuationActive
       ? "2,3,4,5,6,7,8"
       : "2,3,4";
-  const profileExpectations = createDirectoryAActive
+  const profileExpectations = setWindowPosRepeatActivationActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 92_825,
+        browserMappingDirtyPages: 95_902,
+        browserSuccessExecutionTransitions: 353_544,
+        latestSchema: "vine.v86-bgi-user32-set-window-pos-repeat-activation",
+        latestWritebackBatches: 108_830,
+        latestWritebackDirtyPages: 150_285,
+        latestWritebackChangedBytes: 6_369_334,
+        latestHostDeltaBatches: 92_825,
+        latestFinalMemoryGeneration: 202_769,
+        semanticCallDigestSha256:
+          "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+        memoryContentSha256:
+          "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+      }
+    : createDirectoryAActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 92_815,
@@ -831,8 +871,8 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push("browserCheckpoint.bgiBenchmark must identify a threshold gate outcome");
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v24") {
-    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v24");
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v25") {
+    errors.push("browserCheckpoint.browserRuntimeProtocol must identify protocol v25");
   }
   if (
     browser.executionEngineProfile !==
@@ -1648,10 +1688,12 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.sourceReadCompletions !==
       (createDirectoryAActive ? 10 : archiveSourceReadActive ? 5 : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
-    bgiBrowserEvidence.callbackEntries !== 24 ||
+    bgiBrowserEvidence.callbackEntries !==
+      (setWindowPosRepeatActivationActive ? 25 : 24) ||
     bgiBrowserEvidence.callbackReplacements !== 13 ||
     bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
-    bgiBrowserEvidence.logicalWindowCompletions !== 6 ||
+    bgiBrowserEvidence.logicalWindowCompletions !==
+      (setWindowPosRepeatActivationActive ? 7 : 6) ||
     bgiBrowserEvidence.logicalWindowHandle !== "0x48010001" ||
     bgiBrowserEvidence.logicalWindowFinalLifecycle !== "created" ||
     bgiBrowserEvidence.logicalWindowRequestedStyle !== "0x80ca0000" ||
@@ -2364,6 +2406,51 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.graphicsSurfacePixelStorageCreatedBySurfaceDcSlice !== false
   ) {
     errors.push("browser BGI authority or teardown evidence is invalid");
+  }
+  if (
+    setWindowPosRepeatActivationActive &&
+    (bgiBrowserEvidence.setWindowPosRepeatCompletions !== 1 ||
+      bgiBrowserEvidence.setWindowPosRepeatCallCount !== 5 ||
+      bgiBrowserEvidence.setWindowPosRepeatSequence !== 108_718 ||
+      bgiBrowserEvidence.setWindowPosRepeatOccurrence !== 5 ||
+      bgiBrowserEvidence.setWindowPosRepeatInstructionCount !== 28_273_977 ||
+      bgiBrowserEvidence.setWindowPosRepeatArguments?.join(",") !==
+        "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000506,0x000002ed,0x0000010a" ||
+      bgiBrowserEvidence.setWindowPosRepeatResult !== 1 ||
+      bgiBrowserEvidence.setWindowPosRepeatImplementationId !==
+        "user32.set-window-pos.v4" ||
+      bgiBrowserEvidence.setWindowPosRepeatReturnAddress !== "0x1005cb4b" ||
+      bgiBrowserEvidence.setWindowPosRepeatStackPointers?.join(",") !==
+        "0x006ff5e0,0x006ff600" ||
+      bgiBrowserEvidence.setWindowPosRepeatLastError !== 0 ||
+      bgiBrowserEvidence.setWindowPosRepeatGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.setWindowPosRepeatGeometry?.join(",") !==
+        "15360,8640,1286,749,15363,8666,1280,720" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackFrameId !== 25 ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackTarget !== "0x10092550" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackAllocationStart !==
+        "0x006ff5cc" ||
+      bgiBrowserEvidence.setWindowPosRepeatScratchAddress !== "0x00501000" ||
+      bgiBrowserEvidence.setWindowPosRepeatScratchBytes !== 28 ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackFrameBytes !== 20 ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackReturnSentinel !==
+        "0x7f010000" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackMessages?.join(",") !== "70" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackResults?.join(",") !== "0" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackReturnInstructionCount !==
+        28_274_079 ||
+      bgiBrowserEvidence.setWindowPosRepeatWindowAuthority !==
+        "rust-runtime-user32-logical-window" ||
+      bgiBrowserEvidence.setWindowPosRepeatRelationAuthority !==
+        "rust-runtime-user32-thread-and-process-window-relations" ||
+      bgiBrowserEvidence.setWindowPosRepeatCallbackDisposition !== "validate-only" ||
+      bgiBrowserEvidence.setWindowPosRepeatMutation !== false ||
+      bgiBrowserEvidence.setWindowPosRepeatFailureAtomicity !== true ||
+      bgiBrowserEvidence.setWindowPosRepeatBrowserOwnsLogicalWindowState !== false ||
+      bgiBrowserEvidence.setWindowPosRepeatBrowserResourceCreated !== false ||
+      bgiBrowserEvidence.setWindowPosRepeatNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("browser BGI repeated SetWindowPos evidence is invalid");
   }
   if (
     bgiBrowserEvidence.setWaitableTimerCompletions !== timerCycleCount ||
@@ -4060,7 +4147,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (
     active.runtimeWindowActivationScope !==
-    "same-owner-thread-single-window-same-geometry-active-focus-foreground-callback-lifecycle"
+    (setWindowPosRepeatActivationActive
+      ? "same-owner-thread-single-window-same-geometry-initial-and-repeat-active-focus-foreground-callback-lifecycle"
+      : "same-owner-thread-single-window-same-geometry-active-focus-foreground-callback-lifecycle")
   ) {
     errors.push("activeRuntimeCheckpoint window activation scope is invalid");
   }
@@ -9328,16 +9417,16 @@ export function validateCurrentCheckpoint(manifest) {
       "enable-result-not-branch-consumed-before-global-state-write" ||
     latestEvidence.nativeSystemMenuExecutableHashUnchanged !== true ||
     latestEvidence.setWindowPosImplemented !== true ||
-    latestEvidence.setWindowPosCallCount !== 4 ||
-    latestEvidence.setWindowPosSequences?.join(",") !== "1402,1408,17831,89387" ||
+    latestEvidence.setWindowPosCallCount !== setWindowPosCallCount ||
+    latestEvidence.setWindowPosSequences?.join(",") !== setWindowPosSequences ||
     latestEvidence.setWindowPosInstructionCounts?.join(",") !==
-      "11476612,11476797,11806645,15951782" ||
+      setWindowPosInstructionCounts ||
     latestEvidence.setWindowPosReturnAddresses?.join(",") !==
-      "0x10067f88,0x10067f9f,0x1005cb4b,0x1005cb4b" ||
-    latestEvidence.setWindowPosResults?.join(",") !== "1,1,1,1" ||
-    latestEvidence.setWindowPosLastErrors?.join(",") !== "0,0,0,0" ||
+      setWindowPosReturnAddresses ||
+    latestEvidence.setWindowPosResults?.join(",") !== setWindowPosResults ||
+    latestEvidence.setWindowPosLastErrors?.join(",") !== setWindowPosLastErrors ||
     latestEvidence.setWindowPosGuestWrites !== 0 ||
-    latestEvidence.setWindowPosImplementationId !== "user32.set-window-pos.v3" ||
+    latestEvidence.setWindowPosImplementationId !== setWindowPosImplementationId ||
     latestEvidence.setWindowPosStateOwner !==
       "runtime/user32.rs::RuntimeUser32" ||
     latestEvidence.setWindowPosWindowId !== 1 ||
@@ -9390,7 +9479,7 @@ export function validateCurrentCheckpoint(manifest) {
       "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000506,0x000002ed,0x0000010a" ||
     latestEvidence.setWindowPosResizeReturnAddress !== "0x1005cb4b" ||
     latestEvidence.setWindowPosResizeImplementationId !==
-      "user32.set-window-pos.v3" ||
+      setWindowPosImplementationId ||
     latestEvidence.setWindowPosResizePolicySchemaVersion !== 22 ||
     latestEvidence.setWindowPosResizePolicyId !==
       "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22" ||
@@ -9492,6 +9581,99 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.criticalSectionCapacityFailureAtomicity !== true
   ) {
     errors.push("latest SetWindowPos and critical-section capacity evidence is invalid");
+  }
+  if (setWindowPosRepeatActivationActive) {
+    for (const field of [
+      "nativeSetWindowPosRepeatPrimaryTraceSha256",
+      "nativeSetWindowPosRepeatPrimarySummarySha256",
+      "nativeSetWindowPosRepeatConfirmationTraceSha256",
+      "nativeSetWindowPosRepeatConfirmationSummarySha256",
+    ]) {
+      requireSha256(
+        latestEvidence[field],
+        `activeRuntimeCheckpoint.latestEvidence.${field}`,
+        errors,
+      );
+    }
+    if (
+      latestEvidence.nativeSetWindowPosRepeatPrimaryTraceBytes !== 142_214 ||
+      latestEvidence.nativeSetWindowPosRepeatPrimaryTraceLines !== 134 ||
+      latestEvidence.nativeSetWindowPosRepeatPrimaryTraceSha256 !==
+        "9953a39947b5ae2d9654f96fb79521598bbf4b51c7701e54e8fbf48b2af10b36" ||
+      latestEvidence.nativeSetWindowPosRepeatPrimarySummaryBytes !== 15_736 ||
+      latestEvidence.nativeSetWindowPosRepeatPrimarySummarySha256 !==
+        "43a173207c33f05e8cb9f2f03d66bd06a1969dc57a157eb55590b6c91c5ad940" ||
+      latestEvidence.nativeSetWindowPosRepeatPrimaryBalancedApiPairs !== 29 ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationTraceBytes !== 142_590 ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationTraceLines !== 135 ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationTraceSha256 !==
+        "4ae8efe2ebaa6512ecaf394e070bebdd652b5d21721f0dceb3721de247513208" ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationSummaryBytes !== 15_911 ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationSummarySha256 !==
+        "a9cadc23fc4f9a20c1682e161c5b31c646d48280705048c0405433805e786bfc" ||
+      latestEvidence.nativeSetWindowPosRepeatConfirmationBalancedApiPairs !== 29 ||
+      latestEvidence.nativeSetWindowPosRepeatTraceDiagnostics !== 0 ||
+      latestEvidence.nativeSetWindowPosRepeatProfile !==
+        "x86-bgi-set-window-pos-repeat-activation-v1" ||
+      latestEvidence.nativeSetWindowPosRepeatCallsPerTrace !== 1 ||
+      latestEvidence.nativeSetWindowPosRepeatCallerRva !== "0x0005cb4b" ||
+      latestEvidence.nativeSetWindowPosRepeatArguments?.join(",") !==
+        "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000506,0x000002ed,0x0000010a" ||
+      latestEvidence.nativeSetWindowPosRepeatResult !== 1 ||
+      latestEvidence.nativeSetWindowPosRepeatEntryLastError !== 0 ||
+      latestEvidence.nativeSetWindowPosRepeatExitLastError !== 0 ||
+      latestEvidence.nativeSetWindowPosRepeatGeometryUnchanged !== true ||
+      latestEvidence.nativeSetWindowPosRepeatRelationsRemainTarget !== true ||
+      latestEvidence.nativeSetWindowPosRepeatCallbackMessages?.join(",") !== "70" ||
+      latestEvidence.nativeSetWindowPosRepeatCallbackResults?.join(",") !== "0" ||
+      latestEvidence.nativeSetWindowPosRepeatActivationMessagesAbsent !== true ||
+      latestEvidence.nativeSetWindowPosRepeatResizeMessagesAbsent !== true ||
+      latestEvidence.nativeSetWindowPosRepeatConsumer !==
+        "bool-overwritten-by-immediate-helper-call" ||
+      latestEvidence.nativeSetWindowPosRepeatExecutableHashUnchanged !== true ||
+      latestEvidence.setWindowPosRepeatImplemented !== true ||
+      latestEvidence.setWindowPosRepeatSequence !== 108_718 ||
+      latestEvidence.setWindowPosRepeatOccurrence !== 5 ||
+      latestEvidence.setWindowPosRepeatInstructionCount !== 28_273_977 ||
+      latestEvidence.setWindowPosRepeatArguments?.join(",") !==
+        "0x48010001,0xfffffffe,0x00000000,0x00000000,0x00000506,0x000002ed,0x0000010a" ||
+      latestEvidence.setWindowPosRepeatReturnAddress !== "0x1005cb4b" ||
+      latestEvidence.setWindowPosRepeatResult !== 1 ||
+      latestEvidence.setWindowPosRepeatLastError !== 0 ||
+      latestEvidence.setWindowPosRepeatGuestWriteBytes !== 0 ||
+      latestEvidence.setWindowPosRepeatImplementationId !==
+        "user32.set-window-pos.v4" ||
+      latestEvidence.setWindowPosRepeatCallbackFrameId !== 25 ||
+      latestEvidence.setWindowPosRepeatCallbackTarget !== "0x10092550" ||
+      latestEvidence.setWindowPosRepeatCallbackAllocationStart !== "0x006ff5cc" ||
+      latestEvidence.setWindowPosRepeatScratchAddress !== "0x00501000" ||
+      latestEvidence.setWindowPosRepeatScratchBytes !== 28 ||
+      latestEvidence.setWindowPosRepeatCallbackFrameBytes !== 20 ||
+      latestEvidence.setWindowPosRepeatCallbackReturnSentinel !== "0x7f010000" ||
+      latestEvidence.setWindowPosRepeatCallbackMessage !== 70 ||
+      latestEvidence.setWindowPosRepeatCallbackResult !== 0 ||
+      latestEvidence.setWindowPosRepeatCallbackReturnInstructionCount !==
+        28_274_079 ||
+      latestEvidence.setWindowPosRepeatGeometry?.join(",") !==
+        "15360,8640,1286,749,15363,8666,1280,720" ||
+      latestEvidence.setWindowPosRepeatActiveWindowHandle !== "0x48010001" ||
+      latestEvidence.setWindowPosRepeatFocusWindowHandle !== "0x48010001" ||
+      latestEvidence.setWindowPosRepeatForegroundWindowHandle !== "0x48010001" ||
+      latestEvidence.setWindowPosRepeatWindowAuthority !==
+        "rust-runtime-user32-logical-window" ||
+      latestEvidence.setWindowPosRepeatRelationAuthority !==
+        "rust-runtime-user32-thread-and-process-window-relations" ||
+      latestEvidence.setWindowPosRepeatCallbackDisposition !== "validate-only" ||
+      latestEvidence.setWindowPosRepeatMutation !== false ||
+      latestEvidence.setWindowPosRepeatFailureAtomicity !== true ||
+      latestEvidence.setWindowPosRepeatBrowserOwnsLogicalWindowState !== false ||
+      latestEvidence.setWindowPosRepeatBrowserResourceCreated !== false ||
+      latestEvidence.setWindowPosRepeatNodeCompletions !== 1 ||
+      latestEvidence.setWindowPosRepeatChromeCompletions !== 1 ||
+      latestEvidence.setWindowPosRepeatNodeChromeOrderedSemanticsMatched !== true
+    ) {
+      errors.push("latest repeated SetWindowPos evidence is invalid");
+    }
   }
   const nativeMonitorFromWindowInvalidWindowFlags = requireIntegerArray(
     latestEvidence.nativeMonitorFromWindowInvalidWindowFlags,
@@ -13400,7 +13582,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (createDirectoryAActive
+      (setWindowPosRepeatActivationActive
+        ? "Rust-owned same-active-window repeated SetWindowPos validation-only callback over RuntimeUser32 authority"
+        : createDirectoryAActive
         ? "Rust-owned durable CreateDirectoryA over RuntimeFiles and SQLite writable-profile authority"
         : getFileAttributesAActive
         ? "Rust-owned GetFileAttributesA over RuntimeFiles registered VFS and derived directory authority"

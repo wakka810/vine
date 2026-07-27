@@ -5205,3 +5205,33 @@ lease／base generation／idempotencyを一transactionでdurably publishした�
 同じrequest／directory／generation、TRUE、preserved LastError、zero guest writes、source不変、semantic／memory digestを
 一致させた。次stopは既存logical windowへ到達した`USER32.dll!SetWindowPos` repeat activation variantである。Detailed
 transaction contractとnon-claimsは[bgi-create-directory-a.md](bgi-create-directory-a.md)を正とする。
+
+## 153. BGI repeated active `SetWindowPos`
+
+Focused `set-window-pos-repeat-activation` traceを同じsource executableから独立に二回取得した。Primary raw traceは
+142,214 bytes／134 lines／SHA-256 `9953a39947b5ae2d9654f96fb79521598bbf4b51c7701e54e8fbf48b2af10b36`、
+summaryは15,736 bytes／SHA-256 `43a173207c33f05e8cb9f2f03d66bd06a1969dc57a157eb55590b6c91c5ad940`である。
+Confirmation raw traceは142,590 bytes／135 lines／SHA-256
+`4ae8efe2ebaa6512ecaf394e070bebdd652b5d21721f0dceb3721de247513208`、summaryは15,911 bytes／
+SHA-256 `a9cadc23fc4f9a20c1682e161c5b31c646d48280705048c0405433805e786bfc`である。各runは29
+balanced API pairs、diagnostics／hook errors 0である。Raw trace／summaryは`.work/windows-traces/`に保持しGitへ
+追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Main windowが既にactive／focus／foregroundの全relationを持つ状態で、caller RVA `0x0005CB4B`は
+`SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 1286, 749, 0x10A)`を呼ぶ。両runともouter／client geometryは
+`15360,8640,1286,749／15363,8666,1280,720`のまま、callbackは
+`WM_WINDOWPOSCHANGING -> MainWindowProc -> DefWindowProcA`一回、result 0だけである。BOOLは1、entry／exit
+LastErrorは0で、二度目のactivation、`WM_NCCALCSIZE`、`WM_SIZE`、`WM_WINDOWPOSCHANGED`、`WM_MOVE`は発生しない。
+CallerはBOOLを直後のhelper callで上書きするためbranch consumerを持たない。Native HWNDの数値自体はprimary artifact
+identityでありgeneral z-order policyへimportしない。
+
+Runtimeは既存三relationとsame geometryをpreflightしてrepeat variantを選び、frame 25、scratch `0x00501000`の
+`WM_WINDOWPOSCHANGING` resultだけを検証する。Wrong callback resultとstale window／relation planは全stateを不変にし、
+successもgeometry、visibility、topmost、active／focus／foreground、allocator、generationを変更しない。
+Canonical Nodeは108,736 calls、semantic digest
+`7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2`、memory digest
+`cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac`で完了した。Chrome protocol v25も同じ
+ordered semanticsとmemory digestを再現し、次stopはinstruction 28,274,916の
+`USER32.dll!MessageBoxA(0x48010001,0x100DCBA0,0x100DCBE0,0x00001010)`／`endpoint-contract-missing`である。
+General same-position handling、z-order change、cross-thread／multi-window activationはこのoracleのclaimに含めない。
