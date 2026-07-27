@@ -74,6 +74,9 @@ const focusedD3d9UpdateTextureObservation =
 const focusedD3d9BeginSceneObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-begin-scene");
+const focusedD3d9InitialSamplerStatesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-initial-sampler-states");
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
@@ -112,6 +115,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9TextureAddDirtyRectObservation ||
   focusedD3d9UpdateTextureObservation ||
   focusedD3d9BeginSceneObservation ||
+  focusedD3d9InitialSamplerStatesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
   focusedD3d9InitialRenderStatesObservation ||
   focusedD3d9RasterStatusObservation;
@@ -154,6 +158,9 @@ let focusedD3d9UpdateTextureQuiescentNextCallId = null;
 let focusedD3d9BeginSceneDevice = null;
 let focusedD3d9BeginSceneMainModuleCall = null;
 let focusedD3d9BeginSceneComplete = false;
+let focusedD3d9InitialSamplerStateDevice = null;
+let focusedD3d9InitialSamplerStatesComplete = false;
+const focusedD3d9InitialSamplerStateCalls = [];
 let focusedD3d9InitialVertexBufferDevice = null;
 let focusedD3d9InitialVertexBufferObject = null;
 let focusedD3d9InitialVertexBufferData = null;
@@ -4809,6 +4816,32 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9BeginSceneDevice ??= objectAddress;
             this.traceD3d9BeginSceneLastErrorBefore =
               Number(this.lastError) >>> 0;
+          } else if (focusedD3d9InitialSamplerStatesObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const expectedCalls = [
+              { callerRva: 0x5b18a, sampler: 0, state: 6, value: 2 },
+              { callerRva: 0x5b1a0, sampler: 0, state: 5, value: 2 },
+            ];
+            const expectedCall =
+              expectedCalls[focusedD3d9InitialSamplerStateCalls.length];
+            if (
+              focusedD3d9InitialSamplerStatesComplete ||
+              expectedCall === undefined ||
+              slot !== 69 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              caller.rva !== expectedCall.callerRva ||
+              args[1].toUInt32() !== expectedCall.sampler ||
+              args[2].toUInt32() !== expectedCall.state ||
+              args[3].toUInt32() !== expectedCall.value ||
+              (focusedD3d9InitialSamplerStateDevice !== null &&
+                objectAddress !== focusedD3d9InitialSamplerStateDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9InitialSamplerStateDevice ??= objectAddress;
           } else if (focusedD3d9UpdateTextureObservation) {
             const caller = describeCaller(this.returnAddress);
             const callerModule = caller.module?.toLowerCase() ?? null;
@@ -4984,6 +5017,16 @@ function attachIdirect3ddevice9(object) {
                   ),
                 }
               : null;
+          this.traceD3d9InitialSamplerState =
+            focusedD3d9InitialSamplerStatesObservation && slot === 69
+              ? {
+                  lastErrorBefore: Number(this.lastError) >>> 0,
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    96,
+                  ),
+                }
+              : null;
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -5053,6 +5096,15 @@ function attachIdirect3ddevice9(object) {
                   resultU32: result.toUInt32(),
                   lastErrorAfter: lastError,
                 };
+          const d3d9InitialSamplerState =
+            this.traceD3d9InitialSamplerState === null
+              ? null
+              : {
+                  ...this.traceD3d9InitialSamplerState,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           finishCall(
             this.traceFrame,
             {
@@ -5071,6 +5123,9 @@ function attachIdirect3ddevice9(object) {
                 ? {}
                 : { d3d9UpdateTexture }),
               ...(d3d9BeginScene === null ? {} : { d3d9BeginScene }),
+              ...(d3d9InitialSamplerState === null
+                ? {}
+                : { d3d9InitialSamplerState }),
             },
             this.lastError,
           );
@@ -5131,6 +5186,26 @@ function attachIdirect3ddevice9(object) {
             if (stopOnEvent === "d3d9-begin-scene-complete") {
               recv("vine-trace-stop", () => {}).wait();
             }
+          }
+          if (
+            focusedD3d9InitialSamplerStatesObservation &&
+            d3d9InitialSamplerState !== null
+          ) {
+            focusedD3d9InitialSamplerStateCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: d3d9InitialSamplerState.result,
+              resultU32: d3d9InitialSamplerState.resultU32,
+              lastErrorBefore: d3d9InitialSamplerState.lastErrorBefore,
+              lastError: d3d9InitialSamplerState.lastErrorAfter,
+              immediateConsumer: d3d9InitialSamplerState.immediateConsumer,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9InitialSamplerStatesObservation();
           }
           if (focusedD3d9UpdateTextureObservation) {
             if (d3d9CreateTexture !== null) {
@@ -5280,6 +5355,7 @@ function attachIdirect3ddevice9(object) {
             !focusedD3d9InitialTexturesObservation &&
             !focusedD3d9RecreatedTexturesObservation &&
             !focusedD3d9UpdateTextureObservation &&
+            !focusedD3d9InitialSamplerStatesObservation &&
             !focusedD3d9InitialVertexBufferObservation &&
             !focusedD3d9InitialRenderStatesObservation &&
             !focusedD3d9RasterStatusObservation
@@ -6480,6 +6556,31 @@ function maybeCompleteFocusedD3d9InitialRenderStatesObservation() {
     calls: focusedD3d9InitialRenderStateCalls,
   });
   if (stopOnEvent === "d3d9-initial-render-states-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9InitialSamplerStatesObservation() {
+  if (
+    focusedD3d9InitialSamplerStatesComplete ||
+    focusedD3d9InitialSamplerStateCalls.length !== 2 ||
+    !focusedD3d9InitialSamplerStateCalls.every(
+      (call) => call.api === "SetSamplerState",
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9InitialSamplerStatesObservation, 10);
+    return;
+  }
+  focusedD3d9InitialSamplerStatesComplete = true;
+  emit("d3d9-initial-sampler-states-complete", {
+    profile: "x86-bgi-first-frame-linear-sampler-states-v1",
+    device: focusedD3d9InitialSamplerStateDevice,
+    calls: focusedD3d9InitialSamplerStateCalls,
+  });
+  if (stopOnEvent === "d3d9-initial-sampler-states-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

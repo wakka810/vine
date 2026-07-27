@@ -862,6 +862,16 @@ state-changing stale／duplicate plan、generation exhaustionはCOM、guest byte
 TypeScriptはsnapshotを検証するだけで第二のdirty trackerを持たず、dirty regionのconsume、source-to-destination
 copy、pixel backing、renderer uploadは続く`UpdateTexture` gatewayの責務とする。
 
+Reached `UpdateTexture`はsource／destination texture relation、descriptor role、logical content、dirty state、全generation
+capacityをpreflightし、sourceのRust-owned level-zero contentをdestinationへ複製してsource dirtyをconsumeする一回の
+two-resource targeted commitを行う。続く`BeginScene`は同じ`RuntimeGraphicsDevice`上でinactive-to-active lifecycleと
+scene sequenceだけをplan／preflight／commitする。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
+sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変のsuccessにする。Native driverのprofile外
+permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。
+TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
+renderer resourceの第二のauthorityを持たない。Texture-stage state、draw、Present、pixel backing、browser uploadは
+それぞれ到達した後続vertical sliceの責務とする。
+
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。
 Active bandではstatic SYSTEMMEM textureだけを許可し、未到達の二DEFAULT variantはmutation前にtyped

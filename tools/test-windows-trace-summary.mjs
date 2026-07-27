@@ -2208,6 +2208,202 @@ const setFixtureInstruction = (window, index, mnemonic, opStr = "") => {
     opStr,
   };
 };
+
+const d3d9InitialSamplerStateEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-initial-sampler-states-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-initial-sampler-states"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-initial-sampler-states"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+];
+const samplerStateCallFixtures = [
+  { callerRva: 0x5b18a, arguments: ["0x0", "0x6", "0x2"] },
+  { callerRva: 0x5b1a0, arguments: ["0x0", "0x5", "0x2"] },
+];
+const samplerStateCompletionCalls = [];
+for (const [index, fixture] of samplerStateCallFixtures.entries()) {
+  const callId = index + 1;
+  const sequence = 4 + index * 2;
+  const caller = {
+    address: `0x${(0x0040_0000 + fixture.callerRva).toString(16)}`,
+    module: "BGI.exe",
+    rva: fixture.callerRva,
+  };
+  const immediateConsumer = makeInstructionWindow(
+    0x0040_0000 + fixture.callerRva,
+    96,
+    1,
+  );
+  setFixtureInstruction(
+    immediateConsumer,
+    0,
+    "mov",
+    "eax, dword ptr [0x5517c4]",
+  );
+  const observation = {
+    lastErrorBefore: 0,
+    immediateConsumer,
+    result: 0,
+    resultU32: 0,
+    lastErrorAfter: 0,
+  };
+  d3d9InitialSamplerStateEvents.push(
+    {
+      schema,
+      sequence,
+      threadId: 20,
+      kind: "api-enter",
+      callId,
+      parentCallId: null,
+      caller,
+      module: "d3d9.dll",
+      api: "SetSamplerState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 69,
+      object: "0x490000",
+      arguments: fixture.arguments,
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 20,
+      kind: "api-leave",
+      callId,
+      parentCallId: null,
+      caller,
+      durationMs: 1,
+      lastError: 0,
+      module: "d3d9.dll",
+      api: "SetSamplerState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 69,
+      object: "0x490000",
+      result: "0x0",
+      d3d9InitialSamplerState: observation,
+    },
+  );
+  samplerStateCompletionCalls.push({
+    callId,
+    api: "SetSamplerState",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 69,
+    object: "0x490000",
+    arguments: fixture.arguments,
+    result: 0,
+    resultU32: 0,
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer,
+    caller,
+  });
+}
+d3d9InitialSamplerStateEvents.push(
+  {
+    schema,
+    sequence: 8,
+    threadId: 20,
+    kind: "d3d9-initial-sampler-states-complete",
+    profile: "x86-bgi-first-frame-linear-sampler-states-v1",
+    device: "0x490000",
+    calls: samplerStateCompletionCalls,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-initial-sampler-states-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const d3d9InitialSamplerStateSummary = summarizeTrace(
+  encode(d3d9InitialSamplerStateEvents),
+  "d3d9-initial-sampler-states-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9InitialSamplerStateSummary.d3d9.initialSamplerStateSequences[0].calls.map(
+    (call) => [
+      call.sequence,
+      call.caller.rva,
+      call.sampler,
+      call.state,
+      call.value,
+      call.result,
+      call.lastErrorBefore,
+      call.lastError,
+      call.immediateConsumer.entry.instructions[0].mnemonic,
+    ],
+  ),
+  [
+    [4, 0x5b18a, 0, 6, 2, "0x0", 0, 0, "mov"],
+    [6, 0x5b1a0, 0, 5, 2, "0x0", 0, 0, "mov"],
+  ],
+);
+const missingInitialSamplerStateCompletion =
+  d3d9InitialSamplerStateEvents.filter(
+    (event) => event.kind !== "d3d9-initial-sampler-states-complete",
+  );
+assert.throws(
+  () => summarizeTrace(encode(missingInitialSamplerStateCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedInitialSamplerStateLastError = structuredClone(
+  d3d9InitialSamplerStateEvents,
+);
+changedInitialSamplerStateLastError.find(
+  (event) => event.kind === "api-leave" && event.callId === 2,
+).d3d9InitialSamplerState.lastErrorAfter = 1;
+assert.throws(
+  () => summarizeTrace(encode(changedInitialSamplerStateLastError)),
+  /violates its caller, tuple, result, LastError, or consumer contract/,
+);
+
 const rasterImmediateConsumer = makeInstructionWindow(0x0045_aedd, 256, 51);
 for (const [index, mnemonic, opStr] of [
   [0, "test", "eax, eax"],

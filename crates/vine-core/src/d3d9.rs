@@ -16,11 +16,12 @@ use crate::runtime::{
     RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsBackBufferClearRequest,
     RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
     RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
-    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
+    RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
-    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTexturePool,
-    RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
+    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureFilter,
+    RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
     RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferPool,
     RuntimeGraphicsVertexBufferUsage, RuntimeRect, RuntimeStateError, RuntimeStateErrorClass,
@@ -30,7 +31,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 21;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 22;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -50,6 +51,9 @@ pub const D3D9_D3DRS_CULLMODE: u32 = 22;
 pub const D3D9_D3DRS_ALPHABLENDENABLE: u32 = 27;
 pub const D3D9_D3DRS_LIGHTING: u32 = 137;
 pub const D3D9_D3DCULL_NONE: u32 = 1;
+pub const D3D9_D3DSAMP_MAGFILTER: u32 = 5;
+pub const D3D9_D3DSAMP_MINFILTER: u32 = 6;
+pub const D3D9_D3DTEXF_LINEAR: u32 = 2;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
 pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
@@ -270,6 +274,21 @@ pub struct D3d9InitialRenderStatePolicy {
     pub settings: [D3d9RenderStateSetting; 4],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9SamplerStateSetting {
+    pub sampler: u32,
+    pub state: u32,
+    pub value: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9InitialSamplerStatePolicy {
+    pub profile_id: String,
+    pub settings: [D3d9SamplerStateSetting; 2],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D3d9RasterStatusPolicy {
@@ -331,6 +350,7 @@ pub struct D3d9CompatibilityPolicy {
     pub surface_dc: Option<D3d9SurfaceDcPolicy>,
     pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
     pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
+    pub initial_sampler_states: Option<D3d9InitialSamplerStatePolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
@@ -339,11 +359,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v21() -> Self {
+    pub fn controlled_v22() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v21".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v22".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -456,6 +476,10 @@ impl D3d9CompatibilityPolicy {
             initial_render_states: Some(D3d9InitialRenderStatePolicy {
                 profile_id: "primary-initial-fixed-function-render-states-v1".to_owned(),
                 settings: controlled_initial_render_state_settings(),
+            }),
+            initial_sampler_states: Some(D3d9InitialSamplerStatePolicy {
+                profile_id: "primary-first-frame-linear-sampler-states-v1".to_owned(),
+                settings: controlled_initial_sampler_state_settings(),
             }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
@@ -717,6 +741,17 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 initial render-state profile must describe the reached fixed-function startup sequence",
             ));
         }
+        if let Some(sampler_states) = self.initial_sampler_states.as_ref()
+            && (sampler_states.profile_id != "primary-first-frame-linear-sampler-states-v1"
+                || sampler_states.settings != controlled_initial_sampler_state_settings()
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-initial-sampler-state-profile-invalid",
+                "D3D9 initial sampler-state profile must describe the reached sampler-zero linear minification and magnification sequence",
+            ));
+        }
         if let Some(raster_status) = self.raster_status.as_ref()
             && (!valid_policy_id(&raster_status.profile_id)
                 || !valid_policy_id(&raster_status.display_profile_id)
@@ -921,6 +956,21 @@ fn controlled_initial_render_state_settings() -> [D3d9RenderStateSetting; 4] {
         D3d9RenderStateSetting {
             state: D3D9_D3DRS_ALPHABLENDENABLE,
             value: 1,
+        },
+    ]
+}
+
+fn controlled_initial_sampler_state_settings() -> [D3d9SamplerStateSetting; 2] {
+    [
+        D3d9SamplerStateSetting {
+            sampler: 0,
+            state: D3D9_D3DSAMP_MINFILTER,
+            value: D3D9_D3DTEXF_LINEAR,
+        },
+        D3d9SamplerStateSetting {
+            sampler: 0,
+            state: D3D9_D3DSAMP_MAGFILTER,
+            value: D3D9_D3DTEXF_LINEAR,
         },
     ]
 }
@@ -1403,6 +1453,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => ("BeginScene", 0),
         43 => ("Clear", 6),
         57 => ("SetRenderState", 2),
+        69 => ("SetSamplerState", 3),
         _ => {
             return call.fault(
                 ComFaultClass::RuntimeDefect,
@@ -1432,6 +1483,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => dispatch_begin_scene(policy, call),
         43 => dispatch_clear(policy, call),
         57 => dispatch_set_render_state(policy, call),
+        69 => dispatch_set_sampler_state(policy, call),
         _ => unreachable!(),
     }
 }
@@ -2121,6 +2173,72 @@ fn dispatch_set_render_state(
     }
     let mut call = call;
     let result = call.runtime_mut().commit_graphics_render_state_update(plan);
+    debug_assert_eq!(result.update, update);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn dispatch_set_sampler_state(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(sampler_state_policy) = policy.initial_sampler_states.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-set-sampler-state",
+            "set-sampler-state-policy-disabled",
+            "D3D9 compatibility policy does not enable SetSamplerState",
+        );
+    };
+    let sampler = call.frame().explicit_arguments[0];
+    let state = call.frame().explicit_arguments[1];
+    let value = call.frame().explicit_arguments[2];
+    if !sampler_state_policy
+        .settings
+        .contains(&D3d9SamplerStateSetting {
+            sampler,
+            state,
+            value,
+        })
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let update = match (state, value) {
+        (D3D9_D3DSAMP_MINFILTER, D3D9_D3DTEXF_LINEAR) => {
+            RuntimeGraphicsSamplerStateUpdate::MinFilter {
+                sampler,
+                filter: RuntimeGraphicsTextureFilter::Linear,
+            }
+        }
+        (D3D9_D3DSAMP_MAGFILTER, D3D9_D3DTEXF_LINEAR) => {
+            RuntimeGraphicsSamplerStateUpdate::MagFilter {
+                sampler,
+                filter: RuntimeGraphicsTextureFilter::Linear,
+            }
+        }
+        _ => unreachable!("validated D3D9 sampler-state policy has an unknown setting"),
+    };
+    let plan = match call.runtime().plan_graphics_sampler_state_update(
+        RuntimeGraphicsSamplerStateUpdateRequest {
+            device_com_object_id: call.frame().object_id,
+            update,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_sampler_state_update(&plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call
+        .runtime_mut()
+        .commit_graphics_sampler_state_update(plan);
     debug_assert_eq!(result.update, update);
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
@@ -3199,7 +3317,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 43 | 57 => {
+            19 | 23 | 26 | 31 | 41 | 43 | 57 | 69 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

@@ -76,7 +76,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const d3d9BeginSceneProfile = bgiProfile === "d3d9-begin-scene";
+const d3d9InitialSamplerStatesProfile =
+  bgiProfile === "d3d9-initial-sampler-states";
+const d3d9BeginSceneProfile =
+  d3d9InitialSamplerStatesProfile || bgiProfile === "d3d9-begin-scene";
 const d3d9UpdateTextureProfile =
   d3d9BeginSceneProfile || bgiProfile === "d3d9-update-texture";
 const d3d9AddDirtyRectProfile =
@@ -109,7 +112,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v33";
+const runtimeProtocol = "vine.browser-runtime-worker.v34";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -747,6 +750,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-add-dirty-rect",
         "d3d9-update-texture",
         "d3d9-begin-scene",
+        "d3d9-initial-sampler-states",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -778,6 +782,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-add-dirty-rect",
         "d3d9-update-texture",
         "d3d9-begin-scene",
+        "d3d9-initial-sampler-states",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -809,6 +814,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-add-dirty-rect",
         "d3d9-update-texture",
         "d3d9-begin-scene",
+        "d3d9-initial-sampler-states",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -1660,7 +1666,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(clear.call.graphicsDevice?.renderer, undefined);
         assert.equal(
           clear.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v21",
+          "d3d9-primary-virtual-adapter-v22",
         );
         assert.equal(clear.clearProfileId, "primary-full-render-target-black-v1");
         assert.equal(
@@ -1745,7 +1751,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(dirty.call.graphicsTexture?.generation, 41);
         assert.equal(
           dirty.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v21",
+          "d3d9-primary-virtual-adapter-v22",
         );
         assert.equal(
           dirty.addDirtyRectProfileId,
@@ -1814,7 +1820,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(pair.destination.generation, 45);
         assert.equal(
           update.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v21",
+          "d3d9-primary-virtual-adapter-v22",
         );
         assert.equal(
           update.updateTextureProfileId,
@@ -1863,7 +1869,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(begin.call.graphicsDevice?.renderer, undefined);
         assert.equal(
           begin.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v21",
+          "d3d9-primary-virtual-adapter-v22",
         );
         assert.equal(
           begin.beginSceneProfileId,
@@ -1882,6 +1888,115 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.d3d9BeginScene, null);
       }
+      if (d3d9InitialSamplerStatesProfile) {
+        const sampler = evidence.report.d3d9InitialSamplerStates;
+        assert(
+          sampler !== null,
+          "Chrome Worker omitted D3D9 SetSamplerState evidence",
+        );
+        assert.deepEqual(
+          sampler.calls.map((call) => [
+            call.sequence,
+            call.symbol,
+            call.vtableSlot,
+            call.arguments,
+            call.returnAddress,
+          ]),
+          [
+            [
+              127_360,
+              "IDirect3DDevice9.SetSamplerState",
+              69,
+              [0x0101_0004, 0, 6, 2],
+              0x1005_b18a,
+            ],
+            [
+              127_361,
+              "IDirect3DDevice9.SetSamplerState",
+              69,
+              [0x0101_0004, 0, 5, 2],
+              0x1005_b1a0,
+            ],
+          ],
+        );
+        for (const [index, call] of sampler.calls.entries()) {
+          assert.equal(call.interface, "IDirect3DDevice9");
+          assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+          assert.equal(call.stackPointerBefore, 0x006f_f254);
+          assert.equal(call.stackPointerAfter, 0x006f_f268);
+          assert.equal(call.referenceCount, 5);
+          assert.equal(call.objectRetired, false);
+          assert.deepEqual(call.guestWrites, []);
+          assert.equal(
+            call.graphicsDevice?.samplerStates?.samplerZero.minFilter,
+            "linear",
+          );
+          assert.equal(
+            call.graphicsDevice?.samplerStates?.samplerZero.magFilter,
+            index === 0 ? undefined : "linear",
+          );
+          assert.equal(call.graphicsDevice?.generation, 46 + index);
+          assert.equal(call.graphicsDevice?.renderer, undefined);
+        }
+        assert.deepEqual(
+          sampler.postSamplerRenderStateRejections.map((call) => [
+            call.sequence,
+            call.symbol,
+            call.vtableSlot,
+            call.arguments,
+            call.result,
+            call.returnAddress,
+          ]),
+          [
+            [
+              127_362,
+              "IDirect3DDevice9.SetRenderState",
+              57,
+              [0x0101_0004, 171, 1],
+              { kind: "h-result", value: -2_005_530_518 },
+              0x1005_b1b7,
+            ],
+            [
+              127_363,
+              "IDirect3DDevice9.SetRenderState",
+              57,
+              [0x0101_0004, 20, 6],
+              { kind: "h-result", value: -2_005_530_518 },
+              0x1005_b1cb,
+            ],
+            [
+              127_364,
+              "IDirect3DDevice9.SetRenderState",
+              57,
+              [0x0101_0004, 19, 5],
+              { kind: "h-result", value: -2_005_530_518 },
+              0x1005_b1df,
+            ],
+          ],
+        );
+        assert.equal(
+          sampler.compatibilityPolicyId,
+          "d3d9-primary-virtual-adapter-v22",
+        );
+        assert.equal(
+          sampler.samplerStateProfileId,
+          "primary-first-frame-linear-sampler-states-v1",
+        );
+        assert.equal(
+          sampler.stateAuthority,
+          "rust-runtime-graphics-logical-device-sampler-states",
+        );
+        assert.equal(
+          sampler.mutation,
+          "validate-plan-preflight-targeted-idempotent-commit",
+        );
+        assert.equal(sampler.sameValueGenerationChange, 0);
+        assert.equal(sampler.unsupportedVariantResult, "0x8876086a");
+        assert.equal(sampler.failureAtomicity, true);
+        assert.equal(sampler.browserRendererResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.d3d9InitialSamplerStates, null);
+      }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
         assert(
@@ -1890,7 +2005,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.equal(
           recreated.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v21",
+          "d3d9-primary-virtual-adapter-v22",
         );
         assert.equal(
           recreated.createTextureProfileId,
@@ -2950,6 +3065,28 @@ function normalizeD3d9BeginScene(snapshot) {
   };
 }
 
+function normalizeD3d9InitialSamplerStates(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    calls: snapshot.calls.map((call) => ({
+      ...normalizeSemanticCall(call),
+      graphicsDevice: call.graphicsDevice,
+    })),
+    postSamplerRenderStateRejections:
+      snapshot.postSamplerRenderStateRejections.map(normalizeSemanticCall),
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    samplerStateProfileId: snapshot.samplerStateProfileId,
+    stateAuthority: snapshot.stateAuthority,
+    mutation: snapshot.mutation,
+    sameValueGenerationChange: snapshot.sameValueGenerationChange,
+    unsupportedVariantResult: snapshot.unsupportedVariantResult,
+    failureAtomicity: snapshot.failureAtomicity,
+    browserRendererResourceCreated: snapshot.browserRendererResourceCreated,
+  };
+}
+
 function normalizeSetRect(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -3069,6 +3206,13 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9BeginScene(browser.report.d3d9BeginScene),
     normalizeD3d9BeginScene(oracle.d3d9BeginScene),
     "Chrome Worker D3D9 BeginScene evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeD3d9InitialSamplerStates(
+      browser.report.d3d9InitialSamplerStates,
+    ),
+    normalizeD3d9InitialSamplerStates(oracle.d3d9InitialSamplerStates),
+    "Chrome Worker D3D9 SetSamplerState evidence differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeSetRect(browser.report.setRect),

@@ -83,6 +83,7 @@ const supportedObservations = new Set([
   "d3d9-texture-add-dirty-rect",
   "d3d9-update-texture",
   "d3d9-begin-scene",
+  "d3d9-initial-sampler-states",
   "d3d9-initial-vertex-buffer",
   "d3d9-initial-render-states",
   "d3d9-raster-status",
@@ -2534,6 +2535,133 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const initialSamplerStateCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-initial-sampler-states-complete",
+  );
+  const requiresInitialSamplerStateCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-initial-sampler-states" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-initial-sampler-states-complete";
+  if (
+    initialSamplerStateCompletionEvents.length > 1 ||
+    (requiresInitialSamplerStateCompletion &&
+      initialSamplerStateCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-initial-sampler-states observation requires exactly one structured completion",
+    );
+  }
+  const initialSamplerStateSequences = initialSamplerStateCompletionEvents.map(
+    (completion) => {
+      const expected = [
+        { callerRva: 0x5b18a, sampler: 0n, state: 6n, value: 2n },
+        { callerRva: 0x5b1a0, sampler: 0n, state: 5n, value: 2n },
+      ];
+      if (
+        completion.profile !==
+          "x86-bgi-first-frame-linear-sampler-states-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== expected.length ||
+        !Number.isInteger(completion.sequence)
+      ) {
+        throw new Error(
+          "d3d9-initial-sampler-states completion has invalid structure",
+        );
+      }
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const pairs = completion.calls.map((snapshot, index) => {
+        const pair = pairsByCallId.get(snapshot?.callId);
+        const expectedCall = expected[index];
+        const observation = pair?.leave.d3d9InitialSamplerState;
+        const firstConsumerInstruction =
+          snapshot?.immediateConsumer?.entry?.instructions?.[0];
+        if (
+          pair === undefined ||
+          observation === undefined ||
+          snapshot.api !== "SetSamplerState" ||
+          snapshot.interface !== "IDirect3DDevice9" ||
+          snapshot.vtableSlot !== 69 ||
+          snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          JSON.stringify(snapshot.arguments) !==
+            JSON.stringify(pair.enter.arguments) ||
+          snapshot.result !== observation.result ||
+          snapshot.resultU32 !== observation.resultU32 ||
+          snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+          snapshot.lastError !== observation.lastErrorAfter ||
+          JSON.stringify(snapshot.immediateConsumer) !==
+            JSON.stringify(observation.immediateConsumer) ||
+          snapshot.caller?.module !== pair.enter.caller?.module ||
+          snapshot.caller?.rva !== pair.enter.caller?.rva ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.api !== "SetSamplerState" ||
+          pair.enter.interface !== "IDirect3DDevice9" ||
+          pair.enter.vtableSlot !== 69 ||
+          pair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== expectedCall.callerRva ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 3 ||
+          BigInt(pair.enter.arguments[0]) !== expectedCall.sampler ||
+          BigInt(pair.enter.arguments[1]) !== expectedCall.state ||
+          BigInt(pair.enter.arguments[2]) !== expectedCall.value ||
+          BigInt(pair.leave.result) !== 0n ||
+          observation.result !== 0 ||
+          observation.resultU32 !== 0 ||
+          observation.lastErrorBefore !== 0 ||
+          pair.leave.lastError !== 0 ||
+          observation.lastErrorAfter !== 0 ||
+          firstConsumerInstruction?.mnemonic !== "mov" ||
+          !firstConsumerInstruction.opStr.startsWith("eax, dword ptr")
+        ) {
+          throw new Error(
+            `d3d9-initial-sampler-states completion call ${index} violates its caller, tuple, result, LastError, or consumer contract`,
+          );
+        }
+        return pair;
+      });
+      if (
+        !pairs.every(
+          (pair) => pair.enter.threadId === pairs[0].enter.threadId,
+        ) ||
+        completion.threadId !== pairs[0].enter.threadId ||
+        pairs[1].enter.sequence !== pairs[0].leave.sequence + 1 ||
+        completion.sequence !== pairs[1].leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-initial-sampler-states completion violates its thread or contiguous ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pairs[0].enter.threadId,
+        device: completion.device,
+        calls: pairs.map((pair) => ({
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          sampler: Number(BigInt(pair.enter.arguments[0])),
+          state: Number(BigInt(pair.enter.arguments[1])),
+          value: Number(BigInt(pair.enter.arguments[2])),
+          result: pair.leave.result,
+          lastErrorBefore: pair.leave.d3d9InitialSamplerState.lastErrorBefore,
+          lastError: pair.leave.lastError,
+          immediateConsumer:
+            pair.leave.d3d9InitialSamplerState.immediateConsumer,
+        })),
+      };
+    },
+  );
+
   const rasterStatusCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-raster-status-complete",
   );
@@ -4114,6 +4242,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       recreatedTextureSequences,
       initialVertexBufferSequences,
       initialRenderStateSequences,
+      initialSamplerStateSequences,
       rasterStatusObservations,
       getSurfaceLevels,
       surfaceDcFlows,

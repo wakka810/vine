@@ -14,8 +14,9 @@ backing retirement use the generic COM plan／commit path.
 at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
-    Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
-    slot 31 `UpdateTexture`, slot 41 `BeginScene`, and slot 43 `Clear` delegate to implemented handlers. `CreateTexture`
+Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
+slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, and slot 69
+`SetSamplerState` delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
 `AddDirtyRect` delegate to implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
@@ -657,6 +658,42 @@ This slice does not implement `EndScene`, sampler state, draw calls, Present,
 device loss, texel backing, renderer upload, or visible pixels. Beginning a
 logical scene alone is not a first-present milestone completion.
 
+## Bounded initial sampler state
+
+Version 22 adds `primary-first-frame-linear-sampler-states-v1` for device slot
+69. `RuntimeGraphicsDevice` owns a sparse typed sampler-state map; neither the
+COM frontend nor TypeScript keeps a second copy. The bounded profile accepts
+only sampler 0 `D3DSAMP_MINFILTER = D3DTEXF_LINEAR`, followed by sampler 0
+`D3DSAMP_MAGFILTER = D3DTEXF_LINEAR`. Each state change validates the live
+device and exact typed enum／value, creates a mutation-free device-generation
+plan, preflights generation capacity, and performs one targeted commit. A
+same-value repeat succeeds without changing generations. NULL, unknown,
+wrong-class, retired, stale, unsupported sampler／state／value, and generation
+exhaustion paths leave device, sampler map, and graphics generations unchanged.
+
+Focused primary traces agree on caller RVAs `0x5B18A` and `0x5B1A0`, the exact
+MIN-then-MAG order, `D3D_OK`, preserved LastError 0, and ignored HRESULTs. A
+controlled PE32/i386 readback oracle fixes the initial MIN point filter, both
+linear transitions, repeat success, LastError sentinel preservation, and stable
+device reference count. That native driver also returns `D3D_OK` for the tested
+invalid sampler, state, and filter values; the runtime intentionally narrows
+that permissiveness to the reached primary band and returns
+`D3DERR_NOTAVAILABLE` before mutation for other variants.
+
+Canonical Node and Chrome complete the two calls at sequences 127,360／127,361
+and instructions 28,761,195／28,761,204. They agree on device 3／COM object 21,
+reference count 5, MIN then MIN+MAG linear snapshots, device generations 46／47,
+zero guest writes, and no renderer resource. The caller then ignores three
+explicit `D3DERR_NOTAVAILABLE` results for unprofiled `SetRenderState(171,1)`,
+`SetRenderState(20,6)`, and `SetRenderState(19,5)` without changing logical
+state. Both engines stop at instruction 28,761,237 on device slot 67
+`SetTextureStageState(0,1,4)`, endpoint `0x01011460`, return address
+`0x1005B1F5`.
+
+This slice does not implement other samplers, sampler states or filter values,
+the three rejected render states, texture-stage state, `EndScene`, draw calls,
+Present, device loss, texel backing, renderer upload, or visible pixels.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -670,8 +707,8 @@ the `GetSurfaceLevel` gateway creates its first logical subresource identity;
 and `CreateVertexBuffer` creates the first guest-backed logical geometry
 resource.
 The initial-resource slice leaves three logical textures live on one
-    device: one system-memory static texture and two default-pool textures, the last
-    of which is dynamic. The version 21 policy inherits the same three descriptors at
+device: one system-memory static texture and two default-pool textures, the last
+of which is dynamic. The version 22 policy inherits the same three descriptors at
 `2048x1024` when the guest recreates the resources; it does not infer a general
 dimension or pool policy. The surface `GetDC` gateway adds a typed GDI acquisition
 relation. The surface is a non-owning level-zero view, while reached `FillRect`
@@ -682,8 +719,10 @@ The following `SetRect` leaf materializes the caller-owned guest structure, and
 slot 21 `AddDirtyRect` updates only the source texture's Rust-owned dirty-region
     state. Slot 31 `UpdateTexture` is the first two-resource consumer boundary and
     copies that logical texture content while consuming the source dirty region.
-    Slot 41 `BeginScene` then owns the first device-local active-scene sequence and
-    lifecycle transition without creating browser graphics state.
+Slot 41 `BeginScene` then owns the first device-local active-scene sequence and
+lifecycle transition without creating browser graphics state. Slot 69
+`SetSamplerState` adds the first sparse typed sampler map to that same logical
+device and preserves the plan／preflight／targeted-commit boundary.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -700,7 +739,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-begin-scene
+npm run check:runtime:bgi -- --profile d3d9-initial-sampler-states
 npm run check:runtime:bgi-browser
 ```
 
@@ -735,11 +774,13 @@ logical device／COM relation, back-buffer generation, and the exact full-presen
 texture／COM relation, authoritative whole-texture dirty state, idempotent mark,
 texture content, and zero writes. It then records the exact slot-31
 `UpdateTexture`, both logical texture／COM relations, copied fill command, dirty
-    consumption, generations, and zero writes. Finally it records the exact slot-41
-    `BeginScene`, Rust-owned inactive-to-active device transition, scene sequence,
-    lifecycle policy, and zero writes before stopping at device slot 69
-    `SetSamplerState`, without creating a browser renderer resource or a second
-    graphics authority.
+consumption, generations, and zero writes. It then records the exact slot-41
+`BeginScene`, Rust-owned inactive-to-active device transition, scene sequence,
+lifecycle policy, and zero writes. Finally it records the exact two slot-69
+`SetSamplerState` transitions, sparse sampler-state snapshots, device
+generations, and three explicit post-sampler render-state rejections before
+stopping at device slot 67 `SetTextureStageState`, without creating a browser
+renderer resource or a second graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -763,11 +804,14 @@ slot 43, while `d3d9-clear` enables only the exact Clear profile and stops at
 enables that exact User32 contract and stops at `IDirect3DTexture9::AddDirtyRect`
 slot 21. The historical `d3d9-add-dirty-rect` profile enables only the bounded
 source-texture dirty-region contract and stops at `IDirect3DDevice9::UpdateTexture`
-    slot 31. The historical `d3d9-update-texture` profile additionally enables the exact
-    static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
-    `IDirect3DDevice9::BeginScene` slot 41. The active `d3d9-begin-scene` profile
-    additionally enables the exact inactive-to-active scene transition and stops at
-    `IDirect3DDevice9::SetSamplerState` slot 69.
+slot 31. The historical `d3d9-update-texture` profile additionally enables the exact
+static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
+`IDirect3DDevice9::BeginScene` slot 41. The historical `d3d9-begin-scene` profile
+additionally enables the exact inactive-to-active scene transition and stops at
+`IDirect3DDevice9::SetSamplerState` slot 69. The active
+`d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
+linear transitions, explicitly rejects the following three unprofiled render
+states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67.
 
 ## Non-claims
 
@@ -780,17 +824,19 @@ source-texture dirty-region contract and stops at `IDirect3DDevice9::UpdateTextu
   `CreateVertexBuffer`／full-range `Lock`／`Unlock` sequence, the exact four
   initial `SetRenderState` settings, one bounded `GetRasterStatus` query,
   one exact full-target black `Clear`, one bounded source-texture
-    `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, and one
-    exact inactive-to-active `BeginScene` are
+  `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
+  exact inactive-to-active `BeginScene`, and the exact two sampler-0 MIN／MAG
+  linear `SetSamplerState` calls are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
-    device/resource state, partial dirty-region transfer, dynamic-destination
-    `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, sampler state, draw, Present, Reset,
+  device/resource state, partial dirty-region transfer, dynamic-destination
+  `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
+  filter variants, texture-stage state, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
-  fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect, and
-    bounded UpdateTexture, and bounded BeginScene create Rust logical state
+  fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
+  bounded UpdateTexture, bounded BeginScene, and bounded sampler state create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

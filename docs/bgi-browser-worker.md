@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-begin-scene` and uses protocol
-`vine.browser-runtime-worker.v33`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-initial-sampler-states` and uses protocol
+`vine.browser-runtime-worker.v34`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -156,7 +156,17 @@ on sequence 127,359, instruction 28,761,181, device 3／COM 21, reference count 
 `1280x720` presentation, black-clear content generation 1, active scene sequence 1,
 device generation 45, zero guest writes, and no renderer resource. Both stop fourteen
 instructions later at `IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69, endpoint
-`0x01011480`, return address `0x1005B18A`.
+`0x01011480`, return address `0x1005B18A`. Both engines then complete the exact
+sampler-0 `D3DSAMP_MINFILTER = D3DTEXF_LINEAR` and
+`D3DSAMP_MAGFILTER = D3DTEXF_LINEAR` calls at sequences 127,360／127,361 and
+instructions 28,761,195／28,761,204. Protocol version 34 carries immutable
+Rust-owned sparse sampler-state snapshots and device generations 46／47; the
+Worker validates them without creating browser sampler or renderer state. The
+caller ignores explicit `D3DERR_NOTAVAILABLE` results for the following
+unprofiled `SetRenderState(171,1)`, `(20,6)`, and `(19,5)` calls. Node and Chrome
+agree on those three rejections and stop at instruction 28,761,237 on
+`IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67, endpoint `0x01011460`,
+return address `0x1005B1F5`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -199,5 +209,7 @@ fingerprint before and after execution.
   UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
   not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
   dynamic-destination variant, or upload to a renderer. The following BeginScene creates
-  only Rust-owned logical scene state; EndScene, sampler state, draw, Present, device loss,
-  and visible browser output remain unsupported.
+  only Rust-owned logical scene state, and the two reached sampler calls add only Rust-owned
+  typed sampler state. EndScene, other sampler／state／filter variants, the three rejected
+  render states, texture-stage state, draw, Present, device loss, and visible browser output
+  remain unsupported.

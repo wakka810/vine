@@ -5486,3 +5486,39 @@ LastError preserve、zero guest writesである。Canonical Node／Chromeはsequ
 次stopは14 instructions後、endpoint `0x01011480`、caller return `0x1005B18A`の
 `IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69である。`EndScene`、sampler state、draw／Present、
 device loss、pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 163. BGI initial linear sampler states and controlled readback
+
+Focused primary captureを同じsource executableから独立に二回取得した。Primary raw traceは478,010
+bytes／1,170 lines／SHA-256
+`0d1e0cc5771ddec935bb0063479077195c92fd956b06ddc5abdeff32369d9fac`、summaryは313,234
+bytes／SHA-256 `97beca5386ef8e61c6d511ea6c57abc88d74afb82c0d7ff0b7821ea57ee6da93`で、545 API
+pairsがbalancedである。Independent confirmation raw traceは478,518 bytes／1,172 lines／SHA-256
+`af43a004b3133798645aded796a574cfedaf1855fc58d1a06e5665d644f35a4f`、summaryは313,197
+bytes／SHA-256 `1d6cde0f9972d5c7c2c8b5dffd6b707bb744a4919bf7de2d30eda97b018a9f3a`で、546 API
+pairsがbalancedである。両runともdiagnostics／hook errors 0、completion profileは
+`x86-bgi-first-frame-linear-sampler-states-v1`である。Raw trace／summaryは`.work/windows-traces/`に保持し
+Gitへ追加しない。Source executableは実行前後とも1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Primary callsはdevice slot 69で、caller RVA `0x0005B18A`のsampler 0／state 6／value 2と、RVA
+`0x0005B1A0`のsampler 0／state 5／value 2である。両runとも各callは`D3D_OK`／LastError 0を返し、callerは
+HRESULTをbranchせず次のfirst-frame state callへ進む。Opaque native device pointerはartifact identityであり
+goldenにしない。
+
+Controlled oracle `x86-d3d9-sampler-state-acceptance-and-readback-v1`はPE32／COFF-i386 executableである。
+Sourceは9,891 bytes／SHA-256
+`16b3be86c15f66d25ae46aac89b9fbbc1459ce8861328fc434195de285d853b8`、objectは10,116 bytes／SHA-256
+`610cd8647523645f74041434e22dbc82ce8112344c04b14f3518647b215ef10d`、executableは6,144 bytes／SHA-256
+`ad584e3233c5cc7cfae2cd1768942dfa3c69a41c2e4ac9feae54cc4b22ec9d26`である。独立二runはともにexit 0で、
+initial MIN filter point 1、MIN／MAG linear 2への遷移とreadback、MIN同値repeat success、LastError sentinel
+23,130 (`0x5A5A`) preserve、device reference count 1を一致させる。Tested invalid sampler、state、filterもnative
+driverでは`D3D_OK`となるため、このpermissivenessは一般semanticsではなくdriver evidenceとして扱う。Runtimeは
+primaryの二callだけをversioned policyへ昇格し、他variantを`D3DERR_NOTAVAILABLE`かつmutation-freeに拒否する。
+
+Canonical Node／Chromeはsequence 127,360／127,361、instruction 28,761,195／28,761,204、logical device 3／
+COM object 21、device generation 46／47、MIN then MIN+MAG linear、zero guest writesを一致させる。その後の
+`SetRenderState(171,1)`、`(20,6)`、`(19,5)`は三件とも`D3DERR_NOTAVAILABLE`で、callerが結果を無視する。
+次stopはinstruction 28,761,237、endpoint `0x01011460`、caller return `0x1005B1F5`の
+`IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67である。他sampler／state／filter、三render state、
+texture-stage state、EndScene、draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。

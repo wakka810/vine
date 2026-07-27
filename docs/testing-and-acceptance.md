@@ -1339,6 +1339,22 @@ renderer resourceなし、ordered semantic／terminal-memory equalityを一致�
 `IDirect3DDevice9::SetSamplerState(0,6,2)` slot 69である。EndScene、sampler state、draw／Present、device loss、
 texel backing、browser upload、visible outputはこのcheckpointのacceptanceへ含めない。
 
+続く`SetSamplerState` leafは、focused primary trace二runがcaller RVA `0x5B18A`／`0x5B1A0`、sampler 0、
+MINFILTER 6／MAGFILTER 5、LINEAR 2の順序、`D3D_OK`、LastError 0 preserve、戻り値をbranchせず次callへ進むことを
+一致させる。Controlled PE32/i386 readback oracleは初期MIN point、MIN／MAG linearへの遷移、同値repeat success、
+全callのLastError sentinel `0x5A5A` preserve、device reference count不変を固定する。Native driverがtested invalid
+sampler／state／filterにも`D3D_OK`を返す事実は記録するが、active runtime policyはprimaryの二callだけへ狭め、
+profile外variantを`D3DERR_NOTAVAILABLE`かつmutation-freeに拒否する。
+
+Focused Rust model／dispatcher testsはdevice-local sparse typed sampler authority、enum validation、generation
+preflight、targeted／idempotent commit、NULL／unknown／wrong-class／stale／duplicate／unsupported／exhaustionのfailure
+atomicityを固定する。Node／Chrome protocol v34はsequence 127,360／127,361、instruction 28,761,195／28,761,204、
+device 3／COM 21、reference count 5、MIN then MIN+MAG linear、device generation 46／47、zero guest writes、renderer
+resourceなしを一致させる。続くunprofiled `SetRenderState(171,1)`、`(20,6)`、`(19,5)`は三件とも
+`D3DERR_NOTAVAILABLE`となりcallerが結果を無視することを明示的に一致させる。Canonical stopはinstruction
+28,761,237の`IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67である。他sampler／state／filter、三render
+state、texture-stage state、EndScene、draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

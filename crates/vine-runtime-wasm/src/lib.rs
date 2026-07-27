@@ -88,6 +88,7 @@ struct BgiCheckpointCapabilities {
     d3d9_add_dirty_rect: bool,
     d3d9_update_texture: bool,
     d3d9_begin_scene: bool,
+    d3d9_initial_sampler_states: bool,
 }
 
 impl Bridge {
@@ -476,7 +477,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v21();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v22();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -663,7 +664,7 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v21();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v22();
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
@@ -675,6 +676,9 @@ impl BrowserRuntime {
         }
         if !capabilities.d3d9_begin_scene {
             d3d9_policy.begin_scene = None;
+        }
+        if !capabilities.d3d9_initial_sampler_states {
+            d3d9_policy.initial_sampler_states = None;
         }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
@@ -1821,8 +1825,10 @@ impl BrowserRuntime {
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
                 let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
-                    && matches!(completion.frame.method.as_str(), "Clear" | "BeginScene")
-                {
+                    && matches!(
+                        completion.frame.method.as_str(),
+                        "Clear" | "BeginScene" | "SetSamplerState"
+                    ) {
                     self.runtime
                         .graphics_devices()
                         .values()
@@ -4234,6 +4240,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_add_dirty_rect_enabled: u32,
     d3d9_update_texture_enabled: u32,
     d3d9_begin_scene_enabled: u32,
+    d3d9_initial_sampler_states_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4247,6 +4254,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 d3d9_add_dirty_rect: d3d9_add_dirty_rect_enabled != 0,
                 d3d9_update_texture: d3d9_update_texture_enabled != 0,
                 d3d9_begin_scene: d3d9_begin_scene_enabled != 0,
+                d3d9_initial_sampler_states: d3d9_initial_sampler_states_enabled != 0,
             },
         )
     })

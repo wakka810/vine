@@ -163,6 +163,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     d3d9AddDirtyRectEnabled: number,
     d3d9UpdateTextureEnabled: number,
     d3d9BeginSceneEnabled: number,
+    d3d9InitialSamplerStatesEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -273,6 +274,7 @@ export class RuntimeBridge {
     d3d9AddDirtyRectEnabled: boolean,
     d3d9UpdateTextureEnabled: boolean,
     d3d9BeginSceneEnabled: boolean,
+    d3d9InitialSamplerStatesEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -287,6 +289,7 @@ export class RuntimeBridge {
         Number(d3d9AddDirtyRectEnabled),
         Number(d3d9UpdateTextureEnabled),
         Number(d3d9BeginSceneEnabled),
+        Number(d3d9InitialSamplerStatesEnabled),
       ),
     );
   }

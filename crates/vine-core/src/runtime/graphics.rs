@@ -56,6 +56,98 @@ pub enum RuntimeGraphicsCullMode {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsTextureFilter {
+    Linear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSamplerState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_filter: Option<RuntimeGraphicsTextureFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mag_filter: Option<RuntimeGraphicsTextureFilter>,
+}
+
+impl RuntimeGraphicsSamplerState {
+    fn is_pristine(&self) -> bool {
+        self.min_filter.is_none() && self.mag_filter.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSamplerStates {
+    #[serde(skip_serializing_if = "RuntimeGraphicsSamplerState::is_pristine")]
+    pub sampler_zero: RuntimeGraphicsSamplerState,
+}
+
+impl RuntimeGraphicsSamplerStates {
+    fn is_pristine(&self) -> bool {
+        self.sampler_zero.is_pristine()
+    }
+
+    fn current_for(
+        &self,
+        update: RuntimeGraphicsSamplerStateUpdate,
+    ) -> Option<RuntimeGraphicsSamplerStateUpdate> {
+        match update {
+            RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, .. } => self
+                .sampler_zero
+                .min_filter
+                .map(|filter| RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, filter }),
+            RuntimeGraphicsSamplerStateUpdate::MagFilter { sampler: 0, .. } => self
+                .sampler_zero
+                .mag_filter
+                .map(|filter| RuntimeGraphicsSamplerStateUpdate::MagFilter { sampler: 0, filter }),
+            _ => None,
+        }
+    }
+
+    fn apply(&mut self, update: RuntimeGraphicsSamplerStateUpdate) {
+        match update {
+            RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, filter } => {
+                self.sampler_zero.min_filter = Some(filter);
+            }
+            RuntimeGraphicsSamplerStateUpdate::MagFilter { sampler: 0, filter } => {
+                self.sampler_zero.mag_filter = Some(filter);
+            }
+            _ => unreachable!("validated sampler-state update has an unsupported sampler"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsSamplerStateUpdate {
+    MinFilter {
+        sampler: u32,
+        filter: RuntimeGraphicsTextureFilter,
+    },
+    MagFilter {
+        sampler: u32,
+        filter: RuntimeGraphicsTextureFilter,
+    },
+}
+
+impl RuntimeGraphicsSamplerStateUpdate {
+    fn validate(self) -> Result<(), RuntimeStateError> {
+        let sampler = match self {
+            Self::MinFilter { sampler, .. } | Self::MagFilter { sampler, .. } => sampler,
+        };
+        if sampler != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-sampler-state-sampler-unsupported",
+                "logical sampler-state authority currently supports sampler zero only",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsRenderStates {
@@ -305,6 +397,8 @@ pub struct RuntimeGraphicsDevice {
     pub presentation: RuntimeGraphicsPresentation,
     pub com_object_id: RuntimeComObjectId,
     pub render_states: RuntimeGraphicsRenderStates,
+    #[serde(skip_serializing_if = "RuntimeGraphicsSamplerStates::is_pristine")]
+    pub sampler_states: RuntimeGraphicsSamplerStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -378,6 +472,12 @@ pub(crate) struct RuntimeGraphicsDeviceCreateRequest {
 pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub update: RuntimeGraphicsRenderStateUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSamplerStateUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub update: RuntimeGraphicsSamplerStateUpdate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -465,6 +565,17 @@ pub(crate) struct RuntimeGraphicsRenderStateUpdatePlan {
     next_device_generation: u64,
     previous: Option<RuntimeGraphicsRenderStateUpdate>,
     update: RuntimeGraphicsRenderStateUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsSamplerStateUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous: Option<RuntimeGraphicsSamplerStateUpdate>,
+    update: RuntimeGraphicsSamplerStateUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -607,6 +718,15 @@ pub struct RuntimeGraphicsVertexBufferUnlockResult {
 pub struct RuntimeGraphicsRenderStateUpdateResult {
     pub device_id: RuntimeGraphicsDeviceId,
     pub update: RuntimeGraphicsRenderStateUpdate,
+    pub changed: bool,
+    pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsSamplerStateUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub update: RuntimeGraphicsSamplerStateUpdate,
     pub changed: bool,
     pub device_generation: u64,
 }
@@ -903,6 +1023,7 @@ impl RuntimeGraphics {
             presentation,
             com_object_id,
             render_states: RuntimeGraphicsRenderStates::default(),
+            sampler_states: RuntimeGraphicsSamplerStates::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
             renderer: None,
@@ -1004,6 +1125,99 @@ impl RuntimeGraphics {
             self.generation = plan.next_generation;
         }
         RuntimeGraphicsRenderStateUpdateResult {
+            device_id: device.id,
+            update: plan.update,
+            changed,
+            device_generation: device.generation,
+        }
+    }
+
+    pub(super) fn plan_sampler_state_update(
+        &self,
+        request: RuntimeGraphicsSamplerStateUpdateRequest,
+    ) -> Result<RuntimeGraphicsSamplerStateUpdatePlan, RuntimeStateError> {
+        request.update.validate()?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-sampler-state-device-com-object-unknown",
+                    "logical sampler-state update requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let previous = device.sampler_states.current_for(request.update);
+        let changed = previous != Some(request.update);
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsSamplerStateUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous,
+            update: request.update,
+        })
+    }
+
+    pub(super) fn preflight_sampler_state_update(
+        &self,
+        plan: &RuntimeGraphicsSamplerStateUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-sampler-state-update-plan-stale"));
+        };
+        let changed = plan.previous != Some(plan.update);
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.sampler_states.current_for(plan.update) != plan.previous
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan("graphics-sampler-state-update-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_sampler_state_update(
+        &mut self,
+        plan: RuntimeGraphicsSamplerStateUpdatePlan,
+    ) -> RuntimeGraphicsSamplerStateUpdateResult {
+        debug_assert!(self.preflight_sampler_state_update(&plan).is_ok());
+        let changed = plan.previous != Some(plan.update);
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.sampler_states.apply(plan.update);
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsSamplerStateUpdateResult {
             device_id: device.id,
             update: plan.update,
             changed,
@@ -3513,6 +3727,169 @@ mod tests {
             "graphics-generation-exhausted"
         );
         assert_eq!(graphics, exhausted);
+    }
+
+    #[test]
+    fn sampler_state_updates_are_typed_idempotent_and_failure_atomic() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert_eq!(
+            device.sampler_states,
+            RuntimeGraphicsSamplerStates::default()
+        );
+
+        let min_filter = RuntimeGraphicsSamplerStateUpdate::MinFilter {
+            sampler: 0,
+            filter: RuntimeGraphicsTextureFilter::Linear,
+        };
+        let min_plan = graphics
+            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: min_filter,
+            })
+            .unwrap();
+        let stale_min = min_plan.clone();
+        let before_min = graphics.clone();
+        graphics.preflight_sampler_state_update(&min_plan).unwrap();
+        assert_eq!(
+            graphics, before_min,
+            "planning and preflight must not mutate"
+        );
+        let min_result = graphics.commit_sampler_state_update(min_plan);
+        assert_eq!(min_result.device_id, device.id);
+        assert_eq!(min_result.update, min_filter);
+        assert!(min_result.changed);
+        assert_eq!(min_result.device_generation, device.generation + 1);
+        assert_eq!(
+            graphics
+                .preflight_sampler_state_update(&stale_min)
+                .unwrap_err()
+                .code,
+            "graphics-sampler-state-update-plan-stale"
+        );
+
+        let before_idempotent = graphics.clone();
+        let repeated_min = graphics
+            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: min_filter,
+            })
+            .unwrap();
+        let repeated_result = graphics.commit_sampler_state_update(repeated_min);
+        assert!(!repeated_result.changed);
+        assert_eq!(graphics, before_idempotent);
+
+        let mag_filter = RuntimeGraphicsSamplerStateUpdate::MagFilter {
+            sampler: 0,
+            filter: RuntimeGraphicsTextureFilter::Linear,
+        };
+        let stale_mag = graphics
+            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: mag_filter,
+            })
+            .unwrap();
+        let intervening = graphics
+            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
+            })
+            .unwrap();
+        graphics.commit_render_state_update(intervening);
+        let before_stale = graphics.clone();
+        assert_eq!(
+            graphics
+                .preflight_sampler_state_update(&stale_mag)
+                .unwrap_err()
+                .code,
+            "graphics-sampler-state-update-plan-stale"
+        );
+        assert_eq!(graphics, before_stale);
+
+        let mag_plan = graphics
+            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: mag_filter,
+            })
+            .unwrap();
+        let mag_result = graphics.commit_sampler_state_update(mag_plan);
+        assert!(mag_result.changed);
+        let committed = graphics.device(device.id).unwrap();
+        assert_eq!(
+            committed.sampler_states.sampler_zero.min_filter,
+            Some(RuntimeGraphicsTextureFilter::Linear)
+        );
+        assert_eq!(
+            committed.sampler_states.sampler_zero.mag_filter,
+            Some(RuntimeGraphicsTextureFilter::Linear)
+        );
+
+        let before_invalid = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update: RuntimeGraphicsSamplerStateUpdate::MinFilter {
+                        sampler: 1,
+                        filter: RuntimeGraphicsTextureFilter::Linear,
+                    },
+                })
+                .unwrap_err()
+                .code,
+            "graphics-sampler-state-sampler-unsupported"
+        );
+        assert_eq!(graphics, before_invalid);
+
+        let before_unknown = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(99),
+                    update: min_filter,
+                })
+                .unwrap_err()
+                .code,
+            "graphics-sampler-state-device-com-object-unknown"
+        );
+        assert_eq!(graphics, before_unknown);
+
+        graphics.generation = u64::MAX;
+        let exhausted = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update: RuntimeGraphicsSamplerStateUpdate::MinFilter {
+                        sampler: 0,
+                        filter: RuntimeGraphicsTextureFilter::Linear,
+                    },
+                })
+                .unwrap()
+                .next_generation,
+            u64::MAX,
+            "same-value updates remain idempotent at generation exhaustion"
+        );
+        assert_eq!(graphics, exhausted);
+
+        let mut changed_at_exhaustion = RuntimeGraphics::default();
+        let plan = changed_at_exhaustion
+            .plan_device_creation(request())
+            .unwrap();
+        changed_at_exhaustion.commit_device_creation(plan, RuntimeComObjectId(8));
+        changed_at_exhaustion.generation = u64::MAX;
+        let before_exhausted_change = changed_at_exhaustion.clone();
+        assert_eq!(
+            changed_at_exhaustion
+                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(8),
+                    update: min_filter,
+                })
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(changed_at_exhaustion, before_exhausted_change);
     }
 
     #[test]
