@@ -62,6 +62,20 @@ pub enum RuntimeGraphicsTextureFilter {
     Linear,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsTextureOperation {
+    Modulate,
+    SelectArgumentOne,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsTextureArgument {
+    Diffuse,
+    Texture,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSamplerState {
@@ -142,6 +156,168 @@ impl RuntimeGraphicsSamplerStateUpdate {
                 "runtime-graphics",
                 "graphics-sampler-state-sampler-unsupported",
                 "logical sampler-state authority currently supports sampler zero only",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureStageState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_operation: Option<RuntimeGraphicsTextureOperation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_argument_one: Option<RuntimeGraphicsTextureArgument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_argument_two: Option<RuntimeGraphicsTextureArgument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha_operation: Option<RuntimeGraphicsTextureOperation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha_argument_one: Option<RuntimeGraphicsTextureArgument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha_argument_two: Option<RuntimeGraphicsTextureArgument>,
+}
+
+impl RuntimeGraphicsTextureStageState {
+    fn is_pristine(&self) -> bool {
+        self.color_operation.is_none()
+            && self.color_argument_one.is_none()
+            && self.color_argument_two.is_none()
+            && self.alpha_operation.is_none()
+            && self.alpha_argument_one.is_none()
+            && self.alpha_argument_two.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureStageStates {
+    #[serde(skip_serializing_if = "RuntimeGraphicsTextureStageState::is_pristine")]
+    pub stage_zero: RuntimeGraphicsTextureStageState,
+}
+
+impl RuntimeGraphicsTextureStageStates {
+    fn is_pristine(&self) -> bool {
+        self.stage_zero.is_pristine()
+    }
+
+    fn current_for(
+        &self,
+        update: RuntimeGraphicsTextureStageStateUpdate,
+    ) -> Option<RuntimeGraphicsTextureStageStateUpdate> {
+        match update {
+            RuntimeGraphicsTextureStageStateUpdate::ColorOperation { stage: 0, .. } => {
+                self.stage_zero.color_operation.map(|operation| {
+                    RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                        stage: 0,
+                        operation,
+                    }
+                })
+            }
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentOne { stage: 0, .. } => {
+                self.stage_zero.color_argument_one.map(|argument| {
+                    RuntimeGraphicsTextureStageStateUpdate::ColorArgumentOne { stage: 0, argument }
+                })
+            }
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentTwo { stage: 0, .. } => {
+                self.stage_zero.color_argument_two.map(|argument| {
+                    RuntimeGraphicsTextureStageStateUpdate::ColorArgumentTwo { stage: 0, argument }
+                })
+            }
+            RuntimeGraphicsTextureStageStateUpdate::AlphaOperation { stage: 0, .. } => {
+                self.stage_zero.alpha_operation.map(|operation| {
+                    RuntimeGraphicsTextureStageStateUpdate::AlphaOperation {
+                        stage: 0,
+                        operation,
+                    }
+                })
+            }
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentOne { stage: 0, .. } => {
+                self.stage_zero.alpha_argument_one.map(|argument| {
+                    RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentOne { stage: 0, argument }
+                })
+            }
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentTwo { stage: 0, .. } => {
+                self.stage_zero.alpha_argument_two.map(|argument| {
+                    RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentTwo { stage: 0, argument }
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn apply(&mut self, update: RuntimeGraphicsTextureStageStateUpdate) {
+        match update {
+            RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                stage: 0,
+                operation,
+            } => self.stage_zero.color_operation = Some(operation),
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentOne { stage: 0, argument } => {
+                self.stage_zero.color_argument_one = Some(argument)
+            }
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentTwo { stage: 0, argument } => {
+                self.stage_zero.color_argument_two = Some(argument)
+            }
+            RuntimeGraphicsTextureStageStateUpdate::AlphaOperation {
+                stage: 0,
+                operation,
+            } => self.stage_zero.alpha_operation = Some(operation),
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentOne { stage: 0, argument } => {
+                self.stage_zero.alpha_argument_one = Some(argument)
+            }
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentTwo { stage: 0, argument } => {
+                self.stage_zero.alpha_argument_two = Some(argument)
+            }
+            _ => unreachable!("validated texture-stage-state update has an unsupported stage"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsTextureStageStateUpdate {
+    ColorOperation {
+        stage: u32,
+        operation: RuntimeGraphicsTextureOperation,
+    },
+    ColorArgumentOne {
+        stage: u32,
+        argument: RuntimeGraphicsTextureArgument,
+    },
+    ColorArgumentTwo {
+        stage: u32,
+        argument: RuntimeGraphicsTextureArgument,
+    },
+    AlphaOperation {
+        stage: u32,
+        operation: RuntimeGraphicsTextureOperation,
+    },
+    AlphaArgumentOne {
+        stage: u32,
+        argument: RuntimeGraphicsTextureArgument,
+    },
+    AlphaArgumentTwo {
+        stage: u32,
+        argument: RuntimeGraphicsTextureArgument,
+    },
+}
+
+impl RuntimeGraphicsTextureStageStateUpdate {
+    fn validate(self) -> Result<(), RuntimeStateError> {
+        let stage = match self {
+            Self::ColorOperation { stage, .. }
+            | Self::ColorArgumentOne { stage, .. }
+            | Self::ColorArgumentTwo { stage, .. }
+            | Self::AlphaOperation { stage, .. }
+            | Self::AlphaArgumentOne { stage, .. }
+            | Self::AlphaArgumentTwo { stage, .. } => stage,
+        };
+        if stage != 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-texture-stage-state-stage-unsupported",
+                "logical texture-stage-state authority currently supports stage zero only",
             ));
         }
         Ok(())
@@ -399,6 +575,8 @@ pub struct RuntimeGraphicsDevice {
     pub render_states: RuntimeGraphicsRenderStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsSamplerStates::is_pristine")]
     pub sampler_states: RuntimeGraphicsSamplerStates,
+    #[serde(skip_serializing_if = "RuntimeGraphicsTextureStageStates::is_pristine")]
+    pub texture_stage_states: RuntimeGraphicsTextureStageStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -478,6 +656,12 @@ pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
 pub(crate) struct RuntimeGraphicsSamplerStateUpdateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub update: RuntimeGraphicsSamplerStateUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureStageStateUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub update: RuntimeGraphicsTextureStageStateUpdate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,6 +760,17 @@ pub(crate) struct RuntimeGraphicsSamplerStateUpdatePlan {
     next_device_generation: u64,
     previous: Option<RuntimeGraphicsSamplerStateUpdate>,
     update: RuntimeGraphicsSamplerStateUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureStageStateUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous: Option<RuntimeGraphicsTextureStageStateUpdate>,
+    update: RuntimeGraphicsTextureStageStateUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -727,6 +922,15 @@ pub struct RuntimeGraphicsRenderStateUpdateResult {
 pub struct RuntimeGraphicsSamplerStateUpdateResult {
     pub device_id: RuntimeGraphicsDeviceId,
     pub update: RuntimeGraphicsSamplerStateUpdate,
+    pub changed: bool,
+    pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureStageStateUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub update: RuntimeGraphicsTextureStageStateUpdate,
     pub changed: bool,
     pub device_generation: u64,
 }
@@ -1024,6 +1228,7 @@ impl RuntimeGraphics {
             com_object_id,
             render_states: RuntimeGraphicsRenderStates::default(),
             sampler_states: RuntimeGraphicsSamplerStates::default(),
+            texture_stage_states: RuntimeGraphicsTextureStageStates::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
             renderer: None,
@@ -1218,6 +1423,99 @@ impl RuntimeGraphics {
             self.generation = plan.next_generation;
         }
         RuntimeGraphicsSamplerStateUpdateResult {
+            device_id: device.id,
+            update: plan.update,
+            changed,
+            device_generation: device.generation,
+        }
+    }
+
+    pub(super) fn plan_texture_stage_state_update(
+        &self,
+        request: RuntimeGraphicsTextureStageStateUpdateRequest,
+    ) -> Result<RuntimeGraphicsTextureStageStateUpdatePlan, RuntimeStateError> {
+        request.update.validate()?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-texture-stage-state-device-com-object-unknown",
+                    "logical texture-stage-state update requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let previous = device.texture_stage_states.current_for(request.update);
+        let changed = previous != Some(request.update);
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsTextureStageStateUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous,
+            update: request.update,
+        })
+    }
+
+    pub(super) fn preflight_texture_stage_state_update(
+        &self,
+        plan: &RuntimeGraphicsTextureStageStateUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-texture-stage-state-update-plan-stale"));
+        };
+        let changed = plan.previous != Some(plan.update);
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.texture_stage_states.current_for(plan.update) != plan.previous
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan("graphics-texture-stage-state-update-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_texture_stage_state_update(
+        &mut self,
+        plan: RuntimeGraphicsTextureStageStateUpdatePlan,
+    ) -> RuntimeGraphicsTextureStageStateUpdateResult {
+        debug_assert!(self.preflight_texture_stage_state_update(&plan).is_ok());
+        let changed = plan.previous != Some(plan.update);
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.texture_stage_states.apply(plan.update);
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsTextureStageStateUpdateResult {
             device_id: device.id,
             update: plan.update,
             changed,
@@ -3884,6 +4182,164 @@ mod tests {
                 .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
                     device_com_object_id: RuntimeComObjectId(8),
                     update: min_filter,
+                })
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(changed_at_exhaustion, before_exhausted_change);
+    }
+
+    #[test]
+    fn texture_stage_state_updates_are_typed_idempotent_and_failure_atomic() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert_eq!(
+            device.texture_stage_states,
+            RuntimeGraphicsTextureStageStates::default()
+        );
+
+        let updates = [
+            RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                stage: 0,
+                operation: RuntimeGraphicsTextureOperation::Modulate,
+            },
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentOne {
+                stage: 0,
+                argument: RuntimeGraphicsTextureArgument::Texture,
+            },
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentTwo {
+                stage: 0,
+                argument: RuntimeGraphicsTextureArgument::Diffuse,
+            },
+            RuntimeGraphicsTextureStageStateUpdate::AlphaOperation {
+                stage: 0,
+                operation: RuntimeGraphicsTextureOperation::SelectArgumentOne,
+            },
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentOne {
+                stage: 0,
+                argument: RuntimeGraphicsTextureArgument::Texture,
+            },
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentTwo {
+                stage: 0,
+                argument: RuntimeGraphicsTextureArgument::Diffuse,
+            },
+        ];
+        let first_plan = graphics
+            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: updates[0],
+            })
+            .unwrap();
+        let stale_first = first_plan.clone();
+        let before_first = graphics.clone();
+        graphics
+            .preflight_texture_stage_state_update(&first_plan)
+            .unwrap();
+        assert_eq!(
+            graphics, before_first,
+            "planning and preflight must not mutate"
+        );
+        let first = graphics.commit_texture_stage_state_update(first_plan);
+        assert_eq!(first.device_id, device.id);
+        assert_eq!(first.update, updates[0]);
+        assert!(first.changed);
+        assert_eq!(
+            graphics
+                .preflight_texture_stage_state_update(&stale_first)
+                .unwrap_err()
+                .code,
+            "graphics-texture-stage-state-update-plan-stale"
+        );
+
+        for update in updates.into_iter().skip(1) {
+            let plan = graphics
+                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update,
+                })
+                .unwrap();
+            let result = graphics.commit_texture_stage_state_update(plan);
+            assert!(result.changed);
+            assert_eq!(result.update, update);
+        }
+        let committed = graphics.device(device.id).unwrap();
+        assert_eq!(
+            committed.texture_stage_states.stage_zero,
+            RuntimeGraphicsTextureStageState {
+                color_operation: Some(RuntimeGraphicsTextureOperation::Modulate),
+                color_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+                color_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+                alpha_operation: Some(RuntimeGraphicsTextureOperation::SelectArgumentOne),
+                alpha_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+                alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+            }
+        );
+        assert_eq!(committed.generation, device.generation + 6);
+
+        let before_repeat = graphics.clone();
+        let repeat = graphics
+            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: updates[0],
+            })
+            .unwrap();
+        assert!(!graphics.commit_texture_stage_state_update(repeat).changed);
+        assert_eq!(graphics, before_repeat);
+
+        let before_invalid = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    update: RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                        stage: 1,
+                        operation: RuntimeGraphicsTextureOperation::Modulate,
+                    },
+                })
+                .unwrap_err()
+                .code,
+            "graphics-texture-stage-state-stage-unsupported"
+        );
+        assert_eq!(graphics, before_invalid);
+
+        let before_unknown = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(99),
+                    update: updates[0],
+                })
+                .unwrap_err()
+                .code,
+            "graphics-texture-stage-state-device-com-object-unknown"
+        );
+        assert_eq!(graphics, before_unknown);
+
+        graphics.generation = u64::MAX;
+        let exhausted = graphics.clone();
+        let idempotent = graphics
+            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                update: updates[0],
+            })
+            .unwrap();
+        assert_eq!(idempotent.next_generation, u64::MAX);
+        assert_eq!(graphics, exhausted);
+
+        let mut changed_at_exhaustion = RuntimeGraphics::default();
+        let plan = changed_at_exhaustion
+            .plan_device_creation(request())
+            .unwrap();
+        changed_at_exhaustion.commit_device_creation(plan, RuntimeComObjectId(8));
+        changed_at_exhaustion.generation = u64::MAX;
+        let before_exhausted_change = changed_at_exhaustion.clone();
+        assert_eq!(
+            changed_at_exhaustion
+                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(8),
+                    update: updates[0],
                 })
                 .unwrap_err()
                 .code,

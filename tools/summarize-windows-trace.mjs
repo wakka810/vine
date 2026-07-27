@@ -84,6 +84,7 @@ const supportedObservations = new Set([
   "d3d9-update-texture",
   "d3d9-begin-scene",
   "d3d9-initial-sampler-states",
+  "d3d9-initial-texture-stage-states",
   "d3d9-initial-vertex-buffer",
   "d3d9-initial-render-states",
   "d3d9-raster-status",
@@ -2662,6 +2663,145 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const initialTextureStageStateCompletionEvents = events.filter(
+    (event) =>
+      event.kind === "d3d9-initial-texture-stage-states-complete",
+  );
+  const requiresInitialTextureStageStateCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-initial-texture-stage-states" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-initial-texture-stage-states-complete";
+  if (
+    initialTextureStageStateCompletionEvents.length > 1 ||
+    (requiresInitialTextureStageStateCompletion &&
+      initialTextureStageStateCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-initial-texture-stage-states observation requires exactly one structured completion",
+    );
+  }
+  const initialTextureStageStateSequences =
+    initialTextureStageStateCompletionEvents.map((completion) => {
+      const expected = [
+        { callerRva: 0x5b1f5, stage: 0n, state: 1n, value: 4n },
+        { callerRva: 0x5b20b, stage: 0n, state: 2n, value: 2n },
+        { callerRva: 0x5b221, stage: 0n, state: 3n, value: 0n },
+        { callerRva: 0x5b237, stage: 0n, state: 4n, value: 2n },
+        { callerRva: 0x5b24d, stage: 0n, state: 5n, value: 2n },
+        { callerRva: 0x5b263, stage: 0n, state: 6n, value: 0n },
+      ];
+      if (
+        completion.profile !==
+          "x86-bgi-first-frame-fixed-function-texture-stage-zero-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== expected.length ||
+        !Number.isInteger(completion.sequence)
+      ) {
+        throw new Error(
+          "d3d9-initial-texture-stage-states completion has invalid structure",
+        );
+      }
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const pairs = completion.calls.map((snapshot, index) => {
+        const pair = pairsByCallId.get(snapshot?.callId);
+        const expectedCall = expected[index];
+        const observation = pair?.leave.d3d9InitialTextureStageState;
+        const firstConsumerInstruction =
+          snapshot?.immediateConsumer?.entry?.instructions?.[0];
+        if (
+          pair === undefined ||
+          observation === undefined ||
+          snapshot.api !== "SetTextureStageState" ||
+          snapshot.interface !== "IDirect3DDevice9" ||
+          snapshot.vtableSlot !== 67 ||
+          snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          JSON.stringify(snapshot.arguments) !==
+            JSON.stringify(pair.enter.arguments) ||
+          snapshot.result !== observation.result ||
+          snapshot.resultU32 !== observation.resultU32 ||
+          snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+          snapshot.lastError !== observation.lastErrorAfter ||
+          JSON.stringify(snapshot.immediateConsumer) !==
+            JSON.stringify(observation.immediateConsumer) ||
+          snapshot.caller?.module !== pair.enter.caller?.module ||
+          snapshot.caller?.rva !== pair.enter.caller?.rva ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.api !== "SetTextureStageState" ||
+          pair.enter.interface !== "IDirect3DDevice9" ||
+          pair.enter.vtableSlot !== 67 ||
+          pair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== expectedCall.callerRva ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 3 ||
+          BigInt(pair.enter.arguments[0]) !== expectedCall.stage ||
+          BigInt(pair.enter.arguments[1]) !== expectedCall.state ||
+          BigInt(pair.enter.arguments[2]) !== expectedCall.value ||
+          BigInt(pair.leave.result) !== 0n ||
+          observation.result !== 0 ||
+          observation.resultU32 !== 0 ||
+          observation.lastErrorBefore !== 0 ||
+          pair.leave.lastError !== 0 ||
+          observation.lastErrorAfter !== 0 ||
+          firstConsumerInstruction?.mnemonic !== "mov" ||
+          !firstConsumerInstruction.opStr.startsWith(
+            `${index === expected.length - 1 ? "edx" : "eax"}, dword ptr`,
+          )
+        ) {
+          throw new Error(
+            `d3d9-initial-texture-stage-states completion call ${index} violates its caller, tuple, result, LastError, or consumer contract`,
+          );
+        }
+        return pair;
+      });
+      if (
+        !pairs.every(
+          (pair) => pair.enter.threadId === pairs[0].enter.threadId,
+        ) ||
+        completion.threadId !== pairs[0].enter.threadId ||
+        !pairs
+          .slice(1)
+          .every(
+            (pair, index) =>
+              pair.enter.sequence === pairs[index].leave.sequence + 1,
+          ) ||
+        completion.sequence !== pairs.at(-1).leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-initial-texture-stage-states completion violates its thread or contiguous ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pairs[0].enter.threadId,
+        device: completion.device,
+        calls: pairs.map((pair) => ({
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          stage: Number(BigInt(pair.enter.arguments[0])),
+          state: Number(BigInt(pair.enter.arguments[1])),
+          value: Number(BigInt(pair.enter.arguments[2])),
+          result: pair.leave.result,
+          lastErrorBefore:
+            pair.leave.d3d9InitialTextureStageState.lastErrorBefore,
+          lastError: pair.leave.lastError,
+          immediateConsumer:
+            pair.leave.d3d9InitialTextureStageState.immediateConsumer,
+        })),
+      };
+    });
+
   const rasterStatusCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-raster-status-complete",
   );
@@ -4243,6 +4383,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       initialVertexBufferSequences,
       initialRenderStateSequences,
       initialSamplerStateSequences,
+      initialTextureStageStateSequences,
       rasterStatusObservations,
       getSurfaceLevels,
       surfaceDcFlows,

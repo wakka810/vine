@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-initial-sampler-states`: 127363 calls across 122 endpoint contracts / 120 APIs, memory generation 235514 |
+| Runtime diagnostics | `d3d9-initial-texture-stage-states`: 127369 calls across 122 endpoint contracts / 120 APIs, memory generation 235520 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::SetTextureStageState(0x00000000, 0x00000001, 0x00000004)` at instruction 28761237: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::SetTexture(0x00000000, 0x01030004)` at instruction 28761291: `com-method-unsupported` |
 
-The active semantic report is 555,207 bytes with SHA-256
-`0ecbca844e2557c2825dcd676258c556875d0abb3d338969c97be47f83b1a6a7`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 568,982 bytes with SHA-256
+`2f6594aaff3602c400001c7d2f5b1c488494fc15ae8c0e68dd22cac910b6071e`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

@@ -867,10 +867,12 @@ capacityをpreflightし、sourceのRust-owned level-zero contentをdestination�
 two-resource targeted commitを行う。続く`BeginScene`は同じ`RuntimeGraphicsDevice`上でinactive-to-active lifecycleと
 scene sequenceだけをplan／preflight／commitする。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
 sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変のsuccessにする。Native driverのprofile外
-permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。
-TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
-renderer resourceの第二のauthorityを持たない。Texture-stage state、draw、Present、pixel backing、browser uploadは
-それぞれ到達した後続vertical sliceの責務とする。
+permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Reached
+`SetTextureStageState`も同じdevice owner上のstage 0 sparse typed stateへ、到達したcolor／alpha operationとargumentの
+六設定だけをplan／preflight／idempotent commitする。Native driverが受理するprofile外stage／state／valueはpolicyへ
+暗黙昇格させない。TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、
+sampler state、texture-stage state、renderer resourceの第二のauthorityを持たない。Texture binding、draw、Present、pixel
+backing、browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

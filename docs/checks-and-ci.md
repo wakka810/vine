@@ -133,8 +133,9 @@ since crossed the recreated D3D9 texture band, bounded frame-change／paint flow
 full-target Clear, the 16-byte presentation `SetRect`, source-texture
 `AddDirtyRect`, logical `UpdateTexture`, `BeginScene`, and the exact sampler-0
 MIN／MAG linear state band. The three following unprofiled render states are
-explicitly rejected and ignored by the caller; the runtime is paused at the
-manifested `IDirect3DDevice9::SetTextureStageState` slot-67 endpoint. Exact
+explicitly rejected and ignored by the caller. Downstream execution now also
+crosses the six exact stage-0 fixed-function texture-stage settings; the runtime
+is paused at the manifested `IDirect3DDevice9::SetTexture` slot-65 endpoint. Exact
 current artifact, report, blocker, and resume-condition identities remain
 manifest-owned.
 

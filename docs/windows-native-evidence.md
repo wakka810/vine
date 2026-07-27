@@ -5522,3 +5522,39 @@ COM object 21、device generation 46／47、MIN then MIN+MAG linear、zero guest
 次stopはinstruction 28,761,237、endpoint `0x01011460`、caller return `0x1005B1F5`の
 `IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67である。他sampler／state／filter、三render state、
 texture-stage state、EndScene、draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 164. BGI initial fixed-function texture-stage states and controlled readback
+
+Focused primary captureを同じsource executableから独立に二回取得した。Primary raw traceは539,395
+bytes／1,166 lines／SHA-256
+`e866b3f2a27279188620a52c478d6c6926dadc08e5872b2622b09fa4aa05238e`、summaryは395,817
+bytes／SHA-256 `a1843dc2a11123c546683536916e1aceebb4706e4b2915e55cbdd71a90526ef1`で、1,164 events／544
+API pairsがbalancedである。Independent confirmation raw traceは539,317 bytes／1,166 lines／SHA-256
+`0e7291073e8381a115dfc6924bc7e0ed84654e0935edc1111201afa3daaae4a6`、summaryは395,851
+bytes／SHA-256 `3c207fb0d99fdfdab46b8a4ca16d015b3b58e2b43967eb9d6a775cde07ec8890`で、同じ
+1,164 events／544 balanced pairsである。両runともdiagnostics／hook errors 0、単一thread、run内で同じnonzero
+device、六call連続、completion profileは`x86-bgi-first-frame-fixed-function-texture-stage-zero-v1`である。
+Raw trace／summaryは`.work/windows-traces/`に保持しGitへ追加しない。Source executableは実行前後とも
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Primary callsはdevice slot 67で、caller RVA `0x0005B1F5`、`0x0005B20B`、`0x0005B221`、
+`0x0005B237`、`0x0005B24D`、`0x0005B263`からstage 0／state 1–6／value `4,2,0,2,2,0`を設定する。
+両runとも全callは`D3D_OK`／LastError 0を返す。最初の五consumerは`[0x004017C4]`から次state setupを読み、
+最後は`[0x004017D0]`から次の`SetTexture`引数を準備する。Opaque native device pointerはartifact identityであり
+goldenにしない。
+
+Controlled oracle `x86-d3d9-texture-stage-state-acceptance-and-readback-v1`はPE32／COFF-i386 executableである。
+Sourceは10,980 bytes／SHA-256
+`057479717315c474a76cf256d70da46324b90f187b5526782e7ffdb5426f603d`、objectは11,481 bytes／SHA-256
+`2ee282a7f42233a270d650982ff848290406814dfb0ab7b84bf2db73b69cc966`、executableは7,168 bytes／SHA-256
+`65072e05145cc468449ff5c520d7aaa544dcb6f22799134bbabca245961ec706`である。独立二runはともにexit 0で、
+初期readback `4,2,1,2,2,1`、到達band後の`4,2,0,2,2,0`、全Get／Set／repeat success、LastError sentinel
+23,130 (`0x5A5A`) preserve、device reference count 1を一致させる。Tested invalid stage 8、state 0、value 0も
+native driverでは`D3D_OK`となるため、runtimeはこのpermissivenessを一般化せず到達した六tupleだけをversioned
+policyへ昇格し、他variantを`D3DERR_NOTAVAILABLE`かつmutation-freeに拒否する。
+
+Canonical Node／Chromeはsequence 127,365–127,370、instruction 28,761,237–28,761,282、logical device 3／
+COM object 21、device generation 48–53、cumulative color／alpha stage state、zero guest writesを一致させる。
+次stopはinstruction 28,761,291、endpoint `0x01011440`、caller return `0x1005B27C`の
+`IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65である。他stage／state／value、texture binding、EndScene、
+draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。

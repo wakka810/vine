@@ -1355,6 +1355,21 @@ resourceなしを一致させる。続くunprofiled `SetRenderState(171,1)`、`(
 28,761,237の`IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67である。他sampler／state／filter、三render
 state、texture-stage state、EndScene、draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
 
+続く`SetTextureStageState` leafは、focused primary trace二runがstage 0、state 1–6、value
+`4,2,0,2,2,0`の連続call、`D3D_OK`、LastError 0 preserve、最初の五callから次state setupへ進み最後のcallから
+`SetTexture`準備へ進むconsumerを一致させる。Controlled PE32/i386 readback oracleは初期値
+`4,2,1,2,2,1`から到達band適用後の`4,2,0,2,2,0`への遷移、同値repeat、LastError sentinel `0x5A5A`
+preserve、device reference count不変を固定する。Native driverがtested invalid stage／state／valueにも`D3D_OK`を
+返す事実はdriver evidenceとしてのみ記録し、active policyは到達した六tupleだけを許可する。
+
+Focused Rust model／dispatcher testsはdevice-local sparse typed texture-stage authority、enum validation、generation
+preflight、targeted／idempotent commit、NULL／unknown／wrong-class／stale／duplicate／unsupported／exhaustionのfailure
+atomicityを固定する。Node／Chrome protocol v35はsequence 127,365–127,370、instruction
+28,761,237–28,761,282、device 3／COM 21、reference count 5、cumulative color／alpha state、device generation
+48–53、zero guest writes、renderer resourceなしを一致させる。Canonical stopはinstruction 28,761,291の
+`IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65である。他stage／state／value、texture binding、EndScene、
+draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

@@ -77,6 +77,9 @@ const focusedD3d9BeginSceneObservation =
 const focusedD3d9InitialSamplerStatesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-sampler-states");
+const focusedD3d9InitialTextureStageStatesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-initial-texture-stage-states");
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
@@ -116,6 +119,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9UpdateTextureObservation ||
   focusedD3d9BeginSceneObservation ||
   focusedD3d9InitialSamplerStatesObservation ||
+  focusedD3d9InitialTextureStageStatesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
   focusedD3d9InitialRenderStatesObservation ||
   focusedD3d9RasterStatusObservation;
@@ -161,6 +165,9 @@ let focusedD3d9BeginSceneComplete = false;
 let focusedD3d9InitialSamplerStateDevice = null;
 let focusedD3d9InitialSamplerStatesComplete = false;
 const focusedD3d9InitialSamplerStateCalls = [];
+let focusedD3d9InitialTextureStageStateDevice = null;
+let focusedD3d9InitialTextureStageStatesComplete = false;
+const focusedD3d9InitialTextureStageStateCalls = [];
 let focusedD3d9InitialVertexBufferDevice = null;
 let focusedD3d9InitialVertexBufferObject = null;
 let focusedD3d9InitialVertexBufferData = null;
@@ -4842,6 +4849,36 @@ function attachIdirect3ddevice9(object) {
               return;
             }
             focusedD3d9InitialSamplerStateDevice ??= objectAddress;
+          } else if (focusedD3d9InitialTextureStageStatesObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const expectedCalls = [
+              { callerRva: 0x5b1f5, stage: 0, state: 1, value: 4 },
+              { callerRva: 0x5b20b, stage: 0, state: 2, value: 2 },
+              { callerRva: 0x5b221, stage: 0, state: 3, value: 0 },
+              { callerRva: 0x5b237, stage: 0, state: 4, value: 2 },
+              { callerRva: 0x5b24d, stage: 0, state: 5, value: 2 },
+              { callerRva: 0x5b263, stage: 0, state: 6, value: 0 },
+            ];
+            const expectedCall =
+              expectedCalls[focusedD3d9InitialTextureStageStateCalls.length];
+            if (
+              focusedD3d9InitialTextureStageStatesComplete ||
+              expectedCall === undefined ||
+              slot !== 67 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              caller.rva !== expectedCall.callerRva ||
+              args[1].toUInt32() !== expectedCall.stage ||
+              args[2].toUInt32() !== expectedCall.state ||
+              args[3].toUInt32() !== expectedCall.value ||
+              (focusedD3d9InitialTextureStageStateDevice !== null &&
+                objectAddress !== focusedD3d9InitialTextureStageStateDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9InitialTextureStageStateDevice ??= objectAddress;
           } else if (focusedD3d9UpdateTextureObservation) {
             const caller = describeCaller(this.returnAddress);
             const callerModule = caller.module?.toLowerCase() ?? null;
@@ -5027,6 +5064,16 @@ function attachIdirect3ddevice9(object) {
                   ),
                 }
               : null;
+          this.traceD3d9InitialTextureStageState =
+            focusedD3d9InitialTextureStageStatesObservation && slot === 67
+              ? {
+                  lastErrorBefore: Number(this.lastError) >>> 0,
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    96,
+                  ),
+                }
+              : null;
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -5105,6 +5152,15 @@ function attachIdirect3ddevice9(object) {
                   resultU32: result.toUInt32(),
                   lastErrorAfter: lastError,
                 };
+          const d3d9InitialTextureStageState =
+            this.traceD3d9InitialTextureStageState === null
+              ? null
+              : {
+                  ...this.traceD3d9InitialTextureStageState,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           finishCall(
             this.traceFrame,
             {
@@ -5126,6 +5182,9 @@ function attachIdirect3ddevice9(object) {
               ...(d3d9InitialSamplerState === null
                 ? {}
                 : { d3d9InitialSamplerState }),
+              ...(d3d9InitialTextureStageState === null
+                ? {}
+                : { d3d9InitialTextureStageState }),
             },
             this.lastError,
           );
@@ -5206,6 +5265,27 @@ function attachIdirect3ddevice9(object) {
               caller: this.traceFrame.caller,
             });
             maybeCompleteFocusedD3d9InitialSamplerStatesObservation();
+          }
+          if (
+            focusedD3d9InitialTextureStageStatesObservation &&
+            d3d9InitialTextureStageState !== null
+          ) {
+            focusedD3d9InitialTextureStageStateCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: d3d9InitialTextureStageState.result,
+              resultU32: d3d9InitialTextureStageState.resultU32,
+              lastErrorBefore: d3d9InitialTextureStageState.lastErrorBefore,
+              lastError: d3d9InitialTextureStageState.lastErrorAfter,
+              immediateConsumer:
+                d3d9InitialTextureStageState.immediateConsumer,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9InitialTextureStageStatesObservation();
           }
           if (focusedD3d9UpdateTextureObservation) {
             if (d3d9CreateTexture !== null) {
@@ -6581,6 +6661,34 @@ function maybeCompleteFocusedD3d9InitialSamplerStatesObservation() {
     calls: focusedD3d9InitialSamplerStateCalls,
   });
   if (stopOnEvent === "d3d9-initial-sampler-states-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9InitialTextureStageStatesObservation() {
+  if (
+    focusedD3d9InitialTextureStageStatesComplete ||
+    focusedD3d9InitialTextureStageStateCalls.length !== 6 ||
+    !focusedD3d9InitialTextureStageStateCalls.every(
+      (call) => call.api === "SetTextureStageState",
+    )
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(
+      maybeCompleteFocusedD3d9InitialTextureStageStatesObservation,
+      10,
+    );
+    return;
+  }
+  focusedD3d9InitialTextureStageStatesComplete = true;
+  emit("d3d9-initial-texture-stage-states-complete", {
+    profile: "x86-bgi-first-frame-fixed-function-texture-stage-zero-v1",
+    device: focusedD3d9InitialTextureStageStateDevice,
+    calls: focusedD3d9InitialTextureStageStateCalls,
+  });
+  if (stopOnEvent === "d3d9-initial-texture-stage-states-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

@@ -253,6 +253,7 @@ enum GenericRuntimeCapability {
     D3d9UpdateTexture,
     D3d9BeginScene,
     D3d9InitialSamplerStates,
+    D3d9InitialTextureStageStates,
 }
 
 struct GenericRuntimeProcess {
@@ -2695,6 +2696,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9UpdateTexture
                     | GenericRuntimeCapability::D3d9BeginScene
                     | GenericRuntimeCapability::D3d9InitialSamplerStates
+                    | GenericRuntimeCapability::D3d9InitialTextureStageStates
             )
         ) {
             let loader = kernel32_policy
@@ -3360,10 +3362,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_initial_sampler_states_enabled = matches!(
+    let d3d9_initial_texture_stage_states_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9InitialSamplerStates)
+        Some(GenericRuntimeCapability::D3d9InitialTextureStageStates)
     );
+    let d3d9_initial_sampler_states_enabled = d3d9_initial_texture_stage_states_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9InitialSamplerStates)
+        );
     let d3d9_begin_scene_enabled = d3d9_initial_sampler_states_enabled
         || matches!(
             enabled_capability,
@@ -3567,7 +3574,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9AddDirtyRect
             | GenericRuntimeCapability::D3d9UpdateTexture
             | GenericRuntimeCapability::D3d9BeginScene
-            | GenericRuntimeCapability::D3d9InitialSamplerStates,
+            | GenericRuntimeCapability::D3d9InitialSamplerStates
+            | GenericRuntimeCapability::D3d9InitialTextureStageStates,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3898,7 +3906,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v22();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v23();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -3913,6 +3921,9 @@ fn run_v86_generic_runtime_session(
     }
     if !d3d9_initial_sampler_states_enabled {
         d3d9_policy.initial_sampler_states = None;
+    }
+    if !d3d9_initial_texture_stage_states_enabled {
+        d3d9_policy.initial_texture_stage_states = None;
     }
     if !matches!(
         requested_capability,
@@ -6303,6 +6314,10 @@ fn run_v86_generic_runtime_session(
                             d3d9_initial_sampler_states_enabled
                                 && d3d9_policy.initial_sampler_states.is_some()
                         }
+                        67 => {
+                            d3d9_initial_texture_stage_states_enabled
+                                && d3d9_policy.initial_texture_stage_states.is_some()
+                        }
                         _ => true,
                     };
                     if target.object.class_identity.starts_with("d3d9.")
@@ -6355,7 +6370,7 @@ fn run_v86_generic_runtime_session(
                         let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
                             && matches!(
                                 completion.frame.method.as_str(),
-                                "Clear" | "BeginScene" | "SetSamplerState"
+                                "Clear" | "BeginScene" | "SetSamplerState" | "SetTextureStageState"
                             ) {
                             process
                                 .runtime
@@ -14069,6 +14084,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-update-texture" => GenericRuntimeCapability::D3d9UpdateTexture,
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,
+                "d3d9-initial-texture-stage-states" => {
+                    GenericRuntimeCapability::D3d9InitialTextureStageStates
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

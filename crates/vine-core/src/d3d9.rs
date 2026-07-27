@@ -18,10 +18,12 @@ use crate::runtime::{
     RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
     RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
-    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
-    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureFilter,
-    RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
+    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureArgument,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
+    RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureStageStateUpdateRequest,
+    RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
     RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferPool,
     RuntimeGraphicsVertexBufferUsage, RuntimeRect, RuntimeStateError, RuntimeStateErrorClass,
@@ -31,7 +33,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 22;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 23;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -54,6 +56,16 @@ pub const D3D9_D3DCULL_NONE: u32 = 1;
 pub const D3D9_D3DSAMP_MAGFILTER: u32 = 5;
 pub const D3D9_D3DSAMP_MINFILTER: u32 = 6;
 pub const D3D9_D3DTEXF_LINEAR: u32 = 2;
+pub const D3D9_D3DTSS_COLOROP: u32 = 1;
+pub const D3D9_D3DTSS_COLORARG1: u32 = 2;
+pub const D3D9_D3DTSS_COLORARG2: u32 = 3;
+pub const D3D9_D3DTSS_ALPHAOP: u32 = 4;
+pub const D3D9_D3DTSS_ALPHAARG1: u32 = 5;
+pub const D3D9_D3DTSS_ALPHAARG2: u32 = 6;
+pub const D3D9_D3DTOP_MODULATE: u32 = 4;
+pub const D3D9_D3DTOP_SELECTARG1: u32 = 2;
+pub const D3D9_D3DTA_DIFFUSE: u32 = 0;
+pub const D3D9_D3DTA_TEXTURE: u32 = 2;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
 pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
@@ -289,6 +301,21 @@ pub struct D3d9InitialSamplerStatePolicy {
     pub settings: [D3d9SamplerStateSetting; 2],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9TextureStageStateSetting {
+    pub stage: u32,
+    pub state: u32,
+    pub value: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3d9InitialTextureStageStatePolicy {
+    pub profile_id: String,
+    pub settings: [D3d9TextureStageStateSetting; 6],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D3d9RasterStatusPolicy {
@@ -351,6 +378,7 @@ pub struct D3d9CompatibilityPolicy {
     pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
     pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
     pub initial_sampler_states: Option<D3d9InitialSamplerStatePolicy>,
+    pub initial_texture_stage_states: Option<D3d9InitialTextureStageStatePolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
@@ -359,11 +387,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v22() -> Self {
+    pub fn controlled_v23() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v22".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v23".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -480,6 +508,10 @@ impl D3d9CompatibilityPolicy {
             initial_sampler_states: Some(D3d9InitialSamplerStatePolicy {
                 profile_id: "primary-first-frame-linear-sampler-states-v1".to_owned(),
                 settings: controlled_initial_sampler_state_settings(),
+            }),
+            initial_texture_stage_states: Some(D3d9InitialTextureStageStatePolicy {
+                profile_id: "primary-first-frame-fixed-function-texture-stage-zero-v1".to_owned(),
+                settings: controlled_initial_texture_stage_state_settings(),
             }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
@@ -752,6 +784,19 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 initial sampler-state profile must describe the reached sampler-zero linear minification and magnification sequence",
             ));
         }
+        if let Some(texture_stage_states) = self.initial_texture_stage_states.as_ref()
+            && (texture_stage_states.profile_id
+                != "primary-first-frame-fixed-function-texture-stage-zero-v1"
+                || texture_stage_states.settings
+                    != controlled_initial_texture_stage_state_settings()
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-initial-texture-stage-state-profile-invalid",
+                "D3D9 initial texture-stage-state profile must describe the reached stage-zero fixed-function color and alpha sequence",
+            ));
+        }
         if let Some(raster_status) = self.raster_status.as_ref()
             && (!valid_policy_id(&raster_status.profile_id)
                 || !valid_policy_id(&raster_status.display_profile_id)
@@ -971,6 +1016,41 @@ fn controlled_initial_sampler_state_settings() -> [D3d9SamplerStateSetting; 2] {
             sampler: 0,
             state: D3D9_D3DSAMP_MAGFILTER,
             value: D3D9_D3DTEXF_LINEAR,
+        },
+    ]
+}
+
+fn controlled_initial_texture_stage_state_settings() -> [D3d9TextureStageStateSetting; 6] {
+    [
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_COLOROP,
+            value: D3D9_D3DTOP_MODULATE,
+        },
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_COLORARG1,
+            value: D3D9_D3DTA_TEXTURE,
+        },
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_COLORARG2,
+            value: D3D9_D3DTA_DIFFUSE,
+        },
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_ALPHAOP,
+            value: D3D9_D3DTOP_SELECTARG1,
+        },
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_ALPHAARG1,
+            value: D3D9_D3DTA_TEXTURE,
+        },
+        D3d9TextureStageStateSetting {
+            stage: 0,
+            state: D3D9_D3DTSS_ALPHAARG2,
+            value: D3D9_D3DTA_DIFFUSE,
         },
     ]
 }
@@ -1453,6 +1533,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => ("BeginScene", 0),
         43 => ("Clear", 6),
         57 => ("SetRenderState", 2),
+        67 => ("SetTextureStageState", 3),
         69 => ("SetSamplerState", 3),
         _ => {
             return call.fault(
@@ -1483,6 +1564,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => dispatch_begin_scene(policy, call),
         43 => dispatch_clear(policy, call),
         57 => dispatch_set_render_state(policy, call),
+        67 => dispatch_set_texture_stage_state(policy, call),
         69 => dispatch_set_sampler_state(policy, call),
         _ => unreachable!(),
     }
@@ -2239,6 +2321,96 @@ fn dispatch_set_sampler_state(
     let result = call
         .runtime_mut()
         .commit_graphics_sampler_state_update(plan);
+    debug_assert_eq!(result.update, update);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn dispatch_set_texture_stage_state(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(texture_stage_state_policy) = policy.initial_texture_stage_states.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-set-texture-stage-state",
+            "set-texture-stage-state-policy-disabled",
+            "D3D9 compatibility policy does not enable SetTextureStageState",
+        );
+    };
+    let stage = call.frame().explicit_arguments[0];
+    let state = call.frame().explicit_arguments[1];
+    let value = call.frame().explicit_arguments[2];
+    if !texture_stage_state_policy
+        .settings
+        .contains(&D3d9TextureStageStateSetting {
+            stage,
+            state,
+            value,
+        })
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let update = match (state, value) {
+        (D3D9_D3DTSS_COLOROP, D3D9_D3DTOP_MODULATE) => {
+            RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                stage,
+                operation: RuntimeGraphicsTextureOperation::Modulate,
+            }
+        }
+        (D3D9_D3DTSS_COLORARG1, D3D9_D3DTA_TEXTURE) => {
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentOne {
+                stage,
+                argument: RuntimeGraphicsTextureArgument::Texture,
+            }
+        }
+        (D3D9_D3DTSS_COLORARG2, D3D9_D3DTA_DIFFUSE) => {
+            RuntimeGraphicsTextureStageStateUpdate::ColorArgumentTwo {
+                stage,
+                argument: RuntimeGraphicsTextureArgument::Diffuse,
+            }
+        }
+        (D3D9_D3DTSS_ALPHAOP, D3D9_D3DTOP_SELECTARG1) => {
+            RuntimeGraphicsTextureStageStateUpdate::AlphaOperation {
+                stage,
+                operation: RuntimeGraphicsTextureOperation::SelectArgumentOne,
+            }
+        }
+        (D3D9_D3DTSS_ALPHAARG1, D3D9_D3DTA_TEXTURE) => {
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentOne {
+                stage,
+                argument: RuntimeGraphicsTextureArgument::Texture,
+            }
+        }
+        (D3D9_D3DTSS_ALPHAARG2, D3D9_D3DTA_DIFFUSE) => {
+            RuntimeGraphicsTextureStageStateUpdate::AlphaArgumentTwo {
+                stage,
+                argument: RuntimeGraphicsTextureArgument::Diffuse,
+            }
+        }
+        _ => unreachable!("validated D3D9 texture-stage-state policy has an unknown setting"),
+    };
+    let plan = match call.runtime().plan_graphics_texture_stage_state_update(
+        RuntimeGraphicsTextureStageStateUpdateRequest {
+            device_com_object_id: call.frame().object_id,
+            update,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_texture_stage_state_update(&plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call
+        .runtime_mut()
+        .commit_graphics_texture_stage_state_update(plan);
     debug_assert_eq!(result.update, update);
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
@@ -3317,7 +3489,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 43 | 57 | 69 => {
+            19 | 23 | 26 | 31 | 41 | 43 | 57 | 67 | 69 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

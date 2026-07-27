@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-initial-sampler-states` and uses protocol
-`vine.browser-runtime-worker.v34`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-initial-texture-stage-states` and uses protocol
+`vine.browser-runtime-worker.v35`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -166,7 +166,13 @@ caller ignores explicit `D3DERR_NOTAVAILABLE` results for the following
 unprofiled `SetRenderState(171,1)`, `(20,6)`, and `(19,5)` calls. Node and Chrome
 agree on those three rejections and stop at instruction 28,761,237 on
 `IDirect3DDevice9::SetTextureStageState(0,1,4)` slot 67, endpoint `0x01011460`,
-return address `0x1005B1F5`.
+return address `0x1005B1F5`. Both engines then complete the six reached stage-0
+settings in state order 1–6 with values `4,2,0,2,2,0`. Protocol version 35 carries
+the cumulative Rust-owned color operation／arguments and alpha operation／arguments
+with device generations 48–53. Node and Chrome agree on sequences 127,365–127,370,
+zero guest writes, reference count 5, and no renderer resource, then stop at
+instruction 28,761,291 on `IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65,
+endpoint `0x01011440`, return address `0x1005B27C`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -209,7 +215,8 @@ fingerprint before and after execution.
   UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
   not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
   dynamic-destination variant, or upload to a renderer. The following BeginScene creates
-  only Rust-owned logical scene state, and the two reached sampler calls add only Rust-owned
-  typed sampler state. EndScene, other sampler／state／filter variants, the three rejected
-  render states, texture-stage state, draw, Present, device loss, and visible browser output
-  remain unsupported.
+  only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
+  sampler state, and the six reached texture-stage calls add only Rust-owned typed stage-0
+  fixed-function state. EndScene, other sampler／state／filter variants, the three rejected
+  render states, other texture-stage variants, texture binding, draw, Present, device loss,
+  and visible browser output remain unsupported.

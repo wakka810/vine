@@ -102,6 +102,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-update-texture",
     "d3d9-begin-scene",
     "d3d9-initial-sampler-states",
+    "d3d9-initial-texture-stage-states",
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
     "d3d9-raster-status",

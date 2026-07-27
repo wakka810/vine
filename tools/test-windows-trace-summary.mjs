@@ -2404,6 +2404,210 @@ assert.throws(
   /violates its caller, tuple, result, LastError, or consumer contract/,
 );
 
+const d3d9InitialTextureStageStateEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-initial-texture-stage-states-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-initial-texture-stage-states"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-initial-texture-stage-states"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+];
+const textureStageStateCallFixtures = [
+  { callerRva: 0x5b1f5, arguments: ["0x0", "0x1", "0x4"] },
+  { callerRva: 0x5b20b, arguments: ["0x0", "0x2", "0x2"] },
+  { callerRva: 0x5b221, arguments: ["0x0", "0x3", "0x0"] },
+  { callerRva: 0x5b237, arguments: ["0x0", "0x4", "0x2"] },
+  { callerRva: 0x5b24d, arguments: ["0x0", "0x5", "0x2"] },
+  { callerRva: 0x5b263, arguments: ["0x0", "0x6", "0x0"] },
+];
+const textureStageStateCompletionCalls = [];
+for (const [index, fixture] of textureStageStateCallFixtures.entries()) {
+  const callId = index + 1;
+  const sequence = 4 + index * 2;
+  const caller = {
+    address: `0x${(0x0040_0000 + fixture.callerRva).toString(16)}`,
+    module: "BGI.exe",
+    rva: fixture.callerRva,
+  };
+  const immediateConsumer = makeInstructionWindow(
+    0x0040_0000 + fixture.callerRva,
+    96,
+    1,
+  );
+  setFixtureInstruction(
+    immediateConsumer,
+    0,
+    "mov",
+    `${index === textureStageStateCallFixtures.length - 1 ? "edx" : "eax"}, dword ptr [0x5517c4]`,
+  );
+  const observation = {
+    lastErrorBefore: 0,
+    immediateConsumer,
+    result: 0,
+    resultU32: 0,
+    lastErrorAfter: 0,
+  };
+  d3d9InitialTextureStageStateEvents.push(
+    {
+      schema,
+      sequence,
+      threadId: 20,
+      kind: "api-enter",
+      callId,
+      parentCallId: null,
+      caller,
+      module: "d3d9.dll",
+      api: "SetTextureStageState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 67,
+      object: "0x490000",
+      arguments: fixture.arguments,
+    },
+    {
+      schema,
+      sequence: sequence + 1,
+      threadId: 20,
+      kind: "api-leave",
+      callId,
+      parentCallId: null,
+      caller,
+      durationMs: 1,
+      lastError: 0,
+      module: "d3d9.dll",
+      api: "SetTextureStageState",
+      interface: "IDirect3DDevice9",
+      vtableSlot: 67,
+      object: "0x490000",
+      result: "0x0",
+      d3d9InitialTextureStageState: observation,
+    },
+  );
+  textureStageStateCompletionCalls.push({
+    callId,
+    api: "SetTextureStageState",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 67,
+    object: "0x490000",
+    arguments: fixture.arguments,
+    result: 0,
+    resultU32: 0,
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer,
+    caller,
+  });
+}
+d3d9InitialTextureStageStateEvents.push(
+  {
+    schema,
+    sequence: 16,
+    threadId: 20,
+    kind: "d3d9-initial-texture-stage-states-complete",
+    profile: "x86-bgi-first-frame-fixed-function-texture-stage-zero-v1",
+    device: "0x490000",
+    calls: textureStageStateCompletionCalls,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-initial-texture-stage-states-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+);
+const d3d9InitialTextureStageStateSummary = summarizeTrace(
+  encode(d3d9InitialTextureStageStateEvents),
+  "d3d9-initial-texture-stage-states-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9InitialTextureStageStateSummary.d3d9.initialTextureStageStateSequences[0].calls.map(
+    (call) => [
+      call.sequence,
+      call.caller.rva,
+      call.stage,
+      call.state,
+      call.value,
+      call.result,
+      call.lastErrorBefore,
+      call.lastError,
+      call.immediateConsumer.entry.instructions[0].mnemonic,
+    ],
+  ),
+  [
+    [4, 0x5b1f5, 0, 1, 4, "0x0", 0, 0, "mov"],
+    [6, 0x5b20b, 0, 2, 2, "0x0", 0, 0, "mov"],
+    [8, 0x5b221, 0, 3, 0, "0x0", 0, 0, "mov"],
+    [10, 0x5b237, 0, 4, 2, "0x0", 0, 0, "mov"],
+    [12, 0x5b24d, 0, 5, 2, "0x0", 0, 0, "mov"],
+    [14, 0x5b263, 0, 6, 0, "0x0", 0, 0, "mov"],
+  ],
+);
+const missingInitialTextureStageStateCompletion =
+  d3d9InitialTextureStageStateEvents.filter(
+    (event) =>
+      event.kind !== "d3d9-initial-texture-stage-states-complete",
+  );
+assert.throws(
+  () => summarizeTrace(encode(missingInitialTextureStageStateCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedInitialTextureStageStateLastError = structuredClone(
+  d3d9InitialTextureStageStateEvents,
+);
+changedInitialTextureStageStateLastError.find(
+  (event) => event.kind === "api-leave" && event.callId === 6,
+).d3d9InitialTextureStageState.lastErrorAfter = 1;
+assert.throws(
+  () => summarizeTrace(encode(changedInitialTextureStageStateLastError)),
+  /violates its caller, tuple, result, LastError, or consumer contract/,
+);
+
 const rasterImmediateConsumer = makeInstructionWindow(0x0045_aedd, 256, 51);
 for (const [index, mnemonic, opStr] of [
   [0, "test", "eax, eax"],

@@ -723,6 +723,8 @@ Slot 41 `BeginScene` then owns the first device-local active-scene sequence and
 lifecycle transition without creating browser graphics state. Slot 69
 `SetSamplerState` adds the first sparse typed sampler map to that same logical
 device and preserves the plan／preflight／targeted-commit boundary.
+Slot 67 `SetTextureStageState` adds the reached stage-0 fixed-function
+color／alpha operation and argument fields to the same device-owned typed state.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -739,7 +741,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-initial-sampler-states
+npm run check:runtime:bgi -- --profile d3d9-initial-texture-stage-states
 npm run check:runtime:bgi-browser
 ```
 
@@ -811,7 +813,10 @@ additionally enables the exact inactive-to-active scene transition and stops at
 `IDirect3DDevice9::SetSamplerState` slot 69. The active
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
-states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67.
+states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The active
+`d3d9-initial-texture-stage-states` profile additionally enables the six reached
+stage-0 fixed-function color／alpha operation and argument settings, then stops
+at `IDirect3DDevice9::SetTexture` slot 65.
 
 ## Non-claims
 
@@ -825,18 +830,21 @@ states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67.
   initial `SetRenderState` settings, one bounded `GetRasterStatus` query,
   one exact full-target black `Clear`, one bounded source-texture
   `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
-  exact inactive-to-active `BeginScene`, and the exact two sampler-0 MIN／MAG
-  linear `SetSamplerState` calls are
+  exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
+  linear `SetSamplerState` calls, and the exact six stage-0
+  `SetTextureStageState` calls are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
   device/resource state, partial dirty-region transfer, dynamic-destination
   `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
-  filter variants, texture-stage state, draw, Present, Reset,
+  filter variants, other texture stages／operations／arguments, texture binding,
+  draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
-  bounded UpdateTexture, bounded BeginScene, and bounded sampler state create Rust logical state
+  bounded UpdateTexture, bounded BeginScene, bounded sampler state, and bounded
+  texture-stage state create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.
