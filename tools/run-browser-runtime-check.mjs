@@ -76,7 +76,9 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const d3d9AddDirtyRectProfile = bgiProfile === "d3d9-add-dirty-rect";
+const d3d9UpdateTextureProfile = bgiProfile === "d3d9-update-texture";
+const d3d9AddDirtyRectProfile =
+  d3d9UpdateTextureProfile || bgiProfile === "d3d9-add-dirty-rect";
 const setRectProfile =
   d3d9AddDirtyRectProfile || bgiProfile === "user32-set-rect";
 const d3d9ClearProfile = setRectProfile || bgiProfile === "d3d9-clear";
@@ -105,7 +107,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v31";
+const runtimeProtocol = "vine.browser-runtime-worker.v32";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -741,6 +743,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-clear",
         "user32-set-rect",
         "d3d9-add-dirty-rect",
+        "d3d9-update-texture",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -770,6 +773,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-clear",
         "user32-set-rect",
         "d3d9-add-dirty-rect",
+        "d3d9-update-texture",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -799,6 +803,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-clear",
         "user32-set-rect",
         "d3d9-add-dirty-rect",
+        "d3d9-update-texture",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -1650,7 +1655,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(clear.call.graphicsDevice?.renderer, undefined);
         assert.equal(
           clear.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v19",
+          "d3d9-primary-virtual-adapter-v20",
         );
         assert.equal(clear.clearProfileId, "primary-full-render-target-black-v1");
         assert.equal(
@@ -1729,9 +1734,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(dirty.call.graphicsTexture?.dirtyRegion, {
           kind: "whole-texture",
         });
+        assert.equal(dirty.call.graphicsTexture?.content?.contentGeneration, 1);
+        assert.equal(dirty.call.graphicsTexture?.content?.fills.length, 1);
+        assert.equal(dirty.call.graphicsTexture?.content?.fills[0]?.sequence, 3);
+        assert.equal(dirty.call.graphicsTexture?.generation, 41);
         assert.equal(
           dirty.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v19",
+          "d3d9-primary-virtual-adapter-v20",
         );
         assert.equal(
           dirty.addDirtyRectProfileId,
@@ -1753,6 +1762,78 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.d3d9AddDirtyRect, null);
       }
+      if (d3d9UpdateTextureProfile) {
+        const update = evidence.report.d3d9UpdateTexture;
+        assert(
+          update !== null,
+          "Chrome Worker omitted D3D9 UpdateTexture evidence",
+        );
+        assert.equal(update.call.sequence, 127_358);
+        assert.equal(update.call.symbol, "IDirect3DDevice9.UpdateTexture");
+        assert.equal(update.call.interface, "IDirect3DDevice9");
+        assert.equal(update.call.vtableSlot, 31);
+        assert.deepEqual(update.call.arguments, [
+          0x0101_0004,
+          0x0102_0004,
+          0x0103_0004,
+        ]);
+        assert.deepEqual(update.call.result, { kind: "h-result", value: 0 });
+        assert.equal(update.call.returnAddress, 0x1005_b038);
+        assert.equal(update.call.stackPointerBefore, 0x006f_f258);
+        assert.equal(update.call.stackPointerAfter, 0x006f_f268);
+        assert.equal(update.call.referenceCount, 5);
+        assert.equal(update.call.objectRetired, false);
+        assert.deepEqual(update.call.guestWrites, []);
+        const pair = update.call.graphicsTextureUpdate;
+        assert(pair !== undefined, "UpdateTexture omitted its texture pair");
+        assert.equal(pair.source.id, 7);
+        assert.equal(pair.source.comObjectId, "22");
+        assert.equal(pair.source.descriptor.pool, "system-memory");
+        assert.deepEqual(pair.source.dirtyRegion, { kind: "clean" });
+        assert.equal(pair.source.content?.contentGeneration, 1);
+        assert.equal(pair.source.content?.fills[0]?.sequence, 3);
+        assert.equal(pair.source.generation, 42);
+        assert.equal(pair.destination.id, 8);
+        assert.equal(pair.destination.comObjectId, "24");
+        assert.equal(pair.destination.descriptor.pool, "default");
+        assert.deepEqual(pair.destination.dirtyRegion, {
+          kind: "whole-texture",
+        });
+        assert.deepEqual(pair.destination.content?.fills, pair.source.content?.fills);
+        assert.deepEqual(pair.destination.content?.lastUpdate, {
+          sequence: 1,
+          sourceTextureId: 7,
+          sourceContentGeneration: 1,
+          dirtyRegion: { kind: "whole-texture" },
+        });
+        assert.equal(pair.destination.generation, 45);
+        assert.equal(
+          update.compatibilityPolicyId,
+          "d3d9-primary-virtual-adapter-v20",
+        );
+        assert.equal(
+          update.updateTextureProfileId,
+          "primary-recreated-system-memory-to-static-default-texture-update-v1",
+        );
+        assert.equal(
+          update.contentAuthority,
+          "rust-runtime-graphics-logical-texture",
+        );
+        assert.equal(update.sourceDirtyRegionBefore, "whole-texture");
+        assert.equal(update.sourceDirtyRegionAfter, "clean");
+        assert.equal(update.dirtyRegionConsumed, true);
+        assert.equal(
+          update.transferScope,
+          "whole-texture-level-zero-logical-content",
+        );
+        assert.equal(update.mutation, "dual-texture-preflight-targeted-commit");
+        assert.equal(update.failureAtomicity, true);
+        assert.equal(update.partialDirtyRegionsImplemented, false);
+        assert.equal(update.dynamicDestinationImplemented, false);
+        assert.equal(update.browserRendererResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.d3d9UpdateTexture, null);
+      }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
         assert(
@@ -1761,7 +1842,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.equal(
           recreated.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v19",
+          "d3d9-primary-virtual-adapter-v20",
         );
         assert.equal(
           recreated.createTextureProfileId,
@@ -2776,6 +2857,30 @@ function normalizeD3d9AddDirtyRect(snapshot) {
   };
 }
 
+function normalizeD3d9UpdateTexture(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      ...normalizeSemanticCall(snapshot.call),
+      graphicsTextureUpdate: snapshot.call.graphicsTextureUpdate,
+    },
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    updateTextureProfileId: snapshot.updateTextureProfileId,
+    contentAuthority: snapshot.contentAuthority,
+    sourceDirtyRegionBefore: snapshot.sourceDirtyRegionBefore,
+    sourceDirtyRegionAfter: snapshot.sourceDirtyRegionAfter,
+    dirtyRegionConsumed: snapshot.dirtyRegionConsumed,
+    transferScope: snapshot.transferScope,
+    mutation: snapshot.mutation,
+    failureAtomicity: snapshot.failureAtomicity,
+    partialDirtyRegionsImplemented: snapshot.partialDirtyRegionsImplemented,
+    dynamicDestinationImplemented: snapshot.dynamicDestinationImplemented,
+    browserRendererResourceCreated: snapshot.browserRendererResourceCreated,
+  };
+}
+
 function normalizeSetRect(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -2885,6 +2990,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9AddDirtyRect(browser.report.d3d9AddDirtyRect),
     normalizeD3d9AddDirtyRect(oracle.d3d9AddDirtyRect),
     "Chrome Worker D3D9 AddDirtyRect evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeD3d9UpdateTexture(browser.report.d3d9UpdateTexture),
+    normalizeD3d9UpdateTexture(oracle.d3d9UpdateTexture),
+    "Chrome Worker D3D9 UpdateTexture evidence differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeSetRect(browser.report.setRect),

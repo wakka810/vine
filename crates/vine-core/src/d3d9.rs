@@ -18,18 +18,18 @@ use crate::runtime::{
     RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
     RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
-    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTexturePool,
-    RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBufferCreateRequest,
-    RuntimeGraphicsVertexBufferDescriptor, RuntimeGraphicsVertexBufferLockRequest,
-    RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUsage, RuntimeRect,
-    RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
+    RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferPool,
+    RuntimeGraphicsVertexBufferUsage, RuntimeRect, RuntimeStateError, RuntimeStateErrorClass,
 };
 
 pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 19;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 20;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -299,6 +299,14 @@ pub struct D3d9AddDirtyRectPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9UpdateTexturePolicy {
+    pub profile_id: String,
+    pub source_texture_variant_indices: Vec<u32>,
+    pub destination_texture_variant_indices: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -319,14 +327,15 @@ pub struct D3d9CompatibilityPolicy {
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
+    pub update_texture: Option<D3d9UpdateTexturePolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v19() -> Self {
+    pub fn controlled_v20() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v19".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v20".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -459,6 +468,12 @@ impl D3d9CompatibilityPolicy {
                 profile_id: "primary-recreated-system-memory-texture-dirty-rect-v1".to_owned(),
                 source_texture_variant_indices: vec![3],
             }),
+            update_texture: Some(D3d9UpdateTexturePolicy {
+                profile_id: "primary-recreated-system-memory-to-static-default-texture-update-v1"
+                    .to_owned(),
+                source_texture_variant_indices: vec![3],
+                destination_texture_variant_indices: vec![4],
+            }),
         }
     }
 
@@ -471,6 +486,7 @@ impl D3d9CompatibilityPolicy {
             surface.source_texture_variant_indices = vec![0];
         }
         self.add_dirty_rect = None;
+        self.update_texture = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -482,6 +498,7 @@ impl D3d9CompatibilityPolicy {
             surface.source_texture_variant_indices = vec![0];
         }
         self.add_dirty_rect = None;
+        self.update_texture = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
@@ -730,6 +747,18 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 AddDirtyRect profile must select the reached recreated system-memory texture",
             ));
         }
+        if let Some(update_texture) = self.update_texture.as_ref()
+            && self
+                .create_texture
+                .as_ref()
+                .is_none_or(|texture| !valid_update_texture_policy(update_texture, texture))
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-update-texture-profile-invalid",
+                "D3D9 UpdateTexture profile must select the reached recreated SYSTEMMEM and static DEFAULT pair",
+            ));
+        }
         let coherent_profiles = [
             self.get_adapter_count
                 .as_ref()
@@ -974,6 +1003,36 @@ fn valid_add_dirty_rect_policy(
                         && variant.pool == D3D9_D3DPOOL_SYSTEMMEM
                 })
         })
+}
+
+fn valid_update_texture_policy(
+    policy: &D3d9UpdateTexturePolicy,
+    texture: &D3d9CreateTexturePolicy,
+) -> bool {
+    if policy.profile_id != "primary-recreated-system-memory-to-static-default-texture-update-v1"
+        || policy.source_texture_variant_indices != [3]
+        || policy.destination_texture_variant_indices != [4]
+    {
+        return false;
+    }
+    let Some(source) = texture.variants.get(3) else {
+        return false;
+    };
+    let Some(destination) = texture.variants.get(4) else {
+        return false;
+    };
+    source.width == 2_048
+        && source.height == 1_024
+        && source.levels == 1
+        && source.usage == 0
+        && source.format == D3D9_D3DFMT_X8R8G8B8
+        && source.pool == D3D9_D3DPOOL_SYSTEMMEM
+        && destination.width == source.width
+        && destination.height == source.height
+        && destination.levels == source.levels
+        && destination.usage == 0
+        && destination.format == source.format
+        && destination.pool == D3D9_D3DPOOL_DEFAULT
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1319,6 +1378,7 @@ fn dispatch_d3d9_device_frontend_call(
         19 => ("GetRasterStatus", 2),
         23 => ("CreateTexture", 8),
         26 => ("CreateVertexBuffer", 6),
+        31 => ("UpdateTexture", 2),
         43 => ("Clear", 6),
         57 => ("SetRenderState", 2),
         _ => {
@@ -1346,6 +1406,7 @@ fn dispatch_d3d9_device_frontend_call(
         19 => dispatch_get_raster_status(policy, call),
         23 => dispatch_create_texture(policy, call),
         26 => dispatch_create_vertex_buffer(policy, call),
+        31 => dispatch_update_texture(policy, call),
         43 => dispatch_clear(policy, call),
         57 => dispatch_set_render_state(policy, call),
         _ => unreachable!(),
@@ -2221,6 +2282,146 @@ fn dispatch_get_surface_level(
     call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
 }
 
+fn dispatch_update_texture(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(update_policy) = policy.update_texture.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-update-texture",
+            "update-texture-policy-disabled",
+            "D3D9 compatibility policy does not enable UpdateTexture",
+        );
+    };
+    let source_pointer = call.frame().explicit_arguments[0];
+    let destination_pointer = call.frame().explicit_arguments[1];
+    if source_pointer == 0 || destination_pointer == 0 || source_pointer == destination_pointer {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let source_com_object_id = match call
+        .runtime()
+        .com_interface_for_pointer(GuestAddress(source_pointer))
+    {
+        Ok(interface) if interface.iid == D3D9_IDIRECT3DTEXTURE9_IID => interface.object_id,
+        Ok(_) => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    let destination_com_object_id = match call
+        .runtime()
+        .com_interface_for_pointer(GuestAddress(destination_pointer))
+    {
+        Ok(interface) if interface.iid == D3D9_IDIRECT3DTEXTURE9_IID => interface.object_id,
+        Ok(_) => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if source_com_object_id == destination_com_object_id {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let source = match call
+        .runtime()
+        .graphics_texture_for_com_object(source_com_object_id)
+    {
+        Ok(texture) => texture.clone(),
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    let destination = match call
+        .runtime()
+        .graphics_texture_for_com_object(destination_com_object_id)
+    {
+        Ok(texture) => texture.clone(),
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    let texture_policy = policy
+        .create_texture
+        .as_ref()
+        .expect("validated D3D9 UpdateTexture policy lost its texture profile");
+    let source_allowed = update_policy
+        .source_texture_variant_indices
+        .iter()
+        .filter_map(|index| texture_policy.variants.get(*index as usize))
+        .any(|variant| logical_texture_matches_variant(&source.descriptor, variant));
+    if !source_allowed {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let destination_allowed = update_policy
+        .destination_texture_variant_indices
+        .iter()
+        .filter_map(|index| texture_policy.variants.get(*index as usize))
+        .any(|variant| logical_texture_matches_variant(&destination.descriptor, variant));
+    if !destination_allowed {
+        let compatible_default_variant = texture_policy.variants.iter().any(|variant| {
+            variant.pool == D3D9_D3DPOOL_DEFAULT
+                && variant.width == source.descriptor.width
+                && variant.height == source.descriptor.height
+                && variant.levels == source.descriptor.levels
+                && variant.format == D3D9_D3DFMT_X8R8G8B8
+                && logical_texture_matches_variant(&destination.descriptor, variant)
+        });
+        if compatible_default_variant {
+            return call.fault(
+                ComFaultClass::Unsupported,
+                "d3d9-update-texture",
+                "update-texture-destination-variant-unsupported",
+                "D3D9 compatibility policy does not enable the reached UpdateTexture call for this DEFAULT destination variant",
+            );
+        }
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    if matches!(
+        source.dirty_region,
+        RuntimeGraphicsTextureDirtyRegion::Rect(_)
+    ) {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-update-texture",
+            "update-texture-partial-dirty-region-unsupported",
+            "D3D9 compatibility policy currently enables whole-texture and clean-source updates only",
+        );
+    }
+    let plan =
+        match call
+            .runtime()
+            .plan_graphics_texture_update(RuntimeGraphicsTextureUpdateRequest {
+                device_com_object_id: call.frame().object_id,
+                source_texture_com_object_id: source_com_object_id,
+                destination_texture_com_object_id: destination_com_object_id,
+            }) {
+            Ok(plan) => plan,
+            Err(error)
+                if matches!(
+                    error.class,
+                    RuntimeStateErrorClass::InvalidInput | RuntimeStateErrorClass::NotFound
+                ) =>
+            {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) => return call.runtime_fault(error),
+        };
+    if let Err(error) = call.runtime().preflight_graphics_texture_update(&plan) {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    call.runtime_mut().commit_graphics_texture_update(plan);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
 fn dispatch_add_dirty_rect(
     policy: &D3d9CompatibilityPolicy,
     call: ComFrontendCall<'_>,
@@ -2935,7 +3136,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 43 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            19 | 23 | 26 | 31 | 43 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),

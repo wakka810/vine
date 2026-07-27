@@ -4155,6 +4155,15 @@ assert.doesNotThrow(() =>
   summarizeTrace(encode(d3d9TextureAddDirtyRectSelection)),
 );
 
+const d3d9UpdateTextureSelection = structuredClone(events);
+d3d9UpdateTextureSelection[0].arguments.observations = [
+  "d3d9-update-texture",
+];
+d3d9UpdateTextureSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-update-texture"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9UpdateTextureSelection)));
+
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];
 windowDcSelection.find(

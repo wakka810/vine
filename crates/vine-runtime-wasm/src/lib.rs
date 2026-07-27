@@ -81,6 +81,14 @@ struct Bridge {
     runtime: Option<BrowserRuntime>,
 }
 
+#[derive(Clone, Copy)]
+struct BgiCheckpointCapabilities {
+    d3d9_clear: bool,
+    set_rect: bool,
+    d3d9_add_dirty_rect: bool,
+    d3d9_update_texture: bool,
+}
+
 impl Bridge {
     const fn new() -> Self {
         Self {
@@ -139,9 +147,7 @@ impl Bridge {
         policy_length: usize,
         source_manifest_length: usize,
         writable_profile_length: usize,
-        d3d9_clear_enabled: bool,
-        set_rect_enabled: bool,
-        d3d9_add_dirty_rect_enabled: bool,
+        capabilities: BgiCheckpointCapabilities,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
@@ -171,9 +177,7 @@ impl Bridge {
             policy,
             source_manifest,
             writable_profile,
-            d3d9_clear_enabled,
-            set_rect_enabled,
-            d3d9_add_dirty_rect_enabled,
+            capabilities,
         )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
@@ -471,7 +475,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v19();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v20();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -603,9 +607,7 @@ impl BrowserRuntime {
         kernel32_policy: Kernel32CompatibilityPolicy,
         source_manifest: Option<RuntimeSourceSnapshotManifest>,
         writable_profile: RuntimeWritableProfileManifest,
-        d3d9_clear_enabled: bool,
-        set_rect_enabled: bool,
-        d3d9_add_dirty_rect_enabled: bool,
+        capabilities: BgiCheckpointCapabilities,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -660,12 +662,15 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v19();
-        if !d3d9_clear_enabled {
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v20();
+        if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
-        if !d3d9_add_dirty_rect_enabled {
+        if !capabilities.d3d9_add_dirty_rect {
             d3d9_policy.add_dirty_rect = None;
+        }
+        if !capabilities.d3d9_update_texture {
+            d3d9_policy.update_texture = None;
         }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
@@ -753,7 +758,7 @@ impl BrowserRuntime {
             sentinels.callback_return.address,
         )?;
         let (dispatcher, routes, endpoints) =
-            build_bgi_dispatcher(&process, &kernel32_policy, set_rect_enabled)?;
+            build_bgi_dispatcher(&process, &kernel32_policy, capabilities.set_rect)?;
         let runtime_stack = process
             .runtime
             .thread_stack(process.runtime.current_thread_id())
@@ -1833,6 +1838,46 @@ impl BrowserRuntime {
                 } else {
                     None
                 };
+                let graphics_texture_update = if completion.frame.interface == "IDirect3DDevice9"
+                    && completion.frame.method == "UpdateTexture"
+                {
+                    match completion.frame.explicit_arguments.as_slice() {
+                        [source_pointer, destination_pointer] => {
+                            let source_object_id = self
+                                .runtime
+                                .com_interface_for_pointer(GuestAddress(*source_pointer))
+                                .ok()
+                                .map(|interface| interface.object_id);
+                            let destination_object_id = self
+                                .runtime
+                                .com_interface_for_pointer(GuestAddress(*destination_pointer))
+                                .ok()
+                                .map(|interface| interface.object_id);
+                            source_object_id.zip(destination_object_id).and_then(
+                                |(source_object_id, destination_object_id)| {
+                                    let source = self
+                                        .runtime
+                                        .graphics_textures()
+                                        .values()
+                                        .find(|texture| texture.com_object_id == source_object_id)?
+                                        .clone();
+                                    let destination = self
+                                        .runtime
+                                        .graphics_textures()
+                                        .values()
+                                        .find(|texture| {
+                                            texture.com_object_id == destination_object_id
+                                        })?
+                                        .clone();
+                                    Some((source, destination))
+                                },
+                            )
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
                 let delta = self.pending_delta()?;
                 let cpu_resume = json!({
                     "instructionPointer": completion.instruction_pointer,
@@ -1852,6 +1897,12 @@ impl BrowserRuntime {
                 }
                 if let Some(graphics_texture) = graphics_texture {
                     metadata["graphicsTexture"] = json!(graphics_texture);
+                }
+                if let Some((source, destination)) = graphics_texture_update {
+                    metadata["graphicsTextureUpdate"] = json!({
+                        "source": source,
+                        "destination": destination,
+                    });
                 }
                 Ok((metadata, delta))
             }
@@ -4177,6 +4228,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_clear_enabled: u32,
     set_rect_enabled: u32,
     d3d9_add_dirty_rect_enabled: u32,
+    d3d9_update_texture_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4184,9 +4236,12 @@ pub extern "C" fn vine_bridge_prepare_bgi(
             policy_length as usize,
             source_manifest_length as usize,
             writable_profile_length as usize,
-            d3d9_clear_enabled != 0,
-            set_rect_enabled != 0,
-            d3d9_add_dirty_rect_enabled != 0,
+            BgiCheckpointCapabilities {
+                d3d9_clear: d3d9_clear_enabled != 0,
+                set_rect: set_rect_enabled != 0,
+                d3d9_add_dirty_rect: d3d9_add_dirty_rect_enabled != 0,
+                d3d9_update_texture: d3d9_update_texture_enabled != 0,
+            },
         )
     })
 }

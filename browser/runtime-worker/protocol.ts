@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 31 as const;
+export const protocolVersion = 32 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -25,7 +25,16 @@ export type BgiCapabilityProfile =
   | "user32-update-window"
   | "d3d9-clear"
   | "user32-set-rect"
-  | "d3d9-add-dirty-rect";
+  | "d3d9-add-dirty-rect"
+  | "d3d9-update-texture";
+
+export type RuntimeGraphicsTextureDirtyRegionSnapshot =
+  | { kind: "clean" }
+  | {
+      kind: "rect";
+      rect: { left: number; top: number; right: number; bottom: number };
+    }
+  | { kind: "whole-texture" };
 
 export interface RuntimeGraphicsDeviceSnapshot {
   id: number;
@@ -79,14 +88,27 @@ export interface RuntimeGraphicsTextureSnapshot {
     pool: "default" | "system-memory";
   };
   comObjectId: string;
-  dirtyRegion:
-    | { kind: "clean" }
-    | {
-        kind: "rect";
-        rect: { left: number; top: number; right: number; bottom: number };
-      }
-    | { kind: "whole-texture" };
+  dirtyRegion: RuntimeGraphicsTextureDirtyRegionSnapshot;
+  content?: {
+    contentGeneration: number;
+    fills: Array<{
+      sequence: number;
+      rect: { left: number; top: number; right: number; bottom: number };
+      colorRef: number;
+    }>;
+    lastUpdate?: {
+      sequence: number;
+      sourceTextureId: number;
+      sourceContentGeneration: number;
+      dirtyRegion: RuntimeGraphicsTextureDirtyRegionSnapshot;
+    };
+  };
   generation: number;
+}
+
+export interface RuntimeGraphicsTextureUpdateSnapshot {
+  source: RuntimeGraphicsTextureSnapshot;
+  destination: RuntimeGraphicsTextureSnapshot;
 }
 
 export interface RuntimeThreadSelectionSnapshot {
@@ -633,6 +655,7 @@ export interface RuntimeSupportedCallSnapshot {
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
+  graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
 }
 
 export interface SessionReport {
@@ -875,7 +898,7 @@ export interface SessionReport {
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
     createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
     getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
@@ -885,7 +908,7 @@ export interface SessionReport {
   } | null;
   d3d9Clear: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
     clearProfileId: "primary-full-render-target-black-v1";
     targetAuthority: "rust-runtime-graphics-logical-device-back-buffer";
     targetScope: "full-presentation-back-buffer";
@@ -897,7 +920,7 @@ export interface SessionReport {
   } | null;
   d3d9AddDirtyRect: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
     addDirtyRectProfileId: "primary-recreated-system-memory-texture-dirty-rect-v1";
     textureAuthority: "rust-runtime-graphics-logical-texture";
     initialDirtyRegion: "whole-texture";
@@ -905,6 +928,21 @@ export interface SessionReport {
     textureGenerationChanged: false;
     failureAtomicity: true;
     dirtyRegionConsumed: false;
+    browserRendererResourceCreated: false;
+  } | null;
+  d3d9UpdateTexture: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20";
+    updateTextureProfileId: "primary-recreated-system-memory-to-static-default-texture-update-v1";
+    contentAuthority: "rust-runtime-graphics-logical-texture";
+    sourceDirtyRegionBefore: "whole-texture";
+    sourceDirtyRegionAfter: "clean";
+    dirtyRegionConsumed: true;
+    transferScope: "whole-texture-level-zero-logical-content";
+    mutation: "dual-texture-preflight-targeted-commit";
+    failureAtomicity: true;
+    partialDirtyRegionsImplemented: false;
+    dynamicDestinationImplemented: false;
     browserRendererResourceCreated: false;
   } | null;
   setRect: {

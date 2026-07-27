@@ -27,6 +27,7 @@ import {
   type RuntimeGetFileAttributesACallSnapshot,
   type RuntimeGraphicsDeviceSnapshot,
   type RuntimeGraphicsTextureSnapshot,
+  type RuntimeGraphicsTextureUpdateSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -119,7 +120,8 @@ function includesD3d9RecreatedTextures(
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
     profile === "user32-set-rect" ||
-    profile === "d3d9-add-dirty-rect"
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
@@ -132,7 +134,8 @@ function isSetWindowPosFrameChangeMove(
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
     profile === "user32-set-rect" ||
-    profile === "d3d9-add-dirty-rect"
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
@@ -144,7 +147,8 @@ function includesShowWindowNormal(
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
     profile === "user32-set-rect" ||
-    profile === "d3d9-add-dirty-rect"
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
@@ -155,7 +159,8 @@ function isUpdateWindow(
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
     profile === "user32-set-rect" ||
-    profile === "d3d9-add-dirty-rect"
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
@@ -171,7 +176,8 @@ function includesD3d9Clear(
   return (
     isD3d9Clear(profile) ||
     profile === "user32-set-rect" ||
-    profile === "d3d9-add-dirty-rect"
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
@@ -179,14 +185,24 @@ function isSetRect(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    profile === "user32-set-rect" || profile === "d3d9-add-dirty-rect"
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect" ||
+    profile === "d3d9-update-texture"
   );
 }
 
 function isD3d9AddDirtyRect(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "d3d9-add-dirty-rect";
+  return (
+    profile === "d3d9-add-dirty-rect" || profile === "d3d9-update-texture"
+  );
+}
+
+function isD3d9UpdateTexture(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-update-texture";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -383,6 +399,7 @@ interface ComCompletionMetadata {
   };
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
+  graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
   memory: { generation: number; acknowledgedGeneration: number };
 }
 
@@ -841,6 +858,7 @@ class BrowserRuntimeSession {
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
+    d3d9UpdateTexture: null as SessionReport["d3d9UpdateTexture"],
     setRect: null as SessionReport["setRect"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
@@ -984,6 +1002,7 @@ class BrowserRuntimeSession {
               includesD3d9Clear(this.#configuration.capabilityProfile),
               isSetRect(this.#configuration.capabilityProfile),
               isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
+              isD3d9UpdateTexture(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2983,10 +3002,14 @@ class BrowserRuntimeSession {
       ...(metadata.graphicsTexture === undefined
         ? {}
         : { graphicsTexture: metadata.graphicsTexture }),
+      ...(metadata.graphicsTextureUpdate === undefined
+        ? {}
+        : { graphicsTextureUpdate: metadata.graphicsTextureUpdate }),
     };
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordD3d9ClearCall(call);
     this.#recordD3d9AddDirtyRectCall(call);
+    this.#recordD3d9UpdateTextureCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4352,7 +4375,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -4421,7 +4444,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -4470,12 +4493,15 @@ class BrowserRuntimeSession {
         texture.descriptor.pool === "system-memory" &&
         texture.comObjectId === "22" &&
         texture.dirtyRegion.kind === "whole-texture" &&
-        texture.generation === 40,
+        texture.content?.contentGeneration === 1 &&
+        texture.content.fills.length === 1 &&
+        texture.content.fills[0]?.sequence === 3 &&
+        texture.generation === 41,
       "D3D9 AddDirtyRect ABI or Rust logical texture dirty-region state changed",
     );
     this.#report.d3d9AddDirtyRect = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
       addDirtyRectProfileId:
         "primary-recreated-system-memory-texture-dirty-rect-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -4484,6 +4510,101 @@ class BrowserRuntimeSession {
       textureGenerationChanged: false,
       failureAtomicity: true,
       dirtyRegionConsumed: false,
+      browserRendererResourceCreated: false,
+    };
+  }
+
+  #recordD3d9UpdateTextureCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isD3d9UpdateTexture(this.#configuration.capabilityProfile) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 31
+    ) {
+      return;
+    }
+    const update = call.graphicsTextureUpdate;
+    const source = update?.source;
+    const destination = update?.destination;
+    const sourceFill = source?.content?.fills[0];
+    const destinationFill = destination?.content?.fills[0];
+    const lastUpdate = destination?.content?.lastUpdate;
+    invariant(
+      this.#report.d3d9UpdateTexture === null &&
+        call.sequence === 127_358 &&
+        call.symbol === "IDirect3DDevice9.UpdateTexture" &&
+        call.arguments.length === 3 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 0x0102_0004 &&
+        call.arguments[2] === 0x0103_0004 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b038 &&
+        call.stackPointerBefore === 0x006f_f258 &&
+        call.stackPointerAfter === 0x006f_f268 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        source !== undefined &&
+        destination !== undefined &&
+        source.namespace === "vine.logical-graphics-texture.v1" &&
+        source.id === 7 &&
+        source.deviceId === 3 &&
+        source.descriptor.width === 2_048 &&
+        source.descriptor.height === 1_024 &&
+        source.descriptor.levels === 1 &&
+        source.descriptor.usage === "none" &&
+        source.descriptor.pool === "system-memory" &&
+        source.comObjectId === "22" &&
+        source.dirtyRegion.kind === "clean" &&
+        source.content?.contentGeneration === 1 &&
+        source.content.fills.length === 1 &&
+        sourceFill?.sequence === 3 &&
+        sourceFill.rect.left === 0 &&
+        sourceFill.rect.top === 0 &&
+        sourceFill.rect.right === 1_280 &&
+        sourceFill.rect.bottom === 720 &&
+        sourceFill.colorRef === 0 &&
+        source.generation === 42 &&
+        destination.namespace === "vine.logical-graphics-texture.v1" &&
+        destination.id === 8 &&
+        destination.deviceId === 3 &&
+        destination.descriptor.width === 2_048 &&
+        destination.descriptor.height === 1_024 &&
+        destination.descriptor.levels === 1 &&
+        destination.descriptor.usage === "none" &&
+        destination.descriptor.pool === "default" &&
+        destination.comObjectId === "24" &&
+        destination.dirtyRegion.kind === "whole-texture" &&
+        destination.content?.contentGeneration === 1 &&
+        destination.content.fills.length === 1 &&
+        destinationFill?.sequence === sourceFill.sequence &&
+        destinationFill.rect.left === sourceFill.rect.left &&
+        destinationFill.rect.top === sourceFill.rect.top &&
+        destinationFill.rect.right === sourceFill.rect.right &&
+        destinationFill.rect.bottom === sourceFill.rect.bottom &&
+        destinationFill.colorRef === sourceFill.colorRef &&
+        lastUpdate?.sequence === 1 &&
+        lastUpdate.sourceTextureId === 7 &&
+        lastUpdate.sourceContentGeneration === 1 &&
+        lastUpdate.dirtyRegion.kind === "whole-texture" &&
+        destination.generation === 45,
+      "D3D9 UpdateTexture ABI or Rust logical texture transfer state changed",
+    );
+    this.#report.d3d9UpdateTexture = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
+      updateTextureProfileId:
+        "primary-recreated-system-memory-to-static-default-texture-update-v1",
+      contentAuthority: "rust-runtime-graphics-logical-texture",
+      sourceDirtyRegionBefore: "whole-texture",
+      sourceDirtyRegionAfter: "clean",
+      dirtyRegionConsumed: true,
+      transferScope: "whole-texture-level-zero-logical-content",
+      mutation: "dual-texture-preflight-targeted-commit",
+      failureAtomicity: true,
+      partialDirtyRegionsImplemented: false,
+      dynamicDestinationImplemented: false,
       browserRendererResourceCreated: false,
     };
   }
@@ -6244,8 +6365,18 @@ class BrowserRuntimeSession {
               : isD3d9Clear(this.#configuration.capabilityProfile)
                 ? "user32-api-contract"
                 : "d3d9-idirect3ddevice9-method") &&
-          (isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+          (isD3d9UpdateTexture(this.#configuration.capabilityProfile)
             ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+              this.#report.setRect?.call.sequence === 127_356 &&
+              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
+              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
+              firstUnsupported.instructionCount === 28_761_181 &&
+              firstUnsupported.capabilityCluster ===
+                "d3d9-idirect3ddevice9-method" &&
+              firstUnsupported.memoryContentSha256 ===
+                "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a"
+            : isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+              ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
               this.#report.setRect?.call.sequence === 127_356 &&
               this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
               firstUnsupported.instructionCount === 28_761_175
@@ -6430,6 +6561,7 @@ worker.addEventListener(
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,
+              d3d9UpdateTexture: null,
               setRect: null,
               firstUnsupported: null,
               checkpointCompletion: null,

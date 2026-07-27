@@ -68,6 +68,9 @@ const focusedD3d9RecreatedTexturesObservation =
 const focusedD3d9TextureAddDirtyRectObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-texture-add-dirty-rect");
+const focusedD3d9UpdateTextureObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-update-texture");
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
@@ -104,6 +107,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9InitialTexturesObservation ||
   focusedD3d9RecreatedTexturesObservation ||
   focusedD3d9TextureAddDirtyRectObservation ||
+  focusedD3d9UpdateTextureObservation ||
   focusedD3d9InitialVertexBufferObservation ||
   focusedD3d9InitialRenderStatesObservation ||
   focusedD3d9RasterStatusObservation;
@@ -133,6 +137,16 @@ let focusedD3d9TextureAddDirtyRectOracleComplete = false;
 let focusedD3d9TextureAddDirtyRectOracleEvidence = null;
 let focusedD3d9TextureAddDirtyRectComplete = false;
 let focusedD3d9TextureAddDirtyRectQuiescentNextCallId = null;
+let focusedD3d9UpdateTextureDevice = null;
+let focusedD3d9UpdateTextureStarted = false;
+const focusedD3d9UpdateTextureCreations = [];
+let focusedD3d9UpdateTextureMainModuleCall = null;
+let focusedD3d9UpdateTextureOracleScheduled = false;
+let focusedD3d9UpdateTextureOracleCall = null;
+let focusedD3d9UpdateTextureOracleComplete = false;
+let focusedD3d9UpdateTextureOracleEvidence = null;
+let focusedD3d9UpdateTextureComplete = false;
+let focusedD3d9UpdateTextureQuiescentNextCallId = null;
 let focusedD3d9InitialVertexBufferDevice = null;
 let focusedD3d9InitialVertexBufferObject = null;
 let focusedD3d9InitialVertexBufferData = null;
@@ -4767,6 +4781,57 @@ function attachIdirect3ddevice9(object) {
             }
             focusedD3d9RecreatedTexturesStarted = true;
             focusedD3d9RecreatedTextureDevice ??= objectAddress;
+          } else if (focusedD3d9UpdateTextureObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const callerModule = caller.module?.toLowerCase() ?? null;
+            const objectAddress = args[0].toString().toLowerCase();
+            const isMainModuleCaller =
+              callerModule === Process.mainModule.name.toLowerCase();
+            const isOracleCaller =
+              callerModule === "frida-agent.dll" &&
+              focusedD3d9UpdateTextureOracleCall !== null;
+            const startsRecreatedSequence =
+              slot === 23 &&
+              isMainModuleCaller &&
+              caller.rva === 0x5a715 &&
+              args[1].toUInt32() === 2_048 &&
+              args[2].toUInt32() === 1_024 &&
+              args[3].toUInt32() === 1 &&
+              args[4].toUInt32() === 0 &&
+              args[5].toUInt32() === 22 &&
+              args[6].toUInt32() === 2 &&
+              args[8].isNull();
+            const isRecreatedTextureCreation =
+              slot === 23 &&
+              isMainModuleCaller &&
+              focusedD3d9UpdateTextureCreations.length < 3 &&
+              (focusedD3d9UpdateTextureStarted || startsRecreatedSequence);
+            const isPrimaryUpdate =
+              slot === 31 &&
+              isMainModuleCaller &&
+              focusedD3d9UpdateTextureStarted &&
+              focusedD3d9UpdateTextureCreations.length === 3 &&
+              focusedD3d9UpdateTextureMainModuleCall === null;
+            if (
+              focusedD3d9UpdateTextureComplete ||
+              (!isRecreatedTextureCreation &&
+                !isPrimaryUpdate &&
+                !(slot === 31 && isOracleCaller)) ||
+              (focusedD3d9UpdateTextureDevice !== null &&
+                objectAddress !== focusedD3d9UpdateTextureDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9UpdateTextureStarted ||= startsRecreatedSequence;
+            focusedD3d9UpdateTextureDevice ??= objectAddress;
+            this.traceD3d9UpdateTextureMainModuleCaller = isPrimaryUpdate;
+            this.traceD3d9UpdateTextureOracleCaller = isOracleCaller;
+            if (isOracleCaller) {
+              this.lastError = focusedD3d9UpdateTextureOracleCall.sentinel;
+            }
+            this.traceD3d9UpdateTextureLastErrorBefore =
+              Number(this.lastError) >>> 0;
           } else if (focusedD3d9TextureAddDirtyRectObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -4809,7 +4874,8 @@ function attachIdirect3ddevice9(object) {
             (focusedD3d9ResourceObservation ||
               focusedD3d9InitialTexturesObservation ||
               focusedD3d9RecreatedTexturesObservation ||
-              focusedD3d9TextureAddDirtyRectObservation) &&
+              focusedD3d9TextureAddDirtyRectObservation ||
+              focusedD3d9UpdateTextureObservation) &&
             slot === 23
               ? args[7]
               : null;
@@ -4864,6 +4930,22 @@ function attachIdirect3ddevice9(object) {
                     128,
                   ),
                 };
+          this.traceD3d9UpdateTexture =
+            focusedD3d9UpdateTextureObservation && slot === 31
+              ? {
+                  sourceTexture: args[1].toString(),
+                  destinationTexture: args[2].toString(),
+                  lastErrorBefore:
+                    this.traceD3d9UpdateTextureLastErrorBefore,
+                  immediateConsumer:
+                    this.traceD3d9UpdateTextureMainModuleCaller === true
+                      ? snapshotInstructionsFollowingDirectJump(
+                          this.returnAddress,
+                          64,
+                        )
+                      : null,
+                }
+              : null;
           this.traceObject = objectAddress;
           this.traceFrame = beginCall(
             {
@@ -4915,6 +4997,15 @@ function attachIdirect3ddevice9(object) {
                   ),
                 };
           const lastError = Number(this.lastError) >>> 0;
+          const d3d9UpdateTexture =
+            this.traceD3d9UpdateTexture === null
+              ? null
+              : {
+                  ...this.traceD3d9UpdateTexture,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           finishCall(
             this.traceFrame,
             {
@@ -4929,6 +5020,9 @@ function attachIdirect3ddevice9(object) {
                 ? {}
                 : { d3d9CreateVertexBuffer }),
               ...(d3d9RasterStatus === null ? {} : { d3d9RasterStatus }),
+              ...(d3d9UpdateTexture === null
+                ? {}
+                : { d3d9UpdateTexture }),
             },
             this.lastError,
           );
@@ -4961,6 +5055,54 @@ function attachIdirect3ddevice9(object) {
               caller: this.traceFrame.caller,
             });
             maybeCompleteFocusedD3d9RecreatedTexturesObservation();
+          }
+          if (focusedD3d9UpdateTextureObservation) {
+            if (d3d9CreateTexture !== null) {
+              focusedD3d9UpdateTextureCreations.push({
+                callId: this.traceFrame.callId,
+                api: name,
+                interface: "IDirect3DDevice9",
+                vtableSlot: slot,
+                object: this.traceObject,
+                arguments: this.traceArguments,
+                result: result.toInt32(),
+                resultU32: result.toUInt32(),
+                lastError,
+                d3d9CreateTexture,
+                caller: this.traceFrame.caller,
+              });
+            } else if (d3d9UpdateTexture !== null) {
+              if (this.traceD3d9UpdateTextureOracleCaller) {
+                focusedD3d9UpdateTextureOracleCall.hookResult =
+                  d3d9UpdateTexture.result;
+                focusedD3d9UpdateTextureOracleCall.hookLastErrorAfter =
+                  d3d9UpdateTexture.lastErrorAfter;
+                focusedD3d9UpdateTextureOracleCall.hookSourceTexture =
+                  d3d9UpdateTexture.sourceTexture;
+                focusedD3d9UpdateTextureOracleCall.hookDestinationTexture =
+                  d3d9UpdateTexture.destinationTexture;
+              } else if (this.traceD3d9UpdateTextureMainModuleCaller) {
+                focusedD3d9UpdateTextureMainModuleCall = {
+                  callId: this.traceFrame.callId,
+                  api: name,
+                  interface: "IDirect3DDevice9",
+                  vtableSlot: slot,
+                  object: this.traceObject,
+                  arguments: this.traceArguments,
+                  result: d3d9UpdateTexture.result,
+                  resultU32: d3d9UpdateTexture.resultU32,
+                  lastErrorBefore: d3d9UpdateTexture.lastErrorBefore,
+                  lastError: d3d9UpdateTexture.lastErrorAfter,
+                  sourceTexture: d3d9UpdateTexture.sourceTexture,
+                  destinationTexture:
+                    d3d9UpdateTexture.destinationTexture,
+                  immediateConsumer: d3d9UpdateTexture.immediateConsumer,
+                  caller: this.traceFrame.caller,
+                };
+                scheduleFocusedD3d9UpdateTextureOracle();
+                setImmediate(maybeCompleteFocusedD3d9UpdateTextureObservation);
+              }
+            }
           }
           if (focusedD3d9TextureAddDirtyRectObservation) {
             focusedD3d9TextureAddDirtyRectCreation = {
@@ -5061,6 +5203,7 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9DeviceObservation &&
             !focusedD3d9InitialTexturesObservation &&
             !focusedD3d9RecreatedTexturesObservation &&
+            !focusedD3d9UpdateTextureObservation &&
             !focusedD3d9InitialVertexBufferObservation &&
             !focusedD3d9InitialRenderStatesObservation &&
             !focusedD3d9RasterStatusObservation
@@ -6035,6 +6178,181 @@ function maybeCompleteFocusedD3d9TextureAddDirtyRectObservation() {
     oracle: focusedD3d9TextureAddDirtyRectOracleEvidence,
   });
   if (stopOnEvent === "d3d9-texture-add-dirty-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function scheduleFocusedD3d9UpdateTextureOracle() {
+  if (focusedD3d9UpdateTextureOracleScheduled) {
+    return;
+  }
+  focusedD3d9UpdateTextureOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      if (
+        focusedD3d9UpdateTextureDevice === null ||
+        focusedD3d9UpdateTextureCreations.length !== 3
+      ) {
+        throw new Error(
+          "UpdateTexture oracle requires one device and three recreated textures",
+        );
+      }
+      const texturePointers = focusedD3d9UpdateTextureCreations.map((call) => {
+        const value = call.d3d9CreateTexture?.textureOutput?.after?.value;
+        if (typeof value !== "string" || value === "0x0") {
+          throw new Error("UpdateTexture oracle has an invalid texture output");
+        }
+        return ptr(value);
+      });
+      const device = ptr(focusedD3d9UpdateTextureDevice);
+      const method = device
+        .readPointer()
+        .add(31 * Process.pointerSize)
+        .readPointer();
+      const updateTexture = new SystemFunction(
+        method,
+        "int32",
+        ["pointer", "pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = ({ id, sourceTexture, destinationTexture, sentinel }) => {
+        focusedD3d9UpdateTextureOracleCall = {
+          id,
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookSourceTexture: null,
+          hookDestinationTexture: null,
+        };
+        try {
+          const outcome = updateTexture(
+            device,
+            sourceTexture,
+            destinationTexture,
+          );
+          const systemResult = Number(outcome.value) | 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            focusedD3d9UpdateTextureOracleCall.hookResult === null ||
+            focusedD3d9UpdateTextureOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("UpdateTexture oracle did not pass through the hook");
+          }
+          return {
+            id,
+            sourceTexture: sourceTexture.toString(),
+            destinationTexture: destinationTexture.toString(),
+            sentinel,
+            systemResult,
+            systemResultU32: systemResult >>> 0,
+            systemLastError,
+            hookResult: focusedD3d9UpdateTextureOracleCall.hookResult,
+            hookLastErrorAfter:
+              focusedD3d9UpdateTextureOracleCall.hookLastErrorAfter,
+            hookSourceTexture:
+              focusedD3d9UpdateTextureOracleCall.hookSourceTexture,
+            hookDestinationTexture:
+              focusedD3d9UpdateTextureOracleCall.hookDestinationTexture,
+            hookResultMatches:
+              focusedD3d9UpdateTextureOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              focusedD3d9UpdateTextureOracleCall.hookLastErrorAfter ===
+              systemLastError,
+          };
+        } finally {
+          focusedD3d9UpdateTextureOracleCall = null;
+        }
+      };
+      const [sourceTexture, staticDestination, dynamicDestination] =
+        texturePointers;
+      const calls = [
+        {
+          id: "repeat-primary-pair",
+          sourceTexture,
+          destinationTexture: staticDestination,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "dynamic-default-destination",
+          sourceTexture,
+          destinationTexture: dynamicDestination,
+          sentinel: 0x22334455,
+        },
+        {
+          id: "reversed-pools",
+          sourceTexture: staticDestination,
+          destinationTexture: sourceTexture,
+          sentinel: 0x33445566,
+        },
+        {
+          id: "default-source-default-destination",
+          sourceTexture: staticDestination,
+          destinationTexture: dynamicDestination,
+          sentinel: 0x44556677,
+        },
+        {
+          id: "same-system-resource",
+          sourceTexture,
+          destinationTexture: sourceTexture,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "same-default-resource",
+          sourceTexture: staticDestination,
+          destinationTexture: staticDestination,
+          sentinel: 0x66778899,
+        },
+      ].map(invoke);
+      focusedD3d9UpdateTextureOracleEvidence = {
+        profile: "x86-recreated-texture-update-pool-and-identity-variants-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      focusedD3d9UpdateTextureOracleComplete = true;
+      emit(
+        "d3d9-update-texture-oracle",
+        focusedD3d9UpdateTextureOracleEvidence,
+      );
+      maybeCompleteFocusedD3d9UpdateTextureObservation();
+    } catch (error) {
+      emit("d3d9-update-texture-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
+function maybeCompleteFocusedD3d9UpdateTextureObservation() {
+  if (
+    focusedD3d9UpdateTextureComplete ||
+    focusedD3d9UpdateTextureCreations.length !== 3 ||
+    focusedD3d9UpdateTextureMainModuleCall === null ||
+    !focusedD3d9UpdateTextureOracleComplete
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    focusedD3d9UpdateTextureQuiescentNextCallId = null;
+    setTimeout(maybeCompleteFocusedD3d9UpdateTextureObservation, 10);
+    return;
+  }
+  if (focusedD3d9UpdateTextureQuiescentNextCallId !== nextCallId) {
+    focusedD3d9UpdateTextureQuiescentNextCallId = nextCallId;
+    setTimeout(maybeCompleteFocusedD3d9UpdateTextureObservation, 100);
+    return;
+  }
+  focusedD3d9UpdateTextureComplete = true;
+  emit("d3d9-update-texture-complete", {
+    profile: "x86-bgi-first-recreated-texture-update-v1",
+    device: focusedD3d9UpdateTextureDevice,
+    creations: focusedD3d9UpdateTextureCreations,
+    mainModuleCall: focusedD3d9UpdateTextureMainModuleCall,
+    oracle: focusedD3d9UpdateTextureOracleEvidence,
+  });
+  if (stopOnEvent === "d3d9-update-texture-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

@@ -127,7 +127,8 @@ worker.postMessage({
             capabilityProfile === "user32-update-window" ||
             capabilityProfile === "d3d9-clear" ||
             capabilityProfile === "user32-set-rect" ||
-            capabilityProfile === "d3d9-add-dirty-rect"
+            capabilityProfile === "d3d9-add-dirty-rect" ||
+            capabilityProfile === "d3d9-update-texture"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -142,7 +143,8 @@ worker.postMessage({
       capabilityProfile === "user32-update-window" ||
       capabilityProfile === "d3d9-clear" ||
       capabilityProfile === "user32-set-rect" ||
-      capabilityProfile === "d3d9-add-dirty-rect"
+      capabilityProfile === "d3d9-add-dirty-rect" ||
+      capabilityProfile === "d3d9-update-texture"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -217,7 +219,8 @@ function parseCapabilityProfile(
     value === "user32-update-window" ||
     value === "d3d9-clear" ||
     value === "user32-set-rect" ||
-    value === "d3d9-add-dirty-rect"
+    value === "d3d9-add-dirty-rect" ||
+    value === "d3d9-update-texture"
     ? value
     : undefined;
 }

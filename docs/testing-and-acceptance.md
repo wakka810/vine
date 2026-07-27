@@ -1309,11 +1309,22 @@ caller RVAは`0x5B01D`、source creation RVAは`0x5A715`、immediate consumerは
 whole-texture dirty state、partial bounding union、NULL／full canonicalization、idempotent generation、wrong-owner／
 disabled-policy／invalid RECT／state-changing stale／duplicate plan／generation exhaustionのfailure atomicityを固定する。
 
-Protocol v31のNode／Chrome acceptanceはsequence 127,357、instruction 28,761,165、source texture 7／COM 22、
-device 3、descriptor `2048x1024`／one level／static X8R8G8B8 SYSTEMMEM、dirty region whole、generation 40、
-zero guest writes、reference count 1、renderer resourceなしを一致させる。Canonical stopは10 instructions後の
-`IDirect3DDevice9::UpdateTexture(0x01020004,0x01030004)` slot 31である。Dirty-region consume、destination
-mutation、texture bytes、browser upload、draw／Presentはこのcheckpointのacceptanceへ含めない。
+Protocol v32のNode／Chrome acceptanceはsequence 127,357、instruction 28,761,165、source texture 7／COM 22、
+device 3、descriptor `2048x1024`／one level／static X8R8G8B8 SYSTEMMEM、dirty region whole、texture
+generation 41、content generation 1、fill sequence 3、zero guest writes、reference count 1、renderer resourceなしを
+一致させる。AddDirtyRect単体profileのcanonical stopは10 instructions後の
+`IDirect3DDevice9::UpdateTexture(0x01020004,0x01030004)` slot 31である。
+
+続く`UpdateTexture` gatewayは、focused native二runがprimary static SYSTEMMEM→static DEFAULTを`D3D_OK`、
+controlled non-NULL oracleがrepeat／dynamic DEFAULT successとreversed pool／DEFAULT source／same-resource
+`D3DERR_INVALIDCALL`、全LastError preserveを一致させることをoracleとする。Active policyはprimaryで到達した
+static destinationだけを許可し、dynamic destinationと安全なnative oracleを得ていないNULL variantはclaimしない。
+Focused Rust testsはtexture-owned content、surface retirement後のfill存続、二texture plan／preflight／targeted commit、
+clean-source repeat、stale／wrong-role／partial-dirty failure atomicityを固定する。Node／Chromeはsequence 127,358、
+instruction 28,761,175、source texture 7／COM 22／generation 42、destination texture 8／COM 24／generation 45、
+content generation 1、fill sequence 3、source dirty consumption、zero guest writes、renderer resourceなしを一致させる。
+Canonical stopは6 instructions後の`IDirect3DDevice9::BeginScene()` slot 41である。Texel backing、partial-dirty transfer、
+dynamic destination、browser upload、scene／draw／Presentはこのcheckpointのacceptanceへ含めない。
 
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。

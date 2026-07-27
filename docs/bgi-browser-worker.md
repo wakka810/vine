@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-add-dirty-rect` and uses protocol
-`vine.browser-runtime-worker.v31`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-update-texture` and uses protocol
+`vine.browser-runtime-worker.v32`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -135,9 +135,21 @@ Because creation already marked the whole level dirty, the primary rectangle suc
 idempotently without changing texture generation. Protocol version 31 adds the logical
 texture descriptor, COM relation, dirty-region snapshot, mutation policy, and non-claims.
 Node and Chrome agree on sequence 127,357, instruction 28,761,165, texture 7／COM 22,
-device 3, `2048x1024`, whole-texture dirty state, generation 40, zero guest writes, and no
-renderer resource. Both engines stop ten instructions later at
+device 3, `2048x1024`, whole-texture dirty state, texture generation 41, content
+generation 1, one logical fill, zero guest writes, and no renderer resource.
+
+Both engines continue ten instructions later through
 `IDirect3DDevice9::UpdateTexture(source=0x01020004,destination=0x01030004)` slot 31.
+Rust resolves both COM identities to textures on device 3, preflights the static SYSTEMMEM
+source and matching static DEFAULT destination, copies the texture-owned level-zero logical
+fill, consumes the source whole dirty region, and commits both resource generations once.
+Protocol version 32 adds the authoritative source／destination snapshots and transfer metadata;
+TypeScript records them without creating texel storage or renderer state. Node and Chrome agree
+on sequence 127,358, instruction 28,761,175, source texture 7／COM 22 at generation 42,
+destination texture 8／COM 24 at generation 45, content generation 1, fill sequence 3 over
+`[0,0,1280,720]`, update sequence 1, clean source, zero guest writes, and no renderer resource.
+Both stop six instructions later at `IDirect3DDevice9::BeginScene` slot 41, endpoint
+`0x010112C0`, return address `0x1005B048`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -176,6 +188,7 @@ fingerprint before and after execution.
   HDC operations.
 - The reached Clear does not claim partial rectangles, depth／stencil clears, pixel storage,
   upload, draw, Present, device loss, or visible browser output.
-- The reached AddDirtyRect stores only a bounded Rust-owned dirty region. It does not
-  consume that region, copy source bytes, mutate the destination texture, allocate pixel
-  storage, upload to a renderer, draw, or Present.
+- The reached AddDirtyRect stores only a bounded Rust-owned dirty region. The following
+  UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
+  not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
+  dynamic-destination variant, upload to a renderer, begin a scene, draw, or Present.

@@ -217,6 +217,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-clear",
         "user32-set-rect",
         "d3d9-add-dirty-rect",
+        "d3d9-update-texture",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -354,6 +355,7 @@ assert(
       "d3d9-clear",
       "user32-set-rect",
       "d3d9-add-dirty-rect",
+      "d3d9-update-texture",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -368,7 +370,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-update-window" ||
     genericRuntimeCapability === "d3d9-clear" ||
     genericRuntimeCapability === "user32-set-rect" ||
-    genericRuntimeCapability === "d3d9-add-dirty-rect"
+    genericRuntimeCapability === "d3d9-add-dirty-rect" ||
+    genericRuntimeCapability === "d3d9-update-texture"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -669,7 +672,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const d3d9UpdateTextureCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-update-texture";
 const d3d9AddDirtyRectCheckpointEnabled =
+  d3d9UpdateTextureCheckpointEnabled ||
   genericRuntimeCapability === "d3d9-add-dirty-rect";
 const setRectCheckpointEnabled =
   d3d9AddDirtyRectCheckpointEnabled ||
@@ -1049,7 +1055,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9AddDirtyRectCheckpointEnabled
+    ? d3d9UpdateTextureCheckpointEnabled
+      ? "v86-bgi-d3d9-update-texture"
+      : d3d9AddDirtyRectCheckpointEnabled
       ? "v86-bgi-d3d9-add-dirty-rect"
       : setRectCheckpointEnabled
       ? "v86-bgi-set-rect"
@@ -5437,6 +5445,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9UpdateTextureCheckpointEnabled) {
+        validateD3d9UpdateTextureResult(genericResult);
       } else if (d3d9AddDirtyRectCheckpointEnabled) {
         validateD3d9AddDirtyRectResult(genericResult);
       } else if (setRectCheckpointEnabled) {
@@ -5698,7 +5708,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9AddDirtyRectCheckpointEnabled
+          : d3d9UpdateTextureCheckpointEnabled
+            ? "bgi IDirect3DDevice9::UpdateTexture whole-content transfer"
+            : d3d9AddDirtyRectCheckpointEnabled
             ? "bgi IDirect3DTexture9::AddDirtyRect full-presentation region"
             : setRectCheckpointEnabled
             ? "bgi USER32 SetRect full-presentation RECT"
@@ -8190,6 +8202,9 @@ function buildGenericComCallRecord(
     ...(completionFrame.graphicsTexture === undefined
       ? {}
       : { graphicsTexture: completionFrame.graphicsTexture }),
+    ...(completionFrame.graphicsTextureUpdate === undefined
+      ? {}
+      : { graphicsTextureUpdate: completionFrame.graphicsTextureUpdate }),
   };
 }
 
@@ -20480,7 +20495,10 @@ function validateSetRectResult(result, expectAddDirtyRectFault = true) {
   ]);
 }
 
-function validateD3d9AddDirtyRectResult(result) {
+function validateD3d9AddDirtyRectResult(
+  result,
+  expectUpdateTextureUnsupported = true,
+) {
   validateSetRectResult(result, false);
   const calls = result.supportedCalls.filter(
     (call) =>
@@ -20516,7 +20534,13 @@ function validateD3d9AddDirtyRectResult(result) {
   });
   assert.equal(texture.comObjectId, "22");
   assert.deepEqual(texture.dirtyRegion, { kind: "whole-texture" });
-  assert.equal(texture.generation, 40);
+  assert.equal(texture.generation, 41);
+  assert.equal(texture.content?.contentGeneration, 1);
+  assert.equal(texture.content?.fills.length, 1);
+
+  if (!expectUpdateTextureUnsupported) {
+    return;
+  }
 
   assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
   assert.equal(result.fault.endpoint.kind, "com-method");
@@ -20549,6 +20573,95 @@ function validateD3d9AddDirtyRectResult(result) {
     0x0101_0004,
     0x0102_0004,
     0x0103_0004,
+  ]);
+}
+
+function validateD3d9UpdateTextureResult(result) {
+  validateD3d9AddDirtyRectResult(result, false);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 31 &&
+      call.symbol === "IDirect3DDevice9.UpdateTexture",
+  );
+  assert.equal(calls.length, 1, "IDirect3DDevice9::UpdateTexture must complete once");
+  const updateCall = calls[0];
+  assert.equal(updateCall.sequence, 127_358);
+  assert.equal(updateCall.occurrence, 1);
+  assert.equal(updateCall.trapInstructionCount, 28_761_175);
+  assert.deepEqual(updateCall.arguments, [
+    0x0101_0004,
+    0x0102_0004,
+    0x0103_0004,
+  ]);
+  assert.deepEqual(updateCall.result, { kind: "h-result", value: 0 });
+  assert.equal(updateCall.returnAddress, 0x1005_b038);
+  assert.equal(updateCall.stackPointerBefore, 0x006f_f258);
+  assert.equal(updateCall.stackPointerAfter, 0x006f_f268);
+  assert.equal(updateCall.referenceCount, 5);
+  assert.equal(updateCall.objectRetired, false);
+  assert.deepEqual(updateCall.guestWrites, []);
+  const update = updateCall.graphicsTextureUpdate;
+  assert(update, "UpdateTexture completion omitted its Rust texture-pair snapshot");
+  const { source, destination } = update;
+  assert.equal(source.id, 7);
+  assert.equal(source.deviceId, 3);
+  assert.equal(source.comObjectId, "22");
+  assert.equal(source.descriptor.pool, "system-memory");
+  assert.deepEqual(source.dirtyRegion, { kind: "clean" });
+  assert.equal(source.content?.contentGeneration, 1);
+  assert.deepEqual(source.content?.fills, [
+    {
+      sequence: 3,
+      rect: { left: 0, top: 0, right: 1_280, bottom: 720 },
+      colorRef: 0,
+    },
+  ]);
+  assert.equal(source.generation, 42);
+  assert.equal(destination.id, 8);
+  assert.equal(destination.deviceId, 3);
+  assert.equal(destination.comObjectId, "24");
+  assert.equal(destination.descriptor.pool, "default");
+  assert.equal(destination.descriptor.usage, "none");
+  assert.deepEqual(destination.dirtyRegion, { kind: "whole-texture" });
+  assert.equal(destination.content?.contentGeneration, 1);
+  assert.deepEqual(destination.content?.fills, source.content?.fills);
+  assert.deepEqual(destination.content?.lastUpdate, {
+    sequence: 1,
+    sourceTextureId: 7,
+    sourceContentGeneration: 1,
+    dirtyRegion: { kind: "whole-texture" },
+  });
+  assert.equal(destination.generation, 45);
+
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.object.id, "21");
+  assert.equal(result.fault.endpoint.target.interface.id, "42");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(result.fault.endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(result.fault.endpoint.target.method.slot, 41);
+  assert.equal(result.fault.endpoint.target.method.name, "BeginScene");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b048);
+  assert.equal(result.fault.memory.generation, 235_508);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 28_761_175);
+  assert.equal(result.terminal.additionalInstructionCount, 6);
+  assert.equal(result.terminal.instructionCount, 28_761_181);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_12c0);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 41);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b048);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1005_b048,
+    0x0101_0004,
   ]);
 }
 
@@ -25348,6 +25461,23 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9AddDirtyRectCall.graphicsTexture);
   }
+  const d3d9UpdateTextureCalls = d3d9UpdateTextureCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.interface === "IDirect3DDevice9" &&
+          call.vtableSlot === 31 &&
+          call.symbol === "IDirect3DDevice9.UpdateTexture",
+      )
+    : [];
+  const d3d9UpdateTextureCall = d3d9UpdateTextureCalls[0] ?? null;
+  if (d3d9UpdateTextureCheckpointEnabled) {
+    assert.equal(
+      d3d9UpdateTextureCalls.length,
+      1,
+      "D3D9 UpdateTexture report summary requires one completion",
+    );
+    assert(d3d9UpdateTextureCall.graphicsTextureUpdate);
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -25421,7 +25551,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9AddDirtyRectCheckpointEnabled
+        : d3d9UpdateTextureCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-update-texture"
+          : d3d9AddDirtyRectCheckpointEnabled
           ? "vine.v86-bgi-d3d9-add-dirty-rect"
           : setRectCheckpointEnabled
           ? "vine.v86-bgi-user32-set-rect"
@@ -25963,7 +26095,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -25979,7 +26111,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority:
               "rust-runtime-graphics-logical-device-back-buffer",
@@ -26010,7 +26142,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9AddDirtyRect: {
             call: d3d9AddDirtyRectCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
             addDirtyRectProfileId:
               "primary-recreated-system-memory-texture-dirty-rect-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -26019,6 +26151,26 @@ function buildGenericRuntimeReentryReport({
             textureGenerationChanged: false,
             failureAtomicity: true,
             dirtyRegionConsumed: false,
+            browserRendererResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(d3d9UpdateTextureCheckpointEnabled
+      ? {
+          d3d9UpdateTexture: {
+            call: d3d9UpdateTextureCall,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v20",
+            updateTextureProfileId:
+              "primary-recreated-system-memory-to-static-default-texture-update-v1",
+            contentAuthority: "rust-runtime-graphics-logical-texture",
+            sourceDirtyRegionBefore: "whole-texture",
+            sourceDirtyRegionAfter: "clean",
+            dirtyRegionConsumed: true,
+            transferScope: "whole-texture-level-zero-logical-content",
+            mutation: "dual-texture-preflight-targeted-commit",
+            failureAtomicity: true,
+            partialDirtyRegionsImplemented: false,
+            dynamicDestinationImplemented: false,
             browserRendererResourceCreated: false,
           },
         }

@@ -5414,3 +5414,41 @@ whole-texture dirty state、generation 40を一致させる。Creation時点で�
 idempotent completionでgenerationを進めない。10 instructions後に
 `IDirect3DDevice9::UpdateTexture(source=0x01020004,destination=0x01030004)` slot 31へ停止する。Dirty-region
 consume、destination mutation、pixel storage、renderer upload、draw／Presentはこのevidenceからclaimしない。
+
+## 161. BGI first recreated-texture `UpdateTexture` and pool／identity variants
+
+Focused primary captureを同じsource executableから独立に二回取得した。Primary raw traceは550,638
+bytes／1,219 lines／SHA-256
+`f24e8be66f5f6e2507c455e396cee1aa43eea9e42ff888eb20ec3896ac698601`、summaryは382,225
+bytes／SHA-256 `1c2cb3f39db3609f91306fde02da4c3e8485649ea7610cbb68fc20380e5d793f`で、568 API
+pairsがbalancedである。Independent confirmation raw traceは549,350 bytes／1,214 lines／SHA-256
+`499d6fdfa93f1f7f225e345b8270589e5b93e691452f70069edfecaba78d7f5e`、summaryは382,103
+bytes／SHA-256 `0af54fd50a108ade2364e17789184fd8d3b56968c076cf7af0dffc898bbd39cb`で、566 API
+pairsがbalancedである。両runともdiagnostics／hook errors 0、completion profileは
+`x86-bgi-first-recreated-texture-update-v1`、controlled oracleは
+`x86-recreated-texture-update-pool-and-identity-variants-v1`である。Raw trace／summaryは
+`.work/windows-traces/`に保持しGitへ追加しない。Source executableは実行前後とも1,193,472 bytes／
+SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Primary sourceはcaller RVA `0x0005A715`から作られた`2048x1024`、level 1、usage 0、format 22、
+SYSTEMMEM poolのstatic textureで、destinationは同shapeのstatic DEFAULT textureである。Caller return RVA
+`0x0005B038`の`UpdateTexture`は`D3D_OK`／LastError 0を返す。直後のcallerは同じdeviceの
+`BeginScene`を呼び、そのHRESULTをtestするため、UpdateTextureの戻り値自体には独立したbranch consumerがない。
+Opaque native COM pointer値はartifact identityでありgoldenにしない。
+
+Non-NULL controlled callsはprimary relationのrepeatとdynamic DEFAULT destinationも`D3D_OK`、reversed pool、
+DEFAULT-to-DEFAULT、same SYSTEMMEM resource、same DEFAULT resourceの四callを
+`D3DERR_INVALIDCALL 0x8876086C`として固定し、全LastError sentinelを保存する。NULL variantはnative
+driverでrepeatableな安全なoracleを取得していないためclaimしない。Goldenは同一device、compatible shape、
+SYSTEMMEM sourceからDEFAULT destinationへのdirection、distinct identity、HRESULT class、LastError preserve、
+zero guest writesである。Dynamic destinationのnative validityは記録するが、primaryで到達したstatic variantだけを
+active policyへ昇格する。
+
+Runtimeは一時surfaceではなくtextureをlevel-zero logical content authorityにする。Source／destinationのlive identity、
+descriptor、dirty state、generation、update sequence capacityを全てpreflightした後、source fill commandをdestinationへ
+複製し、source whole dirtyをcleanへ消費する一回のtargeted commitを行う。Canonical Node／Chromeはsequence
+127,358、instruction 28,761,175、source texture 7／COM 22／generation 42、destination texture 8／COM 24／
+generation 45、content generation 1、fill sequence 3、update sequence 1を一致させる。次stopは6 instructions後、
+endpoint `0x010112C0`、caller return `0x1005B048`の`IDirect3DDevice9::BeginScene` slot 41である。
+Partial dirty transfer、dynamic destination、texel backing、browser upload、scene／draw／Presentはこのevidenceから
+claimしない。
