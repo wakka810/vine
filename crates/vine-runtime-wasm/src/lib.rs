@@ -139,6 +139,7 @@ impl Bridge {
         policy_length: usize,
         source_manifest_length: usize,
         writable_profile_length: usize,
+        d3d9_clear_enabled: bool,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
@@ -168,6 +169,7 @@ impl Bridge {
             policy,
             source_manifest,
             writable_profile,
+            d3d9_clear_enabled,
         )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
@@ -465,7 +467,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v17();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v18();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -597,6 +599,7 @@ impl BrowserRuntime {
         kernel32_policy: Kernel32CompatibilityPolicy,
         source_manifest: Option<RuntimeSourceSnapshotManifest>,
         writable_profile: RuntimeWritableProfileManifest,
+        d3d9_clear_enabled: bool,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -651,7 +654,10 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v17();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v18();
+        if !d3d9_clear_enabled {
+            d3d9_policy.clear = None;
+        }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
         dinput8_policy.validate().map_err(api_fault_string)?;
@@ -1795,6 +1801,17 @@ impl BrowserRuntime {
         };
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
+                let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
+                    && completion.frame.method == "Clear"
+                {
+                    self.runtime
+                        .graphics_devices()
+                        .values()
+                        .find(|device| device.com_object_id == completion.frame.object_id)
+                        .cloned()
+                } else {
+                    None
+                };
                 let delta = self.pending_delta()?;
                 let cpu_resume = json!({
                     "instructionPointer": completion.instruction_pointer,
@@ -1803,15 +1820,16 @@ impl BrowserRuntime {
                     "edx": {"action": "preserve"},
                     "eflags": {"action": "preserve"},
                 });
-                Ok((
-                    json!({
-                        "kind": "com-complete",
-                        "completion": cpu_resume,
-                        "call": completion,
-                        "memory": self.memory.synchronization_state(),
-                    }),
-                    delta,
-                ))
+                let mut metadata = json!({
+                    "kind": "com-complete",
+                    "completion": cpu_resume,
+                    "call": completion,
+                    "memory": self.memory.synchronization_state(),
+                });
+                if let Some(graphics_device) = graphics_device {
+                    metadata["graphicsDevice"] = json!(graphics_device);
+                }
+                Ok((metadata, delta))
             }
             ComDispatchOutcome::Fault(fault) => {
                 if !matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
@@ -4130,6 +4148,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     policy_length: u32,
     source_manifest_length: u32,
     writable_profile_length: u32,
+    d3d9_clear_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4137,6 +4156,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
             policy_length as usize,
             source_manifest_length as usize,
             writable_profile_length as usize,
+            d3d9_clear_enabled != 0,
         )
     })
 }

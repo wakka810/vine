@@ -116,7 +116,8 @@ pub use graphics::{
     RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_GRAPHICS_SURFACE_LIMIT,
     RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE, RUNTIME_GRAPHICS_TEXTURE_LIMIT,
     RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE, RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT,
-    RuntimeBrowserRendererResourceId, RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode,
+    RuntimeBrowserRendererResourceId, RuntimeGraphicsBackBuffer, RuntimeGraphicsBackBufferClear,
+    RuntimeGraphicsBackBufferClearResult, RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode,
     RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsFrontend,
     RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateResult, RuntimeGraphicsRenderStates,
@@ -130,9 +131,10 @@ pub use graphics::{
     RuntimeGraphicsVertexBufferUsage,
 };
 pub(crate) use graphics::{
-    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsRenderStateUpdateRequest,
-    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsDeviceCreateRequest,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsVertexBufferCreateRequest,
+    RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

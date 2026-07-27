@@ -158,6 +158,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     policyLength: number,
     sourceManifestLength: number,
     writableProfileLength: number,
+    d3d9ClearEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -263,6 +264,7 @@ export class RuntimeBridge {
     policy: Uint8Array,
     sourceManifest: Uint8Array | null,
     writableProfile: Uint8Array,
+    d3d9ClearEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -272,6 +274,7 @@ export class RuntimeBridge {
         policy.byteLength,
         source.byteLength,
         writableProfile.byteLength,
+        Number(d3d9ClearEnabled),
       ),
     );
   }

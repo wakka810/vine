@@ -80,15 +80,16 @@ use super::gdi::{
 };
 use super::gdiplus::{RuntimeGdiplus, RuntimeGdiplusSession, RuntimeGdiplusStartupRequest};
 use super::graphics::{
-    RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsComRetirementPlan,
-    RuntimeGraphicsDevice, RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDeviceCreationPlan,
-    RuntimeGraphicsDeviceCreationRequest, RuntimeGraphicsDeviceId,
-    RuntimeGraphicsRenderStateUpdatePlan, RuntimeGraphicsRenderStateUpdateRequest,
-    RuntimeGraphicsRenderStateUpdateResult, RuntimeGraphicsSurface,
-    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsSurfaceCreationPlan,
-    RuntimeGraphicsSurfaceFillRequest, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureCreationPlan,
-    RuntimeGraphicsTextureId, RuntimeGraphicsVertexBuffer,
+    RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER, RuntimeGraphics, RuntimeGraphicsBackBufferClearPlan,
+    RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsBackBufferClearResult,
+    RuntimeGraphicsComRetirementPlan, RuntimeGraphicsDevice, RuntimeGraphicsDeviceCreateRequest,
+    RuntimeGraphicsDeviceCreationPlan, RuntimeGraphicsDeviceCreationRequest,
+    RuntimeGraphicsDeviceId, RuntimeGraphicsRenderStateUpdatePlan,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsRenderStateUpdateResult,
+    RuntimeGraphicsSurface, RuntimeGraphicsSurfaceCreateRequest,
+    RuntimeGraphicsSurfaceCreationPlan, RuntimeGraphicsSurfaceFillRequest,
+    RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureCreationPlan, RuntimeGraphicsTextureId, RuntimeGraphicsVertexBuffer,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferCreationPlan,
     RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBufferLock,
     RuntimeGraphicsVertexBufferLockPlan, RuntimeGraphicsVertexBufferLockRequest,
@@ -6435,6 +6436,28 @@ impl RuntimeKernel {
         self.graphics.commit_render_state_update(plan)
     }
 
+    pub(crate) fn plan_graphics_back_buffer_clear(
+        &self,
+        request: RuntimeGraphicsBackBufferClearRequest,
+    ) -> Result<RuntimeGraphicsBackBufferClearPlan, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.plan_back_buffer_clear(request)
+    }
+
+    pub(crate) fn preflight_graphics_back_buffer_clear(
+        &self,
+        plan: &RuntimeGraphicsBackBufferClearPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.graphics.preflight_back_buffer_clear(plan)
+    }
+
+    pub(crate) fn commit_graphics_back_buffer_clear(
+        &mut self,
+        plan: RuntimeGraphicsBackBufferClearPlan,
+    ) -> RuntimeGraphicsBackBufferClearResult {
+        self.graphics.commit_back_buffer_clear(plan)
+    }
+
     pub(crate) fn plan_graphics_texture_creation(
         &self,
         request: RuntimeGraphicsTextureCreateRequest,
@@ -8784,15 +8807,15 @@ mod tests {
         install_audio_device_com_object_with_guest_writes, install_com_object,
     };
     use crate::d3d9::{
-        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DCULL_NONE,
-        D3D9_D3DDEVTYPE_HAL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16,
-        D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_DEFAULT,
-        D3D9_D3DPOOL_MANAGED, D3D9_D3DPOOL_SYSTEMMEM, D3D9_D3DRS_ALPHABLENDENABLE,
-        D3D9_D3DRS_CULLMODE, D3D9_D3DRS_LIGHTING, D3D9_D3DRS_ZENABLE, D3D9_D3DSWAPEFFECT_DISCARD,
-        D3D9_D3DUSAGE_DYNAMIC, D3D9_D3DUSAGE_WRITEONLY, D3D9_IDIRECT3D9_IID,
-        D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID,
-        D3D9_IDIRECT3DVERTEXBUFFER9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
-        dispatch_d3d9_com_call,
+        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DCLEAR_TARGET,
+        D3D9_D3DCULL_NONE, D3D9_D3DDEVTYPE_HAL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE,
+        D3D9_D3DFMT_D16, D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE,
+        D3D9_D3DPOOL_DEFAULT, D3D9_D3DPOOL_MANAGED, D3D9_D3DPOOL_SYSTEMMEM,
+        D3D9_D3DRS_ALPHABLENDENABLE, D3D9_D3DRS_CULLMODE, D3D9_D3DRS_LIGHTING, D3D9_D3DRS_ZENABLE,
+        D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DUSAGE_DYNAMIC, D3D9_D3DUSAGE_WRITEONLY,
+        D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID,
+        D3D9_IDIRECT3DTEXTURE9_IID, D3D9_IDIRECT3DVERTEXBUFFER9_IID, D3d9CompatibilityPolicy,
+        direct3d9_object_spec, dispatch_d3d9_com_call,
     };
     use crate::dsound::{
         DSOUND_DSBPLAY_LOOPING, DSOUND_DSBUFFERDESC_BYTES, DSOUND_DSSCL_PRIORITY,
@@ -9063,7 +9086,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: root_interface.methods[&16].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9173,7 +9196,7 @@ mod tests {
         let unavailable = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&57].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9194,7 +9217,7 @@ mod tests {
         assert_eq!(memory.stats(), before_memory);
         assert_eq!(runtime, before_runtime);
 
-        let mut disabled_render_states = D3d9CompatibilityPolicy::controlled_v17();
+        let mut disabled_render_states = D3d9CompatibilityPolicy::controlled_v18();
         disabled_render_states.initial_render_states = None;
         write_d3d9_fixture_words(
             &mut memory,
@@ -9250,7 +9273,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&57].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -9296,7 +9319,7 @@ mod tests {
         let repeated = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&57].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9336,7 +9359,7 @@ mod tests {
             let invalid = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&19].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -9362,7 +9385,7 @@ mod tests {
             );
         }
 
-        let mut disabled_raster_status = D3d9CompatibilityPolicy::controlled_v17();
+        let mut disabled_raster_status = D3d9CompatibilityPolicy::controlled_v18();
         disabled_raster_status.raster_status = None;
         write_d3d9_fixture_words(
             &mut memory,
@@ -9402,7 +9425,7 @@ mod tests {
         let raster_status = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&19].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9439,6 +9462,170 @@ mod tests {
         );
         assert_eq!(runtime, before_runtime);
         assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+
+        for arguments in [
+            [
+                1,
+                0,
+                D3D9_D3DCLEAR_TARGET,
+                0xff00_0000,
+                1.0_f32.to_bits(),
+                0,
+            ],
+            [
+                0,
+                D3D9_FIXTURE_RASTER_STATUS.0,
+                D3D9_D3DCLEAR_TARGET,
+                0xff00_0000,
+                1.0_f32.to_bits(),
+                0,
+            ],
+            [0, 0, 0, 0xff00_0000, 1.0_f32.to_bits(), 0],
+            [0, 0, D3D9_D3DCLEAR_TARGET, 0, 1.0_f32.to_bits(), 0],
+            [0, 0, D3D9_D3DCLEAR_TARGET, 0xff00_0000, 0, 0],
+            [
+                0,
+                0,
+                D3D9_D3DCLEAR_TARGET,
+                0xff00_0000,
+                1.0_f32.to_bits(),
+                1,
+            ],
+        ] {
+            write_d3d9_fixture_words(
+                &mut memory,
+                D3D9_FIXTURE_STACK,
+                &[
+                    0x1005_af9e,
+                    device_interface.guest_pointer.0,
+                    arguments[0],
+                    arguments[1],
+                    arguments[2],
+                    arguments[3],
+                    arguments[4],
+                    arguments[5],
+                ],
+            );
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let before_memory = memory.stats();
+            let before_runtime = runtime.clone();
+            let invalid = {
+                let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+                match dispatch_d3d9_com_call(
+                    &D3d9CompatibilityPolicy::controlled_v18(),
+                    ComCallTrap {
+                        endpoint_address: device_interface.methods[&43].endpoint,
+                        stack_pointer: D3D9_FIXTURE_STACK,
+                        return_address: GuestAddress(0x1005_af9e),
+                        call_site: GuestAddress(0x1005_af9e),
+                    },
+                    &mut session,
+                ) {
+                    ComDispatchOutcome::Completed(completion) => completion,
+                    other => panic!("invalid Clear did not complete: {other:?}"),
+                }
+            };
+            assert_eq!(
+                invalid.return_value,
+                ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL)
+            );
+            assert!(invalid.guest_writes.is_empty());
+            assert_eq!(memory.stats(), before_memory);
+            assert_eq!(runtime, before_runtime);
+        }
+
+        let valid_clear_words = [
+            0x1005_af9e,
+            device_interface.guest_pointer.0,
+            0,
+            0,
+            D3D9_D3DCLEAR_TARGET,
+            0xff00_0000,
+            1.0_f32.to_bits(),
+            0,
+        ];
+        write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_STACK, &valid_clear_words);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let mut disabled_clear = D3d9CompatibilityPolicy::controlled_v18();
+        disabled_clear.clear = None;
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let disabled_fault = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &disabled_clear,
+                ComCallTrap {
+                    endpoint_address: device_interface.methods[&43].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_af9e),
+                    call_site: GuestAddress(0x1005_af9e),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Fault(fault) => fault,
+                other => panic!("disabled Clear did not fault: {other:?}"),
+            }
+        };
+        assert_eq!(disabled_fault.class, ComFaultClass::Unsupported);
+        assert_eq!(disabled_fault.code, "clear-policy-disabled");
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        let before_memory = memory.stats();
+        let before_device = runtime.graphics_device(graphics.id).unwrap().clone();
+        let before_reference_count = runtime
+            .com()
+            .object(device_object.id)
+            .unwrap()
+            .reference_count;
+        let clear = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v18(),
+                ComCallTrap {
+                    endpoint_address: device_interface.methods[&43].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_af9e),
+                    call_site: GuestAddress(0x1005_af9e),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("Clear did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(clear.return_value, ComReturnValue::HResult(COM_S_OK));
+        assert_eq!(clear.stack_pointer, GuestAddress(D3D9_FIXTURE_STACK.0 + 32));
+        assert!(clear.guest_writes.is_empty());
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+        assert_eq!(
+            runtime
+                .com()
+                .object(device_object.id)
+                .unwrap()
+                .reference_count,
+            before_reference_count
+        );
+        let cleared_device = runtime.graphics_device(graphics.id).unwrap();
+        assert_eq!(cleared_device.back_buffer.content_generation, 1);
+        let uniform_clear = cleared_device
+            .back_buffer
+            .uniform_clear
+            .expect("uniform logical back-buffer clear");
+        assert_eq!(uniform_clear.sequence, 1);
+        assert_eq!(uniform_clear.color_argb, 0xff00_0000);
+        assert_eq!(
+            uniform_clear.rect,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            }
+        );
+        assert_eq!(cleared_device.generation, before_device.generation + 1);
+        assert!(cleared_device.renderer.is_none());
 
         write_d3d9_fixture_words(&mut memory, D3D9_FIXTURE_TEXTURE_OUTPUT, &[0xcccc_cccc]);
         for (width, levels, usage, pool, output, shared_handle, expected) in [
@@ -9528,7 +9715,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -9568,7 +9755,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled = D3d9CompatibilityPolicy::controlled_v17();
+        let mut disabled = D3d9CompatibilityPolicy::controlled_v18();
         disabled.create_texture = None;
         disabled.get_surface_level = None;
         disabled.surface_dc = None;
@@ -9615,7 +9802,7 @@ mod tests {
         let texture_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&23].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9758,7 +9945,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&23].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -9833,7 +10020,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: device_interface.methods[&26].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -9878,7 +10065,7 @@ mod tests {
         let create_vertex_buffer = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: device_interface.methods[&26].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -9968,7 +10155,7 @@ mod tests {
         let invalid_lock = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10006,7 +10193,7 @@ mod tests {
         let lock = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10040,7 +10227,7 @@ mod tests {
         let duplicate_lock = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: vertex_buffer_interface.methods[&11].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10078,7 +10265,7 @@ mod tests {
         let unlock = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: vertex_buffer_interface.methods[&12].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10114,7 +10301,7 @@ mod tests {
         let repeated_unlock = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: vertex_buffer_interface.methods[&12].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10193,7 +10380,7 @@ mod tests {
         let default_surface_fault = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: additional_texture_interfaces[0].methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10239,7 +10426,7 @@ mod tests {
             let completion = {
                 let mut session = ExecutionSession::new(&mut memory, &mut runtime);
                 match dispatch_d3d9_com_call(
-                    &D3d9CompatibilityPolicy::controlled_v17(),
+                    &D3d9CompatibilityPolicy::controlled_v18(),
                     ComCallTrap {
                         endpoint_address: texture_interface.methods[&18].endpoint,
                         stack_pointer: D3D9_FIXTURE_STACK,
@@ -10273,7 +10460,7 @@ mod tests {
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
-        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v17();
+        let mut disabled_surface = D3d9CompatibilityPolicy::controlled_v18();
         disabled_surface.get_surface_level = None;
         disabled_surface.surface_dc = None;
         let before_disabled_memory = memory.stats();
@@ -10314,7 +10501,7 @@ mod tests {
         let surface_completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -10404,7 +10591,7 @@ mod tests {
         let null_output = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -10420,7 +10607,7 @@ mod tests {
         assert_eq!(memory.stats(), before_null_memory);
         assert_eq!(runtime, before_null_runtime);
 
-        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v17();
+        let mut disabled_surface_dc = D3d9CompatibilityPolicy::controlled_v18();
         disabled_surface_dc.surface_dc = None;
         write_d3d9_fixture_words(
             &mut memory,
@@ -10457,7 +10644,7 @@ mod tests {
         let unwritable_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -10484,7 +10671,7 @@ mod tests {
         let get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -10542,7 +10729,7 @@ mod tests {
         let repeated_get_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -10633,7 +10820,7 @@ mod tests {
         let wrong_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -10657,7 +10844,7 @@ mod tests {
         let release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -10674,7 +10861,7 @@ mod tests {
         let repeated_release_dc = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -10698,7 +10885,7 @@ mod tests {
         let reacquired = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             15,
             GuestAddress(0x1005_a746),
@@ -10725,7 +10912,7 @@ mod tests {
         let reacquired_release = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &surface_interface,
             16,
             GuestAddress(0x1005_a78e),
@@ -10755,7 +10942,7 @@ mod tests {
         let repeated_surface = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_d3d9_com_call(
-                &D3d9CompatibilityPolicy::controlled_v17(),
+                &D3d9CompatibilityPolicy::controlled_v18(),
                 ComCallTrap {
                     endpoint_address: texture_interface.methods[&18].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -11557,7 +11744,7 @@ mod tests {
         let create_device = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &root_interface,
             16,
             D3D9_FIXTURE_CALL_SITE,
@@ -11603,7 +11790,7 @@ mod tests {
         let fault = match dispatch_d3d9_fixture_frontend(
             &mut memory,
             &mut runtime,
-            &D3d9CompatibilityPolicy::controlled_v17(),
+            &D3d9CompatibilityPolicy::controlled_v18(),
             &device_interface,
             26,
             GuestAddress(0x1005_a890),

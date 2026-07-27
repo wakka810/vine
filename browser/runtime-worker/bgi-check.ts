@@ -124,7 +124,8 @@ worker.postMessage({
             capabilityProfile === "d3d9-recreated-textures" ||
             capabilityProfile === "user32-set-window-pos-frame-change-move" ||
             capabilityProfile === "user32-show-window-normal" ||
-            capabilityProfile === "user32-update-window"
+            capabilityProfile === "user32-update-window" ||
+            capabilityProfile === "d3d9-clear"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -136,7 +137,8 @@ worker.postMessage({
       capabilityProfile === "d3d9-recreated-textures" ||
       capabilityProfile === "user32-set-window-pos-frame-change-move" ||
       capabilityProfile === "user32-show-window-normal" ||
-      capabilityProfile === "user32-update-window"
+      capabilityProfile === "user32-update-window" ||
+      capabilityProfile === "d3d9-clear"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -208,7 +210,8 @@ function parseCapabilityProfile(
     value === "d3d9-recreated-textures" ||
     value === "user32-set-window-pos-frame-change-move" ||
     value === "user32-show-window-normal" ||
-    value === "user32-update-window"
+    value === "user32-update-window" ||
+    value === "d3d9-clear"
     ? value
     : undefined;
 }

@@ -214,6 +214,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-window-pos-frame-change-move",
         "user32-show-window-normal",
         "user32-update-window",
+        "d3d9-clear",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -348,6 +349,7 @@ assert(
       "user32-set-window-pos-frame-change-move",
       "user32-show-window-normal",
       "user32-update-window",
+      "d3d9-clear",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -359,7 +361,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-recreated-textures" ||
     genericRuntimeCapability === "user32-set-window-pos-frame-change-move" ||
     genericRuntimeCapability === "user32-show-window-normal" ||
-    genericRuntimeCapability === "user32-update-window"
+    genericRuntimeCapability === "user32-update-window" ||
+    genericRuntimeCapability === "d3d9-clear"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -660,7 +663,9 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const d3d9ClearCheckpointEnabled = genericRuntimeCapability === "d3d9-clear";
 const updateWindowCheckpointEnabled =
+  d3d9ClearCheckpointEnabled ||
   genericRuntimeCapability === "user32-update-window";
 const showWindowNormalCheckpointEnabled =
   updateWindowCheckpointEnabled ||
@@ -1032,7 +1037,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? updateWindowCheckpointEnabled
+    ? d3d9ClearCheckpointEnabled
+      ? "v86-bgi-d3d9-clear"
+      : updateWindowCheckpointEnabled
       ? "v86-bgi-update-window"
       : showWindowNormalCheckpointEnabled
         ? "v86-bgi-show-window-normal"
@@ -5414,6 +5421,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9ClearCheckpointEnabled) {
+        validateD3d9ClearResult(genericResult);
       } else if (updateWindowCheckpointEnabled) {
         validateUpdateWindowResult(genericResult);
       } else if (showWindowNormalCheckpointEnabled) {
@@ -5669,7 +5678,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : updateWindowCheckpointEnabled
+          : d3d9ClearCheckpointEnabled
+            ? "bgi IDirect3DDevice9::Clear full render target"
+            : updateWindowCheckpointEnabled
             ? "bgi UpdateWindow full-client BeginPaint/EndPaint session"
             : showWindowNormalCheckpointEnabled
               ? "bgi ShowWindow visible SW_SHOWNORMAL no-op"
@@ -8149,6 +8160,9 @@ function buildGenericComCallRecord(
     referenceCount: completion.referenceCount,
     objectRetired: completion.objectRetired,
     guestWrites: completion.guestWrites,
+    ...(completionFrame.graphicsDevice === undefined
+      ? {}
+      : { graphicsDevice: completionFrame.graphicsDevice }),
   };
 }
 
@@ -20157,7 +20171,15 @@ function validateShowWindowNormalResult(result, callbackState) {
   );
 }
 
-function validateUpdateWindowResult(result) {
+function validateUpdateWindowResult(
+  result,
+  nextMethod = {
+    slot: 43,
+    name: "Clear",
+    callSite: 0x1005_af9e,
+    instructionCount: 28_761_128,
+  },
+) {
   validateShowWindowNormalResult(result, {
     activeCallbackDepth: 1,
     pendingCallbackCount: 1,
@@ -20238,14 +20260,120 @@ function validateUpdateWindowResult(result) {
     beginPaint.paint.liveDeviceContexts - 1,
   );
 
+  if (nextMethod === null) {
+    return;
+  }
   assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
   assert.equal(result.fault.endpoint.kind, "com-method");
   assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DDevice9");
-  assert.equal(result.fault.endpoint.target.method.slot, 43);
-  assert.equal(result.fault.endpoint.target.method.name, "Clear");
+  assert.equal(result.fault.endpoint.target.method.slot, nextMethod.slot);
+  assert.equal(result.fault.endpoint.target.method.name, nextMethod.name);
   assert.equal(result.fault.fault.code, "com-method-unsupported");
-  assert.equal(result.fault.fault.callSite, 0x1005_af9e);
-  assert.equal(result.terminal.instructionCount, 28_761_128);
+  if (nextMethod.callSite !== undefined) {
+    assert.equal(result.fault.fault.callSite, nextMethod.callSite);
+  }
+  if (nextMethod.instructionCount !== undefined) {
+    assert.equal(result.terminal.instructionCount, nextMethod.instructionCount);
+  }
+}
+
+function validateD3d9ClearResult(result) {
+  validateUpdateWindowResult(result, null);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 43 &&
+      call.symbol === "IDirect3DDevice9.Clear",
+  );
+  assert.equal(calls.length, 1, "IDirect3DDevice9::Clear must complete once");
+  const clear = calls[0];
+  assert.equal(clear.sequence, 127_355);
+  assert.equal(clear.occurrence, 1);
+  assert.equal(clear.trapInstructionCount, 28_761_128);
+  assert.deepEqual(clear.arguments, [
+    0x0101_0004,
+    0,
+    0,
+    1,
+    0xff00_0000,
+    0x3f80_0000,
+    0,
+  ]);
+  assert.deepEqual(clear.result, { kind: "h-result", value: 0 });
+  assert.equal(clear.returnAddress, 0x1005_af9e);
+  assert.equal(clear.stackPointerBefore, 0x006f_f248);
+  assert.equal(clear.stackPointerAfter, 0x006f_f268);
+  assert.equal(clear.referenceCount, 5);
+  assert.equal(clear.objectRetired, false);
+  assert.deepEqual(clear.guestWrites, []);
+  const device = clear.graphicsDevice;
+  assert(device, "Clear completion omitted the Rust graphics device snapshot");
+  assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+  assert.equal(device.id, 3);
+  assert.equal(device.frontend, "d3d9");
+  assert.equal(device.windowId, 1);
+  assert.equal(device.windowHandle, 0x4801_0001);
+  assert.equal(device.ownerThreadId, 8192);
+  assert.equal(device.comObjectId, "21");
+  assert.deepEqual(device.presentation, {
+    width: 1_280,
+    height: 720,
+    colorFormat: "b8g8r8x8-unorm",
+    backBufferCount: 1,
+    sampleCount: 1,
+    presentMode: "discard",
+    windowed: true,
+  });
+  assert.deepEqual(device.renderStates, {
+    cullMode: "none",
+    depthTestEnabled: false,
+    lightingEnabled: false,
+    alphaBlendEnabled: true,
+  });
+  assert.deepEqual(device.backBuffer, {
+    contentGeneration: 1,
+    uniformClear: {
+      sequence: 1,
+      rect: { left: 0, top: 0, right: 1_280, bottom: 720 },
+      colorArgb: 0xff00_0000,
+    },
+  });
+  assert.equal(device.renderer, undefined);
+  assert.equal(device.generation, 44);
+
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 220);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0db0);
+  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "SetRect",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1448);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.memory.generation, result.finalGeneration);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "b567254a8ef1a0ea18a6a983b10293b57b25ad5b9864bda28c28598d5200e5ae",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 28_761_128);
+  assert.equal(result.terminal.additionalInstructionCount, 29);
+  assert.equal(result.terminal.instructionCount, 28_761_157);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b00b);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1005_b00b,
+    0x006f_f29c,
+    0,
+    0,
+    1_280,
+    720,
+    15,
+    0x4801_0001,
+  ]);
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -24994,6 +25122,23 @@ function buildGenericRuntimeReentryReport({
     assert.equal(beginPaintCalls.length, 1);
     assert.equal(endPaintCalls.length, 1);
   }
+  const d3d9ClearCalls = d3d9ClearCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.interface === "IDirect3DDevice9" &&
+          call.vtableSlot === 43 &&
+          call.symbol === "IDirect3DDevice9.Clear",
+      )
+    : [];
+  const d3d9ClearCall = d3d9ClearCalls[0] ?? null;
+  if (d3d9ClearCheckpointEnabled) {
+    assert.equal(
+      d3d9ClearCalls.length,
+      1,
+      "D3D9 Clear report summary requires one completion",
+    );
+    assert(d3d9ClearCall.graphicsDevice);
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -25067,7 +25212,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : updateWindowCheckpointEnabled
+        : d3d9ClearCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-clear"
+          : updateWindowCheckpointEnabled
           ? "vine.v86-bgi-user32-update-window"
           : showWindowNormalCheckpointEnabled
             ? "vine.v86-bgi-user32-show-window-normal"
@@ -25603,7 +25750,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -25612,6 +25759,23 @@ function buildGenericRuntimeReentryReport({
             comAuthority: "rust-runtime-com-object-and-interface",
             browserRendererResourceCreated: false,
             mutation: "cross-owner-preflight-transactional-commit",
+          },
+        }
+      : {}),
+    ...(d3d9ClearCheckpointEnabled
+      ? {
+          d3d9Clear: {
+            call: d3d9ClearCall,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+            clearProfileId: "primary-full-render-target-black-v1",
+            targetAuthority:
+              "rust-runtime-graphics-logical-device-back-buffer",
+            targetScope: "full-presentation-back-buffer",
+            mutation: "validate-plan-preflight-targeted-commit",
+            failureAtomicity: true,
+            depthStencilCleared: false,
+            partialRectsImplemented: false,
+            browserRendererResourceCreated: false,
           },
         }
       : {}),

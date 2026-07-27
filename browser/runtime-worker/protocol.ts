@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 28 as const;
+export const protocolVersion = 29 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -22,7 +22,47 @@ export type BgiCapabilityProfile =
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
   | "user32-show-window-normal"
-  | "user32-update-window";
+  | "user32-update-window"
+  | "d3d9-clear";
+
+export interface RuntimeGraphicsDeviceSnapshot {
+  id: number;
+  namespace: "vine.logical-graphics-device.v1";
+  frontend: "d3d9";
+  windowId: number;
+  windowHandle: number;
+  ownerThreadId: number;
+  presentation: {
+    width: number;
+    height: number;
+    colorFormat: "b8g8r8x8-unorm";
+    backBufferCount: number;
+    sampleCount: number;
+    presentMode: "discard";
+    windowed: boolean;
+  };
+  comObjectId: string;
+  renderStates: {
+    cullMode?: "none";
+    depthTestEnabled?: boolean;
+    lightingEnabled?: boolean;
+    alphaBlendEnabled?: boolean;
+  };
+  backBuffer: {
+    contentGeneration: number;
+    uniformClear?: {
+      sequence: number;
+      rect: { left: number; top: number; right: number; bottom: number };
+      colorArgb: number;
+    };
+  };
+  renderer?: {
+    namespace: "vine.browser-renderer-resource.v1";
+    resourceId: number;
+    ownership: "non-owning";
+  };
+  generation: number;
+}
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -566,6 +606,7 @@ export interface RuntimeSupportedCallSnapshot {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
 }
 
 export interface SessionReport {
@@ -808,13 +849,25 @@ export interface SessionReport {
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18";
     createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
     getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
     comAuthority: "rust-runtime-com-object-and-interface";
     browserRendererResourceCreated: false;
     mutation: "cross-owner-preflight-transactional-commit";
+  } | null;
+  d3d9Clear: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18";
+    clearProfileId: "primary-full-render-target-black-v1";
+    targetAuthority: "rust-runtime-graphics-logical-device-back-buffer";
+    targetScope: "full-presentation-back-buffer";
+    mutation: "validate-plan-preflight-targeted-commit";
+    failureAtomicity: true;
+    depthStencilCleared: false;
+    partialRectsImplemented: false;
+    browserRendererResourceCreated: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

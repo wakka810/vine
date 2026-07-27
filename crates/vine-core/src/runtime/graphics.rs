@@ -202,6 +202,28 @@ pub struct RuntimeGraphicsSurfaceFill {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsBackBufferClear {
+    pub sequence: u64,
+    pub rect: RuntimeRect,
+    pub color_argb: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsBackBuffer {
+    pub content_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
+}
+
+impl RuntimeGraphicsBackBuffer {
+    fn is_pristine(&self) -> bool {
+        self.content_generation == 0 && self.uniform_clear.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsPresentMode {
     Discard,
@@ -245,6 +267,8 @@ pub struct RuntimeGraphicsDevice {
     pub presentation: RuntimeGraphicsPresentation,
     pub com_object_id: RuntimeComObjectId,
     pub render_states: RuntimeGraphicsRenderStates,
+    #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
+    pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub renderer: Option<RuntimeGraphicsRendererAssociation>,
     pub generation: u64,
@@ -316,6 +340,12 @@ pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsBackBufferClearRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub color_argb: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsTextureCreateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
@@ -376,6 +406,20 @@ pub(crate) struct RuntimeGraphicsRenderStateUpdatePlan {
     next_device_generation: u64,
     previous: Option<RuntimeGraphicsRenderStateUpdate>,
     update: RuntimeGraphicsRenderStateUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsBackBufferClearPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    content_generation: u64,
+    next_content_generation: u64,
+    previous_uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
+    clear: RuntimeGraphicsBackBufferClear,
+    next_clear_sequence: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,6 +502,15 @@ pub struct RuntimeGraphicsRenderStateUpdateResult {
     pub update: RuntimeGraphicsRenderStateUpdate,
     pub changed: bool,
     pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsBackBufferClearResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub device_generation: u64,
+    pub content_generation: u64,
+    pub clear: RuntimeGraphicsBackBufferClear,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -600,6 +653,8 @@ pub(super) struct RuntimeGraphics {
     next_surface_id: u64,
     next_vertex_buffer_id: u64,
     next_surface_fill_sequence: u64,
+    #[serde(skip_serializing_if = "is_initial_sequence")]
+    next_back_buffer_clear_sequence: u64,
     generation: u64,
 }
 
@@ -623,6 +678,7 @@ impl Default for RuntimeGraphics {
             next_surface_id: 1,
             next_vertex_buffer_id: 1,
             next_surface_fill_sequence: 1,
+            next_back_buffer_clear_sequence: 1,
             generation: 0,
         }
     }
@@ -702,6 +758,7 @@ impl RuntimeGraphics {
             presentation,
             com_object_id,
             render_states: RuntimeGraphicsRenderStates::default(),
+            back_buffer: RuntimeGraphicsBackBuffer::default(),
             renderer: None,
             generation: plan.next_generation,
         };
@@ -805,6 +862,118 @@ impl RuntimeGraphics {
             update: plan.update,
             changed,
             device_generation: device.generation,
+        }
+    }
+
+    pub(super) fn plan_back_buffer_clear(
+        &self,
+        request: RuntimeGraphicsBackBufferClearRequest,
+    ) -> Result<RuntimeGraphicsBackBufferClearPlan, RuntimeStateError> {
+        validate_back_buffer_clear_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-back-buffer-clear-device-com-object-unknown",
+                    "logical back-buffer clear requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let next_generation = checked_next_generation(self.generation)?;
+        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-device-generation-exhausted",
+                "logical graphics device generation is exhausted",
+            )
+        })?;
+        let next_content_generation = device
+            .back_buffer
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-back-buffer-content-generation-exhausted",
+                    "logical graphics back-buffer content generation is exhausted",
+                )
+            })?;
+        let clear = RuntimeGraphicsBackBufferClear {
+            sequence: self.next_back_buffer_clear_sequence,
+            rect: full_back_buffer_rect(device.presentation)?,
+            color_argb: request.color_argb,
+        };
+        let next_clear_sequence = self
+            .next_back_buffer_clear_sequence
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-back-buffer-clear-sequence-exhausted",
+                    "logical graphics back-buffer clear sequence is exhausted",
+                )
+            })?;
+        Ok(RuntimeGraphicsBackBufferClearPlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            content_generation: device.back_buffer.content_generation,
+            next_content_generation,
+            previous_uniform_clear: device.back_buffer.uniform_clear,
+            clear,
+            next_clear_sequence,
+        })
+    }
+
+    pub(super) fn preflight_back_buffer_clear(
+        &self,
+        plan: &RuntimeGraphicsBackBufferClearPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-back-buffer-clear-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || device.generation != plan.device_generation
+            || device.generation.checked_add(1) != Some(plan.next_device_generation)
+            || device.back_buffer.content_generation != plan.content_generation
+            || device.back_buffer.content_generation.checked_add(1)
+                != Some(plan.next_content_generation)
+            || device.back_buffer.uniform_clear != plan.previous_uniform_clear
+            || plan.clear.sequence != self.next_back_buffer_clear_sequence
+            || self.next_back_buffer_clear_sequence.checked_add(1) != Some(plan.next_clear_sequence)
+            || plan.clear.rect != full_back_buffer_rect(device.presentation)?
+        {
+            return Err(stale_plan("graphics-back-buffer-clear-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_back_buffer_clear(
+        &mut self,
+        plan: RuntimeGraphicsBackBufferClearPlan,
+    ) -> RuntimeGraphicsBackBufferClearResult {
+        debug_assert!(self.preflight_back_buffer_clear(&plan).is_ok());
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        device.back_buffer.content_generation = plan.next_content_generation;
+        device.back_buffer.uniform_clear = Some(plan.clear);
+        device.generation = plan.next_device_generation;
+        self.next_back_buffer_clear_sequence = plan.next_clear_sequence;
+        self.generation = plan.next_generation;
+        RuntimeGraphicsBackBufferClearResult {
+            device_id: device.id,
+            device_generation: device.generation,
+            content_generation: device.back_buffer.content_generation,
+            clear: plan.clear,
         }
     }
 
@@ -2152,6 +2321,8 @@ fn validate_creation_request(
         || request.target.owner_thread_id.0 == 0
         || request.target.client_width == 0
         || request.target.client_height == 0
+        || request.target.client_width > i32::MAX as u32
+        || request.target.client_height > i32::MAX as u32
         || request.back_buffer_count == 0
         || request.sample_count == 0
         || !request.windowed
@@ -2163,6 +2334,48 @@ fn validate_creation_request(
         ));
     }
     Ok(())
+}
+
+fn validate_back_buffer_clear_request(
+    request: RuntimeGraphicsBackBufferClearRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-back-buffer-clear-request-invalid",
+            "logical back-buffer clear requires a live graphics device",
+        ));
+    }
+    Ok(())
+}
+
+fn full_back_buffer_rect(
+    presentation: RuntimeGraphicsPresentation,
+) -> Result<RuntimeRect, RuntimeStateError> {
+    let right = i32::try_from(presentation.width).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-back-buffer-width-invalid",
+            "logical graphics back-buffer width does not fit x86 coordinates",
+        )
+    })?;
+    let bottom = i32::try_from(presentation.height).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-back-buffer-height-invalid",
+            "logical graphics back-buffer height does not fit x86 coordinates",
+        )
+    })?;
+    Ok(RuntimeRect {
+        left: 0,
+        top: 0,
+        right,
+        bottom,
+    })
+}
+
+fn is_initial_sequence(sequence: &u64) -> bool {
+    *sequence == 1
 }
 
 fn validate_texture_creation_request(
@@ -2494,6 +2707,104 @@ mod tests {
                 .unwrap_err()
                 .code,
             "graphics-generation-exhausted"
+        );
+        assert_eq!(graphics, exhausted);
+    }
+
+    #[test]
+    fn back_buffer_clears_replace_uniform_content_and_reject_stale_plans_atomically() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert!(device.back_buffer.is_pristine());
+
+        let plan = graphics
+            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                color_argb: 0xff00_0000,
+            })
+            .unwrap();
+        let stale = plan.clone();
+        graphics.preflight_back_buffer_clear(&plan).unwrap();
+        let first = graphics.commit_back_buffer_clear(plan);
+        assert_eq!(first.device_id, device.id);
+        assert_eq!(first.content_generation, 1);
+        assert_eq!(first.clear.sequence, 1);
+        assert_eq!(first.clear.color_argb, 0xff00_0000);
+        assert_eq!(
+            first.clear.rect,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            }
+        );
+        assert_eq!(
+            graphics
+                .preflight_back_buffer_clear(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-back-buffer-clear-plan-stale"
+        );
+        let committed = graphics.device(device.id).unwrap();
+        assert_eq!(committed.back_buffer.content_generation, 1);
+        assert_eq!(committed.back_buffer.uniform_clear, Some(first.clear));
+        assert_eq!(committed.generation, device.generation + 1);
+
+        let stale = graphics
+            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                color_argb: 0xff00_0000,
+            })
+            .unwrap();
+        let intervening = graphics
+            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                color_argb: 0xff00_00ff,
+            })
+            .unwrap();
+        let second = graphics.commit_back_buffer_clear(intervening);
+        assert_eq!(second.clear.sequence, 2);
+        assert_eq!(second.content_generation, 2);
+        assert_eq!(second.clear.color_argb, 0xff00_00ff);
+        let before_stale = graphics.clone();
+        assert_eq!(
+            graphics
+                .preflight_back_buffer_clear(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-back-buffer-clear-plan-stale"
+        );
+        assert_eq!(graphics, before_stale);
+
+        for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
+            let before = graphics.clone();
+            let error = graphics
+                .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                    device_com_object_id,
+                    color_argb: 0xff00_0000,
+                })
+                .unwrap_err();
+            assert!(matches!(
+                error.code,
+                "graphics-back-buffer-clear-request-invalid"
+                    | "graphics-back-buffer-clear-device-com-object-unknown"
+            ));
+            assert_eq!(graphics, before);
+        }
+
+        graphics.next_back_buffer_clear_sequence = u64::MAX;
+        let exhausted = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    color_argb: 0xff00_0000,
+                })
+                .unwrap_err()
+                .code,
+            "graphics-back-buffer-clear-sequence-exhausted"
         );
         assert_eq!(graphics, exhausted);
     }

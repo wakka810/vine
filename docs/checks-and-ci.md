@@ -128,9 +128,10 @@ outcomes, not soft passes. The current `DragAcceptFiles` workload passes
 semantic equivalence but fails the unchanged minimum-session and session-P95
 thresholds in a valid environment after bounded browser scheduling
 remediation. The earlier external-CPU run is invalid-environment diagnostic
-evidence and is not counted as a confirmation. Downstream primary execution
-has since crossed the recreated D3D9 texture band and bounded frame-change move, and is paused at the manifested
-`ShowWindow(hwnd, SW_SHOWNORMAL)` endpoint. Exact current artifact,
+evidence and is not counted as a confirmation. Downstream primary execution has
+since crossed the recreated D3D9 texture band, bounded frame-change／paint flow,
+and exact full-target D3D9 Clear, and is paused at the manifested
+`SetRect(rect, 0, 0, 1280, 720)` endpoint. Exact current artifact,
 report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:

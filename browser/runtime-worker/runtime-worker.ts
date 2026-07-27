@@ -25,6 +25,7 @@ import {
   type RuntimeGdiplusSnapshot,
   type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
+  type RuntimeGraphicsDeviceSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -114,7 +115,8 @@ function includesD3d9RecreatedTextures(
     profile === "d3d9-recreated-textures" ||
     profile === "user32-set-window-pos-frame-change-move" ||
     profile === "user32-show-window-normal" ||
-    profile === "user32-update-window"
+    profile === "user32-update-window" ||
+    profile === "d3d9-clear"
   );
 }
 
@@ -124,7 +126,8 @@ function isSetWindowPosFrameChangeMove(
   return (
     profile === "user32-set-window-pos-frame-change-move" ||
     profile === "user32-show-window-normal" ||
-    profile === "user32-update-window"
+    profile === "user32-update-window" ||
+    profile === "d3d9-clear"
   );
 }
 
@@ -133,14 +136,21 @@ function includesShowWindowNormal(
 ): boolean {
   return (
     profile === "user32-show-window-normal" ||
-    profile === "user32-update-window"
+    profile === "user32-update-window" ||
+    profile === "d3d9-clear"
   );
 }
 
 function isUpdateWindow(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-update-window";
+  return profile === "user32-update-window" || profile === "d3d9-clear";
+}
+
+function isD3d9Clear(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-clear";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -335,6 +345,7 @@ interface ComCompletionMetadata {
     objectRetired: boolean;
     guestWrites: Array<{ address: number; bytes: number[] }>;
   };
+  graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
   memory: { generation: number; acknowledgedGeneration: number };
 }
 
@@ -791,6 +802,7 @@ class BrowserRuntimeSession {
     showWindowNormal: null as SessionReport["showWindowNormal"],
     updateWindow: null as SessionReport["updateWindow"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
+    d3d9Clear: null as SessionReport["d3d9Clear"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -930,6 +942,7 @@ class BrowserRuntimeSession {
               sourceManifestBytes,
               writableProfileBytes ??
                 failInvariant("BGI writable profile is missing"),
+              isD3d9Clear(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2923,8 +2936,12 @@ class BrowserRuntimeSession {
         address,
         bytes,
       })),
+      ...(metadata.graphicsDevice === undefined
+        ? {}
+        : { graphicsDevice: metadata.graphicsDevice }),
     };
     this.#recordD3d9RecreatedTextureCall(call);
+    this.#recordD3d9ClearCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4289,7 +4306,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -4306,6 +4323,68 @@ class BrowserRuntimeSession {
       "D3D9 recreated texture evidence sequence is not contiguous",
     );
     this.#report.d3d9RecreatedTextures.calls.push(structuredClone(call));
+  }
+
+  #recordD3d9ClearCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isD3d9Clear(this.#configuration.capabilityProfile) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 43
+    ) {
+      return;
+    }
+    const device = call.graphicsDevice;
+    invariant(
+      this.#report.d3d9Clear === null &&
+        call.sequence === 127_355 &&
+        call.symbol === "IDirect3DDevice9.Clear" &&
+        call.arguments.length === 7 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 0 &&
+        call.arguments[2] === 0 &&
+        call.arguments[3] === 1 &&
+        call.arguments[4] === 0xff00_0000 &&
+        call.arguments[5] === 0x3f80_0000 &&
+        call.arguments[6] === 0 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_af9e &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device !== undefined &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.presentation.width === 1_280 &&
+        device.presentation.height === 720 &&
+        device.presentation.colorFormat === "b8g8r8x8-unorm" &&
+        device.presentation.backBufferCount === 1 &&
+        device.presentation.sampleCount === 1 &&
+        device.presentation.presentMode === "discard" &&
+        device.presentation.windowed === true &&
+        device.backBuffer.contentGeneration === 1 &&
+        device.backBuffer.uniformClear?.sequence === 1 &&
+        device.backBuffer.uniformClear.colorArgb === 0xff00_0000 &&
+        device.backBuffer.uniformClear.rect.left === 0 &&
+        device.backBuffer.uniformClear.rect.top === 0 &&
+        device.backBuffer.uniformClear.rect.right === 1_280 &&
+        device.backBuffer.uniformClear.rect.bottom === 720 &&
+        device.renderer === undefined,
+      "D3D9 Clear ABI or Rust logical back-buffer mutation changed",
+    );
+    this.#report.d3d9Clear = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+      clearProfileId: "primary-full-render-target-black-v1",
+      targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
+      targetScope: "full-presentation-back-buffer",
+      mutation: "validate-plan-preflight-targeted-commit",
+      failureAtomicity: true,
+      depthStencilCleared: false,
+      partialRectsImplemented: false,
+      browserRendererResourceCreated: false,
+    };
   }
 
   #completeStructuredStop(
@@ -6014,8 +6093,13 @@ class BrowserRuntimeSession {
           update.endPaint.paint.livePaintSessions === 0 &&
           update.endPaint.paint.liveDeviceContexts === 0 &&
           firstUnsupported?.capabilityCluster ===
-            "d3d9-idirect3ddevice9-method" &&
-          firstUnsupported.instructionCount === 28_761_128,
+            (isD3d9Clear(this.#configuration.capabilityProfile)
+              ? "user32-api-contract"
+              : "d3d9-idirect3ddevice9-method") &&
+          (isD3d9Clear(this.#configuration.capabilityProfile)
+            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+              firstUnsupported.instructionCount === 28_761_157
+            : firstUnsupported.instructionCount === 28_761_128),
         "UpdateWindow report omitted its pending callback or paint-session lifecycle",
       );
     }
@@ -6187,6 +6271,7 @@ worker.addEventListener(
               showWindowNormal: null,
               updateWindow: null,
               d3d9RecreatedTextures: null,
+              d3d9Clear: null,
               firstUnsupported: null,
               checkpointCompletion: null,
               error: "another runtime session is active",

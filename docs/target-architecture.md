@@ -805,9 +805,11 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 `RuntimeGraphics`はD3D9 `CreateDevice` gatewayで最初のlogical deviceとpresentation contract、
 `CreateTexture` gatewayで最初のdevice-related logical texture descriptor、`GetSurfaceLevel` gatewayで
 最初のlogical texture subresource descriptor、`CreateVertexBuffer` gatewayで最初のguest-backed logical
-geometry resource、`SetRenderState` gatewayでreached typed device stateを所有するprivate Rust subsystemである。Window relation、
+geometry resource、`SetRenderState` gatewayでreached typed device state、`Clear` gatewayでlogical back-buffer
+contentを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
-device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lockを
+device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、back-buffer
+content generationとclear sequenceを
 owner-local plan／commitで管理し、各4,096-object capacity、stale
 plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
 graphics stateを作らない。Browser側はさらにその下のrenderer adapterだけを所有し、Rust device/resource IDとの
@@ -821,8 +823,8 @@ identity、logical graphics deviceは一つの外部観測可能transactionと�
 必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
 
 `CreateTexture`はlive device association、policy-bounded descriptor、guest output span、COM child registration、
-graphics texture capacityを全てpreflightする。Version 13のactive bandは1024×1024／one-level／X8R8G8B8に対し、
-static SYSTEMMEM、static DEFAULT、dynamic DEFAULTの三variantだけを許可する。各completionはdistinct guest
+graphics texture capacityを全てpreflightする。Version 18のactive bandは1024×1024または2048×1024／
+one-level／X8R8G8B8に対し、static SYSTEMMEM、static DEFAULT、dynamic DEFAULTの六variantだけを許可する。各completionはdistinct guest
 texture pointer、child COM identity、logical textureを一つの外部観測可能transactionとしてpublishし、各Textureは
 device interfaceを一reference保持する。Final releaseはtexture associationを退役して必要ならdevice／root
 retirementへcascadeする。Logical usage／pool descriptor、特にDEFAULT poolはtexture bytes、GPU allocation、
@@ -844,6 +846,12 @@ State updateはdevice／global generationを含むowner planをpreflightし、ta
 successかつgeneration不変、unknown device、stale plan、unsupported enum／value、generation exhaustionは
 observable stateを変更しない。Browser rendererへのcommand変換はdraw／present vertical sliceで別に追加し、
 guest-visible state ownerにはしない。
+
+Reached `Clear(0,NULL,D3DCLEAR_TARGET,black,1.0,0)`はlive COM-to-device relationとfull presentation
+rectangleを検証し、`RuntimeGraphicsDevice`のpristineまたは既存content generationからmutation-free planを作る。
+Global／device／content／sequence generationをpreflightしてからuniform-clear commandだけをtargeted commitし、stale／
+duplicate planとprofile外variantは全stateを不変にする。Depth／stencil、partial rectangle、pixel backing、renderer
+resourceはこのgatewayで作らず、TypeScriptはlogical back-buffer stateを複製しない。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

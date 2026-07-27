@@ -76,7 +76,9 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const updateWindowProfile = bgiProfile === "user32-update-window";
+const d3d9ClearProfile = bgiProfile === "d3d9-clear";
+const updateWindowProfile =
+  d3d9ClearProfile || bgiProfile === "user32-update-window";
 const showWindowNormalProfile =
   updateWindowProfile || bgiProfile === "user32-show-window-normal";
 const setWindowPosFrameChangeMoveProfile =
@@ -100,7 +102,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v28";
+const runtimeProtocol = "vine.browser-runtime-worker.v29";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -733,6 +735,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-frame-change-move",
         "user32-show-window-normal",
         "user32-update-window",
+        "d3d9-clear",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -759,6 +762,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-frame-change-move",
         "user32-show-window-normal",
         "user32-update-window",
+        "d3d9-clear",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -785,6 +789,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-frame-change-move",
         "user32-show-window-normal",
         "user32-update-window",
+        "d3d9-clear",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -1595,6 +1600,63 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.updateWindow, null);
       }
+      if (d3d9ClearProfile) {
+        const clear = evidence.report.d3d9Clear;
+        assert(clear !== null, "Chrome Worker omitted D3D9 Clear evidence");
+        assert.deepEqual(clear.call.arguments, [
+          0x0101_0004,
+          0,
+          0,
+          1,
+          0xff00_0000,
+          0x3f80_0000,
+          0,
+        ]);
+        assert.deepEqual(clear.call.result, { kind: "h-result", value: 0 });
+        assert.equal(clear.call.sequence, 127_355);
+        assert.equal(clear.call.symbol, "IDirect3DDevice9.Clear");
+        assert.equal(clear.call.interface, "IDirect3DDevice9");
+        assert.equal(clear.call.vtableSlot, 43);
+        assert.equal(clear.call.returnAddress, 0x1005_af9e);
+        assert.equal(clear.call.referenceCount, 5);
+        assert.equal(clear.call.objectRetired, false);
+        assert.deepEqual(clear.call.guestWrites, []);
+        assert.deepEqual(clear.call.graphicsDevice?.presentation, {
+          width: 1_280,
+          height: 720,
+          colorFormat: "b8g8r8x8-unorm",
+          backBufferCount: 1,
+          sampleCount: 1,
+          presentMode: "discard",
+          windowed: true,
+        });
+        assert.deepEqual(clear.call.graphicsDevice?.backBuffer, {
+          contentGeneration: 1,
+          uniformClear: {
+            sequence: 1,
+            rect: { left: 0, top: 0, right: 1_280, bottom: 720 },
+            colorArgb: 0xff00_0000,
+          },
+        });
+        assert.equal(clear.call.graphicsDevice?.renderer, undefined);
+        assert.equal(
+          clear.compatibilityPolicyId,
+          "d3d9-primary-virtual-adapter-v18",
+        );
+        assert.equal(clear.clearProfileId, "primary-full-render-target-black-v1");
+        assert.equal(
+          clear.targetAuthority,
+          "rust-runtime-graphics-logical-device-back-buffer",
+        );
+        assert.equal(clear.targetScope, "full-presentation-back-buffer");
+        assert.equal(clear.mutation, "validate-plan-preflight-targeted-commit");
+        assert.equal(clear.failureAtomicity, true);
+        assert.equal(clear.depthStencilCleared, false);
+        assert.equal(clear.partialRectsImplemented, false);
+        assert.equal(clear.browserRendererResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.d3d9Clear, null);
+      }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
         assert(
@@ -1603,7 +1665,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.equal(
           recreated.compatibilityPolicyId,
-          "d3d9-primary-virtual-adapter-v17",
+          "d3d9-primary-virtual-adapter-v18",
         );
         assert.equal(
           recreated.createTextureProfileId,
@@ -2576,6 +2638,27 @@ function normalizeD3d9RecreatedTextures(snapshot) {
   };
 }
 
+function normalizeD3d9Clear(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      ...normalizeSemanticCall(snapshot.call),
+      graphicsDevice: snapshot.call.graphicsDevice,
+    },
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    clearProfileId: snapshot.clearProfileId,
+    targetAuthority: snapshot.targetAuthority,
+    targetScope: snapshot.targetScope,
+    mutation: snapshot.mutation,
+    failureAtomicity: snapshot.failureAtomicity,
+    depthStencilCleared: snapshot.depthStencilCleared,
+    partialRectsImplemented: snapshot.partialRectsImplemented,
+    browserRendererResourceCreated: snapshot.browserRendererResourceCreated,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -2659,6 +2742,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),
     normalizeD3d9RecreatedTextures(oracle.d3d9RecreatedTextures),
     "Chrome Worker D3D9 recreated texture evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeD3d9Clear(browser.report.d3d9Clear),
+    normalizeD3d9Clear(oracle.d3d9Clear),
+    "Chrome Worker D3D9 Clear evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(

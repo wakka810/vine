@@ -5338,3 +5338,25 @@ sessionとHDCを同時にretireする。Canonical NodeはShowWindow、BeginPaint
 完了し、outer UpdateWindow callbackがactiveなinstruction 28,761,128で`IDirect3DDevice9::Clear` slot 43へ停止する。
 Chrome protocol v28も同じordered semantics、semantic digest、memory digestを再現した。General invalidation、
 background erase、nested paint、renderer clear／presentはこのevidenceからclaimしない。
+
+## 158. BGI D3D9 full-target `Clear`
+
+Focused exploratory captureは16,493,258 bytes／46,186 lines／SHA-256
+`bc85120088c46632ab7a484832c377643d1352c4a05ec94b14a5108122f7c06f`、summaryは7,958,205 bytes／
+SHA-256 `e0c07cccfdd148b1445c6065162fd9042032ed6d687f2d4edafad17e7666b27b`で、23,054 API pairsがbalancedである。
+Independent confirmation captureは16,412,273 bytes／46,117 lines／SHA-256
+`641f78dcc0e7d5dcc82b6778b6f5e27c5a5e1e88744b1cc11fbf6867272b20c3`、summaryは7,897,741 bytes／
+SHA-256 `1a7ed22a846c84bb16f9ec6ca38709652fbc749848dcec6c601b672985f23150`で、23,019 API pairsがbalancedである。
+両runともdiagnostics 0である。Raw trace／summaryは`.work/windows-traces/`に保持してGitへ追加しない。Source
+executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`から変化していない。
+
+Exploratory／confirmation runは402／404 direct `IDirect3DDevice9::Clear` callsを記録した。全callのcaller return RVAは
+`0x0005AF9E`、explicit argumentsは`[0,0,D3DCLEAR_TARGET,0xFF000000,1.0f,0]`、resultは`S_OK`、
+observed LastErrorは0であり、例外variantはなかった。Native device pointer、call count、first／last sequenceはtrace-duration
+依存のartifact identityでありsemantic goldenにしない。Goldenはfull target、opaque black、success、caller relationである。
+
+Exploratory runで次に観測したD3D device methodはslot 31 `UpdateTexture`、caller RVA `0x0005B038`、二つのtexture
+arguments、`S_OK`である。ただしguest control flowではClear後29 instructionsで先に
+`USER32.dll!SetRect(RECT*,0,0,1280,720)`へ到達するため、active structured stopはSetRectである。UpdateTextureは
+そのUser32 leafを越えた後のbounded D3D risk evidenceであり、active semantic handlerを先回りして一般化する根拠にはしない。

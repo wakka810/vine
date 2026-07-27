@@ -247,6 +247,7 @@ enum GenericRuntimeCapability {
     GetFileAttributesA,
     CreateDirectoryA,
     D3d9RecreatedTextures,
+    D3d9Clear,
 }
 
 struct GenericRuntimeProcess {
@@ -478,6 +479,8 @@ struct GenericRuntimeComCompletion {
     schema_version: u32,
     endpoint: GenericRuntimeEndpoint,
     completion: ComCallCompletion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics_device: Option<vine_core::RuntimeGraphicsDevice>,
     memory: MemoryStats,
 }
 
@@ -2670,6 +2673,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GetFileAttributesA
                     | GenericRuntimeCapability::CreateDirectoryA
                     | GenericRuntimeCapability::D3d9RecreatedTextures
+                    | GenericRuntimeCapability::D3d9Clear
             )
         ) {
             let loader = kernel32_policy
@@ -3335,10 +3339,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_recreated_textures_enabled = matches!(
+    let d3d9_clear_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9RecreatedTextures)
+        Some(GenericRuntimeCapability::D3d9Clear)
     );
+    let d3d9_recreated_textures_enabled = d3d9_clear_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9RecreatedTextures)
+        );
     let create_directory_a_enabled = d3d9_recreated_textures_enabled
         || matches!(
             enabled_capability,
@@ -3842,7 +3851,10 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v17();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v18();
+    if !d3d9_clear_enabled {
+        d3d9_policy.clear = None;
+    }
     if !matches!(
         requested_capability,
         Some(
@@ -6219,6 +6231,7 @@ fn run_v86_generic_runtime_session(
                         19 => d3d9_policy.raster_status.is_some(),
                         23 => d3d9_policy.create_texture.is_some(),
                         26 | 11 | 12 => d3d9_policy.initial_vertex_buffer.is_some(),
+                        43 => d3d9_clear_enabled && d3d9_policy.clear.is_some(),
                         57 => d3d9_policy.initial_render_states.is_some(),
                         _ => true,
                     };
@@ -6269,6 +6282,18 @@ fn run_v86_generic_runtime_session(
                 };
                 match outcome {
                     ComDispatchOutcome::Completed(completion) => {
+                        let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
+                            && completion.frame.method == "Clear"
+                        {
+                            process
+                                .runtime
+                                .graphics_devices()
+                                .values()
+                                .find(|device| device.com_object_id == completion.frame.object_id)
+                                .cloned()
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -6277,6 +6302,7 @@ fn run_v86_generic_runtime_session(
                                 schema_version: 1,
                                 endpoint,
                                 completion,
+                                graphics_device,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -13901,6 +13927,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-show-window-normal" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-update-window" => GenericRuntimeCapability::D3d9RecreatedTextures,
+                "d3d9-clear" => GenericRuntimeCapability::D3d9Clear,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

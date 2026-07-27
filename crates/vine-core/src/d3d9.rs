@@ -13,11 +13,12 @@ use crate::com::{
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
-    RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode,
-    RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode,
-    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsRenderStateUpdateRequest,
-    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
+    RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsBackBufferClearRequest,
+    RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
+    RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
     RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferPool,
     RuntimeGraphicsVertexBufferUsage, RuntimeStateError, RuntimeStateErrorClass,
@@ -27,7 +28,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 17;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 18;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -41,6 +42,7 @@ pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
 pub const D3D9_D3DUSAGE_WRITEONLY: u32 = 0x0000_0008;
+pub const D3D9_D3DCLEAR_TARGET: u32 = 0x0000_0001;
 pub const D3D9_D3DRS_ZENABLE: u32 = 7;
 pub const D3D9_D3DRS_CULLMODE: u32 = 22;
 pub const D3D9_D3DRS_ALPHABLENDENABLE: u32 = 27;
@@ -277,6 +279,18 @@ pub struct D3d9RasterStatusPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9ClearPolicy {
+    pub profile_id: String,
+    pub rect_count: u32,
+    pub rects_must_be_null: bool,
+    pub flags: u32,
+    pub color_argb: u32,
+    pub depth_bits: u32,
+    pub stencil: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -295,14 +309,15 @@ pub struct D3d9CompatibilityPolicy {
     pub initial_vertex_buffer: Option<D3d9InitialVertexBufferPolicy>,
     pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
+    pub clear: Option<D3d9ClearPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v17() -> Self {
+    pub fn controlled_v18() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v17".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v18".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -421,6 +436,15 @@ impl D3d9CompatibilityPolicy {
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 in_v_blank: false,
                 scan_line: 1,
+            }),
+            clear: Some(D3d9ClearPolicy {
+                profile_id: "primary-full-render-target-black-v1".to_owned(),
+                rect_count: 0,
+                rects_must_be_null: true,
+                flags: D3D9_D3DCLEAR_TARGET,
+                color_argb: 0xff00_0000,
+                depth_bits: 1.0_f32.to_bits(),
+                stencil: 0,
             }),
         }
     }
@@ -661,6 +685,22 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-raster-status-profile-invalid",
                 "D3D9 raster-status profile must describe one deterministic nonblank nonzero scanline on a logical device",
+            ));
+        }
+        if let Some(clear) = self.clear.as_ref()
+            && (!valid_policy_id(&clear.profile_id)
+                || clear.rect_count != 0
+                || !clear.rects_must_be_null
+                || clear.flags != D3D9_D3DCLEAR_TARGET
+                || clear.color_argb != 0xff00_0000
+                || clear.depth_bits != 1.0_f32.to_bits()
+                || clear.stencil != 0
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-clear-profile-invalid",
+                "D3D9 clear profile must describe the reached full-render-target opaque black clear",
             ));
         }
         let coherent_profiles = [
@@ -1231,6 +1271,7 @@ fn dispatch_d3d9_device_frontend_call(
         19 => ("GetRasterStatus", 2),
         23 => ("CreateTexture", 8),
         26 => ("CreateVertexBuffer", 6),
+        43 => ("Clear", 6),
         57 => ("SetRenderState", 2),
         _ => {
             return call.fault(
@@ -1257,9 +1298,55 @@ fn dispatch_d3d9_device_frontend_call(
         19 => dispatch_get_raster_status(policy, call),
         23 => dispatch_create_texture(policy, call),
         26 => dispatch_create_vertex_buffer(policy, call),
+        43 => dispatch_clear(policy, call),
         57 => dispatch_set_render_state(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_clear(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(clear_policy) = policy.clear.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-clear",
+            "clear-policy-disabled",
+            "D3D9 compatibility policy does not enable Clear",
+        );
+    };
+    let rect_count = call.frame().explicit_arguments[0];
+    let rects_pointer = call.frame().explicit_arguments[1];
+    let flags = call.frame().explicit_arguments[2];
+    let color_argb = call.frame().explicit_arguments[3];
+    let depth_bits = call.frame().explicit_arguments[4];
+    let stencil = call.frame().explicit_arguments[5];
+    if rect_count != clear_policy.rect_count
+        || (clear_policy.rects_must_be_null && rects_pointer != 0)
+        || flags != clear_policy.flags
+        || color_argb != clear_policy.color_argb
+        || depth_bits != clear_policy.depth_bits
+        || stencil != clear_policy.stencil
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let plan = match call.runtime().plan_graphics_back_buffer_clear(
+        RuntimeGraphicsBackBufferClearRequest {
+            device_com_object_id: call.frame().object_id,
+            color_argb,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call.runtime().preflight_graphics_back_buffer_clear(&plan) {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call.runtime_mut().commit_graphics_back_buffer_clear(plan);
+    debug_assert_eq!(result.clear.color_argb, color_argb);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
 fn dispatch_get_raster_status(
@@ -2692,7 +2779,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            19 | 23 | 26 | 43 | 57 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),
             11 | 21 | 22 => ComMethodSpec::unsupported_void(*name, *argument_words),
             80 => ComMethodSpec::unsupported_x87_f32(*name, *argument_words),

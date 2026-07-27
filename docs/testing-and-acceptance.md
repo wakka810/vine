@@ -373,6 +373,13 @@ display-authority mismatchはguest bytesと全authorityをpartial mutationしな
 outer loopが`Sleep(0)`でyieldすることを固定する。Hostの具体scanlineはartifact observationでありpolicyへ
 importしない。Node／Chromeはcall 17,866を同じ順序・outputで完了し、次の`QueryPerformanceFrequency` stopと
 memory digestを一致させる。
+Reached slot 43 `Clear`はsix-word／HRESULT ABI、exact
+`(Count=0, pRects=NULL, D3DCLEAR_TARGET, ARGB=0xFF000000, Z=1.0f, Stencil=0)`だけを許可する。
+Rust owner testはpristineからuniform clearへのcontent generation、owner-local sequence、full presentation rect、
+same-device／live-COM relation、stale／duplicate plan rejectionを固定する。別flags／color／depth／stencil、partial rect、
+disabled policy、wrong／retired relationはguest bytes、COM、graphics、allocator、generationをpartial mutationしない。
+Node／Chromeはdevice 3、COM object 21、presentation `1280x720`、back-buffer generation／sequence `1／1`、
+device generation 44、zero guest writes、renderer resourceなしを一致させる。
 Reached `QueryPerformanceFrequency`／progressing `QueryPerformanceCounter`はone-pointer／BOOL ABI、
 required writable eight-byte `LARGE_INTEGER`、LastError preserveを固定する。Frequency queryは
 process-owned nonzero valueをmutation-freeで返し、counter queryは`RuntimeProcessState`の
@@ -1231,7 +1238,7 @@ cross-thread／multi-window activationは実装済みまたはgoldenとしない
 Reached D3D9 recreated-texture bandは、native二runでRVA `0x5A715`／`0x5A7B7`／`0x5A7DC`からの
 `2048x1024`、level 1、format 22、system-memory static／default static／default dynamicの三callを固定する。
 各callは`S_OK`、LastError 0、4-byte output publication、non-NULL distinct texture、HRESULT sign consumerを要求する。
-Rust model／dispatcher testsはversion 17の六descriptor allow-list、system-memory variant indices `0,3`だけの
+Rust model／dispatcher testsはversion 18の六descriptor allow-list、system-memory variant indices `0,3`だけの
 `GetSurfaceLevel(0)`、capacity／bad pointer／unsupported descriptorのfailure atomicity、COM／graphics／guest-memoryの
 cross-owner preflightを比較する。Node／Chrome protocol v26はsequence 108,735–108,743の
 `CreateTexture -> GetSurfaceLevel -> GetDC -> GetStockObject -> FillRect -> ReleaseDC -> Release -> CreateTexture -> CreateTexture`
@@ -1267,6 +1274,17 @@ protocol v28はBegin sequence 127,353、End sequence 127,354、full-client rect�
 Endを一致させる。Outer UpdateWindowは次の`IDirect3DDevice9::Clear` slot 43 stop時点でcallback-activeなので、
 completed-call countへ含めない。General invalidation、nested paint、clip／background erase、queued dispatch、Canvas／
 WebGL presentationはこのleafのacceptanceへ含めない。
+
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
+続くD3D9 Clear leafはnative二runの402／404 callsすべてがcaller RVA `0x5AF9E`、explicit arguments
+`0,0,1,0xFF000000,0x3F800000,0`、`S_OK`、LastError 0であることを固定する。Focused Rust
+model／dispatcher testsはslot 43 catalog、exact profile、logical back-buffer owner、plan／preflight／targeted commit、
+invalid variantとstale／duplicate planのfailure atomicityを比較する。Node／Chrome protocol v29はsequence
+127,355、instruction 28,761,128、device reference count 5、back-buffer rect `[0,0,1280,720]`、zero guest writes、
+同じsemantic／terminal-memory digestを一致させる。次stopは29 instructions後の
+`USER32.dll!SetRect(0x006FF29C,0,0,1280,720)`である。Partial rectangle、depth／stencil clear、pixel backing、
+draw／Present、device loss、Canvas／WebGL／WebGPU outputはこのleafのacceptanceへ含めない。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
 
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。

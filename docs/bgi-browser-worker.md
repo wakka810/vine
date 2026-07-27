@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `user32-update-window` and uses protocol
-`vine.browser-runtime-worker.v28`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-clear` and uses protocol
+`vine.browser-runtime-worker.v29`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -107,10 +107,19 @@ x86 `PAINTSTRUCT` as a single preflighted transaction, and creates one Rust-owne
 session. `EndPaint` accepts only the exact HWND／thread／structure relation and retires both
 session and HDC. A generic `ReleaseDC` cannot retire the paint HDC. The enclosing
 `UpdateWindow` callback is still active when execution reaches the first D3D9 `Clear`, so
-the terminal evidence distinguishes the pending outer call from the completed Begin／End
-pair. Node and Chrome agree on the ordered semantics, final memory digest, and that exact
-COM-method stop. Protocol version 28 adds typed ShowWindow／UpdateWindow／paint evidence while
-keeping the update region, Windows identities, and lifetime state exclusively in Rust.
+the evidence distinguishes the pending outer call from the completed Begin／End pair.
+
+Slot 43 then accepts only
+`Clear(0, NULL, D3DCLEAR_TARGET, 0xFF000000, 1.0f, 0)`. Rust resolves the live COM
+object to logical graphics device 3 and commits a uniform full-presentation clear to its
+`1280x720` back buffer after device, content, and sequence preflight. Node and Chrome agree
+on sequence 127,355, reference count 5, back-buffer content generation 1, clear sequence 1,
+rectangle `[0,0,1280,720]`, color `0xFF000000`, device generation 44, and zero guest writes.
+TypeScript creates no renderer resource or duplicate back-buffer state. Protocol version 29
+adds this typed logical-device snapshot while retaining the v28 ShowWindow／UpdateWindow／paint
+evidence. Both engines stop 29 instructions later at
+`USER32.dll!SetRect(0x006FF29C, 0, 0, 1280, 720)` with the same semantic and terminal-memory
+digests; that API is the next structured stop.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -147,3 +156,5 @@ fingerprint before and after execution.
 - The reached paint leaf does not claim general invalidation, overlapping or nested paint,
   background erase, clipping, queued paint dispatch, browser presentation, or arbitrary
   HDC operations.
+- The reached Clear does not claim partial rectangles, depth／stencil clears, pixel storage,
+  upload, draw, Present, device loss, or visible browser output.
