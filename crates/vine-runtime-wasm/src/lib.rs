@@ -140,6 +140,7 @@ impl Bridge {
         source_manifest_length: usize,
         writable_profile_length: usize,
         d3d9_clear_enabled: bool,
+        set_rect_enabled: bool,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
@@ -170,6 +171,7 @@ impl Bridge {
             source_manifest,
             writable_profile,
             d3d9_clear_enabled,
+            set_rect_enabled,
         )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
@@ -600,6 +602,7 @@ impl BrowserRuntime {
         source_manifest: Option<RuntimeSourceSnapshotManifest>,
         writable_profile: RuntimeWritableProfileManifest,
         d3d9_clear_enabled: bool,
+        set_rect_enabled: bool,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -743,7 +746,8 @@ impl BrowserRuntime {
             &dynamic_thunks,
             sentinels.callback_return.address,
         )?;
-        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(&process, &kernel32_policy)?;
+        let (dispatcher, routes, endpoints) =
+            build_bgi_dispatcher(&process, &kernel32_policy, set_rect_enabled)?;
         let runtime_stack = process
             .runtime
             .thread_stack(process.runtime.current_thread_id())
@@ -2935,6 +2939,7 @@ fn finalize_bgi_runtime_process(
 fn build_bgi_dispatcher(
     process: &BgiRuntimeProcess,
     kernel32_policy: &Kernel32CompatibilityPolicy,
+    set_rect_enabled: bool,
 ) -> Result<BgiDispatcher, String> {
     let mut endpoints = process
         .binding
@@ -2964,6 +2969,7 @@ fn build_bgi_dispatcher(
                 "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
                 "Sleep" => kernel32_policy.allows_sleep_zero(),
                 "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
+                "SetRect" => set_rect_enabled,
                 _ => true,
             }
         })
@@ -4149,6 +4155,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     source_manifest_length: u32,
     writable_profile_length: u32,
     d3d9_clear_enabled: u32,
+    set_rect_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4157,6 +4164,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
             source_manifest_length as usize,
             writable_profile_length as usize,
             d3d9_clear_enabled != 0,
+            set_rect_enabled != 0,
         )
     })
 }

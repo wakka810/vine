@@ -58,6 +58,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-system-menu",
     "get-system-metrics",
     "get-client-rect",
+    "set-rect",
     "get-monitor-info-a",
     "set-timer",
     "create-thread",

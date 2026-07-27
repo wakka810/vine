@@ -30,7 +30,7 @@ use vine_core::{
     get_system_metrics_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
     load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
-    send_message_a_contract, set_timer_contract, set_window_long_a_contract,
+    send_message_a_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
     set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
     update_window_contract, user32_contract_for_endpoint,
 };
@@ -58,6 +58,9 @@ const CLASS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0be0);
 const CLASS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d28);
 const METRICS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ca0);
 const METRICS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7ddb);
+const SET_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0db0);
+const SET_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_b00b);
+const SET_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2800);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 const ICON_FIXTURE_SHA256: &str =
@@ -440,6 +443,114 @@ impl MetricsFixture {
                 endpoint_address: self.endpoint.address,
                 stack_pointer,
                 return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct SetRectFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl SetRectFixture {
+    fn new() -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(220),
+            address: SET_RECT_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1448),
+            iat_address: IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SetRect".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(
+                owner,
+                IAT_ADDRESS,
+                &SET_RECT_ENDPOINT_ADDRESS.0.to_le_bytes(),
+            )
+            .expect("initialize SetRect IAT");
+        memory
+            .seal_owner(owner)
+            .expect("seal SetRect fixture owner");
+        let reflection = memory.pending_reflection().expect("SetRect reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge SetRect reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract = set_rect_contract(endpoint.clone()).expect("SetRect contract");
+        let dispatcher =
+            ApiDispatcher::new([endpoint.clone()], [contract]).expect("SetRect dispatcher");
+        Self {
+            memory,
+            runtime: controlled_runtime(),
+            dispatcher,
+            endpoint,
+            policy: User32CompatibilityPolicy::controlled_v26(),
+        }
+    }
+
+    fn configure(&mut self, output: GuestAddress, coordinates: [i32; 4]) {
+        let words = [
+            SET_RECT_RETURN_ADDRESS.0,
+            output.0,
+            coordinates[0] as u32,
+            coordinates[1] as u32,
+            coordinates[2] as u32,
+            coordinates[3] as u32,
+        ];
+        self.memory
+            .write(
+                GuestAddress(STACK_POINTER),
+                &words
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write SetRect frame");
+        self.acknowledge_pending_delta();
+    }
+
+    fn acknowledge_pending_delta(&mut self) {
+        if self.memory.stats().pending_invalidation.is_none() {
+            return;
+        }
+        let delta = self.memory.pending_delta().expect("pending SetRect delta");
+        self.memory
+            .acknowledge_delta(delta.generation)
+            .expect("acknowledge SetRect delta");
+    }
+
+    fn dispatch(&mut self) -> DispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer: GuestAddress(STACK_POINTER),
+                return_address: SET_RECT_RETURN_ADDRESS,
             },
             &mut session,
             |contract, frame, session| {
@@ -3259,6 +3370,53 @@ fn get_client_rect_contract_is_two_argument_stdcall_with_conditional_rect_output
 }
 
 #[test]
+fn set_rect_contract_is_five_argument_stdcall_with_nullable_rect_output() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(220),
+        address: SET_RECT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1448),
+        iat_address: IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetRect".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = set_rect_contract(endpoint).expect("SetRect contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 5);
+    assert_eq!(contract.abi.arguments[0].direction, ApiDirection::Out);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::Pointer { constraint }
+            if constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == 16
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "RECT"
+                )
+    ));
+    assert!(
+        contract.abi.arguments[1..]
+            .iter()
+            .all(|argument| argument.direction == ApiDirection::In
+                && matches!(argument.value, ApiValueSchema::U32))
+    );
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn monitor_from_window_contract_is_two_argument_stdcall_with_nullable_logical_monitor() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
@@ -3999,6 +4157,95 @@ fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() 
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, pointer_fault_runtime);
     assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn set_rect_writes_signed_coordinates_and_preserves_null_and_fault_state() {
+    let mut fixture = SetRectFixture::new();
+    for (coordinates, sentinel) in [
+        ([0, 0, 1280, 720], 0x1122_3344),
+        ([-7, 9, 123, -456], 0x5566_7788),
+    ] {
+        fixture
+            .memory
+            .write(SET_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
+            .expect("seed SetRect output");
+        fixture.configure(SET_RECT_OUTPUT_ADDRESS, coordinates);
+        fixture
+            .runtime
+            .set_current_last_error(sentinel)
+            .expect("seed SetRect LastError");
+        let runtime_before = fixture.runtime.clone();
+        let expected_bytes = coordinates
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let completion = match fixture.dispatch() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected SetRect completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(1));
+        assert_eq!(completion.last_error, sentinel);
+        assert_eq!(completion.guest_writes.len(), 1);
+        assert_eq!(
+            completion.guest_writes[0].write.address,
+            SET_RECT_OUTPUT_ADDRESS
+        );
+        assert_eq!(completion.guest_writes[0].write.bytes, expected_bytes);
+        fixture.acknowledge_pending_delta();
+        assert_eq!(
+            fixture
+                .memory
+                .read(SET_RECT_OUTPUT_ADDRESS, 16)
+                .expect("read completed SetRect output"),
+            expected_bytes
+        );
+        assert_eq!(fixture.runtime, runtime_before);
+    }
+
+    fixture.configure(GuestAddress(0), [1, 2, 3, 4]);
+    let sentinel = 0x7a6b_5c4d;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed null SetRect LastError");
+    let null_runtime_before = fixture.runtime.clone();
+    let null_memory_before = fixture.memory.stats();
+    let null_memory_hash_before = fixture
+        .memory
+        .current_reflection()
+        .expect("current null SetRect reflection")
+        .content_sha256;
+    let null_completion = match fixture.dispatch() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected null SetRect completion, got {other:?}"),
+    };
+    assert_eq!(null_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_completion.last_error, sentinel);
+    assert!(null_completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, null_runtime_before);
+    assert_eq!(fixture.memory.stats(), null_memory_before);
+    assert_eq!(
+        fixture
+            .memory
+            .current_reflection()
+            .expect("unchanged null SetRect reflection")
+            .content_sha256,
+        null_memory_hash_before
+    );
+
+    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
+    fixture.configure(unmapped_output, [0, 0, 1280, 720]);
+    let fault_runtime_before = fixture.runtime.clone();
+    let fault_memory_before = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected SetRect pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, fault_runtime_before);
+    assert_eq!(fixture.memory.stats(), fault_memory_before);
 }
 
 #[test]

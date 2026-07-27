@@ -170,8 +170,10 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const setRectActive =
+    root.activeRuntimeCheckpoint?.profile === "user32-set-rect";
   const d3d9ClearActive =
-    root.activeRuntimeCheckpoint?.profile === "d3d9-clear";
+    setRectActive || root.activeRuntimeCheckpoint?.profile === "d3d9-clear";
   const updateWindowActive =
     d3d9ClearActive ||
     root.activeRuntimeCheckpoint?.profile === "user32-update-window";
@@ -422,7 +424,24 @@ export function validateCurrentCheckpoint(manifest) {
               : mainLoopContinuationActive
                 ? "2,3,4,5,6,7,8"
                 : "2,3,4";
-  const profileExpectations = d3d9ClearActive
+  const profileExpectations = setRectActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_769,
+        browserMappingDirtyPages: 109_858,
+        browserSuccessExecutionTransitions: 416_523,
+        latestSchema: "vine.v86-bgi-user32-set-rect",
+        latestWritebackBatches: 127_454,
+        latestWritebackDirtyPages: 175_976,
+        latestWritebackChangedBytes: 6_619_715,
+        latestHostDeltaBatches: 106_769,
+        latestFinalMemoryGeneration: 235_506,
+        semanticCallDigestSha256:
+          "01f5a4a0ca80adefdfde1a8d7a7ab3a229c76fc4d35271ebacc46cc61340761f",
+        memoryContentSha256:
+          "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
+      }
+    : d3d9ClearActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_768,
@@ -1077,9 +1096,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v29") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v30") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v29",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v30",
     );
   }
   if (
@@ -2994,6 +3013,35 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9ClearNodeChromeOrderedSemanticsMatched !== true)
   ) {
     errors.push("browser BGI D3D9 Clear evidence is invalid");
+  }
+  if (
+    setRectActive &&
+    (bgiBrowserEvidence.setRectCompletions !== 1 ||
+      bgiBrowserEvidence.setRectSequence !== 127_356 ||
+      bgiBrowserEvidence.setRectInstructionCount !== 28_761_157 ||
+      bgiBrowserEvidence.setRectArguments?.join(",") !==
+        "0x006ff29c,0x00000000,0x00000000,0x00000500,0x000002d0" ||
+      bgiBrowserEvidence.setRectResult !== 1 ||
+      bgiBrowserEvidence.setRectImplementationId !== "user32.set-rect.v1" ||
+      bgiBrowserEvidence.setRectReturnAddress !== "0x1005b00b" ||
+      bgiBrowserEvidence.setRectStackPointers?.join(",") !==
+        "0x006ff250,0x006ff268" ||
+      bgiBrowserEvidence.setRectLastError !== 0 ||
+      bgiBrowserEvidence.setRectGuestWriteBytes !== 16 ||
+      bgiBrowserEvidence.setRectOutputAddress !== "0x006ff29c" ||
+      bgiBrowserEvidence.setRectOutputHex !==
+        "000000000000000000050000d0020000" ||
+      bgiBrowserEvidence.setRectOutputType !== "RECT" ||
+      bgiBrowserEvidence.setRectCoordinateEncoding !== "signed-long32" ||
+      bgiBrowserEvidence.setRectLastErrorPolicy !== "preserve" ||
+      bgiBrowserEvidence.setRectMutation !==
+        "guest-memory-preflight-atomic-write" ||
+      bgiBrowserEvidence.setRectNullOutputReturnsFalse !== true ||
+      bgiBrowserEvidence.setRectFailureAtomicity !== true ||
+      bgiBrowserEvidence.setRectBrowserOwnsRectState !== false ||
+      bgiBrowserEvidence.setRectNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("browser BGI SetRect evidence is invalid");
   }
   if (
     bgiBrowserEvidence.setWaitableTimerCompletions !== timerArmCount ||
@@ -16181,6 +16229,82 @@ export function validateCurrentCheckpoint(manifest) {
         "d3d9-primary-virtual-adapter-v18"
     ) {
       errors.push("latest native and private D3D9 Clear evidence is invalid");
+    }
+  }
+  if (setRectActive) {
+    for (const field of [
+      "nativeSetRectPrimaryTraceSha256",
+      "nativeSetRectPrimarySummarySha256",
+      "nativeSetRectConfirmationTraceSha256",
+      "nativeSetRectConfirmationSummarySha256",
+    ]) {
+      requireSha256(
+        latestEvidence[field],
+        `activeRuntimeCheckpoint.latestEvidence.${field}`,
+        errors,
+      );
+    }
+    if (
+      latestEvidence.nativeSetRectProfileId !==
+        "x86-bgi-first-set-rect-full-presentation-v1" ||
+      latestEvidence.nativeSetRectOracleProfileId !==
+        "x86-primary-signed-and-null-output-v1" ||
+      latestEvidence.nativeSetRectPrimaryTraceBytes !== 348_849 ||
+      latestEvidence.nativeSetRectPrimaryTraceLines !== 1_073 ||
+      latestEvidence.nativeSetRectPrimaryTraceSha256 !==
+        "5d61cb2fcd3af82a0cb57e0d2906d62d4fd3b61b428c5fa8d9f794cdc38eb823" ||
+      latestEvidence.nativeSetRectPrimarySummaryBytes !== 50_944 ||
+      latestEvidence.nativeSetRectPrimarySummarySha256 !==
+        "68c351ae87d7405e602154c7029e7afb3a4bb3ed1306bd996eb6050badbbbc1f" ||
+      latestEvidence.nativeSetRectPrimaryBalancedApiPairs !== 498 ||
+      latestEvidence.nativeSetRectConfirmationTraceBytes !== 348_929 ||
+      latestEvidence.nativeSetRectConfirmationTraceLines !== 1_073 ||
+      latestEvidence.nativeSetRectConfirmationTraceSha256 !==
+        "32816981a39a1b5fc6bcac889c54bf2853d853db4c18b3cc2aaba1e218e64f98" ||
+      latestEvidence.nativeSetRectConfirmationSummaryBytes !== 51_117 ||
+      latestEvidence.nativeSetRectConfirmationSummarySha256 !==
+        "285db80fb06213bf213beed0b7ddfa289bbbf28d24df2bd9fb5b223d3bde83c1" ||
+      latestEvidence.nativeSetRectConfirmationBalancedApiPairs !== 498 ||
+      latestEvidence.nativeSetRectTraceDiagnostics !== 0 ||
+      latestEvidence.nativeSetRectCallsPerTrace !== 4 ||
+      latestEvidence.nativeSetRectCallerRva !== "0x0005b00b" ||
+      latestEvidence.nativeSetRectCoordinates?.join(",") !== "0,0,1280,720" ||
+      latestEvidence.nativeSetRectResult !== 1 ||
+      latestEvidence.nativeSetRectLastError !== 0 ||
+      latestEvidence.nativeSetRectOutputRect?.join(",") !== "0,0,1280,720" ||
+      latestEvidence.nativeSetRectSignedCoordinates?.join(",") !==
+        "-7,9,123,-456" ||
+      latestEvidence.nativeSetRectNullOutputResult !== 0 ||
+      latestEvidence.nativeSetRectSuccessLastErrorPreserved !== true ||
+      latestEvidence.nativeSetRectNullLastErrorPreserved !== true ||
+      latestEvidence.nativeSetRectConsumer !==
+        "result-ignored-texture-add-dirty-rect" ||
+      latestEvidence.nativeSetRectExecutableHashUnchanged !== true ||
+      latestEvidence.setRectImplemented !== true ||
+      latestEvidence.setRectSequence !== 127_356 ||
+      latestEvidence.setRectInstructionCount !== 28_761_157 ||
+      latestEvidence.setRectArguments?.join(",") !==
+        "0x006ff29c,0x00000000,0x00000000,0x00000500,0x000002d0" ||
+      latestEvidence.setRectReturnAddress !== "0x1005b00b" ||
+      latestEvidence.setRectStackPointers?.join(",") !==
+        "0x006ff250,0x006ff268" ||
+      latestEvidence.setRectResult !== 1 ||
+      latestEvidence.setRectLastError !== 0 ||
+      latestEvidence.setRectGuestWriteBytes !== 16 ||
+      latestEvidence.setRectOutputAddress !== "0x006ff29c" ||
+      latestEvidence.setRectOutputHex !==
+        "000000000000000000050000d0020000" ||
+      latestEvidence.setRectImplementationId !== "user32.set-rect.v1" ||
+      latestEvidence.setRectMutation !==
+        "guest-memory-preflight-atomic-write" ||
+      latestEvidence.setRectNullOutputReturnsFalse !== true ||
+      latestEvidence.setRectFailureAtomicity !== true ||
+      latestEvidence.setRectBrowserOwnsRectState !== false ||
+      latestEvidence.setRectNodeCompletions !== 1 ||
+      latestEvidence.setRectChromeCompletions !== 1 ||
+      latestEvidence.setRectNodeChromeOrderedSemanticsMatched !== true
+    ) {
+      errors.push("latest native and private SetRect evidence is invalid");
     }
   }
   requireInteger(

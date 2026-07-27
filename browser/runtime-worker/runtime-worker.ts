@@ -116,7 +116,8 @@ function includesD3d9RecreatedTextures(
     profile === "user32-set-window-pos-frame-change-move" ||
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
-    profile === "d3d9-clear"
+    profile === "d3d9-clear" ||
+    profile === "user32-set-rect"
   );
 }
 
@@ -127,7 +128,8 @@ function isSetWindowPosFrameChangeMove(
     profile === "user32-set-window-pos-frame-change-move" ||
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
-    profile === "d3d9-clear"
+    profile === "d3d9-clear" ||
+    profile === "user32-set-rect"
   );
 }
 
@@ -137,20 +139,37 @@ function includesShowWindowNormal(
   return (
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
-    profile === "d3d9-clear"
+    profile === "d3d9-clear" ||
+    profile === "user32-set-rect"
   );
 }
 
 function isUpdateWindow(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-update-window" || profile === "d3d9-clear";
+  return (
+    profile === "user32-update-window" ||
+    profile === "d3d9-clear" ||
+    profile === "user32-set-rect"
+  );
 }
 
 function isD3d9Clear(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "d3d9-clear";
+}
+
+function includesD3d9Clear(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return isD3d9Clear(profile) || profile === "user32-set-rect";
+}
+
+function isSetRect(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-set-rect";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -803,6 +822,7 @@ class BrowserRuntimeSession {
     updateWindow: null as SessionReport["updateWindow"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
+    setRect: null as SessionReport["setRect"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -942,7 +962,8 @@ class BrowserRuntimeSession {
               sourceManifestBytes,
               writableProfileBytes ??
                 failInvariant("BGI writable profile is missing"),
-              isD3d9Clear(this.#configuration.capabilityProfile),
+              includesD3d9Clear(this.#configuration.capabilityProfile),
+              isSetRect(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -3254,6 +3275,7 @@ class BrowserRuntimeSession {
         : { virtualMemory: metadata.virtualMemory }),
     };
     this.#recordD3d9RecreatedTextureCall(call);
+    this.#recordSetRectCall(call);
     if (
       completion.implementationId === "user32.set-window-pos.v5" &&
       includesSetWindowPosRepeatActivation(
@@ -4327,7 +4349,7 @@ class BrowserRuntimeSession {
 
   #recordD3d9ClearCall(call: RuntimeSupportedCallSnapshot): void {
     if (
-      !isD3d9Clear(this.#configuration.capabilityProfile) ||
+      !includesD3d9Clear(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 43
     ) {
@@ -4384,6 +4406,49 @@ class BrowserRuntimeSession {
       depthStencilCleared: false,
       partialRectsImplemented: false,
       browserRendererResourceCreated: false,
+    };
+  }
+
+  #recordSetRectCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isSetRect(this.#configuration.capabilityProfile) ||
+      call.implementationId !== "user32.set-rect.v1"
+    ) {
+      return;
+    }
+    invariant(
+      this.#report.setRect === null &&
+        call.sequence === 127_356 &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "SetRect" &&
+        call.arguments.length === 5 &&
+        call.arguments[0] === 0x006f_f29c &&
+        call.arguments[1] === 0 &&
+        call.arguments[2] === 0 &&
+        call.arguments[3] === 1_280 &&
+        call.arguments[4] === 720 &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 1 &&
+        call.returnAddress === 0x1005_b00b &&
+        call.stackPointerBefore === 0x006f_f250 &&
+        call.stackPointerAfter === 0x006f_f268 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 1 &&
+        call.guestWrites[0]?.address === 0x006f_f29c &&
+        call.guestWrites[0]?.bytes.join(",") ===
+          "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0",
+      "SetRect ABI or atomic RECT output changed",
+    );
+    this.#report.setRect = {
+      call: structuredClone(call),
+      implementationId: "user32.set-rect.v1",
+      outputType: "RECT",
+      coordinateEncoding: "signed-long32",
+      lastErrorPolicy: "preserve",
+      mutation: "guest-memory-preflight-atomic-write",
+      nullOutputReturnsFalse: true,
+      browserOwnsRectState: false,
     };
   }
 
@@ -6093,13 +6158,19 @@ class BrowserRuntimeSession {
           update.endPaint.paint.livePaintSessions === 0 &&
           update.endPaint.paint.liveDeviceContexts === 0 &&
           firstUnsupported?.capabilityCluster ===
-            (isD3d9Clear(this.#configuration.capabilityProfile)
-              ? "user32-api-contract"
-              : "d3d9-idirect3ddevice9-method") &&
-          (isD3d9Clear(this.#configuration.capabilityProfile)
+            (isSetRect(this.#configuration.capabilityProfile)
+              ? "d3d9-idirect3dtexture9-method"
+              : isD3d9Clear(this.#configuration.capabilityProfile)
+                ? "user32-api-contract"
+                : "d3d9-idirect3ddevice9-method") &&
+          (isSetRect(this.#configuration.capabilityProfile)
             ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              firstUnsupported.instructionCount === 28_761_157
-            : firstUnsupported.instructionCount === 28_761_128),
+              this.#report.setRect?.call.sequence === 127_356 &&
+              firstUnsupported.instructionCount === 28_761_165
+            : isD3d9Clear(this.#configuration.capabilityProfile)
+              ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+                firstUnsupported.instructionCount === 28_761_157
+              : firstUnsupported.instructionCount === 28_761_128),
         "UpdateWindow report omitted its pending callback or paint-session lifecycle",
       );
     }
@@ -6272,6 +6343,7 @@ worker.addEventListener(
               updateWindow: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
+              setRect: null,
               firstUnsupported: null,
               checkpointCompletion: null,
               error: "another runtime session is active",

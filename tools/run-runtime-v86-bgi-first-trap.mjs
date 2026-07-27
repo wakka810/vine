@@ -215,6 +215,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-show-window-normal",
         "user32-update-window",
         "d3d9-clear",
+        "user32-set-rect",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -350,6 +351,7 @@ assert(
       "user32-show-window-normal",
       "user32-update-window",
       "d3d9-clear",
+      "user32-set-rect",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -362,7 +364,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-set-window-pos-frame-change-move" ||
     genericRuntimeCapability === "user32-show-window-normal" ||
     genericRuntimeCapability === "user32-update-window" ||
-    genericRuntimeCapability === "d3d9-clear"
+    genericRuntimeCapability === "d3d9-clear" ||
+    genericRuntimeCapability === "user32-set-rect"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -663,7 +666,9 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
-const d3d9ClearCheckpointEnabled = genericRuntimeCapability === "d3d9-clear";
+const setRectCheckpointEnabled = genericRuntimeCapability === "user32-set-rect";
+const d3d9ClearCheckpointEnabled =
+  setRectCheckpointEnabled || genericRuntimeCapability === "d3d9-clear";
 const updateWindowCheckpointEnabled =
   d3d9ClearCheckpointEnabled ||
   genericRuntimeCapability === "user32-update-window";
@@ -1037,7 +1042,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9ClearCheckpointEnabled
+    ? setRectCheckpointEnabled
+      ? "v86-bgi-set-rect"
+      : d3d9ClearCheckpointEnabled
       ? "v86-bgi-d3d9-clear"
       : updateWindowCheckpointEnabled
       ? "v86-bgi-update-window"
@@ -5421,6 +5428,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (setRectCheckpointEnabled) {
+        validateSetRectResult(genericResult);
       } else if (d3d9ClearCheckpointEnabled) {
         validateD3d9ClearResult(genericResult);
       } else if (updateWindowCheckpointEnabled) {
@@ -5678,7 +5687,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9ClearCheckpointEnabled
+          : setRectCheckpointEnabled
+            ? "bgi USER32 SetRect full-presentation RECT"
+            : d3d9ClearCheckpointEnabled
             ? "bgi IDirect3DDevice9::Clear full render target"
             : updateWindowCheckpointEnabled
             ? "bgi UpdateWindow full-client BeginPaint/EndPaint session"
@@ -8187,6 +8198,7 @@ function validateGenericRuntimeReady(ready, offer) {
     ready.implementedApiContracts,
     declaredDispatches.length +
       4 +
+      (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
@@ -20277,7 +20289,7 @@ function validateUpdateWindowResult(
   }
 }
 
-function validateD3d9ClearResult(result) {
+function validateD3d9ClearResult(result, expectSetRectFault = true) {
   validateUpdateWindowResult(result, null);
   const calls = result.supportedCalls.filter(
     (call) =>
@@ -20341,6 +20353,10 @@ function validateD3d9ClearResult(result) {
   assert.equal(device.renderer, undefined);
   assert.equal(device.generation, 44);
 
+  if (!expectSetRectFault) {
+    return;
+  }
+
   assert.equal(result.fault.capabilityCluster, "user32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 220);
@@ -20373,6 +20389,75 @@ function validateD3d9ClearResult(result) {
     720,
     15,
     0x4801_0001,
+  ]);
+}
+
+function validateSetRectResult(result) {
+  validateD3d9ClearResult(result, false);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "SetRect" &&
+      call.implementationId === "user32.set-rect.v1",
+  );
+  assert.equal(calls.length, 1, "USER32 SetRect must complete once");
+  const setRect = calls[0];
+  assert.equal(setRect.sequence, 127_356);
+  assert.equal(setRect.occurrence, 1);
+  assert.equal(setRect.trapInstructionCount, 28_761_157);
+  assert.deepEqual(setRect.arguments, [0x006f_f29c, 0, 0, 1_280, 720]);
+  assert.deepEqual(setRect.result, { action: "set", value: 1 });
+  assert.equal(setRect.implementationId, "user32.set-rect.v1");
+  assert.equal(setRect.returnAddress, 0x1005_b00b);
+  assert.equal(setRect.stackPointerBefore, 0x006f_f250);
+  assert.equal(setRect.stackPointerAfter, 0x006f_f268);
+  assert.equal(setRect.lastError, 0);
+  assert.deepEqual(setRect.guestWrites, [
+    {
+      address: 0x006f_f29c,
+      bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 208, 2, 0, 0],
+      result: {
+        bytesWritten: 16,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 235_505,
+          dataTlb: false,
+          instructionFetch: false,
+          generatedCode: false,
+        },
+      },
+    },
+  ]);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3dtexture9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DTexture9");
+  assert.equal(result.fault.endpoint.target.method.slot, 21);
+  assert.equal(result.fault.endpoint.target.method.name, "AddDirtyRect");
+  assert.equal(result.fault.endpoint.target.object.id, "22");
+  assert.equal(result.fault.endpoint.target.interface.id, "44");
+  assert.equal(result.fault.endpoint.target.interface.guestPointer, 0x0102_0004);
+  assert.equal(result.fault.endpoint.target.method.endpoint, 0x0102_1180);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b01d);
+  assert.equal(result.fault.memory.generation, 235_506);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 28_761_157);
+  assert.equal(result.terminal.additionalInstructionCount, 8);
+  assert.equal(result.terminal.instructionCount, 28_761_165);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0102_1180);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 21);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b01d);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1005_b01d,
+    0x0102_0004,
+    0x006f_f29c,
   ]);
 }
 
@@ -25139,6 +25224,22 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9ClearCall.graphicsDevice);
   }
+  const setRectCalls = setRectCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "SetRect" &&
+          call.implementationId === "user32.set-rect.v1",
+      )
+    : [];
+  const setRectCall = setRectCalls[0] ?? null;
+  if (setRectCheckpointEnabled) {
+    assert.equal(
+      setRectCalls.length,
+      1,
+      "SetRect report summary requires one completion",
+    );
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -25212,7 +25313,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9ClearCheckpointEnabled
+        : setRectCheckpointEnabled
+          ? "vine.v86-bgi-user32-set-rect"
+          : d3d9ClearCheckpointEnabled
           ? "vine.v86-bgi-d3d9-clear"
           : updateWindowCheckpointEnabled
           ? "vine.v86-bgi-user32-update-window"
@@ -25776,6 +25879,20 @@ function buildGenericRuntimeReentryReport({
             depthStencilCleared: false,
             partialRectsImplemented: false,
             browserRendererResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(setRectCheckpointEnabled
+      ? {
+          setRect: {
+            call: setRectCall,
+            implementationId: "user32.set-rect.v1",
+            outputType: "RECT",
+            coordinateEncoding: "signed-long32",
+            lastErrorPolicy: "preserve",
+            mutation: "guest-memory-preflight-atomic-write",
+            nullOutputReturnsFalse: true,
+            browserOwnsRectState: false,
           },
         }
       : {}),

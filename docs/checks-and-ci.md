@@ -130,8 +130,9 @@ thresholds in a valid environment after bounded browser scheduling
 remediation. The earlier external-CPU run is invalid-environment diagnostic
 evidence and is not counted as a confirmation. Downstream primary execution has
 since crossed the recreated D3D9 texture band, bounded frame-change／paint flow,
-and exact full-target D3D9 Clear, and is paused at the manifested
-`SetRect(rect, 0, 0, 1280, 720)` endpoint. Exact current artifact,
+exact full-target D3D9 Clear, and the following preflighted 16-byte
+`SetRect(rect, 0, 0, 1280, 720)` guest-memory write. It is paused at the manifested
+`IDirect3DTexture9::AddDirtyRect(rect)` slot-21 endpoint. Exact current artifact,
 report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:

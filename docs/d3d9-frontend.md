@@ -537,8 +537,10 @@ canonical Node and Chrome sessions reach sequence 127,355 at instruction
 `1280x720`, COM object `21`, reference count `5`, and a live
 `vine.logical-graphics-device.v1` identity. Both sessions record back-buffer
 content generation `1`, clear sequence `1`, rectangle `[0,0,1280,720]`, color
-`0xFF000000`, and device generation `44`, then stop 29 instructions later at
-`USER32.dll!SetRect` with identical semantic and terminal-memory digests.
+`0xFF000000`, and device generation `44`. The following User32 `SetRect` constructs the
+full-presentation `RECT [0,0,1280,720]` in guest memory without creating graphics or browser
+state. Node and Chrome then stop eight instructions later at
+`IDirect3DTexture9::AddDirtyRect` slot 21 with identical semantic and terminal-memory digests.
 
 This slice does not clear depth or stencil, accept partial rectangles, allocate
 pixel storage, upload texture content, draw, Present, model device loss, or
@@ -565,6 +567,8 @@ relation, and reached
 `FillRect` appends the first `RuntimeGraphics`-owned surface command.
 Reached slot 43 `Clear` similarly appends authoritative uniform content to the
 logical device back buffer without crossing into a renderer adapter.
+The following `SetRect` leaf only materializes the caller-owned guest structure; texture
+dirty-region authority remains unmodified until the reached slot-21 method is implemented.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -581,7 +585,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-clear
+npm run check:runtime:bgi -- --profile user32-set-rect
 npm run check:runtime:bgi-browser
 ```
 
@@ -611,8 +615,9 @@ descriptors, fill command, backing protection, and final guest memory.
 The cumulative runtime additionally fixes four typed device render-state
 updates, their idempotent same-value behavior, and the bounded
 `GetRasterStatus` output. It subsequently records the exact full-target Clear,
-logical device／COM relation, and back-buffer generation before stopping at
-`SetRect`, without creating a browser renderer resource.
+logical device／COM relation, back-buffer generation, and the exact full-presentation
+`SetRect` guest bytes before stopping at texture slot 21 `AddDirtyRect`, without creating a
+browser renderer resource or a second dirty-region authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -632,7 +637,8 @@ and stops at `kernel32.dll!QueryPerformanceFrequency`. Profile selection does
 not add callsite branches to the semantic handler or move Windows state into
 the browser runtime. The historical `user32-update-window` profile stops at
 slot 43, while `d3d9-clear` enables only the exact Clear profile and stops at
-`USER32.dll!SetRect`.
+`USER32.dll!SetRect`. The active `user32-set-rect` profile additionally enables that exact
+User32 contract and stops at `IDirect3DTexture9::AddDirtyRect` slot 21.
 
 ## Non-claims
 
@@ -647,7 +653,8 @@ slot 43, while `d3d9-clear` enables only the exact Clear profile and stops at
   one exact full-target black `Clear` are implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
-  device/resource state, partial／depth／stencil Clear, draw, Present, Reset,
+  device/resource state, texture dirty-region updates including `AddDirtyRect`,
+  partial／depth／stencil Clear, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, and full-target Clear create Rust logical state

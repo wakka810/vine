@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 29 as const;
+export const protocolVersion = 30 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -23,7 +23,8 @@ export type BgiCapabilityProfile =
   | "user32-set-window-pos-frame-change-move"
   | "user32-show-window-normal"
   | "user32-update-window"
-  | "d3d9-clear";
+  | "d3d9-clear"
+  | "user32-set-rect";
 
 export interface RuntimeGraphicsDeviceSnapshot {
   id: number;
@@ -868,6 +869,16 @@ export interface SessionReport {
     depthStencilCleared: false;
     partialRectsImplemented: false;
     browserRendererResourceCreated: false;
+  } | null;
+  setRect: {
+    call: RuntimeSupportedCallSnapshot;
+    implementationId: "user32.set-rect.v1";
+    outputType: "RECT";
+    coordinateEncoding: "signed-long32";
+    lastErrorPolicy: "preserve";
+    mutation: "guest-memory-preflight-atomic-write";
+    nullOutputReturnsFalse: true;
+    browserOwnsRectState: false;
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

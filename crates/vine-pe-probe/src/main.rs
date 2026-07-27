@@ -248,6 +248,7 @@ enum GenericRuntimeCapability {
     CreateDirectoryA,
     D3d9RecreatedTextures,
     D3d9Clear,
+    SetRect,
 }
 
 struct GenericRuntimeProcess {
@@ -2674,6 +2675,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::CreateDirectoryA
                     | GenericRuntimeCapability::D3d9RecreatedTextures
                     | GenericRuntimeCapability::D3d9Clear
+                    | GenericRuntimeCapability::SetRect
             )
         ) {
             let loader = kernel32_policy
@@ -3339,10 +3341,12 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_clear_enabled = matches!(
-        enabled_capability,
-        Some(GenericRuntimeCapability::D3d9Clear)
-    );
+    let set_rect_enabled = matches!(enabled_capability, Some(GenericRuntimeCapability::SetRect));
+    let d3d9_clear_enabled = set_rect_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9Clear)
+        );
     let d3d9_recreated_textures_enabled = d3d9_clear_enabled
         || matches!(
             enabled_capability,
@@ -4262,6 +4266,7 @@ fn run_v86_generic_runtime_session(
                 requested_capability,
                 endpoint,
                 virtual_alloc_enabled,
+                set_rect_enabled,
             )
         };
         if endpoint_enabled {
@@ -6326,6 +6331,7 @@ fn runtime_capability_enables_endpoint(
     enabled: Option<GenericRuntimeCapability>,
     endpoint: &ApiEndpointIdentity,
     virtual_alloc_enabled: bool,
+    set_rect_enabled: bool,
 ) -> bool {
     let get_monitor_info_a_enabled =
         matches!(enabled, Some(GenericRuntimeCapability::GetMonitorInfoA));
@@ -7005,6 +7011,7 @@ fn runtime_capability_enables_endpoint(
         }
         "LoadLibraryA" => load_library_a_enabled,
         "GetClientRect" => get_client_rect_enabled,
+        "SetRect" => set_rect_enabled,
         "GetDC" | "GetStockObject" | "FillRect" | "ReleaseDC" => window_dc_fill_enabled,
         "SetWindowLongA" => set_window_long_a_enabled,
         "MonitorFromWindow" => monitor_from_window_enabled,
@@ -13928,6 +13935,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-show-window-normal" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-update-window" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "d3d9-clear" => GenericRuntimeCapability::D3d9Clear,
+                "user32-set-rect" => GenericRuntimeCapability::SetRect,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

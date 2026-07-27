@@ -5360,3 +5360,29 @@ Exploratory runで次に観測したD3D device methodはslot 31 `UpdateTexture`�
 arguments、`S_OK`である。ただしguest control flowではClear後29 instructionsで先に
 `USER32.dll!SetRect(RECT*,0,0,1280,720)`へ到達するため、active structured stopはSetRectである。UpdateTextureは
 そのUser32 leafを越えた後のbounded D3D risk evidenceであり、active semantic handlerを先回りして一般化する根拠にはしない。
+
+## 159. BGI first `SetRect` and signed／NULL oracle
+
+Focused primary captureは348,849 bytes／1,073 lines／SHA-256
+`5d61cb2fcd3af82a0cb57e0d2906d62d4fd3b61b428c5fa8d9f794cdc38eb823`、summaryは50,944 bytes／
+SHA-256 `68c351ae87d7405e602154c7029e7afb3a4bb3ed1306bd996eb6050badbbbc1f`である。Independent
+confirmation captureは348,929 bytes／1,073 lines／SHA-256
+`32816981a39a1b5fc6bcac889c54bf2853d853db4c18b3cc2aaba1e218e64f98`、summaryは51,117 bytes／
+SHA-256 `285db80fb06213bf213beed0b7ddfa289bbbf28d24df2bd9fb5b223d3bde83c1`である。両runとも498
+API pairsがbalanced、diagnosticsは0、profileは`x86-bgi-first-set-rect-full-presentation-v1`、oracleは
+`x86-primary-signed-and-null-output-v1`である。Raw trace／summaryは`.work/windows-traces/`に保持し、source
+executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`から変化していない。
+
+各runのprimary caller return RVA `0x0005B00B`は`SetRect(rect,0,0,1280,720)`を呼び、BOOL 1を返し、
+LastError 0を保存し、outputをx86 `RECT [0,0,1280,720]`の全16 bytesへ置き換える。CallerはBOOLを消費せず、
+同じRECT pointerを直後の`IDirect3DTexture9::AddDirtyRect` slot 21へ渡す。Controlled callsはsigned coordinates
+`[-7,9,123,-456]`をexact signed `LONG32`として保持し、success前のLastError sentinels `0x11223344`と
+`0x55667788`を保存する。NULL outputはBOOL 0を返し、sentinel `0x7A6B5C4D`を保存する。各traceのSetRect
+callsはprimaryを含む4件である。
+
+Goldenはnullable output、signed coordinate encoding、successの全構造書込、LastError preserve、callerから
+texture dirty-region callへのpointer relationである。Runtimeはguest-memory全範囲をpreflightしてから一回だけ書き、
+NULLでは書込を行わない。Canonical Node／Chromeはinstruction 28,761,157でこのcallを完了し、8 instructions後の
+`IDirect3DTexture9::AddDirtyRect(0x006FF29C)`で停止する。Texture dirty-region semantics、NULL dirty rect、
+UpdateTexture以降の描画はこのevidenceからclaimしない。

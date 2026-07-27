@@ -4137,6 +4137,13 @@ getClientRectSelection.find(
 ).selectedObservations = ["get-client-rect"];
 assert.doesNotThrow(() => summarizeTrace(encode(getClientRectSelection)));
 
+const setRectSelection = structuredClone(events);
+setRectSelection[0].arguments.observations = ["set-rect"];
+setRectSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-rect"];
+assert.doesNotThrow(() => summarizeTrace(encode(setRectSelection)));
+
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];
 windowDcSelection.find(

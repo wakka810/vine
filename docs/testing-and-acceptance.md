@@ -1286,6 +1286,21 @@ invalid variantとstale／duplicate planのfailure atomicityを比較する。No
 draw／Present、device loss、Canvas／WebGL／WebGPU outputはこのleafのacceptanceへ含めない。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
+続く`SetRect` leafは、focused native二runが各498 balanced API pairs／diagnostics 0で、primary call
+`SetRect(rect,0,0,1280,720)`をcaller RVA `0x5B00B`から観測し、TRUE、LastError preserve、16-byte
+`RECT [0,0,1280,720]`全書込を一致させることをoracleとする。同じrun内のcontrolled oracleはsigned
+coordinates `[-7,9,123,-456]`をexact `LONG32`として書き、success時の二つのLastError sentinelを保存し、
+NULL outputではFALSEを返して別のsentinelを保存する。CallerはBOOLを分岐に使わず、同じRECT pointerを直後の
+`IDirect3DTexture9::AddDirtyRect`へ渡す。Focused Rust testsはfive-word stdcall ABI、nullable 16-byte output、
+signed encoding、NULL path、unmapped outputの全byte failure atomicityを固定する。
+
+Canonical Node／Chrome evidenceはtyped arguments、output address／bytes、normalized BOOL、LastError preserve、
+stdcall cleanup、ordered semantic／terminal-memory equality、manifested next stopを一致させる。Rust `GuestMemory`だけが
+bytesのauthorityであり、User32またはTypeScriptにpersistent RECT stateを作らない。Exact protocol、sequence、
+instruction、report artifact、next-stop identityはcurrent manifestだけを正本とする。RECTの意味をtexture
+dirty-regionへ反映すること、NULL dirty rect、texture generation、upload／draw／Presentはこのleafのacceptanceへ
+含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

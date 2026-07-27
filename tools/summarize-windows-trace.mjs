@@ -51,6 +51,7 @@ const supportedObservations = new Set([
   "register-class-ex-a",
   "get-system-metrics",
   "get-client-rect",
+  "set-rect",
   "get-monitor-info-a",
   "get-system-menu",
   "window-dc",

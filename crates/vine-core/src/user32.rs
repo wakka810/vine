@@ -54,6 +54,7 @@ pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
+pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
 pub const GET_DC_IMPLEMENTATION: &str = "user32.get-dc.window-or-screen-acquisition.v2";
 pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1";
 pub const RELEASE_DC_IMPLEMENTATION: &str = "user32.release-dc.window-or-screen-acquisition.v2";
@@ -1126,6 +1127,10 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        SET_RECT_IMPLEMENTATION => match handle_set_rect(contract, frame) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         GET_DC_IMPLEMENTATION => match handle_get_dc(policy, contract, frame, session) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
@@ -1458,6 +1463,23 @@ fn handle_get_client_rect(
         .collect();
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
+        .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_set_rect(contract: &ApiContract, frame: &ApiCallFrame) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "rectangle")?;
+    let left = required_argument(contract, frame, 1, "left")? as i32;
+    let top = required_argument(contract, frame, 2, "top")? as i32;
+    let right = required_argument(contract, frame, 3, "right")? as i32;
+    let bottom = required_argument(contract, frame, 4, "bottom")? as i32;
+    if output == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)));
+    }
+    let bytes = [left, top, right, bottom]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect();
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_guest_write(GuestAddress(output), bytes))
 }
 
@@ -5856,6 +5878,7 @@ pub fn user32_contract_for_endpoint(
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
+        "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
         "MonitorFromWindow" => Ok(Some(monitor_from_window_contract(endpoint)?)),
         "GetMonitorInfoA" => Ok(Some(get_monitor_info_a_contract(endpoint)?)),
         "GetDC" => Ok(Some(get_dc_contract(endpoint)?)),
@@ -6200,6 +6223,29 @@ pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CLIENT_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                nullable_out_struct("rectangle", "RECT", 16),
+                u32_argument("left"),
+                u32_argument("top"),
+                u32_argument("right"),
+                u32_argument("bottom"),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_RECT_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -6553,6 +6599,24 @@ fn conditional_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArg
         value: ApiValueSchema::Pointer {
             constraint: ApiPointerConstraint {
                 nullable: false,
+                alignment: 4,
+                byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Optional,
+            },
+        },
+    }
+}
+
+fn nullable_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::Out,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: true,
                 alignment: 4,
                 byte_length,
                 pointee: ApiPointeeSchema::Struct {

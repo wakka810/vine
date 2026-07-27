@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-clear` and uses protocol
-`vine.browser-runtime-worker.v29`. It inherits the immutable boot-archive snapshot,
+The active private profile is `user32-set-rect` and uses protocol
+`vine.browser-runtime-worker.v30`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -117,9 +117,19 @@ on sequence 127,355, reference count 5, back-buffer content generation 1, clear 
 rectangle `[0,0,1280,720]`, color `0xFF000000`, device generation 44, and zero guest writes.
 TypeScript creates no renderer resource or duplicate back-buffer state. Protocol version 29
 adds this typed logical-device snapshot while retaining the v28 ShowWindow／UpdateWindow／paint
-evidence. Both engines stop 29 instructions later at
-`USER32.dll!SetRect(0x006FF29C, 0, 0, 1280, 720)` with the same semantic and terminal-memory
-digests; that API is the next structured stop.
+evidence.
+
+The following `SetRect(0x006FF29C, 0, 0, 1280, 720)` leaf writes the complete
+16-byte x86 `RECT` as one preflighted guest-memory update, returns normalized TRUE, and
+preserves LastError. Signed `LONG32` coordinates and the NULL-output FALSE path are fixed by
+the native oracle and focused Rust negative tests; an unmapped output faults before changing
+any guest byte. Rust owns the guest-memory transaction and no persistent rectangle state is
+created in either Rust or TypeScript. Protocol version 30 adds the typed arguments, result,
+output address and bytes, stack transition, and failure-policy evidence. Node and Chrome agree
+on sequence 127,356, instruction 28,761,157, output
+`000000000000000000050000d0020000`, and the cumulative semantic and terminal-memory digests.
+Both engines stop eight instructions later at `IDirect3DTexture9::AddDirtyRect` slot 21 with
+the same texture identity and `RECT*`; that method is the next structured stop.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

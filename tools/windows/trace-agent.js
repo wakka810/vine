@@ -389,6 +389,12 @@ let getClientRectOracleComplete = false;
 let getClientRectOracleEvidence = null;
 let getClientRectCompletionRecorded = false;
 const getClientRectMainModuleCalls = [];
+let setRectOracleScheduled = false;
+let setRectOracleCall = null;
+let setRectOracleComplete = false;
+let setRectOracleEvidence = null;
+let setRectCompletionRecorded = false;
+const setRectMainModuleCalls = [];
 let getMonitorInfoAOracleScheduled = false;
 let getMonitorInfoAOracleCall = null;
 let getMonitorInfoAOracleComplete = false;
@@ -9227,6 +9233,238 @@ function maybeCompleteGetClientRectObservation() {
     oracle: getClientRectOracleEvidence,
   });
   if (stopOnEvent === "get-client-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachSetRectHook(module) {
+  const name = "SetRect";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && setRectOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.output = args[0];
+      this.coordinates = [
+        args[1].toInt32(),
+        args[2].toInt32(),
+        args[3].toInt32(),
+        args[4].toInt32(),
+      ];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = setRectOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotRect(this.output);
+      this.immediateConsumer =
+        isMainModuleCaller && setRectMainModuleCalls.length === 0
+          ? snapshotInstructions(this.returnAddress, 96)
+          : null;
+      if (isOracleCaller) {
+        setRectOracleCall.hookOutputBefore = this.outputBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.output.toString(), ...this.coordinates],
+          lastErrorBefore: this.lastErrorBefore,
+          setRect: {
+            output: this.output.toString(),
+            coordinates: this.coordinates,
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotRect(this.output);
+      if (this.oracleCaller) {
+        setRectOracleCall.hookResult = resultValue;
+        setRectOracleCall.hookLastErrorAfter = lastError;
+        setRectOracleCall.hookOutputAfter = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          setRect: {
+            result: resultValue,
+            succeeded: resultValue !== 0,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !setRectCompletionRecorded) {
+        setRectMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          output: this.output.toString(),
+          coordinates: this.coordinates,
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: resultValue,
+          succeeded: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleSetRectOracle(module);
+        setImmediate(maybeCompleteSetRectObservation);
+      }
+    },
+  });
+}
+
+function scheduleSetRectOracle(module) {
+  if (setRectOracleScheduled) {
+    return;
+  }
+  setRectOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "SetRect");
+      if (address === null) {
+        throw new Error("SetRect oracle export is unavailable");
+      }
+      const setRect = new SystemFunction(
+        address,
+        "int32",
+        ["pointer", "int32", "int32", "int32", "int32"],
+        "stdcall",
+      );
+      const invoke = ({ id, coordinates, nullOutput, sentinel }) => {
+        const output = nullOutput ? ptr(0) : Memory.alloc(16);
+        if (!nullOutput) {
+          output.writeByteArray(Array(16).fill(0xa5));
+        }
+        const outputBefore = snapshotRect(output);
+        setRectOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutputBefore: null,
+          hookOutputAfter: null,
+        };
+        try {
+          const outcome = setRect(output, ...coordinates);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            setRectOracleCall.hookResult === null ||
+            setRectOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("SetRect oracle did not pass through the hook");
+          }
+          const outputAfter = snapshotRect(output);
+          return {
+            id,
+            output: output.toString(),
+            coordinates,
+            sentinel,
+            systemResult,
+            succeeded: systemResult !== 0,
+            systemLastError,
+            outputBefore,
+            outputAfter,
+            hookResult: setRectOracleCall.hookResult,
+            hookLastErrorAfter: setRectOracleCall.hookLastErrorAfter,
+            hookOutputBefore: setRectOracleCall.hookOutputBefore,
+            hookOutputAfter: setRectOracleCall.hookOutputAfter,
+            hookResultMatches: setRectOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              setRectOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          setRectOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "primary-full-presentation",
+          coordinates: [0, 0, 1280, 720],
+          nullOutput: false,
+          sentinel: 0x11223344,
+        },
+        {
+          id: "signed-coordinates",
+          coordinates: [-7, 9, 123, -456],
+          nullOutput: false,
+          sentinel: 0x55667788,
+        },
+        {
+          id: "null-output",
+          coordinates: [1, 2, 3, 4],
+          nullOutput: true,
+          sentinel: 0x7a6b5c4d,
+        },
+      ].map(invoke);
+      setRectOracleEvidence = {
+        profile: "x86-primary-signed-and-null-output-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      setRectOracleComplete = true;
+      emit("set-rect-oracle", setRectOracleEvidence);
+      maybeCompleteSetRectObservation();
+    } catch (error) {
+      emit("set-rect-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteSetRectObservation() {
+  if (
+    setRectCompletionRecorded ||
+    !setRectOracleComplete ||
+    setRectMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteSetRectObservation, 10);
+    return;
+  }
+  setRectCompletionRecorded = true;
+  emit("set-rect-complete", {
+    profile: "x86-bgi-first-set-rect-full-presentation-v1",
+    mainModuleCall: setRectMainModuleCalls[0],
+    oracle: setRectOracleEvidence,
+  });
+  if (stopOnEvent === "set-rect-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -23947,6 +24185,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetClientRect",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("set-rect")
+    ) {
+      try {
+        attachSetRectHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "SetRect",
           error: error.message,
         });
       }

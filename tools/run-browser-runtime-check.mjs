@@ -76,7 +76,8 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const d3d9ClearProfile = bgiProfile === "d3d9-clear";
+const setRectProfile = bgiProfile === "user32-set-rect";
+const d3d9ClearProfile = setRectProfile || bgiProfile === "d3d9-clear";
 const updateWindowProfile =
   d3d9ClearProfile || bgiProfile === "user32-update-window";
 const showWindowNormalProfile =
@@ -102,7 +103,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v29";
+const runtimeProtocol = "vine.browser-runtime-worker.v30";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -736,6 +737,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-show-window-normal",
         "user32-update-window",
         "d3d9-clear",
+        "user32-set-rect",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -763,6 +765,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-show-window-normal",
         "user32-update-window",
         "d3d9-clear",
+        "user32-set-rect",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -790,6 +793,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-show-window-normal",
         "user32-update-window",
         "d3d9-clear",
+        "user32-set-rect",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -1656,6 +1660,41 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(clear.browserRendererResourceCreated, false);
       } else {
         assert.equal(evidence.report.d3d9Clear, null);
+      }
+      if (setRectProfile) {
+        const setRect = evidence.report.setRect;
+        assert(setRect !== null, "Chrome Worker omitted SetRect evidence");
+        assert.equal(setRect.call.sequence, 127_356);
+        assert.equal(setRect.call.module.toLowerCase(), "user32.dll");
+        assert.equal(setRect.call.symbol, "SetRect");
+        assert.deepEqual(setRect.call.arguments, [
+          0x006f_f29c,
+          0,
+          0,
+          1_280,
+          720,
+        ]);
+        assert.deepEqual(setRect.call.result, { action: "set", value: 1 });
+        assert.equal(setRect.call.implementationId, "user32.set-rect.v1");
+        assert.equal(setRect.call.returnAddress, 0x1005_b00b);
+        assert.equal(setRect.call.lastError, 0);
+        assert.deepEqual(setRect.call.guestWrites, [
+          {
+            address: 0x006f_f29c,
+            bytes: [
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 208, 2, 0, 0,
+            ],
+          },
+        ]);
+        assert.equal(setRect.implementationId, "user32.set-rect.v1");
+        assert.equal(setRect.outputType, "RECT");
+        assert.equal(setRect.coordinateEncoding, "signed-long32");
+        assert.equal(setRect.lastErrorPolicy, "preserve");
+        assert.equal(setRect.mutation, "guest-memory-preflight-atomic-write");
+        assert.equal(setRect.nullOutputReturnsFalse, true);
+        assert.equal(setRect.browserOwnsRectState, false);
+      } else {
+        assert.equal(evidence.report.setRect, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -2659,6 +2698,22 @@ function normalizeD3d9Clear(snapshot) {
   };
 }
 
+function normalizeSetRect(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: normalizeSemanticCall(snapshot.call),
+    implementationId: snapshot.implementationId,
+    outputType: snapshot.outputType,
+    coordinateEncoding: snapshot.coordinateEncoding,
+    lastErrorPolicy: snapshot.lastErrorPolicy,
+    mutation: snapshot.mutation,
+    nullOutputReturnsFalse: snapshot.nullOutputReturnsFalse,
+    browserOwnsRectState: snapshot.browserOwnsRectState,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -2747,6 +2802,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9Clear(browser.report.d3d9Clear),
     normalizeD3d9Clear(oracle.d3d9Clear),
     "Chrome Worker D3D9 Clear evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeSetRect(browser.report.setRect),
+    normalizeSetRect(oracle.setRect),
+    "Chrome Worker SetRect evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(
