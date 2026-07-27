@@ -170,7 +170,13 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const updateWindowActive =
+    root.activeRuntimeCheckpoint?.profile === "user32-update-window";
+  const showWindowNormalActive =
+    updateWindowActive ||
+    root.activeRuntimeCheckpoint?.profile === "user32-show-window-normal";
   const setWindowPosFrameChangeMoveActive =
+    showWindowNormalActive ||
     root.activeRuntimeCheckpoint?.profile ===
     "user32-set-window-pos-frame-change-move";
   const d3d9RecreatedTexturesActive =
@@ -413,7 +419,24 @@ export function validateCurrentCheckpoint(manifest) {
               : mainLoopContinuationActive
                 ? "2,3,4,5,6,7,8"
                 : "2,3,4";
-  const profileExpectations = setWindowPosFrameChangeMoveActive
+  const profileExpectations = updateWindowActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_768,
+        browserMappingDirtyPages: 109_857,
+        browserSuccessExecutionTransitions: 416_519,
+        latestSchema: "vine.v86-bgi-user32-update-window",
+        latestWritebackBatches: 127_452,
+        latestWritebackDirtyPages: 175_974,
+        latestWritebackChangedBytes: 6_619_682,
+        latestHostDeltaBatches: 106_768,
+        latestFinalMemoryGeneration: 235_503,
+        semanticCallDigestSha256:
+          "33ef06b514d5d26eefb8d2ecdea0e569197752884b798af5787e3e0ef8d0b4b5",
+        memoryContentSha256:
+          "ceaaf33c0382b0f1859997d2f114a1d85eeed1ce5090bb9e7f6fabcc49de03ff",
+      }
+    : setWindowPosFrameChangeMoveActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_766,
@@ -1034,9 +1057,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v27") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v28") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v27",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v28",
     );
   }
   if (
@@ -1879,7 +1902,9 @@ export function validateCurrentCheckpoint(manifest) {
       (createDirectoryAActive ? 10 : archiveSourceReadActive ? 5 : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
     bgiBrowserEvidence.callbackEntries !==
-      (setWindowPosFrameChangeMoveActive
+      (updateWindowActive
+        ? 30
+        : setWindowPosFrameChangeMoveActive
         ? 29
         : setWindowPosRepeatActivationActive
           ? 25
@@ -2803,6 +2828,99 @@ export function validateCurrentCheckpoint(manifest) {
         true)
   ) {
     errors.push("browser BGI frame-change SetWindowPos evidence is invalid");
+  }
+  if (
+    showWindowNormalActive &&
+    (bgiBrowserEvidence.showWindowNormalCompletions !== 1 ||
+      bgiBrowserEvidence.showWindowNormalSequence !== 127_351 ||
+      bgiBrowserEvidence.showWindowNormalInstructionCount !== 28_761_027 ||
+      bgiBrowserEvidence.showWindowNormalArguments?.join(",") !==
+        "0x48010001,0x00000001" ||
+      bgiBrowserEvidence.showWindowNormalResult !== 1 ||
+      bgiBrowserEvidence.showWindowNormalImplementationId !==
+        "user32.show-window.visible-normal-noop.v1" ||
+      bgiBrowserEvidence.showWindowNormalReturnAddress !== "0x100938da" ||
+      bgiBrowserEvidence.showWindowNormalStackPointers?.join(",") !==
+        "0x006ff684,0x006ff690" ||
+      bgiBrowserEvidence.showWindowNormalLastError !== 0 ||
+      bgiBrowserEvidence.showWindowNormalGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.showWindowNormalWindowAuthority !==
+        "rust-runtime-user32-logical-window" ||
+      bgiBrowserEvidence.showWindowNormalRelationAuthority !==
+        "rust-runtime-user32-thread-and-process-window-relations" ||
+      bgiBrowserEvidence.showWindowNormalMutation !== false ||
+      bgiBrowserEvidence.showWindowNormalCallbackCount !== 0 ||
+      bgiBrowserEvidence.showWindowNormalBrowserResourceCreated !== false ||
+      bgiBrowserEvidence.showWindowNormalNodeChromeOrderedSemanticsMatched !==
+        true)
+  ) {
+    errors.push("browser BGI ShowWindow normal evidence is invalid");
+  }
+  if (
+    updateWindowActive &&
+    (bgiBrowserEvidence.updateWindowCalls !== 1 ||
+      bgiBrowserEvidence.updateWindowSequence !== 127_352 ||
+      bgiBrowserEvidence.updateWindowInstructionCount !== 28_761_031 ||
+      bgiBrowserEvidence.updateWindowArguments?.join(",") !== "0x48010001" ||
+      bgiBrowserEvidence.updateWindowPendingCallback !== true ||
+      bgiBrowserEvidence.updateWindowCallbackFrameId !== 30 ||
+      bgiBrowserEvidence.updateWindowCallbackMessage !== 15 ||
+      bgiBrowserEvidence.updateWindowCallbackTarget !== "0x10092550" ||
+      bgiBrowserEvidence.updateWindowCallbackStackPointer !== "0x006ff674" ||
+      bgiBrowserEvidence.beginPaintCompletions !== 1 ||
+      bgiBrowserEvidence.beginPaintSequence !== 127_353 ||
+      bgiBrowserEvidence.beginPaintInstructionCount !== 28_761_068 ||
+      bgiBrowserEvidence.beginPaintArguments?.join(",") !==
+        "0x48010001,0x006ff318" ||
+      bgiBrowserEvidence.beginPaintResult !== "0x47010009" ||
+      bgiBrowserEvidence.beginPaintImplementationId !==
+        "user32.begin-paint.full-client-logical-dc.v1" ||
+      bgiBrowserEvidence.beginPaintReturnAddress !== "0x100928d9" ||
+      bgiBrowserEvidence.beginPaintStackPointers?.join(",") !==
+        "0x006ff2cc,0x006ff2d8" ||
+      bgiBrowserEvidence.beginPaintLastError !== 0 ||
+      bgiBrowserEvidence.beginPaintGuestWriteBytes !== 64 ||
+      bgiBrowserEvidence.beginPaintPaintStructBytes !== 64 ||
+      bgiBrowserEvidence.beginPaintErase !== 1 ||
+      bgiBrowserEvidence.beginPaintUpdateRect?.join(",") !== "0,0,1280,720" ||
+      bgiBrowserEvidence.beginPaintGeneration !== 1 ||
+      bgiBrowserEvidence.beginPaintLivePaintSessions !== 1 ||
+      bgiBrowserEvidence.beginPaintLiveDeviceContexts !== 1 ||
+      bgiBrowserEvidence.endPaintCompletions !== 1 ||
+      bgiBrowserEvidence.endPaintSequence !== 127_354 ||
+      bgiBrowserEvidence.endPaintInstructionCount !== 28_761_073 ||
+      bgiBrowserEvidence.endPaintArguments?.join(",") !==
+        "0x48010001,0x006ff318" ||
+      bgiBrowserEvidence.endPaintResult !== 1 ||
+      bgiBrowserEvidence.endPaintImplementationId !==
+        "user32.end-paint.matching-session.v1" ||
+      bgiBrowserEvidence.endPaintReturnAddress !== "0x100928e5" ||
+      bgiBrowserEvidence.endPaintStackPointers?.join(",") !==
+        "0x006ff2cc,0x006ff2d8" ||
+      bgiBrowserEvidence.endPaintLastError !== 0 ||
+      bgiBrowserEvidence.endPaintGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.endPaintLivePaintSessions !== 0 ||
+      bgiBrowserEvidence.endPaintLiveDeviceContexts !== 0 ||
+      bgiBrowserEvidence.updateWindowWindowAuthority !==
+        "rust-runtime-user32-logical-window" ||
+      bgiBrowserEvidence.updateWindowUpdateRegionAuthority !==
+        "rust-runtime-user32-window-update-region" ||
+      bgiBrowserEvidence.updateWindowUpdateRegionSource !==
+        "set-window-pos-frame-change-nccalcsize-completion" ||
+      bgiBrowserEvidence.updateWindowUpdateRegionConsumption !==
+        "begin-paint-targeted-commit" ||
+      bgiBrowserEvidence.updateWindowPaintSessionAuthority !==
+        "rust-runtime-user32-paint-session" ||
+      bgiBrowserEvidence.updateWindowDeviceContextAuthority !==
+        "rust-runtime-gdi-device-context" ||
+      bgiBrowserEvidence.updateWindowPaintSessionRetired !== true ||
+      bgiBrowserEvidence.updateWindowDeviceContextRetired !== true ||
+      bgiBrowserEvidence.updateWindowFailureAtomicity !== true ||
+      bgiBrowserEvidence.updateWindowCallbackActiveAtStop !== true ||
+      bgiBrowserEvidence.updateWindowBrowserResourceCreated !== false ||
+      bgiBrowserEvidence.updateWindowNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("browser BGI UpdateWindow paint lifecycle evidence is invalid");
   }
   if (
     bgiBrowserEvidence.setWaitableTimerCompletions !== timerArmCount ||
@@ -4677,6 +4795,12 @@ export function validateCurrentCheckpoint(manifest) {
           test !==
             "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit" &&
           test !==
+            "user32_dispatcher::set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomically" &&
+          test !==
+            "user32_dispatcher::show_window_rejects_unreached_command_handle_and_window_state_atomically" &&
+          test !==
+            "user32_dispatcher::update_window_rejects_invalid_handle_disabled_policy_and_missing_region_atomically" &&
+          test !==
             "d3d9_dispatcher::create_device_rejects_invalid_or_unavailable_requests_without_partial_state" &&
           test !==
             "d3d9_dispatcher::d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables" &&
@@ -4722,6 +4846,21 @@ export function validateCurrentCheckpoint(manifest) {
       (test) =>
         test ===
         "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+        "user32_dispatcher::set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomically",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+        "user32_dispatcher::show_window_rejects_unreached_command_handle_and_window_state_atomically",
+    ).length !== 1 ||
+    representativeAtomicTests.filter(
+      (test) =>
+        test ===
+        "user32_dispatcher::update_window_rejects_invalid_handle_disabled_policy_and_missing_region_atomically",
     ).length !== 1 ||
     representativeAtomicTests.filter(
       (test) =>
@@ -8786,11 +8925,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 23 ||
+    user32Policy.schemaVersion !== 26 ||
     user32Policy.id !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-v26" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v23" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v26" ||
     user32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
@@ -8943,6 +9082,31 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.setWindowPosHostIdentityNormalization !==
       "native-z-order-hwnd-and-external-thread-id-not-imported" ||
     user32Policy.setWindowPosFailureAtomicity !== true ||
+    user32Policy.showWindowProfileId !==
+      "already-visible-active-normal-noop-v1" ||
+    user32Policy.showWindowNormalCommand !== 1 ||
+    user32Policy.showWindowRequiredRelations !==
+      "visible-active-focused-foreground" ||
+    user32Policy.showWindowMutation !== false ||
+    user32Policy.showWindowCallbackCount !== 0 ||
+    user32Policy.showWindowFailureAtomicity !== true ||
+    user32Policy.updateWindowProfileId !==
+      "visible-active-full-client-paint-v1" ||
+    user32Policy.updateWindowMessage !== 15 ||
+    user32Policy.updateWindowCallbackResult !== 0 ||
+    user32Policy.updateWindowPaintStructBytes !== 64 ||
+    user32Policy.updateWindowErasePending !== true ||
+    user32Policy.updateWindowRequiredRelations !==
+      "visible-active-focused-foreground" ||
+    user32Policy.updateWindowUpdateRegionAuthority !==
+      "runtime/user32.rs::RuntimeUser32-window-update-region" ||
+    user32Policy.updateWindowPaintSessionAuthority !==
+      "runtime/user32.rs::RuntimeUser32-paint-session" ||
+    user32Policy.updateWindowDeviceContextAuthority !==
+      "runtime/gdi.rs::RuntimeGdi-device-context" ||
+    user32Policy.updateWindowTransaction !==
+      "user32-gdi-guest-memory-preflight-before-targeted-commit" ||
+    user32Policy.updateWindowFailureAtomicity !== true ||
     user32Policy.setWindowLongAProfileId !==
       "main-window-gwl-style-visible-v1" ||
     setWindowLongAVariants.join(",") !==
@@ -10576,7 +10740,7 @@ export function validateCurrentCheckpoint(manifest) {
       setWindowPosImplementationId ||
     latestEvidence.setWindowPosResizePolicySchemaVersion !== 23 ||
     latestEvidence.setWindowPosResizePolicyId !==
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-v26" ||
     latestEvidence.setWindowPosResizeProfileId !==
       "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4" ||
     latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !==
@@ -15498,6 +15662,175 @@ export function validateCurrentCheckpoint(manifest) {
   ) {
     errors.push(
       "latest native and private frame-change SetWindowPos evidence is invalid",
+    );
+  }
+  if (
+    showWindowNormalActive &&
+    (latestEvidence.nativeShowWindowNormalTraceBytes !== 358_552 ||
+      latestEvidence.nativeShowWindowNormalTraceLines !== 1_071 ||
+      latestEvidence.nativeShowWindowNormalTraceSha256 !==
+        "cfa4de77d32dc9a593d790f3e7f1d364bbcd474c9835d68a6fdd18f20b68edd8" ||
+      latestEvidence.nativeShowWindowNormalSummaryBytes !== 51_083 ||
+      latestEvidence.nativeShowWindowNormalSummarySha256 !==
+        "b956032467e1c0911f503b9ebaf452c0f7711d17486d655253f561280e6ec9e7" ||
+      latestEvidence.nativeShowWindowNormalBalancedApiPairs !== 497 ||
+      latestEvidence.nativeShowWindowNormalTraceDiagnostics !== 0 ||
+      latestEvidence.nativeShowWindowNormalProfile !==
+        "x86-bgi-show-window-normal-v1" ||
+      latestEvidence.nativeShowWindowNormalOracleProfile !==
+        "x86-show-window-normal-invalid-window-v1" ||
+      latestEvidence.nativeShowWindowNormalCallerRva !== "0x000938da" ||
+      latestEvidence.nativeShowWindowNormalCommand !== 1 ||
+      latestEvidence.nativeShowWindowNormalResult !== 24 ||
+      latestEvidence.nativeShowWindowNormalResultNormalized !== 1 ||
+      latestEvidence.nativeShowWindowNormalLastError !== 0 ||
+      latestEvidence.nativeShowWindowNormalStateUnchanged !== true ||
+      latestEvidence.nativeShowWindowNormalCallbackCount !== 0 ||
+      latestEvidence.nativeShowWindowNormalInvalidWindowResult !== 0 ||
+      latestEvidence.nativeShowWindowNormalInvalidWindowLastError !== 1_400 ||
+      latestEvidence.nativeShowWindowNormalExecutableHashUnchanged !== true ||
+      latestEvidence.showWindowNormalImplemented !== true ||
+      latestEvidence.showWindowNormalSequence !== 127_351 ||
+      latestEvidence.showWindowNormalInstructionCount !== 28_761_027 ||
+      latestEvidence.showWindowNormalArguments?.join(",") !==
+        "0x48010001,0x00000001" ||
+      latestEvidence.showWindowNormalResult !== 1 ||
+      latestEvidence.showWindowNormalImplementationId !==
+        "user32.show-window.visible-normal-noop.v1" ||
+      latestEvidence.showWindowNormalReturnAddress !== "0x100938da" ||
+      latestEvidence.showWindowNormalStackPointers?.join(",") !==
+        "0x006ff684,0x006ff690" ||
+      latestEvidence.showWindowNormalLastError !== 0 ||
+      latestEvidence.showWindowNormalGuestWriteBytes !== 0 ||
+      latestEvidence.showWindowNormalWindowAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.showWindowNormalRelationAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.showWindowNormalMutation !== false ||
+      latestEvidence.showWindowNormalCallbackCount !== 0 ||
+      latestEvidence.showWindowNormalFailureAtomicity !== true ||
+      latestEvidence.showWindowNormalBrowserOwnsLogicalWindowState !== false ||
+      latestEvidence.showWindowNormalBrowserResourceCreated !== false ||
+      latestEvidence.showWindowNormalNodeCompletions !== 1 ||
+      latestEvidence.showWindowNormalChromeCompletions !== 1 ||
+      latestEvidence.showWindowNormalNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push("latest native and private ShowWindow normal evidence is invalid");
+  }
+  if (
+    updateWindowActive &&
+    (latestEvidence.nativeUpdateWindowPaintTraceBytes !== 498_871 ||
+      latestEvidence.nativeUpdateWindowPaintTraceLines !== 1_463 ||
+      latestEvidence.nativeUpdateWindowPaintTraceSha256 !==
+        "c670f314315d2fed87e4fff5be2a2fca719e5c969e0155f6169594e3b60ffd27" ||
+      latestEvidence.nativeUpdateWindowPaintSummaryBytes !== 53_324 ||
+      latestEvidence.nativeUpdateWindowPaintSummarySha256 !==
+        "88bdde2c8480bbb0ea1ad2b9a3b82aa9b1a69f5842eb4921fc9e34be6bc6f50c" ||
+      latestEvidence.nativeUpdateWindowPaintBalancedApiPairs !== 693 ||
+      latestEvidence.nativeUpdateWindowPaintTraceDiagnostics !== 0 ||
+      latestEvidence.nativeUpdateWindowPaintProfile !==
+        "x86-bgi-update-window-full-client-paint-v1" ||
+      latestEvidence.nativeUpdateWindowPaintOracleProfile !==
+        "x86-update-window-paint-invalid-window-v1" ||
+      latestEvidence.nativeUpdateWindowCallerRva !== "0x000938e7" ||
+      latestEvidence.nativeUpdateWindowResult !== 1 ||
+      latestEvidence.nativeUpdateWindowLastError !== 0 ||
+      latestEvidence.nativeUpdateWindowMessage !== 15 ||
+      latestEvidence.nativeUpdateWindowCallbackResult !== 0 ||
+      latestEvidence.nativeUpdateWindowUpdateRectBefore?.join(",") !==
+        "0,0,1280,720" ||
+      latestEvidence.nativeUpdateWindowUpdateRectConsumed !== true ||
+      latestEvidence.nativeBeginPaintCallerRva !== "0x000928d9" ||
+      latestEvidence.nativeBeginPaintDeviceContextNonzero !== true ||
+      latestEvidence.nativeBeginPaintLastError !== 0 ||
+      latestEvidence.nativeBeginPaintStructBytes !== 64 ||
+      latestEvidence.nativeBeginPaintErase !== 1 ||
+      latestEvidence.nativeBeginPaintRect?.join(",") !== "0,0,1280,720" ||
+      latestEvidence.nativeBeginPaintRestore !== 0 ||
+      latestEvidence.nativeBeginPaintIncrementalUpdate !== 0 ||
+      latestEvidence.nativeBeginPaintReservedZeroBytes !== 32 ||
+      latestEvidence.nativeEndPaintCallerRva !== "0x000928e5" ||
+      latestEvidence.nativeEndPaintResult !== 1 ||
+      latestEvidence.nativeEndPaintLastError !== 0 ||
+      latestEvidence.nativeEndPaintStructUnchanged !== true ||
+      latestEvidence.nativeUpdateWindowInvalidWindowResult !== 0 ||
+      latestEvidence.nativeBeginPaintInvalidWindowResult !== 0 ||
+      latestEvidence.nativeEndPaintInvalidWindowResult !== 0 ||
+      latestEvidence.nativeUpdateWindowInvalidWindowLastError !== 1_400 ||
+      latestEvidence.nativeBeginPaintInvalidWindowLastError !== 1_400 ||
+      latestEvidence.nativeEndPaintInvalidWindowLastError !== 1_400 ||
+      latestEvidence.nativeBeginPaintInvalidWindowStructUnchanged !== true ||
+      latestEvidence.nativeEndPaintInvalidWindowStructUnchanged !== true ||
+      latestEvidence.nativeUpdateWindowExecutableHashUnchanged !== true ||
+      latestEvidence.updateWindowImplemented !== true ||
+      latestEvidence.updateWindowSequence !== 127_352 ||
+      latestEvidence.updateWindowInstructionCount !== 28_761_031 ||
+      latestEvidence.updateWindowArguments?.join(",") !== "0x48010001" ||
+      latestEvidence.updateWindowPendingCallback !== true ||
+      latestEvidence.updateWindowCallbackFrameId !== 30 ||
+      latestEvidence.updateWindowCallbackMessage !== 15 ||
+      latestEvidence.updateWindowCallbackTarget !== "0x10092550" ||
+      latestEvidence.updateWindowCallbackStackPointer !== "0x006ff674" ||
+      latestEvidence.beginPaintImplemented !== true ||
+      latestEvidence.beginPaintSequence !== 127_353 ||
+      latestEvidence.beginPaintInstructionCount !== 28_761_068 ||
+      latestEvidence.beginPaintArguments?.join(",") !==
+        "0x48010001,0x006ff318" ||
+      latestEvidence.beginPaintResult !== "0x47010009" ||
+      latestEvidence.beginPaintImplementationId !==
+        "user32.begin-paint.full-client-logical-dc.v1" ||
+      latestEvidence.beginPaintReturnAddress !== "0x100928d9" ||
+      latestEvidence.beginPaintStackPointers?.join(",") !==
+        "0x006ff2cc,0x006ff2d8" ||
+      latestEvidence.beginPaintLastError !== 0 ||
+      latestEvidence.beginPaintGuestWriteBytes !== 64 ||
+      latestEvidence.beginPaintPaintStructBytes !== 64 ||
+      latestEvidence.beginPaintErase !== 1 ||
+      latestEvidence.beginPaintUpdateRect?.join(",") !== "0,0,1280,720" ||
+      latestEvidence.beginPaintGeneration !== 1 ||
+      latestEvidence.beginPaintLivePaintSessions !== 1 ||
+      latestEvidence.beginPaintLiveDeviceContexts !== 1 ||
+      latestEvidence.endPaintImplemented !== true ||
+      latestEvidence.endPaintSequence !== 127_354 ||
+      latestEvidence.endPaintInstructionCount !== 28_761_073 ||
+      latestEvidence.endPaintArguments?.join(",") !==
+        "0x48010001,0x006ff318" ||
+      latestEvidence.endPaintResult !== 1 ||
+      latestEvidence.endPaintImplementationId !==
+        "user32.end-paint.matching-session.v1" ||
+      latestEvidence.endPaintReturnAddress !== "0x100928e5" ||
+      latestEvidence.endPaintStackPointers?.join(",") !==
+        "0x006ff2cc,0x006ff2d8" ||
+      latestEvidence.endPaintLastError !== 0 ||
+      latestEvidence.endPaintGuestWriteBytes !== 0 ||
+      latestEvidence.endPaintLivePaintSessions !== 0 ||
+      latestEvidence.endPaintLiveDeviceContexts !== 0 ||
+      latestEvidence.updateWindowWindowAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.updateWindowUpdateRegionAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.updateWindowUpdateRegionSource !==
+        "set-window-pos-frame-change-nccalcsize-completion" ||
+      latestEvidence.updateWindowUpdateRegionConsumption !==
+        "begin-paint-targeted-commit" ||
+      latestEvidence.updateWindowPaintSessionAuthority !==
+        "runtime/user32.rs::RuntimeUser32" ||
+      latestEvidence.updateWindowDeviceContextAuthority !==
+        "runtime/gdi.rs::RuntimeGdi" ||
+      latestEvidence.updateWindowTransaction !==
+        "user32-gdi-guest-memory-preflight-before-targeted-commit" ||
+      latestEvidence.updateWindowPaintSessionRetired !== true ||
+      latestEvidence.updateWindowDeviceContextRetired !== true ||
+      latestEvidence.updateWindowFailureAtomicity !== true ||
+      latestEvidence.updateWindowCallbackActiveAtStop !== true ||
+      latestEvidence.updateWindowBrowserOwnsLogicalWindowState !== false ||
+      latestEvidence.updateWindowBrowserResourceCreated !== false ||
+      latestEvidence.updateWindowNodeCompletions !== 3 ||
+      latestEvidence.updateWindowChromeCompletions !== 3 ||
+      latestEvidence.updateWindowNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "latest native and private UpdateWindow paint lifecycle evidence is invalid",
     );
   }
   requireInteger(

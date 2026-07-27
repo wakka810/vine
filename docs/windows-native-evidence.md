@@ -5299,3 +5299,42 @@ supported calls、instruction 28,761,027、semantic digest
 次stopはendpoint ID 235／address `0x7F000EA0`／IAT `0x100D1484`／return `0x100938DA`の
 `USER32.dll!ShowWindow(0x48010001,SW_SHOWNORMAL)`／`endpoint-contract-missing`である。General z-order、
 non-client repaint、multi-window positioning、DOM placementはclaimしない。
+
+## 156. BGI already-visible `ShowWindow(SW_SHOWNORMAL)`
+
+Focused `show-window-normal` captureは358,552 bytes／1,071 lines／SHA-256
+`cfa4de77d32dc9a593d790f3e7f1d364bbcd474c9835d68a6fdd18f20b68edd8`、summaryは51,083 bytes／
+SHA-256 `b956032467e1c0911f503b9ebaf452c0f7711d17486d655253f561280e6ec9e7`で、497 API pairsが
+balanced、diagnosticsは0である。Profileは`x86-bgi-show-window-normal-v1`、invalid-window oracleは
+`x86-show-window-normal-invalid-window-v1`である。Raw trace／summaryは`.work/windows-traces/`に保持し、
+Gitへ追加しない。Source executable hashは
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のまま不変である。
+
+BGI caller return RVA `0x000938DA`は既にvisibleなtargetへcommand 1を渡す。Native resultは24で、BOOLとして
+nonzero、LastErrorは0を保存する。Outer／client geometry、style、update rect、active／focus／foreground relationは
+call前後で不変で、WndProc callbackはない。Invalid HWND `0x1234`はFALSE／
+`ERROR_INVALID_WINDOW_HANDLE` 1,400となる。Callerはreturn valueを利用せず直後にglobal zero storeへ進むため、
+runtimeはprevious-visible semanticをcanonical BOOL 1へ正規化し、nativeのopaque nonzero値をimportしない。
+
+## 157. BGI synchronous `UpdateWindow` paint lifecycle
+
+Focused `update-window` captureは498,871 bytes／1,463 lines／SHA-256
+`c670f314315d2fed87e4fff5be2a2fca719e5c969e0155f6169594e3b60ffd27`、summaryは53,324 bytes／
+SHA-256 `88bdde2c8480bbb0ea1ad2b9a3b82aa9b1a69f5842eb4921fc9e34be6bc6f50c`で、693 API pairsが
+balanced、diagnosticsは0である。Profileは`x86-bgi-update-window-full-client-paint-v1`、invalid-window oracleは
+`x86-update-window-paint-invalid-window-v1`である。Source executable hashは上記fingerprintから変化していない。
+
+BGI caller return RVA `0x000938E7`の`UpdateWindow`はBOOL 1／LastError 0を返し、full-client update rect
+`[0,0,1280,720]`を消費する。Nested WndProcは`WM_PAINT` 15を一回受け、result 0である。その中のRVA
+`0x000928D9`の`BeginPaint`はnonzero HDC、LastError 0を返し、64-byte x86 PAINTSTRUCTを
+`[HDC, erase=1, rect=(0,0,1280,720), restore=0, incremental-update=0, reserved=32 zero bytes]`へ全書込する。
+RVA `0x000928E5`の`EndPaint`はBOOL 1／LastError 0を返し、PAINTSTRUCTを変更しない。Invalid HWND
+`0x1234`に対するUpdate／Begin／Endは全て0／LastError 1,400で、Beginの`0xA5` sentinelとEndの`0x5A`
+sentinel structureを一byteも変更しない。
+
+Runtimeはframe-change completionで作ったfull-client regionを`BeginPaint`まで保持し、Rust-owned paint session、
+logical HDC、guest PAINTSTRUCTをjoint preflight後にpublishする。`EndPaint`はexact structure relationを要求し、
+sessionとHDCを同時にretireする。Canonical NodeはShowWindow、BeginPaint、EndPaintまでの127,353 supported callsを
+完了し、outer UpdateWindow callbackがactiveなinstruction 28,761,128で`IDirect3DDevice9::Clear` slot 43へ停止する。
+Chrome protocol v28も同じordered semantics、semantic digest、memory digestを再現した。General invalidation、
+background erase、nested paint、renderer clear／presentはこのevidenceからclaimしない。

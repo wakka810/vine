@@ -3,11 +3,11 @@ use serde::Serialize;
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
     ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall,
-    ApiHandlerResult, ApiImmediate, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
-    ApiReturnValue, ApiScalarOrPointerConstraint, ApiSymbol, ApiValueSchema, ApiWriteRequirement,
-    CallbackPolicy, CallingConvention, ExecutionSession, GuestCallbackArgument,
-    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestCallbackScratchPointerRelocation,
-    LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiScalarOrPointerConstraint, ApiSymbol,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
+    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    GuestCallbackScratchPointerRelocation, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
@@ -17,22 +17,25 @@ use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
     RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE, RuntimeCursorResource,
-    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeIconResource, RuntimeImeStatusWindowRequest,
-    RuntimeInputProfile, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeWindow,
-    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
-    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
-    RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
+    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
+    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest, RuntimeCursorResource,
+    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeEndPaintRequest, RuntimeIconResource,
+    RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeRect,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind,
+    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
+    RuntimeWindow, RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference,
+    RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
+    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 23;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 26;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -41,6 +44,10 @@ pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
 pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v5";
+pub const SHOW_WINDOW_IMPLEMENTATION: &str = "user32.show-window.visible-normal-noop.v1";
+pub const UPDATE_WINDOW_IMPLEMENTATION: &str = "user32.update-window.full-client-paint.v1";
+pub const BEGIN_PAINT_IMPLEMENTATION: &str = "user32.begin-paint.full-client-logical-dc.v1";
+pub const END_PAINT_IMPLEMENTATION: &str = "user32.end-paint.matching-session.v1";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const SET_TIMER_IMPLEMENTATION: &str = "user32.set-timer.live-window-callback-registration.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
@@ -62,6 +69,7 @@ const RT_GROUP_ICON: u32 = 14;
 const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
+const WM_PAINT: u32 = 0x000f;
 const WM_TIMER: u32 = 0x0113;
 const WM_MOVE: u32 = 0x0003;
 const WM_SIZE: u32 = 0x0005;
@@ -171,6 +179,31 @@ pub struct User32SetWindowPosPolicy {
     pub activate_app_other_thread_id: u32,
     pub ime_set_context_flags: u32,
     pub ime_notify_command: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32ShowWindowPolicy {
+    pub profile_id: String,
+    pub normal_command: u32,
+    pub require_visible: bool,
+    pub require_active: bool,
+    pub require_focused: bool,
+    pub require_foreground: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32UpdateWindowPolicy {
+    pub profile_id: String,
+    pub paint_message: u32,
+    pub callback_result: u32,
+    pub paint_struct_byte_length: u32,
+    pub erase_pending: bool,
+    pub require_visible: bool,
+    pub require_active: bool,
+    pub require_focused: bool,
+    pub require_foreground: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -293,6 +326,8 @@ pub struct User32CompatibilityPolicy {
     pub send_message_a: Option<User32SendMessageAPolicy>,
     pub send_message_a_ime_control: Option<User32SendMessageAImeControlPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
+    pub show_window: Option<User32ShowWindowPolicy>,
+    pub update_window: Option<User32UpdateWindowPolicy>,
     pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
     pub set_timer: Option<User32SetTimerPolicy>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
@@ -306,11 +341,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v23() -> Self {
+    pub fn controlled_v26() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23"
+            id: "user32-single-monitor-window-frame-change-show-update-paint-v26"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -387,6 +422,25 @@ impl User32CompatibilityPolicy {
                 activate_app_other_thread_id: 0,
                 ime_set_context_flags: 0xc000_000f,
                 ime_notify_command: 2,
+            }),
+            show_window: Some(User32ShowWindowPolicy {
+                profile_id: "already-visible-active-normal-noop-v1".to_owned(),
+                normal_command: 1,
+                require_visible: true,
+                require_active: true,
+                require_focused: true,
+                require_foreground: true,
+            }),
+            update_window: Some(User32UpdateWindowPolicy {
+                profile_id: "visible-active-full-client-paint-v1".to_owned(),
+                paint_message: WM_PAINT,
+                callback_result: 0,
+                paint_struct_byte_length: RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH as u32,
+                erase_pending: true,
+                require_visible: true,
+                require_active: true,
+                require_focused: true,
+                require_foreground: true,
             }),
             set_window_long_a: Some(User32SetWindowLongAPolicy {
                 profile_id: "main-window-gwl-style-visible-v1".to_owned(),
@@ -623,6 +677,42 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-set-window-pos-profile-invalid",
                 "User32 SetWindowPos profile requires the reached logical window, small-icon message, display, show/hide, resize, and frame-change move callback sequences",
+            ));
+        }
+        if let Some(profile) = self.show_window.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.normal_command != 1
+                || !profile.require_visible
+                || !profile.require_active
+                || !profile.require_focused
+                || !profile.require_foreground
+                || self.set_window_pos.is_none()
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-show-window-profile-invalid",
+                "User32 ShowWindow profile requires the reached already-visible active SW_SHOWNORMAL no-op variant",
+            ));
+        }
+        if let Some(profile) = self.update_window.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.paint_message != WM_PAINT
+                || profile.callback_result != 0
+                || profile.paint_struct_byte_length != RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH as u32
+                || !profile.erase_pending
+                || !profile.require_visible
+                || !profile.require_active
+                || !profile.require_focused
+                || !profile.require_foreground
+                || self.show_window.is_none()
+                || self.set_window_pos.is_none()
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-update-window-profile-invalid",
+                "User32 UpdateWindow profile requires the reached visible active full-client WM_PAINT, BeginPaint, and EndPaint variant",
             ));
         }
         if let Some(profile) = self.set_window_long_a.as_ref()
@@ -974,6 +1064,24 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        SHOW_WINDOW_IMPLEMENTATION => match handle_show_window(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        UPDATE_WINDOW_IMPLEMENTATION => {
+            match handle_update_window(policy, callback_return_sentinel, contract, frame, session) {
+                Ok(result) => result,
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        BEGIN_PAINT_IMPLEMENTATION => match handle_begin_paint(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        END_PAINT_IMPLEMENTATION => match handle_end_paint(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         SET_WINDOW_LONG_A_IMPLEMENTATION => {
             match handle_set_window_long_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -1945,7 +2053,7 @@ fn handle_send_message_a(
         completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
     };
     session.preflight_guest_callback(&ApiGuestCallbackCall {
-        request: request.clone(),
+        request: Box::new(request.clone()),
         contract: contract.clone(),
         frame: frame.clone(),
     })?;
@@ -2071,6 +2179,346 @@ fn handle_set_timer(
         }
         Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
     }
+}
+
+fn handle_show_window(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let show_policy = policy.show_window.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "show-window-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical window visibility queries",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let command = required_argument(contract, frame, 1, "show command")?;
+    if command != show_policy.normal_command {
+        return Err(ApiFault::unsupported(
+            "user32-windows",
+            "show-window-command-unsupported",
+            "ShowWindow command is outside the reached SW_SHOWNORMAL already-visible variant",
+        ));
+    }
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let window = match session.runtime().window(window_handle) {
+        Ok(window) => window,
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    if window.creation.owner_thread_id != session.runtime().current_thread_id()
+        || window.lifecycle != RuntimeWindowLifecycle::Created
+    {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "show-window-owner-lifecycle-mismatch",
+            "reached ShowWindow variant requires the selected owner thread and a created logical window",
+        ));
+    }
+    let position_policy = policy.set_window_pos.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "show-window-position-policy-missing",
+            "validated ShowWindow policy has no SetWindowPos state profile",
+        )
+    })?;
+    let geometry = window.creation.geometry;
+    if window.visible != show_policy.require_visible
+        || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+        || window.topmost
+        || geometry.x != position_policy.frame_change_move_x
+        || geometry.y != position_policy.frame_change_move_y
+        || geometry.width != position_policy.resize_outer_width
+        || geometry.height != position_policy.resize_outer_height
+        || geometry.client_width != position_policy.resize_client_width
+        || geometry.client_height != position_policy.resize_client_height
+    {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "show-window-state-mismatch",
+            "logical window state is outside the reached already-visible normal no-op variant",
+        ));
+    }
+    let active = session
+        .runtime()
+        .active_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let focused = session
+        .runtime()
+        .focused_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let foreground = session
+        .runtime()
+        .foreground_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if active == show_policy.require_active.then_some(window_handle)
+        && focused == show_policy.require_focused.then_some(window_handle)
+        && foreground == show_policy.require_foreground.then_some(window_handle)
+    {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(window.visible))
+            .with_last_error(entry_last_error));
+    }
+    Err(ApiFault::invalid_call(
+        "user32-windows",
+        "show-window-relation-mismatch",
+        "logical active, focus, or foreground relation is outside the reached ShowWindow variant",
+    ))
+}
+
+fn handle_update_window(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let update_policy = policy.update_window.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "update-window-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable synchronous logical window painting",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let window = match session.runtime().window(window_handle) {
+        Ok(window) => window,
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_WINDOW_HANDLE),
+            ));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let active = session
+        .runtime()
+        .active_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let focused = session
+        .runtime()
+        .focused_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let foreground = session
+        .runtime()
+        .foreground_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if window.visible != update_policy.require_visible
+        || active != update_policy.require_active.then_some(window_handle)
+        || focused != update_policy.require_focused.then_some(window_handle)
+        || foreground != update_policy.require_foreground.then_some(window_handle)
+    {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "update-window-relation-mismatch",
+            "logical visibility, active, focus, or foreground relation is outside the reached synchronous paint variant",
+        ));
+    }
+    let operation = session
+        .runtime()
+        .preview_update_window(RuntimeUpdateWindowRequest {
+            window_handle,
+            entry_last_error,
+            expected_callback_result: update_policy.callback_result,
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let procedure = session
+        .runtime()
+        .resolve_window_procedure(window_handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let request = update_window_callback_request(
+        operation,
+        procedure,
+        update_policy.paint_message,
+        callback_return_sentinel,
+    )?;
+    session.preflight_guest_callback(&ApiGuestCallbackCall {
+        request: Box::new(request.clone()),
+        contract: contract.clone(),
+        frame: frame.clone(),
+    })?;
+    Ok(ApiHandlerResult::GuestCallback(request))
+}
+
+fn handle_begin_paint(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let paint_policy = policy.update_window.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-paint",
+            "begin-paint-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical paint sessions",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let paint_struct_address =
+        GuestAddress(required_argument(contract, frame, 1, "PAINTSTRUCT output")?);
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime().window(window_handle) {
+        Ok(_) => {}
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            })
+            .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+    let (paint_session, device_context, write_result) = session
+        .begin_window_paint(RuntimeBeginPaintRequest {
+            window_handle,
+            paint_struct_address,
+            erase: paint_policy.erase_pending,
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    debug_assert_eq!(
+        paint_session.paint_struct_bytes.len(),
+        paint_policy.paint_struct_byte_length as usize
+    );
+    debug_assert_eq!(
+        paint_session.device_context_id,
+        device_context.device_context_id
+    );
+    debug_assert_eq!(paint_session.device_context_handle, device_context.handle);
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+        value: device_context.handle,
+    })
+    .with_committed_guest_write(ApiGuestWriteReceipt {
+        write: ApiGuestWrite {
+            address: paint_struct_address,
+            bytes: paint_session.paint_struct_bytes,
+        },
+        result: write_result,
+    })
+    .with_last_error(entry_last_error))
+}
+
+fn handle_end_paint(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let paint_policy = policy.update_window.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-paint",
+            "end-paint-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical paint sessions",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let paint_struct_address =
+        GuestAddress(required_argument(contract, frame, 1, "PAINTSTRUCT input")?);
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime().window(window_handle) {
+        Ok(_) => {}
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+    let paint_struct_bytes = session
+        .memory()
+        .read(
+            paint_struct_address,
+            paint_policy.paint_struct_byte_length as usize,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    session
+        .end_window_paint(RuntimeEndPaintRequest {
+            window_handle,
+            paint_struct_address,
+            paint_struct_bytes,
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(entry_last_error))
+}
+
+pub(crate) fn resolve_update_window_callback(
+    call: &ApiGuestCallbackCall,
+    result: u32,
+    session: &ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let GuestCallbackCompletionPolicy::UpdateWindow { operation } = call.request.completion_policy
+    else {
+        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+            "user32-windows",
+            "update-window-callback-policy-mismatch",
+            "UpdateWindow callback continuation has the wrong completion policy",
+        ));
+    };
+    match session
+        .runtime()
+        .preview_update_window_callback(operation, result)
+    {
+        Ok(RuntimeUpdateWindowCallbackAction::Completed { .. }) => ApiHandlerResult::Immediate(
+            ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(operation.entry_last_error),
+        ),
+        Err(error) => ApiHandlerResult::Fault(ApiFault::from_runtime(error, &call.frame.endpoint)),
+    }
+}
+
+fn update_window_callback_request(
+    operation: RuntimeUpdateWindowOperation,
+    procedure: RuntimeWindowProcedure,
+    paint_message: u32,
+    return_sentinel: GuestAddress,
+) -> Result<GuestCallbackRequest, ApiFault> {
+    if procedure.calling_convention != RuntimeWindowProcedureCallingConvention::Stdcall
+        || procedure.argument_bytes != RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-windows",
+            "update-window-procedure-abi-invalid",
+            "logical WM_PAINT target does not use the required four-u32 stdcall ABI",
+        ));
+    }
+    Ok(GuestCallbackRequest {
+        target: procedure.address,
+        arguments: vec![
+            GuestCallbackArgument::U32(operation.window_handle),
+            GuestCallbackArgument::U32(paint_message),
+            GuestCallbackArgument::U32(0),
+            GuestCallbackArgument::U32(0),
+        ],
+        scratch: Vec::new(),
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::UpdateWindow { operation },
+    })
 }
 
 fn handle_set_window_pos(
@@ -2406,7 +2854,7 @@ fn handle_set_window_pos(
     let request =
         set_window_pos_callback_request(operation, class, first_message, callback_return_sentinel)?;
     session.preflight_guest_callback(&ApiGuestCallbackCall {
-        request: request.clone(),
+        request: Box::new(request.clone()),
         contract: contract.clone(),
         frame: frame.clone(),
     })?;
@@ -3566,7 +4014,7 @@ fn handle_create_window_ex_a(
         contract,
     )?;
     let callback_call = ApiGuestCallbackCall {
-        request: callback.clone(),
+        request: Box::new(callback.clone()),
         contract: contract.clone(),
         frame: frame.clone(),
     };
@@ -3830,7 +4278,7 @@ fn handle_def_window_proc_window_position(
             completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
         };
         session.preflight_guest_callback(&ApiGuestCallbackCall {
-            request: request.clone(),
+            request: Box::new(request.clone()),
             contract: contract.clone(),
             frame: frame.clone(),
         })?;
@@ -3944,7 +4392,7 @@ fn handle_def_window_proc_window_position(
         completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
     };
     session.preflight_guest_callback(&ApiGuestCallbackCall {
-        request: request.clone(),
+        request: Box::new(request.clone()),
         contract: contract.clone(),
         frame: frame.clone(),
     })?;
@@ -4355,7 +4803,7 @@ fn handle_def_window_proc_activation(
                 &contract.endpoint,
             )?;
             session.preflight_guest_callback(&ApiGuestCallbackCall {
-                request: request.clone(),
+                request: Box::new(request.clone()),
                 contract: contract.clone(),
                 frame: frame.clone(),
             })?;
@@ -4399,7 +4847,7 @@ fn handle_def_window_proc_activation(
                 completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
             };
             session.preflight_guest_callback(&ApiGuestCallbackCall {
-                request: request.clone(),
+                request: Box::new(request.clone()),
                 contract: contract.clone(),
                 frame: frame.clone(),
             })?;
@@ -5398,6 +5846,10 @@ pub fn user32_contract_for_endpoint(
         "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
         "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
         "SetWindowPos" => Ok(Some(set_window_pos_contract(endpoint)?)),
+        "ShowWindow" => Ok(Some(show_window_contract(endpoint)?)),
+        "UpdateWindow" => Ok(Some(update_window_contract(endpoint)?)),
+        "BeginPaint" => Ok(Some(begin_paint_contract(endpoint)?)),
+        "EndPaint" => Ok(Some(end_paint_contract(endpoint)?)),
         "SetWindowLongA" => Ok(Some(set_window_long_a_contract(endpoint)?)),
         "SetTimer" => Ok(Some(set_timer_contract(endpoint)?)),
         "LoadCursorA" => Ok(Some(load_cursor_a_contract(endpoint)?)),
@@ -5544,6 +5996,94 @@ pub fn set_window_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Optional,
         implementation_id: SET_WINDOW_POS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn show_window_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                u32_argument("showCommand"),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SHOW_WINDOW_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn update_window_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_window_handle_argument("window", false)],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Optional,
+        implementation_id: UPDATE_WINDOW_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn begin_paint_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                conditional_out_struct(
+                    "paintStruct",
+                    "PAINTSTRUCT32",
+                    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH as u32,
+                ),
+            ],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: BEGIN_PAINT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn end_paint_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                required_in_struct(
+                    "paintStruct",
+                    "PAINTSTRUCT32",
+                    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH as u32,
+                ),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: END_PAINT_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -6054,7 +6594,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v23();
+        let policy = User32CompatibilityPolicy::controlled_v26();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -6088,6 +6628,9 @@ mod tests {
         assert_eq!(timer.timer_id, 1);
         assert_eq!(timer.interval_milliseconds, 20);
         assert_eq!(timer.message, WM_TIMER);
+        let update_window = policy.update_window.as_ref().unwrap();
+        assert_eq!(update_window.paint_message, WM_PAINT);
+        assert_eq!(update_window.callback_result, 0);
 
         let mut invalid = policy;
         invalid
@@ -6101,7 +6644,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v26();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -6113,14 +6656,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v26();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v26();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -6131,21 +6674,28 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v26();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v26();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_update = User32CompatibilityPolicy::controlled_v26();
+        invalid_update.update_window.as_mut().unwrap().paint_message = WM_PAINT + 1;
+        assert_eq!(
+            invalid_update.validate().unwrap_err().code,
+            "user32-update-window-profile-invalid"
+        );
+
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v26();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -6156,7 +6706,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v26();
         invalid_timer
             .set_timer
             .as_mut()
@@ -6167,14 +6717,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v26();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v26();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -6185,7 +6735,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v26();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -6196,7 +6746,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v26();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -6207,7 +6757,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v26();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -6219,7 +6769,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v26();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -6230,7 +6780,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v26();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -6241,7 +6791,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v26();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -6252,7 +6802,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v23();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v26();
         invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

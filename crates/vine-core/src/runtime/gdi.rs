@@ -517,6 +517,21 @@ pub(super) struct RuntimeGetDcPlan {
     next_surface_id: u64,
 }
 
+impl RuntimeGetDcPlan {
+    pub(super) fn result(&self) -> RuntimeGetDcResult {
+        let RuntimeDeviceContextTarget::Window { surface_id, .. } = self.device_context.target
+        else {
+            unreachable!("window GetDC plan must publish a window target")
+        };
+        RuntimeGetDcResult {
+            device_context_id: self.device_context.id,
+            handle: self.device_context.handle,
+            surface_id,
+            surface_created: self.new_surface.is_some(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeResizeWindowSurfacePlan {
     expected_generation: u64,
@@ -1035,6 +1050,14 @@ impl RuntimeGdi {
         &mut self,
         plan: RuntimeGetDcPlan,
     ) -> Result<RuntimeGetDcResult, RuntimeStateError> {
+        self.preflight_get_dc(&plan)?;
+        Ok(self.commit_preflighted_get_dc(plan))
+    }
+
+    pub(super) fn preflight_get_dc(
+        &self,
+        plan: &RuntimeGetDcPlan,
+    ) -> Result<(), RuntimeStateError> {
         if self.generation != plan.expected_generation
             || self.next_device_context_id != plan.device_context.id.0
             || self.next_device_context_handle != plan.device_context.handle
@@ -1049,22 +1072,32 @@ impl RuntimeGdi {
         {
             return Err(stale_plan("get-dc-plan-stale"));
         }
-        let surface_created = plan.new_surface.is_some();
-        if let Some(surface) = plan.new_surface {
+        if let Some(surface) = plan.new_surface.as_ref() {
             if self.window_surface_index.contains_key(&surface.window_id)
                 || self.surfaces.contains_key(&surface.id)
             {
                 return Err(stale_plan("get-dc-plan-stale"));
             }
-            self.window_surface_index
-                .insert(surface.window_id, surface.id);
-            self.surfaces.insert(surface.id, surface);
         } else if !matches!(
             plan.device_context.target,
             RuntimeDeviceContextTarget::Window { surface_id, .. }
                 if self.surfaces.contains_key(&surface_id)
         ) {
             return Err(stale_plan("get-dc-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_preflighted_get_dc(
+        &mut self,
+        plan: RuntimeGetDcPlan,
+    ) -> RuntimeGetDcResult {
+        debug_assert!(self.preflight_get_dc(&plan).is_ok());
+        let result = plan.result();
+        if let Some(surface) = plan.new_surface {
+            self.window_surface_index
+                .insert(surface.window_id, surface.id);
+            self.surfaces.insert(surface.id, surface);
         }
         self.device_context_handle_index
             .insert(plan.device_context.handle, plan.device_context.id);
@@ -1074,16 +1107,7 @@ impl RuntimeGdi {
         self.next_device_context_handle = plan.next_device_context_handle;
         self.next_surface_id = plan.next_surface_id;
         self.generation = plan.next_generation;
-        let RuntimeDeviceContextTarget::Window { surface_id, .. } = plan.device_context.target
-        else {
-            unreachable!("window GetDC plan must publish a window target")
-        };
-        Ok(RuntimeGetDcResult {
-            device_context_id: plan.device_context.id,
-            handle: plan.device_context.handle,
-            surface_id,
-            surface_created,
-        })
+        result
     }
 
     pub(super) fn plan_get_screen_dc(
@@ -2206,6 +2230,15 @@ impl RuntimeGdi {
         &mut self,
         plan: RuntimeReleaseDcPlan,
     ) -> Result<(), RuntimeStateError> {
+        self.preflight_release_dc(&plan)?;
+        self.commit_preflighted_release_dc(plan);
+        Ok(())
+    }
+
+    pub(super) fn preflight_release_dc(
+        &self,
+        plan: &RuntimeReleaseDcPlan,
+    ) -> Result<(), RuntimeStateError> {
         if self.generation != plan.expected_generation
             || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
             || self
@@ -2217,17 +2250,24 @@ impl RuntimeGdi {
         }
         if let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
             plan.device_context.target
+            && self.graphics_surface_dc_index.get(&surface_id) != Some(&plan.device_context.id)
         {
-            if self.graphics_surface_dc_index.get(&surface_id) != Some(&plan.device_context.id) {
-                return Err(stale_plan("release-dc-plan-stale"));
-            }
+            return Err(stale_plan("release-dc-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_preflighted_release_dc(&mut self, plan: RuntimeReleaseDcPlan) {
+        debug_assert!(self.preflight_release_dc(&plan).is_ok());
+        if let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
+            plan.device_context.target
+        {
             self.graphics_surface_dc_index.remove(&surface_id);
         }
         self.device_contexts.remove(&plan.device_context.id);
         self.device_context_handle_index
             .remove(&plan.device_context.handle);
         self.generation = plan.next_generation;
-        Ok(())
     }
 
     pub(super) fn plan_fill_rect(

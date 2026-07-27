@@ -23,16 +23,18 @@ use crate::runtime::{
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
     RuntimeApiBoundaryDisposition, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
-    RuntimeCallbackFrameId, RuntimeCallbackScratch, RuntimeCreateDibSectionResult,
-    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeDynamicEndpoint,
-    RuntimeGdiDibSectionDescriptor, RuntimeGdiObject, RuntimeGdiTextRasterResult,
-    RuntimeGdiTextRasterTarget, RuntimeGdiplusSession, RuntimeGdiplusStartupRequest,
-    RuntimeGuestImport, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
-    RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeapTeardown,
+    RuntimeBeginPaintRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
+    RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
+    RuntimeDynamicEndpoint, RuntimeEndPaintRequest, RuntimeGdiDibSectionDescriptor,
+    RuntimeGdiObject, RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget,
+    RuntimeGdiplusSession, RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGuestImport,
+    RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimePaintSession,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeVirtualMemoryReservation,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeUpdateWindowCallbackAction,
+    RuntimeUpdateWindowOperation, RuntimeVirtualMemoryReservation,
     RuntimeVirtualMemoryReserveRequest, RuntimeWindowCreationCallbackAction,
     RuntimeWindowCreationMessage, RuntimeWindowId, RuntimeWritableReadResult,
     RuntimeWritableWriteResult,
@@ -639,6 +641,9 @@ pub enum GuestCallbackCompletionPolicy {
         operation: RuntimeSetWindowPosDefaultOperation,
         message: RuntimeSetWindowPosDefaultCallbackMessage,
     },
+    UpdateWindow {
+        operation: RuntimeUpdateWindowOperation,
+    },
 }
 
 impl GuestCallbackCompletionPolicy {
@@ -648,7 +653,8 @@ impl GuestCallbackCompletionPolicy {
             | (Self::ReturnConstantU32 { .. }, ApiReturnSchema::U32)
             | (Self::SetWindowPosDefault { .. }, ApiReturnSchema::U32)
             | (Self::ReturnBool32, ApiReturnSchema::Bool32)
-            | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32) => true,
+            | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32)
+            | (Self::UpdateWindow { .. }, ApiReturnSchema::Bool32) => true,
             (
                 Self::CreateWindowExA { .. },
                 ApiReturnSchema::LogicalHandle {
@@ -667,7 +673,8 @@ impl GuestCallbackCompletionPolicy {
             Self::ReturnConstantU32 { value } => ApiReturnValue::U32(value),
             Self::CreateWindowExA { .. }
             | Self::SetWindowPos { .. }
-            | Self::SetWindowPosDefault { .. } => return None,
+            | Self::SetWindowPosDefault { .. }
+            | Self::UpdateWindow { .. } => return None,
         };
         Some(ApiImmediate::new(value))
     }
@@ -678,6 +685,7 @@ pub enum RuntimeGuestCallbackSemanticAction {
     WindowCreation(RuntimeWindowCreationCallbackAction),
     SetWindowPos(RuntimeSetWindowPosCallbackAction),
     SetWindowPosDefault(RuntimeSetWindowPosDefaultCallbackAction),
+    UpdateWindow(RuntimeUpdateWindowCallbackAction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1038,7 +1046,7 @@ pub struct ApiDeferredCall {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGuestCallbackCall {
-    pub request: GuestCallbackRequest,
+    pub request: Box<GuestCallbackRequest>,
     pub contract: ApiContract,
     pub frame: ApiCallFrame,
 }
@@ -1121,6 +1129,21 @@ impl<'a> ExecutionSession<'a> {
             descriptor,
             bits_output,
         )
+    }
+
+    pub fn begin_window_paint(
+        &mut self,
+        request: RuntimeBeginPaintRequest,
+    ) -> Result<(RuntimePaintSession, RuntimeGetDcResult, GuestWriteResult), RuntimeStateError>
+    {
+        self.runtime.begin_window_paint(self.memory, request)
+    }
+
+    pub fn end_window_paint(
+        &mut self,
+        request: RuntimeEndPaintRequest,
+    ) -> Result<RuntimePaintSession, RuntimeStateError> {
+        self.runtime.end_window_paint(request)
     }
 
     pub fn delete_gdi_object(
@@ -1389,6 +1412,15 @@ impl<'a> ExecutionSession<'a> {
                 Ok(Some(
                     RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(action),
                 ))
+            }
+            GuestCallbackCompletionPolicy::UpdateWindow { operation } => {
+                let action = self
+                    .runtime
+                    .complete_update_window_callback(operation, result)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                Ok(Some(RuntimeGuestCallbackSemanticAction::UpdateWindow(
+                    action,
+                )))
             }
         }
     }
@@ -1977,7 +2009,7 @@ impl ApiDispatcher {
                     )
                 } else {
                     DispatchOutcome::GuestCallback(ApiGuestCallbackCall {
-                        request: callback,
+                        request: Box::new(callback),
                         contract: contract.clone(),
                         frame,
                     })
@@ -2105,6 +2137,9 @@ impl ApiDispatcher {
             GuestCallbackCompletionPolicy::SetWindowPosDefault { .. } => {
                 crate::user32::resolve_set_window_pos_default_callback(&call, result, session)
             }
+            GuestCallbackCompletionPolicy::UpdateWindow { .. } => {
+                crate::user32::resolve_update_window_callback(&call, result, session)
+            }
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32
             | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => {
@@ -2144,7 +2179,7 @@ impl ApiDispatcher {
                     )
                 } else {
                     DispatchOutcome::GuestCallback(ApiGuestCallbackCall {
-                        request: callback,
+                        request: Box::new(callback),
                         contract: call.contract,
                         frame: call.frame,
                     })

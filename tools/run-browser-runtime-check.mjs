@@ -76,7 +76,11 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const updateWindowProfile = bgiProfile === "user32-update-window";
+const showWindowNormalProfile =
+  updateWindowProfile || bgiProfile === "user32-show-window-normal";
 const setWindowPosFrameChangeMoveProfile =
+  showWindowNormalProfile ||
   bgiProfile === "user32-set-window-pos-frame-change-move";
 const d3d9RecreatedTexturesProfile =
   setWindowPosFrameChangeMoveProfile ||
@@ -96,7 +100,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v27";
+const runtimeProtocol = "vine.browser-runtime-worker.v28";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -727,6 +731,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
+        "user32-show-window-normal",
+        "user32-update-window",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -751,6 +757,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
+        "user32-show-window-normal",
+        "user32-update-window",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -775,6 +783,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
+        "user32-show-window-normal",
+        "user32-update-window",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -1382,6 +1392,208 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(frameChange.nonClientPaintAndEraseModeled, false);
       } else {
         assert.equal(evidence.report.setWindowPosFrameChangeMove, null);
+      }
+      if (showWindowNormalProfile) {
+        const show = evidence.report.showWindowNormal;
+        assert(
+          show !== null,
+          "Chrome Worker omitted ShowWindow(SW_SHOWNORMAL) evidence",
+        );
+        assert.equal(show.callCount, 1);
+        assert.equal(show.call.sequence, 127_351);
+        assert.equal(show.call.module.toLowerCase(), "user32.dll");
+        assert.equal(show.call.symbol, "ShowWindow");
+        assert.equal(show.call.occurrence, 1);
+        assert.equal(show.call.trapInstructionCount, 28_761_027);
+        assert.deepEqual(show.call.arguments, [0x4801_0001, 1]);
+        assert.deepEqual(show.call.result, { action: "set", value: 1 });
+        assert.equal(
+          show.call.implementationId,
+          "user32.show-window.visible-normal-noop.v1",
+        );
+        assert.equal(show.call.returnAddress, 0x1009_38da);
+        assert.equal(show.call.stackPointerBefore, 0x006f_f684);
+        assert.equal(show.call.stackPointerAfter, 0x006f_f690);
+        assert.equal(show.call.lastError, 0);
+        assert.deepEqual(show.call.guestWrites, []);
+        assert.equal(
+          show.windowAuthority,
+          "rust-runtime-user32-logical-window",
+        );
+        assert.equal(
+          show.relationAuthority,
+          "rust-runtime-user32-thread-and-process-window-relations",
+        );
+        assert.equal(show.mutation, false);
+        assert.equal(show.callbackCount, 0);
+        assert.equal(show.browserResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.showWindowNormal, null);
+      }
+      if (updateWindowProfile) {
+        const update = evidence.report.updateWindow;
+        assert(
+          update !== null,
+          "Chrome Worker omitted UpdateWindow paint lifecycle evidence",
+        );
+        assert.equal(update.callCount, 1);
+        assert.deepEqual(update.call, {
+          sequence: 127_352,
+          module: "USER32.dll",
+          symbol: "UpdateWindow",
+          occurrence: 1,
+          trapInstructionCount: 28_761_031,
+          arguments: [0x4801_0001],
+          pendingCallback: true,
+        });
+        assert.deepEqual(update.callbackEvents, [
+          {
+            action: "enter",
+            sequence: 127_352,
+            frameId: 30,
+            instructionCount: 28_761_031,
+            target: 0x1009_2550,
+            stackPointer: 0x006f_f674,
+            arguments: [0x4801_0001, 0x000f, 0, 0],
+          },
+        ]);
+        assert.deepEqual(
+          {
+            sequence: update.beginPaint.sequence,
+            module: update.beginPaint.module.toLowerCase(),
+            symbol: update.beginPaint.symbol,
+            occurrence: update.beginPaint.occurrence,
+            trapInstructionCount: update.beginPaint.trapInstructionCount,
+            arguments: update.beginPaint.arguments,
+            result: update.beginPaint.result,
+            implementationId: update.beginPaint.implementationId,
+            returnAddress: update.beginPaint.returnAddress,
+            stackPointerBefore: update.beginPaint.stackPointerBefore,
+            stackPointerAfter: update.beginPaint.stackPointerAfter,
+            lastError: update.beginPaint.lastError,
+          },
+          {
+            sequence: 127_353,
+            module: "user32.dll",
+            symbol: "BeginPaint",
+            occurrence: 1,
+            trapInstructionCount: 28_761_068,
+            arguments: [0x4801_0001, 0x006f_f318],
+            result: { action: "set", value: 0x4701_0009 },
+            implementationId:
+              "user32.begin-paint.full-client-logical-dc.v1",
+            returnAddress: 0x1009_28d9,
+            stackPointerBefore: 0x006f_f2cc,
+            stackPointerAfter: 0x006f_f2d8,
+            lastError: 0,
+          },
+        );
+        const paintStructBytes = expectedUpdateWindowPaintStructBytes();
+        assert.deepEqual(update.beginPaint.guestWrites, [
+          { address: 0x006f_f318, bytes: paintStructBytes },
+        ]);
+        assert.equal(update.beginPaint.paint.action, "begun");
+        assert.equal(update.beginPaint.paint.window.id, 1);
+        assert.equal(update.beginPaint.paint.window.handle, 0x4801_0001);
+        assert.equal(update.beginPaint.paint.window.paintGeneration, 0);
+        assert.equal(
+          update.beginPaint.paint.window.pendingUpdateRect,
+          undefined,
+        );
+        assert.deepEqual(update.beginPaint.paint.session.updateRect, {
+          left: 0,
+          top: 0,
+          right: 1_280,
+          bottom: 720,
+        });
+        assert.equal(update.beginPaint.paint.session.paintGeneration, 1);
+        assert.equal(
+          update.beginPaint.paint.session.deviceContextHandle,
+          0x4701_0009,
+        );
+        assert.equal(
+          update.beginPaint.paint.session.paintStructAddress,
+          0x006f_f318,
+        );
+        assert.deepEqual(
+          update.beginPaint.paint.session.paintStructBytes,
+          paintStructBytes,
+        );
+        assert.equal(update.beginPaint.paint.deviceContext.id, 9);
+        assert.equal(
+          update.beginPaint.paint.deviceContext.handle,
+          0x4701_0009,
+        );
+        assert.equal(update.beginPaint.paint.livePaintSessions, 1);
+        assert.equal(update.beginPaint.paint.liveDeviceContexts, 1);
+        assert.deepEqual(
+          {
+            sequence: update.endPaint.sequence,
+            module: update.endPaint.module.toLowerCase(),
+            symbol: update.endPaint.symbol,
+            occurrence: update.endPaint.occurrence,
+            trapInstructionCount: update.endPaint.trapInstructionCount,
+            arguments: update.endPaint.arguments,
+            result: update.endPaint.result,
+            implementationId: update.endPaint.implementationId,
+            returnAddress: update.endPaint.returnAddress,
+            stackPointerBefore: update.endPaint.stackPointerBefore,
+            stackPointerAfter: update.endPaint.stackPointerAfter,
+            lastError: update.endPaint.lastError,
+            guestWrites: update.endPaint.guestWrites,
+          },
+          {
+            sequence: 127_354,
+            module: "user32.dll",
+            symbol: "EndPaint",
+            occurrence: 1,
+            trapInstructionCount: 28_761_073,
+            arguments: [0x4801_0001, 0x006f_f318],
+            result: { action: "set", value: 1 },
+            implementationId: "user32.end-paint.matching-session.v1",
+            returnAddress: 0x1009_28e5,
+            stackPointerBefore: 0x006f_f2cc,
+            stackPointerAfter: 0x006f_f2d8,
+            lastError: 0,
+            guestWrites: [],
+          },
+        );
+        assert.equal(update.endPaint.paint.action, "ended");
+        assert.equal(update.endPaint.paint.window.paintGeneration, 1);
+        assert.equal(update.endPaint.paint.paintStructAddress, 0x006f_f318);
+        assert.equal(update.endPaint.paint.livePaintSessions, 0);
+        assert.equal(update.endPaint.paint.liveDeviceContexts, 0);
+        assert.equal(
+          update.windowAuthority,
+          "rust-runtime-user32-logical-window",
+        );
+        assert.equal(
+          update.updateRegionAuthority,
+          "rust-runtime-user32-window-update-region",
+        );
+        assert.equal(
+          update.updateRegionSource,
+          "set-window-pos-frame-change-nccalcsize-completion",
+        );
+        assert.equal(
+          update.updateRegionConsumption,
+          "begin-paint-targeted-commit",
+        );
+        assert.equal(
+          update.paintSessionAuthority,
+          "rust-runtime-user32-paint-session",
+        );
+        assert.equal(
+          update.deviceContextAuthority,
+          "rust-runtime-gdi-device-context",
+        );
+        assert.equal(update.paintSessionRetired, true);
+        assert.equal(update.deviceContextRetired, true);
+        assert.equal(update.failureAtomicity, true);
+        assert.equal(update.callbackActiveAtStop, true);
+        assert.equal(update.browserResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.updateWindow, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -2225,6 +2437,129 @@ function normalizeSetWindowPosFrameChangeMove(snapshot) {
   };
 }
 
+function expectedUpdateWindowPaintStructBytes() {
+  return [
+    0x09, 0x00, 0x01, 0x47,
+    0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x05, 0x00, 0x00,
+    0xd0, 0x02, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+  ];
+}
+
+function normalizeShowWindowNormal(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    ...snapshot,
+    call: {
+      ...snapshot.call,
+      module: snapshot.call.module.toLowerCase(),
+      guestWrites: snapshot.call.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
+    },
+  };
+}
+
+function normalizePaintSnapshot(snapshot) {
+  if (snapshot.action === "begun") {
+    return {
+      action: snapshot.action,
+      window: {
+        id: snapshot.window.id,
+        handle: snapshot.window.handle,
+        ownerThreadId: snapshot.window.ownerThreadId,
+        geometry: snapshot.window.geometry,
+        visible: snapshot.window.visible,
+        pendingUpdateRect: snapshot.window.pendingUpdateRect,
+        paintGeneration: snapshot.window.paintGeneration,
+      },
+      session: snapshot.session,
+      deviceContext: snapshot.deviceContext,
+      livePaintSessions: snapshot.livePaintSessions,
+      liveDeviceContexts: snapshot.liveDeviceContexts,
+    };
+  }
+  return {
+    action: snapshot.action,
+    window: {
+      id: snapshot.window.id,
+      handle: snapshot.window.handle,
+      ownerThreadId: snapshot.window.ownerThreadId,
+      geometry: snapshot.window.geometry,
+      visible: snapshot.window.visible,
+      pendingUpdateRect: snapshot.window.pendingUpdateRect,
+      paintGeneration: snapshot.window.paintGeneration,
+    },
+    paintStructAddress: snapshot.paintStructAddress,
+    livePaintSessions: snapshot.livePaintSessions,
+    liveDeviceContexts: snapshot.liveDeviceContexts,
+  };
+}
+
+function normalizePaintCall(call) {
+  return {
+    sequence: call.sequence,
+    module: call.module.toLowerCase(),
+    symbol: call.symbol,
+    occurrence: call.occurrence,
+    trapInstructionCount: call.trapInstructionCount,
+    arguments: call.arguments,
+    result: call.result,
+    implementationId: call.implementationId,
+    returnAddress: call.returnAddress,
+    stackPointerBefore: call.stackPointerBefore,
+    stackPointerAfter: call.stackPointerAfter,
+    lastError: call.lastError,
+    guestWrites: call.guestWrites.map(({ address, bytes }) => ({
+      address,
+      bytes,
+    })),
+    paint: normalizePaintSnapshot(call.paint),
+  };
+}
+
+function normalizeUpdateWindow(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    callCount: snapshot.callCount,
+    call: {
+      ...snapshot.call,
+      module: snapshot.call.module.toLowerCase(),
+    },
+    callbackEvents: snapshot.callbackEvents,
+    beginPaint: normalizePaintCall(snapshot.beginPaint),
+    endPaint: normalizePaintCall(snapshot.endPaint),
+    windowAuthority: snapshot.windowAuthority,
+    updateRegionAuthority: snapshot.updateRegionAuthority,
+    updateRegionSource: snapshot.updateRegionSource,
+    updateRegionConsumption: snapshot.updateRegionConsumption,
+    paintSessionAuthority: snapshot.paintSessionAuthority,
+    deviceContextAuthority: snapshot.deviceContextAuthority,
+    paintSessionRetired: snapshot.paintSessionRetired,
+    deviceContextRetired: snapshot.deviceContextRetired,
+    failureAtomicity: snapshot.failureAtomicity,
+    callbackActiveAtStop: snapshot.callbackActiveAtStop,
+    browserResourceCreated: snapshot.browserResourceCreated,
+  };
+}
+
 function normalizeD3d9RecreatedTextures(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -2309,6 +2644,16 @@ function validateBgiEquivalence(browser, oracle) {
     ),
     normalizeSetWindowPosFrameChangeMove(oracle.setWindowPosFrameChangeMove),
     "Chrome Worker SetWindowPos frame-change move differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeShowWindowNormal(browser.report.showWindowNormal),
+    normalizeShowWindowNormal(oracle.showWindowNormal),
+    "Chrome Worker ShowWindow(SW_SHOWNORMAL) evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeUpdateWindow(browser.report.updateWindow),
+    normalizeUpdateWindow(oracle.updateWindow),
+    "Chrome Worker UpdateWindow paint lifecycle differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),

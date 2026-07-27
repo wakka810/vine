@@ -308,6 +308,7 @@ struct GenericRuntimeCallbackEntry {
     frame_id: u64,
     target: u32,
     argument_count: usize,
+    api_argument_count: usize,
     allocation_start: u32,
     stack_pointer: u32,
     scratch_address: u32,
@@ -514,6 +515,8 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     window: Option<vine_core::RuntimeWindow>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    paint: Option<GenericRuntimePaintCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     window_timer: Option<RuntimeWindowTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
@@ -675,6 +678,28 @@ enum GenericRuntimeGdiCompletion {
         handle: u32,
         live_device_contexts: usize,
         live_surfaces: usize,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "action",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+enum GenericRuntimePaintCompletion {
+    Begun {
+        window: vine_core::RuntimeWindow,
+        session: vine_core::RuntimePaintSession,
+        device_context: vine_core::RuntimeDeviceContext,
+        live_paint_sessions: usize,
+        live_device_contexts: usize,
+    },
+    Ended {
+        window: vine_core::RuntimeWindow,
+        paint_struct_address: u32,
+        live_paint_sessions: usize,
+        live_device_contexts: usize,
     },
 }
 
@@ -3645,7 +3670,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v23();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v26();
     if !matches!(
         user32_capability,
         Some(
@@ -4628,6 +4653,9 @@ fn run_v86_generic_runtime_session(
                         ))
                         | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
                             vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
+                        ))
+                        | Some(vine_core::RuntimeGuestCallbackSemanticAction::UpdateWindow(
+                            vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
                         )) => Some(window),
                         _ => None,
                     };
@@ -4640,6 +4668,7 @@ fn run_v86_generic_runtime_session(
                         session.runtime(),
                         &gdi32_policy,
                     )?;
+                    let paint = generic_runtime_paint_completion(&completion, session.runtime())?;
                     let gdiplus = generic_runtime_gdiplus_completion(
                         &completion,
                         session.runtime(),
@@ -4666,6 +4695,7 @@ fn run_v86_generic_runtime_session(
                             cursor: None,
                             window_class: None,
                             window,
+                            paint,
                             window_timer: None,
                             thread_affinity: None,
                             thread_priority: None,
@@ -4728,6 +4758,7 @@ fn run_v86_generic_runtime_session(
                         frame_id: prepared.frame_id.0,
                         target: next.request.target.0,
                         argument_count: next.request.arguments.len(),
+                        api_argument_count: next.frame.arguments.len(),
                         allocation_start: prepared.allocation_start.0,
                         stack_pointer: prepared.stack_pointer.0,
                         scratch_address: prepared.scratch_address.0,
@@ -5558,6 +5589,8 @@ fn run_v86_generic_runtime_session(
                             session.runtime(),
                             &gdi32_policy,
                         )?;
+                        let paint =
+                            generic_runtime_paint_completion(&completion, session.runtime())?;
                         let gdiplus = generic_runtime_gdiplus_completion(
                             &completion,
                             session.runtime(),
@@ -5601,6 +5634,7 @@ fn run_v86_generic_runtime_session(
                                 cursor,
                                 window_class,
                                 window,
+                                paint,
                                 window_timer,
                                 thread_affinity,
                                 thread_priority,
@@ -5666,6 +5700,7 @@ fn run_v86_generic_runtime_session(
                             frame_id: prepared.frame_id.0,
                             target: call.request.target.0,
                             argument_count: call.request.arguments.len(),
+                            api_argument_count: call.frame.arguments.len(),
                             allocation_start: prepared.allocation_start.0,
                             stack_pointer: prepared.stack_pointer.0,
                             scratch_address: prepared.scratch_address.0,
@@ -5956,6 +5991,7 @@ fn run_v86_generic_runtime_session(
                                 cursor: None,
                                 window_class: None,
                                 window: None,
+                                paint: None,
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
@@ -6072,6 +6108,7 @@ fn run_v86_generic_runtime_session(
                                 cursor: None,
                                 window_class: None,
                                 window: None,
+                                paint: None,
                                 window_timer: None,
                                 thread_affinity: None,
                                 thread_priority: None,
@@ -12649,6 +12686,102 @@ fn generic_runtime_gdi_completion(
     }
 }
 
+fn generic_runtime_paint_completion(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+) -> Result<Option<GenericRuntimePaintCompletion>, LoaderError> {
+    let window_handle = || {
+        completion.frame.argument_u32(0).ok_or_else(|| {
+            LoaderError::runtime_defect(
+                "runtime-user32",
+                "paint-window-argument-missing-after-dispatch",
+                "completed paint frame has no logical HWND argument",
+            )
+        })
+    };
+    match completion.implementation_id.as_str() {
+        vine_core::BEGIN_PAINT_IMPLEMENTATION => {
+            let returned_handle = set_eax_result(
+                completion,
+                "begin-paint-return-register-invalid",
+                "BeginPaint dispatcher did not set EAX",
+            )?;
+            let window = runtime
+                .window(window_handle()?)
+                .map_err(runtime_state_error)?
+                .clone();
+            let session = runtime
+                .paint_sessions()
+                .get(&window.id)
+                .cloned()
+                .ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-user32",
+                        "begin-paint-session-missing-after-dispatch",
+                        "completed BeginPaint has no matching logical paint session",
+                    )
+                })?;
+            if returned_handle != session.device_context_handle {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-user32",
+                    "begin-paint-device-context-mismatch-after-dispatch",
+                    "completed BeginPaint returned a different logical HDC than its paint session",
+                ));
+            }
+            let device_context = runtime
+                .gdi_device_context(returned_handle)
+                .map_err(runtime_state_error)?
+                .clone();
+            Ok(Some(GenericRuntimePaintCompletion::Begun {
+                window,
+                session,
+                device_context,
+                live_paint_sessions: runtime.paint_sessions().len(),
+                live_device_contexts: runtime.gdi_device_contexts().len(),
+            }))
+        }
+        vine_core::END_PAINT_IMPLEMENTATION => {
+            let result = set_eax_result(
+                completion,
+                "end-paint-return-register-invalid",
+                "EndPaint dispatcher did not set EAX",
+            )?;
+            if result != 1 {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-user32",
+                    "end-paint-primary-result-invalid",
+                    "completed primary EndPaint call did not succeed",
+                ));
+            }
+            let window = runtime
+                .window(window_handle()?)
+                .map_err(runtime_state_error)?
+                .clone();
+            if runtime.paint_sessions().contains_key(&window.id) {
+                return Err(LoaderError::runtime_defect(
+                    "runtime-user32",
+                    "end-paint-session-still-live-after-dispatch",
+                    "completed EndPaint did not retire its logical paint session",
+                ));
+            }
+            let paint_struct_address = completion.frame.argument_u32(1).ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-user32",
+                    "end-paint-struct-argument-missing-after-dispatch",
+                    "completed EndPaint frame has no PAINTSTRUCT address",
+                )
+            })?;
+            Ok(Some(GenericRuntimePaintCompletion::Ended {
+                window,
+                paint_struct_address,
+                live_paint_sessions: runtime.paint_sessions().len(),
+                live_device_contexts: runtime.gdi_device_contexts().len(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn api_fault(fault: ApiFault) -> LoaderError {
     match fault.class {
         ApiFaultClass::InvalidCall => {
@@ -13766,6 +13899,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures
                 }
+                "user32-show-window-normal" => GenericRuntimeCapability::D3d9RecreatedTextures,
+                "user32-update-window" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

@@ -169,15 +169,17 @@ use super::timers::{
     RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
-    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
-    RuntimeDefaultImeWindowResult, RuntimeEnableMenuItemResult, RuntimeGetSystemMenuResult,
-    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeImeStatusWindowRequest,
-    RuntimeImeWindow, RuntimeImeWindowId, RuntimeLoadCursorAResult, RuntimeLoadIconAResult,
-    RuntimeMenuId, RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
+    RuntimeBeginPaintRequest, RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId,
+    RuntimeCursorSource, RuntimeDefaultImeWindowResult, RuntimeEnableMenuItemResult,
+    RuntimeEndPaintRequest, RuntimeGetSystemMenuResult, RuntimeIcon, RuntimeIconId,
+    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId,
+    RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeMenuId, RuntimePaintSession,
+    RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
     RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeSetWindowStyleResult, RuntimeSystemMenu, RuntimeUser32, RuntimeWindow,
+    RuntimeSetWindowStyleResult, RuntimeSystemMenu, RuntimeUpdateWindowCallbackAction,
+    RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeUser32, RuntimeWindow,
     RuntimeWindowClass, RuntimeWindowClassId, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
     RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId,
@@ -5134,6 +5136,10 @@ impl RuntimeKernel {
         self.user32.windows()
     }
 
+    pub fn paint_sessions(&self) -> &BTreeMap<RuntimeWindowId, RuntimePaintSession> {
+        self.user32.paint_sessions()
+    }
+
     pub(crate) fn get_system_menu(
         &mut self,
         window_handle: u32,
@@ -5350,6 +5356,107 @@ impl RuntimeKernel {
             ));
         }
         self.gdi.commit_get_dc(plan)
+    }
+
+    pub(crate) fn begin_window_paint(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeBeginPaintRequest,
+    ) -> Result<(RuntimePaintSession, RuntimeGetDcResult, GuestWriteResult), RuntimeStateError>
+    {
+        self.require_user32_operation_state()?;
+        self.require_gdi_operation_state()?;
+        memory
+            .validate_access(
+                request.paint_struct_address,
+                super::user32::RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH,
+                MemoryAccess::Write,
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        let target = self.resolve_gdi_window_target(request.window_handle)?;
+        let gdi_plan = self.gdi.plan_get_dc(target)?;
+        let gdi_result = gdi_plan.result();
+        let user32_plan = self.user32.plan_begin_paint(
+            self.current_thread_id(),
+            request,
+            gdi_result.device_context_id,
+            gdi_result.handle,
+        )?;
+        let planned_session = user32_plan.session().clone();
+        if planned_session.window_id != target.window_id
+            || planned_session.window_handle != target.window_handle
+            || planned_session.owner_thread_id != target.owner_thread_id
+            || planned_session.device_context_id != gdi_result.device_context_id
+            || planned_session.device_context_handle != gdi_result.handle
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "begin-paint-cross-subsystem-plan-mismatch",
+                "BeginPaint User32 session and GDI HDC plans do not identify the same logical window",
+            ));
+        }
+        let mut transaction = memory.begin_transaction();
+        let write_result = transaction
+            .write(
+                request.paint_struct_address,
+                &planned_session.paint_struct_bytes,
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        if self.resolve_gdi_window_target(request.window_handle)? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "begin-paint-window-target-stale",
+                "logical window changed after BeginPaint planning",
+            ));
+        }
+        self.gdi.preflight_get_dc(&gdi_plan)?;
+        self.user32.preflight_begin_paint(&user32_plan)?;
+        let committed_gdi = self.gdi.commit_preflighted_get_dc(gdi_plan);
+        debug_assert_eq!(committed_gdi, gdi_result);
+        let committed_session = self.user32.commit_preflighted_begin_paint(user32_plan);
+        transaction.commit_transaction();
+        Ok((committed_session, committed_gdi, write_result))
+    }
+
+    pub(crate) fn end_window_paint(
+        &mut self,
+        request: RuntimeEndPaintRequest,
+    ) -> Result<RuntimePaintSession, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_gdi_operation_state()?;
+        let user32_plan = self
+            .user32
+            .plan_end_paint(self.current_thread_id(), request.clone())?;
+        let session = user32_plan.session().clone();
+        let target = self.resolve_gdi_window_target(request.window_handle)?;
+        let device_context = self
+            .gdi
+            .device_context_by_handle(session.device_context_handle)?
+            .clone();
+        validate_device_context_target(&device_context, target)?;
+        if device_context.id != session.device_context_id {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "end-paint-device-context-identity-mismatch",
+                "EndPaint session and logical HDC do not identify the same GDI object",
+            ));
+        }
+        let gdi_plan = self.gdi.plan_release_dc(
+            request.window_handle,
+            session.device_context_handle,
+            self.current_thread_id(),
+        )?;
+        if self.resolve_gdi_window_target(request.window_handle)? != target {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "end-paint-window-target-stale",
+                "logical window changed after EndPaint planning",
+            ));
+        }
+        self.user32.preflight_end_paint(&user32_plan)?;
+        self.gdi.preflight_release_dc(&gdi_plan)?;
+        self.gdi.commit_preflighted_release_dc(gdi_plan);
+        Ok(self.user32.commit_preflighted_end_paint(user32_plan))
     }
 
     pub(crate) fn acquire_screen_dc(
@@ -5909,6 +6016,8 @@ impl RuntimeKernel {
             .device_context_by_handle(device_context_handle)?
             .clone();
         validate_device_context_target(&device_context, target)?;
+        self.user32
+            .require_non_paint_device_context(device_context.id, device_context.handle)?;
         let plan = self.gdi.plan_release_dc(
             window_handle,
             device_context_handle,
@@ -5916,6 +6025,8 @@ impl RuntimeKernel {
         )?;
         let current_target = self.resolve_gdi_window_target(window_handle)?;
         validate_device_context_target(&device_context, current_target)?;
+        self.user32
+            .require_non_paint_device_context(device_context.id, device_context.handle)?;
         self.gdi.commit_release_dc(plan)
     }
 
@@ -6844,6 +6955,37 @@ impl RuntimeKernel {
         self.gdi.preflight_window_surface_resize(&gdi_plan)?;
         self.gdi.commit_preflighted_window_surface_resize(gdi_plan);
         Ok(self.user32.commit_preflighted_set_window_pos_callback(plan))
+    }
+
+    pub(crate) fn preview_update_window(
+        &self,
+        request: RuntimeUpdateWindowRequest,
+    ) -> Result<RuntimeUpdateWindowOperation, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .preview_update_window(self.current_thread_id(), request)
+    }
+
+    pub(crate) fn preview_update_window_callback(
+        &self,
+        operation: RuntimeUpdateWindowOperation,
+        result: u32,
+    ) -> Result<RuntimeUpdateWindowCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(operation.window_id)?;
+        let plan = self.user32.plan_update_window_callback(operation, result)?;
+        Ok(self.user32.update_window_callback_action(&plan).clone())
+    }
+
+    pub(crate) fn complete_update_window_callback(
+        &mut self,
+        operation: RuntimeUpdateWindowOperation,
+        result: u32,
+    ) -> Result<RuntimeUpdateWindowCallbackAction, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(operation.window_id)?;
+        let plan = self.user32.plan_update_window_callback(operation, result)?;
+        self.user32.commit_update_window_callback(plan)
     }
 
     pub(crate) fn preview_set_window_pos_focus(

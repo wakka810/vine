@@ -19,18 +19,20 @@ use vine_core::{
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState,
-    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
-    User32CompatibilityPolicy, build_pe32_load_plan, create_window_ex_a_contract,
-    def_window_proc_a_contract, dispatch_gdi32_api, dispatch_imm32_api_with_policy,
-    dispatch_user32_api_with_policy, enable_menu_item_contract, enum_display_monitors_contract,
+    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeUpdateWindowCallbackAction,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
+    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, begin_paint_contract,
+    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
+    dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy,
+    enable_menu_item_contract, end_paint_contract, enum_display_monitors_contract,
     fill_rect_contract, gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
     get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
     get_system_metrics_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
     load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
     send_message_a_contract, set_timer_contract, set_window_long_a_contract,
-    set_window_pos_contract, swap_mouse_button_contract, user32_contract_for_endpoint,
+    set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
+    update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -94,6 +96,23 @@ const SET_WINDOW_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1e00;
 const SET_WINDOW_POS_SHOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f88);
 const SET_WINDOW_POS_HIDE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f9f);
 const SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_cb4b);
+const SHOW_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ea0);
+const SHOW_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 84);
+const SHOW_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x21e0;
+const SHOW_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_38da);
+const UPDATE_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0cb0);
+const UPDATE_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 88);
+const UPDATE_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2200;
+const UPDATE_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_38e7);
+const BEGIN_PAINT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e50);
+const END_PAINT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e20);
+const BEGIN_PAINT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 92);
+const END_PAINT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 96);
+const BEGIN_PAINT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2240;
+const END_PAINT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2260;
+const BEGIN_PAINT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_28d9);
+const END_PAINT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_28e5);
+const PAINT_STRUCT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2f00);
 const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
 const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
@@ -207,7 +226,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v23();
+        let policy = User32CompatibilityPolicy::controlled_v26();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -298,7 +317,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v23();
+        let mut policy = User32CompatibilityPolicy::controlled_v26();
         policy
             .swap_mouse_button
             .as_mut()
@@ -395,7 +414,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v23();
+        let policy = User32CompatibilityPolicy::controlled_v26();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -550,7 +569,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v23(),
+            policy: User32CompatibilityPolicy::controlled_v26(),
         }
     }
 
@@ -796,7 +815,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v23(),
+            policy: User32CompatibilityPolicy::controlled_v26(),
         }
     }
 
@@ -997,7 +1016,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v23(),
+            policy: User32CompatibilityPolicy::controlled_v26(),
         }
     }
 
@@ -1040,6 +1059,10 @@ struct RegisterClassFixture {
     imm_get_default_ime_wnd_endpoint: ApiEndpointIdentity,
     imm_associate_context_endpoint: ApiEndpointIdentity,
     set_window_pos_endpoint: ApiEndpointIdentity,
+    show_window_endpoint: ApiEndpointIdentity,
+    update_window_endpoint: ApiEndpointIdentity,
+    begin_paint_endpoint: ApiEndpointIdentity,
+    end_paint_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
@@ -1136,6 +1159,10 @@ impl RegisterClassFixture {
                 IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
             ),
             (SET_WINDOW_POS_IAT_ADDRESS, SET_WINDOW_POS_ENDPOINT_ADDRESS),
+            (SHOW_WINDOW_IAT_ADDRESS, SHOW_WINDOW_ENDPOINT_ADDRESS),
+            (UPDATE_WINDOW_IAT_ADDRESS, UPDATE_WINDOW_ENDPOINT_ADDRESS),
+            (BEGIN_PAINT_IAT_ADDRESS, BEGIN_PAINT_ENDPOINT_ADDRESS),
+            (END_PAINT_IAT_ADDRESS, END_PAINT_ENDPOINT_ADDRESS),
             (
                 GET_CLIENT_RECT_IAT_ADDRESS,
                 GET_CLIENT_RECT_ENDPOINT_ADDRESS,
@@ -1538,6 +1565,66 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let show_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(235),
+            address: SHOW_WINDOW_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1484),
+            iat_address: SHOW_WINDOW_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "ShowWindow".to_owned(),
+                hint: 735,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let update_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(204),
+            address: UPDATE_WINDOW_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1408),
+            iat_address: UPDATE_WINDOW_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "UpdateWindow".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let begin_paint_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(230),
+            address: BEGIN_PAINT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1470),
+            iat_address: BEGIN_PAINT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "BeginPaint".to_owned(),
+                hint: 14,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let end_paint_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(227),
+            address: END_PAINT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1464),
+            iat_address: END_PAINT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "EndPaint".to_owned(),
+                hint: 220,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_client_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(199),
             address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
@@ -1715,6 +1802,10 @@ impl RegisterClassFixture {
                 imm_get_default_ime_wnd_endpoint.clone(),
                 imm_associate_context_endpoint.clone(),
                 set_window_pos_endpoint.clone(),
+                show_window_endpoint.clone(),
+                update_window_endpoint.clone(),
+                begin_paint_endpoint.clone(),
+                end_paint_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
@@ -1743,6 +1834,12 @@ impl RegisterClassFixture {
                     .expect("IME context association contract"),
                 set_window_pos_contract(set_window_pos_endpoint.clone())
                     .expect("window position contract"),
+                show_window_contract(show_window_endpoint.clone())
+                    .expect("window visibility contract"),
+                update_window_contract(update_window_endpoint.clone())
+                    .expect("window paint contract"),
+                begin_paint_contract(begin_paint_endpoint.clone()).expect("BeginPaint contract"),
+                end_paint_contract(end_paint_endpoint.clone()).expect("EndPaint contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
                     .expect("client rectangle contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -1764,7 +1861,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v23();
+        let policy = User32CompatibilityPolicy::controlled_v26();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
@@ -1785,6 +1882,10 @@ impl RegisterClassFixture {
             imm_get_default_ime_wnd_endpoint,
             imm_associate_context_endpoint,
             set_window_pos_endpoint,
+            show_window_endpoint,
+            update_window_endpoint,
+            begin_paint_endpoint,
+            end_paint_endpoint,
             get_client_rect_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
@@ -2128,6 +2229,86 @@ impl RegisterClassFixture {
             self.set_window_pos_endpoint.clone(),
             GuestAddress(SET_WINDOW_POS_STACK_POINTER),
             return_address,
+        )
+    }
+
+    fn dispatch_show_window(&mut self, window_handle: u32, command: u32) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(SHOW_WINDOW_STACK_POINTER),
+                &[SHOW_WINDOW_RETURN_ADDRESS.0, window_handle, command]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write ShowWindow frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.show_window_endpoint.clone(),
+            GuestAddress(SHOW_WINDOW_STACK_POINTER),
+            SHOW_WINDOW_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_update_window(&mut self, window_handle: u32) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(UPDATE_WINDOW_STACK_POINTER),
+                &[UPDATE_WINDOW_RETURN_ADDRESS.0, window_handle]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write UpdateWindow frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.update_window_endpoint.clone(),
+            GuestAddress(UPDATE_WINDOW_STACK_POINTER),
+            UPDATE_WINDOW_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_begin_paint(
+        &mut self,
+        window_handle: u32,
+        paint_struct: GuestAddress,
+    ) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(BEGIN_PAINT_STACK_POINTER),
+                &[BEGIN_PAINT_RETURN_ADDRESS.0, window_handle, paint_struct.0]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write BeginPaint frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.begin_paint_endpoint.clone(),
+            GuestAddress(BEGIN_PAINT_STACK_POINTER),
+            BEGIN_PAINT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_end_paint(
+        &mut self,
+        window_handle: u32,
+        paint_struct: GuestAddress,
+    ) -> DispatchOutcome {
+        self.memory
+            .write(
+                GuestAddress(END_PAINT_STACK_POINTER),
+                &[END_PAINT_RETURN_ADDRESS.0, window_handle, paint_struct.0]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write EndPaint frame");
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.end_paint_endpoint.clone(),
+            GuestAddress(END_PAINT_STACK_POINTER),
+            END_PAINT_RETURN_ADDRESS,
         )
     }
 
@@ -2584,6 +2765,12 @@ fn assert_set_window_pos_fault_is_atomic(
     );
 }
 
+fn disable_set_window_pos_and_dependent_paint_policies(policy: &mut User32CompatibilityPolicy) {
+    policy.update_window = None;
+    policy.show_window = None;
+    policy.set_window_pos = None;
+}
+
 #[test]
 fn enum_display_monitors_contract_is_bounded_stdcall_callback() {
     let (_, owner) = initialized_memory();
@@ -2813,6 +3000,132 @@ fn set_window_pos_contract_is_seven_argument_stdcall_callback_with_bool_result()
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
     assert_eq!(contract.callback_policy, CallbackPolicy::Optional);
+}
+
+#[test]
+fn show_window_contract_is_two_argument_stdcall_immediate_with_previous_visibility_result() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(235),
+        address: SHOW_WINDOW_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1484),
+        iat_address: SHOW_WINDOW_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "ShowWindow".to_owned(),
+            hint: 735,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = show_window_contract(endpoint).expect("ShowWindow contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn update_window_contract_is_one_argument_stdcall_callback_with_bool_result() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(204),
+        address: UPDATE_WINDOW_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1408),
+        iat_address: UPDATE_WINDOW_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "UpdateWindow".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = update_window_contract(endpoint).expect("UpdateWindow contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Optional);
+}
+
+#[test]
+fn paint_contracts_use_fixed_x86_paintstruct_and_logical_dc_identity() {
+    let (_, owner) = initialized_memory();
+    let begin_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(230),
+        address: BEGIN_PAINT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1470),
+        iat_address: BEGIN_PAINT_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "BeginPaint".to_owned(),
+            hint: 14,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let end_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(227),
+        address: END_PAINT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1464),
+        iat_address: END_PAINT_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "EndPaint".to_owned(),
+            hint: 220,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let begin = begin_paint_contract(begin_endpoint).expect("BeginPaint contract");
+    assert_eq!(begin.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(begin.abi.arguments.len(), 2);
+    assert!(matches!(
+        &begin.abi.arguments[1],
+        vine_core::ApiArgumentSchema {
+            direction: ApiDirection::Out,
+            value: ApiValueSchema::Pointer { constraint },
+            ..
+        } if constraint.byte_length == 64
+            && constraint.write_requirement == ApiWriteRequirement::Optional
+    ));
+    assert!(matches!(
+        &begin.abi.return_value,
+        ApiReturnSchema::LogicalHandle { namespace, nullable: true }
+            if namespace == vine_core::LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE
+    ));
+    assert_eq!(begin.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(begin.callback_policy, CallbackPolicy::Forbidden);
+
+    let end = end_paint_contract(end_endpoint).expect("EndPaint contract");
+    assert_eq!(end.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(end.abi.arguments.len(), 2);
+    assert!(matches!(
+        &end.abi.arguments[1],
+        vine_core::ApiArgumentSchema {
+            direction: ApiDirection::In,
+            value: ApiValueSchema::Pointer { constraint },
+            ..
+        } if constraint.byte_length == 64
+            && constraint.write_requirement == ApiWriteRequirement::None
+    ));
+    assert_eq!(end.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(end.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(end.callback_policy, CallbackPolicy::Forbidden);
 }
 
 #[test]
@@ -4303,7 +4616,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .small_icon_height = None;
     small_icon_disabled.policy.load_image_a = None;
     small_icon_disabled.policy.send_message_a = None;
-    small_icon_disabled.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut small_icon_disabled.policy);
     let generation = small_icon_disabled.memory.stats().generation;
     let last_error = small_icon_disabled
         .runtime
@@ -4333,7 +4646,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
         .small_icon_width = None;
     small_icon_width_disabled.policy.load_image_a = None;
     small_icon_width_disabled.policy.send_message_a = None;
-    small_icon_width_disabled.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut small_icon_width_disabled.policy);
     let generation = small_icon_width_disabled.memory.stats().generation;
     let last_error = small_icon_width_disabled
         .runtime
@@ -4364,7 +4677,7 @@ fn get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutatio
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
     disabled.policy.send_message_a_ime_control = None;
-    disabled.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut disabled.policy);
     disabled.policy.set_window_long_a = None;
     disabled.policy.monitor_from_window = None;
     disabled.policy.set_timer = None;
@@ -4513,7 +4826,7 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
     disabled.policy.load_icon_a = None;
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
-    disabled.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut disabled.policy);
     let fault = match disabled.dispatch(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled icon policy fault, got {other:?}"),
@@ -4677,7 +4990,7 @@ fn load_image_a_negative_variants_are_failure_atomic() {
     let mut disabled = IconFixture::new();
     disabled.policy.load_image_a = None;
     disabled.policy.send_message_a = None;
-    disabled.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut disabled.policy);
     let fault = match disabled.dispatch_image(0) {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected disabled LoadImageA policy fault, got {other:?}"),
@@ -6598,7 +6911,7 @@ fn set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc(
 }
 
 #[test]
-fn set_window_pos_frame_change_move_commits_after_nccalc_and_emits_nested_move() {
+fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomically() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
 
@@ -6899,6 +7212,368 @@ fn set_window_pos_frame_change_move_commits_after_nccalc_and_emits_nested_move()
         fixture.runtime.foreground_window_handle().unwrap(),
         Some(window_handle)
     );
+    fixture.runtime.set_current_last_error(0x2468_ace0).unwrap();
+    let runtime_before_show = fixture.runtime.clone();
+    let show = match fixture.dispatch_show_window(window_handle, 1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected immediate ShowWindow completion, got {other:?}"),
+    };
+    assert_eq!(show.eax, RegisterUpdate::Set(1));
+    assert_eq!(show.last_error, 0x2468_ace0);
+    assert_eq!(show.instruction_pointer, SHOW_WINDOW_RETURN_ADDRESS);
+    assert_eq!(
+        show.stack_pointer,
+        GuestAddress(SHOW_WINDOW_STACK_POINTER + 12)
+    );
+    assert!(show.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before_show);
+    assert_eq!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .pending_update_rect,
+        Some(RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 1_280,
+            bottom: 720,
+        })
+    );
+
+    let paint = match fixture.dispatch_update_window(window_handle) {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected synchronous UpdateWindow callback, got {other:?}"),
+    };
+    assert_eq!(paint.request.target, fixture.window_procedure);
+    assert_eq!(
+        paint.request.arguments,
+        [window_handle, 0x000f, 0, 0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let paint_prepared = begin_fixture_callback(&mut fixture, &paint);
+    assert_eq!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .pending_update_rect,
+        Some(RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 1_280,
+            bottom: 720,
+        }),
+        "WM_PAINT entry must not consume the update region"
+    );
+
+    fixture
+        .memory
+        .write(PAINT_STRUCT_ADDRESS, &[0xa5; 64])
+        .expect("seed PAINTSTRUCT storage");
+    fixture.acknowledge_pending_delta();
+    let begin = match fixture.dispatch_begin_paint(window_handle, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected BeginPaint completion, got {other:?}"),
+    };
+    let paint_dc = match begin.eax {
+        RegisterUpdate::Set(handle) if handle != 0 => handle,
+        other => panic!("expected logical paint HDC, got {other:?}"),
+    };
+    assert_eq!(begin.last_error, 0x2468_ace0);
+    assert_eq!(begin.instruction_pointer, BEGIN_PAINT_RETURN_ADDRESS);
+    assert_eq!(
+        begin.stack_pointer,
+        GuestAddress(BEGIN_PAINT_STACK_POINTER + 12)
+    );
+    assert_eq!(begin.guest_writes.len(), 1);
+    let mut expected_paint_struct = Vec::with_capacity(64);
+    expected_paint_struct.extend_from_slice(&paint_dc.to_le_bytes());
+    expected_paint_struct.extend_from_slice(&1_u32.to_le_bytes());
+    for value in [0_i32, 0, 1_280, 720] {
+        expected_paint_struct.extend_from_slice(&value.to_le_bytes());
+    }
+    expected_paint_struct.extend_from_slice(&[0; 40]);
+    assert_eq!(expected_paint_struct.len(), 64);
+    assert_eq!(begin.guest_writes[0].write.address, PAINT_STRUCT_ADDRESS);
+    assert_eq!(begin.guest_writes[0].write.bytes, expected_paint_struct);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture.memory.read(PAINT_STRUCT_ADDRESS, 64).unwrap(),
+        expected_paint_struct
+    );
+    let window_during_paint = fixture.runtime.window(window_handle).unwrap();
+    assert!(window_during_paint.pending_update_rect.is_none());
+    assert_eq!(window_during_paint.paint_generation, 0);
+    let paint_session = fixture.runtime.paint_sessions()[&window_during_paint.id].clone();
+    assert_eq!(paint_session.device_context_handle, paint_dc);
+    assert_eq!(paint_session.paint_struct_address, PAINT_STRUCT_ADDRESS);
+    assert_eq!(paint_session.paint_struct_bytes, expected_paint_struct);
+    assert_eq!(paint_session.paint_generation, 1);
+    assert!(matches!(
+        fixture.runtime.gdi_device_contexts()[&paint_session.device_context_id].target,
+        RuntimeDeviceContextTarget::Window {
+            window_id,
+            window_handle: target_handle,
+            surface_id: target_surface,
+        } if window_id == window_during_paint.id
+            && target_handle == window_handle
+            && target_surface == surface_id
+    ));
+
+    let runtime_before_release = fixture.runtime.clone();
+    let release_fault = match fixture.dispatch_release_dc(window_handle, paint_dc) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected paint-HDC ReleaseDC rejection, got {other:?}"),
+    };
+    assert_eq!(
+        release_fault.code,
+        "paint-device-context-requires-end-paint"
+    );
+    assert_eq!(fixture.runtime, runtime_before_release);
+
+    let mut corrupted_paint_struct = expected_paint_struct.clone();
+    corrupted_paint_struct[4] = 0;
+    fixture
+        .memory
+        .write(PAINT_STRUCT_ADDRESS, &corrupted_paint_struct)
+        .expect("corrupt PAINTSTRUCT for negative case");
+    fixture.acknowledge_pending_delta();
+    let runtime_before_corrupt_end = fixture.runtime.clone();
+    let corrupt_end_fault = match fixture.dispatch_end_paint(window_handle, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected mismatched EndPaint rejection, got {other:?}"),
+    };
+    assert_eq!(corrupt_end_fault.code, "paint-session-relation-mismatch");
+    assert_eq!(fixture.runtime, runtime_before_corrupt_end);
+    fixture
+        .memory
+        .write(PAINT_STRUCT_ADDRESS, &expected_paint_struct)
+        .expect("restore PAINTSTRUCT");
+    fixture.acknowledge_pending_delta();
+
+    let end = match fixture.dispatch_end_paint(window_handle, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected EndPaint completion, got {other:?}"),
+    };
+    assert_eq!(end.eax, RegisterUpdate::Set(1));
+    assert_eq!(end.last_error, 0x2468_ace0);
+    assert_eq!(end.instruction_pointer, END_PAINT_RETURN_ADDRESS);
+    assert_eq!(
+        end.stack_pointer,
+        GuestAddress(END_PAINT_STACK_POINTER + 12)
+    );
+    assert!(end.guest_writes.is_empty());
+    assert!(fixture.runtime.paint_sessions().is_empty());
+    assert!(
+        !fixture
+            .runtime
+            .gdi_device_contexts()
+            .contains_key(&paint_session.device_context_id)
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .paint_generation,
+        1
+    );
+
+    let before_wrong_paint_result = fixture.runtime.clone();
+    let wrong_paint_fault = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(paint.clone(), 1, &mut session)
+        {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected rejected WM_PAINT result, got {other:?}"),
+        }
+    };
+    assert_eq!(
+        wrong_paint_fault.code,
+        "update-window-callback-result-invalid"
+    );
+    assert_eq!(fixture.runtime, before_wrong_paint_result);
+    let (paint_completion, paint_action) =
+        complete_fixture_callback(&mut fixture, paint, 0, paint_prepared.frame_id);
+    assert_eq!(paint_completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(paint_completion.last_error, 0x2468_ace0);
+    assert_eq!(
+        paint_completion.instruction_pointer,
+        UPDATE_WINDOW_RETURN_ADDRESS
+    );
+    assert_eq!(
+        paint_completion.stack_pointer,
+        GuestAddress(UPDATE_WINDOW_STACK_POINTER + 8)
+    );
+    assert!(paint_completion.guest_writes.is_empty());
+    assert!(matches!(
+        paint_action,
+        Some(RuntimeGuestCallbackSemanticAction::UpdateWindow(
+            RuntimeUpdateWindowCallbackAction::Completed { ref window }
+        )) if window.pending_update_rect.is_none() && window.paint_generation == 1
+    ));
+    assert!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .pending_update_rect
+            .is_none()
+    );
+    assert_eq!(
+        fixture.runtime.gdi_surfaces()[&surface_id],
+        previous_surface
+    );
+}
+
+#[test]
+fn show_window_rejects_unreached_command_handle_and_window_state_atomically() {
+    let mut invalid_handle = RegisterClassFixture::new();
+    let windows_before = invalid_handle.runtime.windows().clone();
+    let completion = match invalid_handle.dispatch_show_window(0x1234, 1) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND ShowWindow completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1400);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(invalid_handle.runtime.windows(), &windows_before);
+
+    let runtime_before_command = invalid_handle.runtime.clone();
+    let command_fault = match invalid_handle.dispatch_show_window(0x1234, 5) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected unsupported ShowWindow command, got {other:?}"),
+    };
+    assert_eq!(command_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(command_fault.code, "show-window-command-unsupported");
+    assert_eq!(invalid_handle.runtime, runtime_before_command);
+
+    let mut disabled = RegisterClassFixture::new();
+    disabled.policy.update_window = None;
+    disabled.policy.show_window = None;
+    let runtime_before_disabled = disabled.runtime.clone();
+    let disabled_fault = match disabled.dispatch_show_window(0x1234, 1) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled ShowWindow fault, got {other:?}"),
+    };
+    assert_eq!(disabled_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(disabled_fault.code, "show-window-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before_disabled);
+
+    let mut wrong_state = RegisterClassFixture::new();
+    let (window_handle, _) = wrong_state.prepare_active_window_with_small_icon();
+    let runtime_before_state = wrong_state.runtime.clone();
+    let state_fault = match wrong_state.dispatch_show_window(window_handle, 1) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected ShowWindow state fault, got {other:?}"),
+    };
+    assert_eq!(state_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(state_fault.code, "show-window-state-mismatch");
+    assert_eq!(wrong_state.runtime, runtime_before_state);
+}
+
+#[test]
+fn update_window_rejects_invalid_handle_disabled_policy_and_missing_region_atomically() {
+    let mut invalid_handle = RegisterClassFixture::new();
+    let windows_before_handle = invalid_handle.runtime.windows().clone();
+    let completion = match invalid_handle.dispatch_update_window(0x1234) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND UpdateWindow completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 1400);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(invalid_handle.runtime.windows(), &windows_before_handle);
+    assert_eq!(invalid_handle.runtime.current_last_error().unwrap(), 1400);
+
+    invalid_handle
+        .memory
+        .write(PAINT_STRUCT_ADDRESS, &[0xa5; 64])
+        .expect("seed invalid-HWND PAINTSTRUCT");
+    invalid_handle.acknowledge_pending_delta();
+    let runtime_before_invalid_begin = invalid_handle.runtime.clone();
+    let invalid_begin = match invalid_handle.dispatch_begin_paint(0x1234, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND BeginPaint completion, got {other:?}"),
+    };
+    assert_eq!(invalid_begin.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_begin.last_error, 1400);
+    assert!(invalid_begin.guest_writes.is_empty());
+    assert_eq!(invalid_handle.runtime, runtime_before_invalid_begin);
+    assert_eq!(
+        invalid_handle
+            .memory
+            .read(PAINT_STRUCT_ADDRESS, 64)
+            .unwrap(),
+        [0xa5; 64]
+    );
+    let runtime_before_invalid_end = invalid_handle.runtime.clone();
+    let invalid_end = match invalid_handle.dispatch_end_paint(0x1234, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND EndPaint completion, got {other:?}"),
+    };
+    assert_eq!(invalid_end.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_end.last_error, 1400);
+    assert!(invalid_end.guest_writes.is_empty());
+    assert_eq!(invalid_handle.runtime, runtime_before_invalid_end);
+    assert_eq!(
+        invalid_handle
+            .memory
+            .read(PAINT_STRUCT_ADDRESS, 64)
+            .unwrap(),
+        [0xa5; 64]
+    );
+
+    let mut disabled = RegisterClassFixture::new();
+    disabled.policy.update_window = None;
+    let runtime_before_disabled = disabled.runtime.clone();
+    let disabled_fault = match disabled.dispatch_update_window(0x1234) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled UpdateWindow fault, got {other:?}"),
+    };
+    assert_eq!(disabled_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(disabled_fault.code, "update-window-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before_disabled);
+    let disabled_begin_fault = match disabled.dispatch_begin_paint(0x1234, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled BeginPaint fault, got {other:?}"),
+    };
+    assert_eq!(disabled_begin_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(disabled_begin_fault.code, "begin-paint-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before_disabled);
+
+    let mut no_region = RegisterClassFixture::new();
+    let (window_handle, _) = no_region.prepare_active_window_with_small_icon();
+    let runtime_before_region = no_region.runtime.clone();
+    let region_fault = match no_region.dispatch_update_window(window_handle) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing update-region fault, got {other:?}"),
+    };
+    assert_eq!(region_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(region_fault.code, "update-window-state-invalid");
+    assert_eq!(no_region.runtime, runtime_before_region);
+    no_region
+        .memory
+        .write(PAINT_STRUCT_ADDRESS, &[0x5a; 64])
+        .expect("seed missing-region PAINTSTRUCT");
+    no_region.acknowledge_pending_delta();
+    let runtime_before_begin = no_region.runtime.clone();
+    let begin_fault = match no_region.dispatch_begin_paint(window_handle, PAINT_STRUCT_ADDRESS) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing-region BeginPaint fault, got {other:?}"),
+    };
+    assert_eq!(begin_fault.code, "begin-paint-state-invalid");
+    assert_eq!(no_region.runtime, runtime_before_begin);
+    assert!(no_region.runtime.paint_sessions().is_empty());
+    assert_eq!(
+        no_region.memory.read(PAINT_STRUCT_ADDRESS, 64).unwrap(),
+        [0x5a; 64]
+    );
 }
 
 #[test]
@@ -7142,7 +7817,7 @@ fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
     assert_eq!(invalid_frame.last_error, 1400);
     assert!(invalid_frame.guest_writes.is_empty());
 
-    fixture.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut fixture.policy);
     fixture.configure_set_window_pos(
         [window_handle, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0000_0559],
         SET_WINDOW_POS_SHOW_RETURN_ADDRESS,
@@ -7519,7 +8194,7 @@ fn send_message_a_rejects_wrong_identity_lifecycle_thread_and_variant_atomically
     }
 
     fixture.policy.send_message_a = None;
-    fixture.policy.set_window_pos = None;
+    disable_set_window_pos_and_dependent_paint_policies(&mut fixture.policy);
     fixture.configure_send_message(window_handle, 0x0080, 0, icon_handle);
     assert_send_message_fault_is_atomic(
         &mut fixture,

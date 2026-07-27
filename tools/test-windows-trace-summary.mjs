@@ -4178,6 +4178,20 @@ assert.doesNotThrow(() =>
   summarizeTrace(encode(setWindowPosFrameChangeMoveSelection)),
 );
 
+const showWindowNormalSelection = structuredClone(events);
+showWindowNormalSelection[0].arguments.observations = ["show-window-normal"];
+showWindowNormalSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["show-window-normal"];
+assert.doesNotThrow(() => summarizeTrace(encode(showWindowNormalSelection)));
+
+const updateWindowSelection = structuredClone(events);
+updateWindowSelection[0].arguments.observations = ["update-window"];
+updateWindowSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["update-window"];
+assert.doesNotThrow(() => summarizeTrace(encode(updateWindowSelection)));
+
 const getSystemMenuSelection = structuredClone(events);
 getSystemMenuSelection[0].arguments.observations = ["get-system-menu"];
 getSystemMenuSelection.find(

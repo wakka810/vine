@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 27 as const/u);
+assert.match(protocol, /protocolVersion = 28 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -30,6 +30,13 @@ assert.match(protocol, /d3d9RecreatedTextures:/u);
 assert.match(protocol, /user32-set-window-pos-frame-change-move/u);
 assert.match(protocol, /RuntimeSetWindowPosFrameChangeMoveCallSnapshot/u);
 assert.match(protocol, /setWindowPosFrameChangeMove:/u);
+assert.match(protocol, /user32-show-window-normal/u);
+assert.match(protocol, /RuntimeShowWindowNormalCallSnapshot/u);
+assert.match(protocol, /showWindowNormal:/u);
+assert.match(protocol, /user32-update-window/u);
+assert.match(protocol, /RuntimeBeginPaintCallSnapshot/u);
+assert.match(protocol, /RuntimeEndPaintCallSnapshot/u);
+assert.match(protocol, /updateWindow:/u);
 
 assert.match(
   worker,
@@ -65,6 +72,9 @@ assert.match(
   worker,
   /completion\.implementationId === "user32\.set-window-pos\.v5"/u,
 );
+assert.match(worker, /user32\.show-window\.visible-normal-noop\.v1/u);
+assert.match(worker, /user32\.begin-paint\.full-client-logical-dc\.v1/u);
+assert.match(worker, /user32\.end-paint\.matching-session\.v1/u);
 
 assert.match(
   fullProbe,

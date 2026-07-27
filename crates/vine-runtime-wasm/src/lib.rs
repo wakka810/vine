@@ -456,7 +456,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v23();
+        let user32_policy = User32CompatibilityPolicy::controlled_v26();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -641,7 +641,7 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v23();
+        let user32_policy = User32CompatibilityPolicy::controlled_v26();
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
@@ -1666,6 +1666,11 @@ impl BrowserRuntime {
                         {
                             metadata["gdi"] = gdi;
                         }
+                        if let Some(paint) =
+                            bgi_paint_completion_metadata(&completion, &self.runtime)?
+                        {
+                            metadata["paint"] = paint;
+                        }
                         if let Some(gdiplus) = bgi_gdiplus_completion_metadata(
                             &completion,
                             &self.runtime,
@@ -2399,6 +2404,9 @@ impl BrowserRuntime {
                     ))
                     | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
                         vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
+                    ))
+                    | Some(vine_core::RuntimeGuestCallbackSemanticAction::UpdateWindow(
+                        vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
                     )) => metadata["window"] = json!(window),
                     _ => {}
                 }
@@ -3980,6 +3988,70 @@ fn restore_selected_thread(
 
 fn api_fault_string(fault: ApiFault) -> String {
     format!("{}:{}: {}", fault.stage, fault.code, fault.message)
+}
+
+fn bgi_paint_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+) -> Result<Option<Value>, String> {
+    let window_handle = || {
+        completion
+            .frame
+            .argument_u32(0)
+            .ok_or_else(|| "paint completion has no logical HWND argument".to_owned())
+    };
+    match completion.implementation_id.as_str() {
+        vine_core::BEGIN_PAINT_IMPLEMENTATION => {
+            let RegisterUpdate::Set(returned_handle) = completion.eax else {
+                return Err("BeginPaint completion did not set EAX".to_owned());
+            };
+            let window = runtime.window(window_handle()?).map_err(error_string)?;
+            let session = runtime
+                .paint_sessions()
+                .get(&window.id)
+                .ok_or_else(|| "BeginPaint completion has no logical paint session".to_owned())?;
+            if returned_handle != session.device_context_handle {
+                return Err(
+                    "BeginPaint returned a different HDC than its logical paint session".to_owned(),
+                );
+            }
+            let device_context = runtime
+                .gdi_device_context(returned_handle)
+                .map_err(error_string)?;
+            Ok(Some(json!({
+                "action": "begun",
+                "window": window,
+                "session": session,
+                "deviceContext": device_context,
+                "livePaintSessions": runtime.paint_sessions().len(),
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+            })))
+        }
+        vine_core::END_PAINT_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("EndPaint completion did not set EAX".to_owned());
+            };
+            if result != 1 {
+                return Err("primary EndPaint completion did not succeed".to_owned());
+            }
+            let window = runtime.window(window_handle()?).map_err(error_string)?;
+            if runtime.paint_sessions().contains_key(&window.id) {
+                return Err("EndPaint did not retire its logical paint session".to_owned());
+            }
+            let paint_struct_address = completion
+                .frame
+                .argument_u32(1)
+                .ok_or_else(|| "EndPaint completion has no PAINTSTRUCT address".to_owned())?;
+            Ok(Some(json!({
+                "action": "ended",
+                "window": window,
+                "paintStructAddress": paint_struct_address,
+                "livePaintSessions": runtime.paint_sessions().len(),
+                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
+            })))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn error_string(error: impl std::fmt::Display) -> String {

@@ -731,6 +731,18 @@ Nativeで到達した`WM_NCPAINT`／`WM_ERASEBKGND`はbrowser renderer contract�
 silent successにはしない。Unknown HWNDはcallbackやallocator mutation前にFALSE／`ERROR_INVALID_WINDOW_HANDLE`、
 successはentry LastErrorを保存する。TypeScriptはcallback evidenceとimmutable final snapshotだけを観測する。
 
+Reached `ShowWindow(SW_SHOWNORMAL)`は、既にvisibleかつactive／focused／foregroundのmain windowだけを
+扱うmutation-free leafであり、previous visibilityをBOOLへ正規化して返す。続く`UpdateWindow`は
+`RuntimeUser32`が所有するfull-client update regionを検証し、same-thread `WM_PAINT` callbackを開始する。
+Regionはcallback entryでは消費せず、`BeginPaint`のtargeted commitで初めてclearする。Paint generation、
+active session、HWND／thread／PAINTSTRUCT relationは`RuntimeUser32`、typed paint HDC identityとwindow-surface
+relationは`RuntimeGdi`、64-byte x86 PAINTSTRUCT bytesは`GuestMemory`だけが所有する。`RuntimeKernel`は三ownerの
+capacity、generation、writable spanを全てpreflightしてからsession、HDC、guest bytesをpublishし、`EndPaint`も
+exact structure before-imageとsession／HDC relationを検証してから両identityをretireする。Generic `ReleaseDC`、
+wrong HWND／thread／pointer、corrupted structure、stale／duplicate planは全authorityを変更せず拒否する。
+Workerはimmutable evidenceだけを観測し、Windows paint stateやbrowser renderer resourceを所有しない。
+General invalidation、nested paint、clip／erase、queued dispatch、presentationは別gatewayである。
+
 System menuも`RuntimeUser32`内の独立したidentity domainとする。Created windowごとに最大一つのlogical HMENUを
 monotonic allocator、window index、handle indexで所有し、repeat `GetSystemMenu(FALSE)`は同じidentityを返す。
 Reached `EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)`は初期enabled stateを確認するidempotent updateである。

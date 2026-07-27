@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `user32-set-window-pos-frame-change-move` and uses protocol
-`vine.browser-runtime-worker.v27`. It inherits the immutable boot-archive snapshot,
+The active private profile is `user32-update-window` and uses protocol
+`vine.browser-runtime-worker.v28`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -96,10 +96,21 @@ following frame-change call. That sixth `SetWindowPos` then completes direct fra
 for `WM_WINDOWPOSCHANGING`, `WM_NCCALCSIZE`, and `WM_WINDOWPOSCHANGED`, plus nested frame 29
 for `WM_MOVE`. Rust commits only the outer／client origin at NCCALCSIZE completion; active／
 focus／foreground relations and GDI resources remain unchanged. Native non-client paint and
-erase are explicit non-claims, and TypeScript creates no browser window resource. The final
-semantic and memory digests agree at `ShowWindow(hwnd, SW_SHOWNORMAL)`. Protocol version 26
-is the recreated-texture predecessor; version 27 adds typed frame-change and nested-move
-evidence without moving Windows state to TypeScript.
+erase are explicit non-claims, and TypeScript creates no browser window resource.
+
+The following already-visible `ShowWindow(hwnd, SW_SHOWNORMAL)` is a mutation-free logical
+window read: it returns normalized TRUE for previous visibility, preserves LastError, invokes
+no callback, and leaves visibility and active／focus／foreground relations unchanged. The
+subsequent `UpdateWindow` synchronously enters frame 30 with `WM_PAINT`. `BeginPaint` consumes
+the Rust-owned full-client update region, publishes one `RuntimeGdi` paint HDC and a 64-byte
+x86 `PAINTSTRUCT` as a single preflighted transaction, and creates one Rust-owned paint
+session. `EndPaint` accepts only the exact HWND／thread／structure relation and retires both
+session and HDC. A generic `ReleaseDC` cannot retire the paint HDC. The enclosing
+`UpdateWindow` callback is still active when execution reaches the first D3D9 `Clear`, so
+the terminal evidence distinguishes the pending outer call from the completed Begin／End
+pair. Node and Chrome agree on the ordered semantics, final memory digest, and that exact
+COM-method stop. Protocol version 28 adds typed ShowWindow／UpdateWindow／paint evidence while
+keeping the update region, Windows identities, and lifetime state exclusively in Rust.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -133,3 +144,6 @@ fingerprint before and after execution.
 - `DragAcceptFiles` changes only the logical acceptance bit. Browser drag
   events, `HDROP`, `WM_DROPFILES`, file permission, and VFS import remain
   unimplemented.
+- The reached paint leaf does not claim general invalidation, overlapping or nested paint,
+  background erase, clipping, queued paint dispatch, browser presentation, or arbitrary
+  HDC operations.

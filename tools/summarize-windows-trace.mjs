@@ -45,6 +45,8 @@ const supportedObservations = new Set([
   "set-window-pos-size",
   "set-window-pos-resize",
   "set-window-pos-frame-change-move",
+  "show-window-normal",
+  "update-window",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",

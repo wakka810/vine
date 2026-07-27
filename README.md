@@ -14,23 +14,23 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `logical-window-and-message-flow` |
-| Runtime diagnostics | `user32-set-window-pos-frame-change-move`: 127350 calls across 117 endpoint contracts / 115 APIs, memory generation 235497 |
+| Runtime diagnostics | `user32-update-window`: 127353 calls across 121 endpoint contracts / 119 APIs, memory generation 235503 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!ShowWindow(0x48010001, 0x00000001)` at instruction 28761027: `endpoint-contract-missing` |
+| Next structured stop | `IDirect3DDevice9::Clear(0x01010004, 0x00000000, 0x00000000, 0x00000001, 0xff000000, 0x3f800000, 0x00000000)` at instruction 28761128: `com-method-unsupported` |
 
-The active semantic report is 496,212 bytes with SHA-256
-`897dc3877f436b2e03dc816f1715893a2fa21a526ecc4fa8abaec7989bc3de5a`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 538,382 bytes with SHA-256
+`1ec6031d0e51fe906320735b9d2791a3be4028d705ed9374651e4a4261e01a24`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
 | ID | Milestone | Status | Evidence boundary |
 |---|---|---|---|
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
-| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, and owner-thread SetTimer registration slices pass; logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
+| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached, while pixel storage, renderer, draw, and Present are not reached |
+| `first-present-readable-screen` | First present and readable screen | `fixture-only` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, and the bounded raster-status query are reached; the first Clear call is reached but unsupported, while pixel storage, renderer, draw, and Present are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
@@ -154,6 +154,10 @@ The active semantic report is 496,212 bytes with SHA-256
 - `KERNEL32.dll!GetFileAttributesA`
 - `KERNEL32.dll!CreateDirectoryA`
 - `SHELL32.dll!DragAcceptFiles`
+- `USER32.dll!ShowWindow`
+- `USER32.dll!UpdateWindow`
+- `USER32.dll!BeginPaint`
+- `USER32.dll!EndPaint`
 
 ### Reproduce Current Checkpoint
 

@@ -122,7 +122,9 @@ worker.postMessage({
         : capabilityProfile === "kernel32-create-directory-a" ||
             capabilityProfile === "user32-set-window-pos-repeat-activation" ||
             capabilityProfile === "d3d9-recreated-textures" ||
-            capabilityProfile === "user32-set-window-pos-frame-change-move"
+            capabilityProfile === "user32-set-window-pos-frame-change-move" ||
+            capabilityProfile === "user32-show-window-normal" ||
+            capabilityProfile === "user32-update-window"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -132,7 +134,9 @@ worker.postMessage({
       capabilityProfile === "kernel32-create-directory-a" ||
       capabilityProfile === "user32-set-window-pos-repeat-activation" ||
       capabilityProfile === "d3d9-recreated-textures" ||
-      capabilityProfile === "user32-set-window-pos-frame-change-move"
+      capabilityProfile === "user32-set-window-pos-frame-change-move" ||
+      capabilityProfile === "user32-show-window-normal" ||
+      capabilityProfile === "user32-update-window"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -202,7 +206,9 @@ function parseCapabilityProfile(
     value === "kernel32-create-directory-a" ||
     value === "user32-set-window-pos-repeat-activation" ||
     value === "d3d9-recreated-textures" ||
-    value === "user32-set-window-pos-frame-change-move"
+    value === "user32-set-window-pos-frame-change-move" ||
+    value === "user32-show-window-normal" ||
+    value === "user32-update-window"
     ? value
     : undefined;
 }

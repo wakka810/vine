@@ -6,7 +6,8 @@ use crate::memory::GuestAddress;
 use crate::module_graph::RuntimeModuleId;
 use crate::pe32::Rva;
 
-use super::{RuntimeStateError, RuntimeThreadId};
+use super::gdi::RuntimeDeviceContextId;
+use super::{RuntimeRect, RuntimeStateError, RuntimeThreadId};
 
 pub const LOGICAL_ICON_HANDLE_NAMESPACE: &str = "vine.logical-icon.v1";
 pub const LOGICAL_CURSOR_HANDLE_NAMESPACE: &str = "vine.logical-cursor.v1";
@@ -30,6 +31,7 @@ pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
 pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
 pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
+pub const RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH: usize = 64;
 pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
 pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
 
@@ -347,6 +349,8 @@ pub struct RuntimeSetWindowPosOperation {
     pub next_topmost: bool,
     pub previous_effective_style: u32,
     pub next_effective_style: u32,
+    pub previous_update_rect: Option<RuntimeRect>,
+    pub next_update_rect: Option<RuntimeRect>,
     pub entry_last_error: u32,
     pub callback_flags: u32,
     pub callback_insert_after: u32,
@@ -357,6 +361,55 @@ pub struct RuntimeSetWindowPosOperation {
     pub frame_change_nccalc_window_pos_flags: u32,
     pub frame_change_changed_flags: u32,
     pub small_icon_handle: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateWindowRequest {
+    pub window_handle: u32,
+    pub entry_last_error: u32,
+    pub expected_callback_result: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateWindowOperation {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub expected_generation: u64,
+    pub expected_paint_generation: u64,
+    pub update_rect: RuntimeRect,
+    pub entry_last_error: u32,
+    pub expected_callback_result: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimePaintSession {
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub owner_thread_id: RuntimeThreadId,
+    pub paint_generation: u64,
+    pub update_rect: RuntimeRect,
+    pub device_context_id: RuntimeDeviceContextId,
+    pub device_context_handle: u32,
+    pub paint_struct_address: GuestAddress,
+    pub paint_struct_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeBeginPaintRequest {
+    pub window_handle: u32,
+    pub paint_struct_address: GuestAddress,
+    pub erase: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeEndPaintRequest {
+    pub window_handle: u32,
+    pub paint_struct_address: GuestAddress,
+    pub paint_struct_bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -397,6 +450,9 @@ pub struct RuntimeWindow {
     pub lifecycle: RuntimeWindowLifecycle,
     pub visible: bool,
     pub topmost: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_update_rect: Option<RuntimeRect>,
+    pub paint_generation: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub small_icon: Option<RuntimeWindowIconReference>,
 }
@@ -516,6 +572,12 @@ pub enum RuntimeSetWindowPosCallbackAction {
     Completed {
         window: RuntimeWindow,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum RuntimeUpdateWindowCallbackAction {
+    Completed { window: RuntimeWindow },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -692,6 +754,34 @@ enum RuntimeSetWindowPosCallbackDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeUpdateWindowCallbackDisposition {
+    Validate {
+        window: RuntimeWindow,
+        action: RuntimeUpdateWindowCallbackAction,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeBeginPaintDisposition {
+    Begin {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        session: RuntimePaintSession,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeEndPaintDisposition {
+    End {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        session: RuntimePaintSession,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeSetWindowPosFocusPlan {
     expected_generation: u64,
     window: RuntimeWindow,
@@ -789,6 +879,40 @@ pub(super) struct RuntimeSetWindowPosCallbackPlan {
     disposition: RuntimeSetWindowPosCallbackDisposition,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeUpdateWindowCallbackPlan {
+    expected_generation: u64,
+    disposition: RuntimeUpdateWindowCallbackDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeBeginPaintPlan {
+    expected_generation: u64,
+    disposition: RuntimeBeginPaintDisposition,
+}
+
+impl RuntimeBeginPaintPlan {
+    pub(super) fn session(&self) -> &RuntimePaintSession {
+        match &self.disposition {
+            RuntimeBeginPaintDisposition::Begin { session, .. } => session,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeEndPaintPlan {
+    expected_generation: u64,
+    disposition: RuntimeEndPaintDisposition,
+}
+
+impl RuntimeEndPaintPlan {
+    pub(super) fn session(&self) -> &RuntimePaintSession {
+        match &self.disposition {
+            RuntimeEndPaintDisposition::End { session, .. } => session,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeUser32TeardownPlan {
     expected_generation: u64,
@@ -799,6 +923,7 @@ pub(super) struct RuntimeUser32TeardownPlan {
     retired_cursors: usize,
     retired_window_classes: usize,
     retired_windows: usize,
+    retired_paint_sessions: usize,
     retired_system_menus: usize,
     retired_ime_windows: usize,
     retired_default_ime_windows: usize,
@@ -832,6 +957,8 @@ pub(super) struct RuntimeUser32 {
     windows: BTreeMap<RuntimeWindowId, RuntimeWindow>,
     #[serde(skip)]
     window_handle_index: BTreeMap<u32, RuntimeWindowId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    paint_sessions: BTreeMap<RuntimeWindowId, RuntimePaintSession>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     system_menus: BTreeMap<RuntimeMenuId, RuntimeSystemMenu>,
     #[serde(skip)]
@@ -879,6 +1006,7 @@ impl Default for RuntimeUser32 {
             window_class_atom_index: BTreeMap::new(),
             windows: BTreeMap::new(),
             window_handle_index: BTreeMap::new(),
+            paint_sessions: BTreeMap::new(),
             system_menus: BTreeMap::new(),
             system_menu_window_index: BTreeMap::new(),
             menu_handle_index: BTreeMap::new(),
@@ -1461,6 +1589,8 @@ impl RuntimeUser32 {
                     },
                     visible: false,
                     topmost: false,
+                    pending_update_rect: None,
+                    paint_generation: 0,
                     small_icon: None,
                 },
                 next_window_id,
@@ -2266,6 +2396,7 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.paint_sessions.is_empty()
             && self.system_menus.is_empty()
             && self.ime_windows.is_empty()
             && self.default_ime_windows.is_empty()
@@ -2288,6 +2419,7 @@ impl RuntimeUser32 {
             retired_cursors: self.cursors.len(),
             retired_window_classes: self.window_classes.len(),
             retired_windows: self.windows.len(),
+            retired_paint_sessions: self.paint_sessions.len(),
             retired_system_menus: self.system_menus.len(),
             retired_ime_windows: self.ime_windows.len(),
             retired_default_ime_windows: self.default_ime_windows.len(),
@@ -2314,6 +2446,7 @@ impl RuntimeUser32 {
             || self.window_class_atom_index.len() != plan.retired_window_classes
             || self.windows.len() != plan.retired_windows
             || self.window_handle_index.len() != plan.retired_windows
+            || self.paint_sessions.len() != plan.retired_paint_sessions
             || self.system_menus.len() != plan.retired_system_menus
             || self.system_menu_window_index.len() != plan.retired_system_menus
             || self.menu_handle_index.len() != plan.retired_system_menus
@@ -2337,6 +2470,7 @@ impl RuntimeUser32 {
         debug_assert!(self.preflight_process_teardown(&plan).is_ok());
         self.windows.clear();
         self.window_handle_index.clear();
+        self.paint_sessions.clear();
         self.system_menus.clear();
         self.system_menu_window_index.clear();
         self.menu_handle_index.clear();
@@ -3031,6 +3165,12 @@ impl RuntimeUser32 {
         } else {
             window.creation.effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
         };
+        let next_update_rect = match variant {
+            RuntimeSetWindowPosVariant::FrameChangeMove => {
+                Some(full_client_update_rect(request.next_geometry)?)
+            }
+            _ => window.pending_update_rect,
+        };
         match variant {
             RuntimeSetWindowPosVariant::InitialShow
                 if window.visible
@@ -3140,6 +3280,8 @@ impl RuntimeUser32 {
             next_topmost: request.next_topmost,
             previous_effective_style: window.creation.effective_style,
             next_effective_style,
+            previous_update_rect: window.pending_update_rect,
+            next_update_rect,
             entry_last_error: request.entry_last_error,
             callback_flags: request.callback_flags,
             callback_insert_after: request.callback_insert_after,
@@ -3526,6 +3668,423 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn preview_update_window(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeUpdateWindowRequest,
+    ) -> Result<RuntimeUpdateWindowOperation, RuntimeStateError> {
+        self.resolve_window_procedure(request.window_handle, owner_thread_id)?;
+        let window = self.window(request.window_handle)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        let expected_update_rect = full_client_update_rect(window.creation.geometry)?;
+        let target = Some(window.id);
+        if !window.visible
+            || window.topmost
+            || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+            || window.pending_update_rect != Some(expected_update_rect)
+            || self.paint_sessions.contains_key(&window.id)
+            || self.active_windows.get(&owner_thread_id).copied() != target
+            || self.focused_windows.get(&owner_thread_id).copied() != target
+            || self.foreground_window != target
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "update-window-state-invalid",
+                "synchronous paint requires the visible active, focused, foreground owner-thread window with one full-client update region",
+            ));
+        }
+        Ok(RuntimeUpdateWindowOperation {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id,
+            expected_generation: self.generation,
+            expected_paint_generation: window.paint_generation,
+            update_rect: expected_update_rect,
+            entry_last_error: request.entry_last_error,
+            expected_callback_result: request.expected_callback_result,
+        })
+    }
+
+    pub(super) fn plan_update_window_callback(
+        &self,
+        operation: RuntimeUpdateWindowOperation,
+        result: u32,
+    ) -> Result<RuntimeUpdateWindowCallbackPlan, RuntimeStateError> {
+        if result != operation.expected_callback_result {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "update-window-callback-result-invalid",
+                "WM_PAINT callback did not return the observed bounded result",
+            ));
+        }
+        let expected_generation =
+            operation
+                .expected_generation
+                .checked_add(2)
+                .ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-user32",
+                        "update-window-generation-overflow",
+                        "synchronous paint generation overflowed runtime accounting",
+                    )
+                })?;
+        if self.generation != expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "update-window-operation-stale",
+                "User32 state did not contain exactly one BeginPaint and EndPaint transition",
+            ));
+        }
+        let window = self.window_by_id(operation.window_id)?.clone();
+        let target = Some(window.id);
+        let expected_paint_generation = operation
+            .expected_paint_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-user32",
+                    "window-paint-generation-overflow",
+                    "logical window paint generation is exhausted",
+                )
+            })?;
+        if window.handle != operation.window_handle
+            || window.creation.owner_thread_id != operation.owner_thread_id
+            || window.pending_update_rect.is_some()
+            || window.paint_generation != expected_paint_generation
+            || self.paint_sessions.contains_key(&window.id)
+            || full_client_update_rect(window.creation.geometry)? != operation.update_rect
+            || !window.visible
+            || window.topmost
+            || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+            || self.active_windows.get(&operation.owner_thread_id).copied() != target
+            || self
+                .focused_windows
+                .get(&operation.owner_thread_id)
+                .copied()
+                != target
+            || self.foreground_window != target
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "update-window-operation-stale",
+                "logical window did not complete the expected full-client paint cycle",
+            ));
+        }
+        self.validate_created_window_owner(&window, operation.owner_thread_id)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        let action = RuntimeUpdateWindowCallbackAction::Completed {
+            window: window.clone(),
+        };
+        Ok(RuntimeUpdateWindowCallbackPlan {
+            expected_generation: self.generation,
+            disposition: RuntimeUpdateWindowCallbackDisposition::Validate { window, action },
+        })
+    }
+
+    pub(super) fn update_window_callback_action<'a>(
+        &self,
+        plan: &'a RuntimeUpdateWindowCallbackPlan,
+    ) -> &'a RuntimeUpdateWindowCallbackAction {
+        match &plan.disposition {
+            RuntimeUpdateWindowCallbackDisposition::Validate { action, .. } => action,
+        }
+    }
+
+    pub(super) fn preflight_update_window_callback(
+        &self,
+        plan: &RuntimeUpdateWindowCallbackPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "update-window-callback-plan-stale",
+                "User32 state changed after WM_PAINT completion planning",
+            ));
+        }
+        let RuntimeUpdateWindowCallbackDisposition::Validate { window, .. } = &plan.disposition;
+        if self.windows.get(&window.id) != Some(window)
+            || self.window_handle_index.get(&window.handle) != Some(&window.id)
+            || window.pending_update_rect.is_some()
+            || self.paint_sessions.contains_key(&window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "update-window-callback-plan-stale",
+                "logical window state changed after WM_PAINT completion planning",
+            ));
+        }
+        self.validate_created_window_owner(window, window.creation.owner_thread_id)?;
+        self.validate_window_creation_references(&window.creation)?;
+        self.validate_window_icon_reference(window.small_icon)
+    }
+
+    pub(super) fn commit_update_window_callback(
+        &mut self,
+        plan: RuntimeUpdateWindowCallbackPlan,
+    ) -> Result<RuntimeUpdateWindowCallbackAction, RuntimeStateError> {
+        self.preflight_update_window_callback(&plan)?;
+        let RuntimeUpdateWindowCallbackDisposition::Validate { action, .. } = plan.disposition;
+        Ok(action)
+    }
+
+    pub(super) fn plan_begin_paint(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeBeginPaintRequest,
+        device_context_id: RuntimeDeviceContextId,
+        device_context_handle: u32,
+    ) -> Result<RuntimeBeginPaintPlan, RuntimeStateError> {
+        if request.paint_struct_address.0 == 0
+            || device_context_id.0 == 0
+            || device_context_handle == 0
+            || !request.erase
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "begin-paint-request-invalid",
+                "BeginPaint requires the reached non-NULL PAINTSTRUCT, logical HDC, and erase-pending variant",
+            ));
+        }
+        let previous = self.window(request.window_handle)?.clone();
+        self.validate_created_window_owner(&previous, owner_thread_id)?;
+        self.validate_window_icon_reference(previous.small_icon)?;
+        let update_rect = full_client_update_rect(previous.creation.geometry)?;
+        let target = Some(previous.id);
+        if previous.pending_update_rect != Some(update_rect)
+            || self.paint_sessions.contains_key(&previous.id)
+            || !previous.visible
+            || previous.topmost
+            || previous.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+            || self.active_windows.get(&owner_thread_id).copied() != target
+            || self.focused_windows.get(&owner_thread_id).copied() != target
+            || self.foreground_window != target
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "begin-paint-state-invalid",
+                "BeginPaint requires one visible active owner-thread window with a full-client update region and no live paint session",
+            ));
+        }
+        let paint_generation = previous.paint_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-user32",
+                "window-paint-generation-exhausted",
+                "logical window paint generation is exhausted",
+            )
+        })?;
+        let paint_struct_bytes =
+            x86_paint_struct_bytes(device_context_handle, request.erase, update_rect);
+        let session = RuntimePaintSession {
+            window_id: previous.id,
+            window_handle: previous.handle,
+            owner_thread_id,
+            paint_generation,
+            update_rect,
+            device_context_id,
+            device_context_handle,
+            paint_struct_address: request.paint_struct_address,
+            paint_struct_bytes,
+        };
+        let mut next = previous.clone();
+        next.pending_update_rect = None;
+        Ok(RuntimeBeginPaintPlan {
+            expected_generation: self.generation,
+            disposition: RuntimeBeginPaintDisposition::Begin {
+                previous,
+                next: Box::new(next),
+                session,
+                next_generation: self.next_generation()?,
+            },
+        })
+    }
+
+    pub(super) fn preflight_begin_paint(
+        &self,
+        plan: &RuntimeBeginPaintPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "begin-paint-plan-stale",
+                "User32 state changed after BeginPaint planning",
+            ));
+        }
+        let RuntimeBeginPaintDisposition::Begin {
+            previous,
+            next,
+            session,
+            ..
+        } = &plan.disposition;
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+            || self.paint_sessions.contains_key(&previous.id)
+            || next.id != previous.id
+            || next.handle != previous.handle
+            || next.pending_update_rect.is_some()
+            || next.paint_generation != previous.paint_generation
+            || session.window_id != previous.id
+            || session.window_handle != previous.handle
+            || session.owner_thread_id != previous.creation.owner_thread_id
+            || previous.paint_generation.checked_add(1) != Some(session.paint_generation)
+            || previous.pending_update_rect != Some(session.update_rect)
+            || session.paint_struct_bytes
+                != x86_paint_struct_bytes(session.device_context_handle, true, session.update_rect)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "begin-paint-plan-stale",
+                "logical window, update region, or paint-session identity changed after BeginPaint planning",
+            ));
+        }
+        self.validate_created_window_owner(previous, session.owner_thread_id)?;
+        self.validate_window_creation_references(&next.creation)?;
+        self.validate_window_icon_reference(next.small_icon)
+    }
+
+    pub(super) fn commit_preflighted_begin_paint(
+        &mut self,
+        plan: RuntimeBeginPaintPlan,
+    ) -> RuntimePaintSession {
+        debug_assert!(self.preflight_begin_paint(&plan).is_ok());
+        let RuntimeBeginPaintDisposition::Begin {
+            next,
+            session,
+            next_generation,
+            ..
+        } = plan.disposition;
+        let next = *next;
+        self.generation = next_generation;
+        let replaced = self.windows.insert(next.id, next);
+        let previous_session = self
+            .paint_sessions
+            .insert(session.window_id, session.clone());
+        debug_assert!(replaced.is_some());
+        debug_assert!(previous_session.is_none());
+        session
+    }
+
+    pub(super) fn plan_end_paint(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeEndPaintRequest,
+    ) -> Result<RuntimeEndPaintPlan, RuntimeStateError> {
+        let previous = self.window(request.window_handle)?.clone();
+        self.validate_created_window_owner(&previous, owner_thread_id)?;
+        let session = self
+            .paint_sessions
+            .get(&previous.id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "paint-session-missing",
+                    "EndPaint requires a live BeginPaint session for the exact logical window",
+                )
+            })?;
+        if session.window_handle != request.window_handle
+            || session.owner_thread_id != owner_thread_id
+            || session.paint_struct_address != request.paint_struct_address
+            || session.paint_struct_bytes != request.paint_struct_bytes
+            || previous.pending_update_rect.is_some()
+            || previous.paint_generation.checked_add(1) != Some(session.paint_generation)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "paint-session-relation-mismatch",
+                "EndPaint requires the exact HWND, PAINTSTRUCT bytes, owner thread, and active paint generation",
+            ));
+        }
+        let mut next = previous.clone();
+        next.paint_generation = session.paint_generation;
+        Ok(RuntimeEndPaintPlan {
+            expected_generation: self.generation,
+            disposition: RuntimeEndPaintDisposition::End {
+                previous,
+                next: Box::new(next),
+                session,
+                next_generation: self.next_generation()?,
+            },
+        })
+    }
+
+    pub(super) fn preflight_end_paint(
+        &self,
+        plan: &RuntimeEndPaintPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "end-paint-plan-stale",
+                "User32 state changed after EndPaint planning",
+            ));
+        }
+        let RuntimeEndPaintDisposition::End {
+            previous,
+            next,
+            session,
+            ..
+        } = &plan.disposition;
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+            || self.paint_sessions.get(&previous.id) != Some(session)
+            || next.id != previous.id
+            || next.handle != previous.handle
+            || next.pending_update_rect.is_some()
+            || next.paint_generation != session.paint_generation
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "end-paint-plan-stale",
+                "logical window or paint-session identity changed after EndPaint planning",
+            ));
+        }
+        self.validate_created_window_owner(previous, session.owner_thread_id)?;
+        self.validate_window_creation_references(&next.creation)?;
+        self.validate_window_icon_reference(next.small_icon)
+    }
+
+    pub(super) fn commit_preflighted_end_paint(
+        &mut self,
+        plan: RuntimeEndPaintPlan,
+    ) -> RuntimePaintSession {
+        debug_assert!(self.preflight_end_paint(&plan).is_ok());
+        let RuntimeEndPaintDisposition::End {
+            next,
+            session,
+            next_generation,
+            ..
+        } = plan.disposition;
+        let next = *next;
+        self.generation = next_generation;
+        let replaced = self.windows.insert(next.id, next);
+        let removed = self.paint_sessions.remove(&session.window_id);
+        debug_assert!(replaced.is_some());
+        debug_assert_eq!(removed.as_ref(), Some(&session));
+        session
+    }
+
+    pub(super) fn require_non_paint_device_context(
+        &self,
+        device_context_id: RuntimeDeviceContextId,
+        device_context_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if self.paint_sessions.values().any(|session| {
+            session.device_context_id == device_context_id
+                || session.device_context_handle == device_context_handle
+        }) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "paint-device-context-requires-end-paint",
+                "a BeginPaint HDC must be retired through the matching EndPaint session",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn paint_sessions(&self) -> &BTreeMap<RuntimeWindowId, RuntimePaintSession> {
+        &self.paint_sessions
+    }
+
     fn window_position_update_disposition(
         &self,
         previous: RuntimeWindow,
@@ -3567,6 +4126,7 @@ impl RuntimeUser32 {
         let next_generation = self.next_generation()?;
         let mut next = previous.clone();
         next.creation.geometry = operation.next_geometry;
+        next.pending_update_rect = operation.next_update_rect;
         let mut next_operation = operation;
         next_operation.expected_generation = next_generation;
         Ok(RuntimeSetWindowPosCallbackDisposition::Update {
@@ -3619,12 +4179,28 @@ impl RuntimeUser32 {
         } else {
             operation.previous_geometry
         };
+        let update_rect_committed = operation.variant
+            == RuntimeSetWindowPosVariant::FrameChangeMove
+            && message == RuntimeSetWindowPosCallbackMessage::WindowPositionChanged;
+        let expected_update_rect = if update_rect_committed {
+            operation.next_update_rect
+        } else {
+            operation.previous_update_rect
+        };
+        let derived_next_update_rect = match operation.variant {
+            RuntimeSetWindowPosVariant::FrameChangeMove => {
+                Some(full_client_update_rect(operation.next_geometry)?)
+            }
+            _ => operation.previous_update_rect,
+        };
         if window.handle != operation.window_handle
             || window.creation.geometry != expected_geometry
             || window.visible != operation.previous_visible
             || window.topmost != operation.previous_topmost
             || window.creation.effective_style != operation.previous_effective_style
             || operation.next_effective_style != expected_next_effective_style
+            || window.pending_update_rect != expected_update_rect
+            || operation.next_update_rect != derived_next_update_rect
             || window.small_icon.map_or(0, |icon| icon.handle) != operation.small_icon_handle
         {
             return Err(RuntimeStateError::conflict(
@@ -3996,6 +4572,7 @@ impl RuntimeUser32 {
             && self.cursors.is_empty()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
+            && self.paint_sessions.is_empty()
             && self.system_menus.is_empty()
             && self.ime_windows.is_empty()
             && self.default_ime_windows.is_empty()
@@ -4173,6 +4750,50 @@ fn validate_window_class_name(
         ));
     }
     Ok(())
+}
+
+fn full_client_update_rect(
+    geometry: RuntimeWindowGeometry,
+) -> Result<RuntimeRect, RuntimeStateError> {
+    let right = i32::try_from(geometry.client_width).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-user32",
+            "window-update-region-invalid",
+            "logical update-region width must fit the x86 RECT coordinate domain",
+        )
+    })?;
+    let bottom = i32::try_from(geometry.client_height).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-user32",
+            "window-update-region-invalid",
+            "logical update-region height must fit the x86 RECT coordinate domain",
+        )
+    })?;
+    Ok(RuntimeRect {
+        left: 0,
+        top: 0,
+        right,
+        bottom,
+    })
+}
+
+fn x86_paint_struct_bytes(
+    device_context_handle: u32,
+    erase: bool,
+    update_rect: RuntimeRect,
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH);
+    bytes.extend_from_slice(&device_context_handle.to_le_bytes());
+    bytes.extend_from_slice(&u32::from(erase).to_le_bytes());
+    bytes.extend_from_slice(&update_rect.left.to_le_bytes());
+    bytes.extend_from_slice(&update_rect.top.to_le_bytes());
+    bytes.extend_from_slice(&update_rect.right.to_le_bytes());
+    bytes.extend_from_slice(&update_rect.bottom.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&[0; 32]);
+    debug_assert_eq!(bytes.len(), RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH);
+    bytes
 }
 
 fn validate_position_geometry_transition(
@@ -5161,6 +5782,16 @@ mod tests {
                 if window == moved_window
         ));
         assert_eq!(user32, before_changed);
+        let full_client_update_rect = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        };
+        assert_eq!(
+            moved_window.pending_update_rect,
+            Some(full_client_update_rect)
+        );
         assert_eq!(
             user32.active_windows.get(&owner_thread_id),
             Some(&moved_window.id)
@@ -5170,6 +5801,124 @@ mod tests {
             Some(&moved_window.id)
         );
         assert_eq!(user32.foreground_window, Some(moved_window.id));
+
+        let update = user32
+            .preview_update_window(
+                owner_thread_id,
+                RuntimeUpdateWindowRequest {
+                    window_handle,
+                    entry_last_error: 0x1234_5678,
+                    expected_callback_result: 0,
+                },
+            )
+            .unwrap();
+        assert_eq!(update.update_rect, full_client_update_rect);
+        let before_wrong_paint_result = user32.clone();
+        assert_eq!(
+            user32
+                .plan_update_window_callback(update, 1)
+                .unwrap_err()
+                .code,
+            "update-window-callback-result-invalid"
+        );
+        assert_eq!(user32, before_wrong_paint_result);
+        assert_eq!(
+            user32
+                .plan_update_window_callback(update, 0)
+                .unwrap_err()
+                .code,
+            "update-window-operation-stale",
+            "WM_PAINT completion must not consume the update region without BeginPaint/EndPaint"
+        );
+        let begin = user32
+            .plan_begin_paint(
+                owner_thread_id,
+                RuntimeBeginPaintRequest {
+                    window_handle,
+                    paint_struct_address: GuestAddress(0x2000),
+                    erase: true,
+                },
+                RuntimeDeviceContextId(1),
+                0x4701_0001,
+            )
+            .unwrap();
+        let stale_begin = begin.clone();
+        let session = user32.commit_preflighted_begin_paint(begin);
+        assert_eq!(session.update_rect, full_client_update_rect);
+        assert_eq!(session.paint_generation, 1);
+        assert_eq!(session.paint_struct_bytes.len(), 64);
+        assert_eq!(
+            user32.window(window_handle).unwrap().pending_update_rect,
+            None,
+            "BeginPaint must consume the update region"
+        );
+        assert_eq!(
+            user32.preflight_begin_paint(&stale_begin).unwrap_err().code,
+            "begin-paint-plan-stale"
+        );
+        let mut corrupted_bytes = session.paint_struct_bytes.clone();
+        corrupted_bytes[4] = 0;
+        let before_wrong_end = user32.clone();
+        assert_eq!(
+            user32
+                .plan_end_paint(
+                    owner_thread_id,
+                    RuntimeEndPaintRequest {
+                        window_handle,
+                        paint_struct_address: session.paint_struct_address,
+                        paint_struct_bytes: corrupted_bytes,
+                    },
+                )
+                .unwrap_err()
+                .code,
+            "paint-session-relation-mismatch"
+        );
+        assert_eq!(user32, before_wrong_end);
+        let end = user32
+            .plan_end_paint(
+                owner_thread_id,
+                RuntimeEndPaintRequest {
+                    window_handle,
+                    paint_struct_address: session.paint_struct_address,
+                    paint_struct_bytes: session.paint_struct_bytes.clone(),
+                },
+            )
+            .unwrap();
+        let stale_end = end.clone();
+        assert_eq!(user32.commit_preflighted_end_paint(end), session);
+        assert!(user32.paint_sessions.is_empty());
+        assert_eq!(user32.window(window_handle).unwrap().paint_generation, 1);
+        assert_eq!(
+            user32.preflight_end_paint(&stale_end).unwrap_err().code,
+            "end-paint-plan-stale"
+        );
+
+        let paint = user32.plan_update_window_callback(update, 0).unwrap();
+        assert!(matches!(
+            user32.update_window_callback_action(&paint),
+            RuntimeUpdateWindowCallbackAction::Completed { window }
+                if window.pending_update_rect.is_none() && window.paint_generation == 1
+        ));
+        let before_paint_completion = user32.clone();
+        let RuntimeUpdateWindowCallbackAction::Completed { window: painted } =
+            user32.commit_update_window_callback(paint).unwrap();
+        assert!(painted.pending_update_rect.is_none());
+        assert_eq!(user32.window(window_handle).unwrap(), &painted);
+        assert_eq!(user32, before_paint_completion);
+        assert_eq!(
+            user32
+                .preview_update_window(
+                    owner_thread_id,
+                    RuntimeUpdateWindowRequest {
+                        window_handle,
+                        entry_last_error: 0,
+                        expected_callback_result: 0,
+                    },
+                )
+                .unwrap_err()
+                .code,
+            "update-window-state-invalid"
+        );
 
         let before_unknown = user32.clone();
         assert_eq!(

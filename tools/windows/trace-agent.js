@@ -30,6 +30,11 @@ const focusedSetWindowPosSizeObservation =
 const focusedSetWindowPosFrameChangeMoveObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("set-window-pos-frame-change-move");
+const focusedShowWindowNormalObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("show-window-normal");
+const focusedUpdateWindowObservation =
+  selectedObservations.size === 1 && selectedObservations.has("update-window");
 const focusedSetWindowPosStateObservation =
   focusedSetWindowPosSizeObservation ||
   focusedSetWindowPosFrameChangeMoveObservation;
@@ -336,6 +341,21 @@ let setWindowPosWindowStateSnapshot = null;
 let setWindowPosStateOracleScheduled = false;
 let setWindowPosStateOracleComplete = false;
 let setWindowPosStateOracleEvidence = null;
+let showWindowNormalCompletionRecorded = false;
+const showWindowNormalMainModuleCalls = [];
+const showWindowNormalWindowProcedureCalls = [];
+const activeShowWindowNormalCallsByThread = new Map();
+let showWindowNormalOracleScheduled = false;
+let showWindowNormalOracleComplete = false;
+let showWindowNormalOracleEvidence = null;
+let updateWindowCompletionRecorded = false;
+const updateWindowMainModuleCalls = [];
+const updateWindowWindowProcedureCalls = [];
+const updateWindowPaintCalls = [];
+const activeUpdateWindowCallsByThread = new Map();
+let updateWindowOracleScheduled = false;
+let updateWindowOracleComplete = false;
+let updateWindowOracleEvidence = null;
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -1463,6 +1483,38 @@ function snapshotRect(pointer) {
     };
   } catch (error) {
     return { profile: "x86-rect-v1", raw, error: error.message };
+  }
+}
+
+function snapshotPaintStruct(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 64, 64);
+  if (raw.error !== undefined) {
+    return { profile: "x86-paintstruct-v1", raw };
+  }
+  try {
+    return {
+      profile: "x86-paintstruct-v1",
+      raw,
+      fields: {
+        deviceContext: pointer.readPointer().toString(),
+        erase: pointer.add(4).readU32(),
+        paintRect: {
+          left: pointer.add(8).readS32(),
+          top: pointer.add(12).readS32(),
+          right: pointer.add(16).readS32(),
+          bottom: pointer.add(20).readS32(),
+        },
+        restore: pointer.add(24).readU32(),
+        incrementalUpdate: pointer.add(28).readU32(),
+        reserved: [...new Uint8Array(pointer.add(32).readByteArray(32))],
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-paintstruct-v1",
+      raw,
+      error: error.message,
+    };
   }
 }
 
@@ -7107,7 +7159,18 @@ function attachBgiMainWindowProcedureHook() {
       this.setWindowPosCallId =
         activeSetWindowPosCallsByThread.get(threadId)?.at(-1) ?? null;
       this.recordSetWindowPos = this.setWindowPosCallId !== null;
-      if (!this.recordSendMessage && !this.recordSetWindowPos) {
+      this.showWindowNormalCallId =
+        activeShowWindowNormalCallsByThread.get(threadId)?.at(-1) ?? null;
+      this.recordShowWindowNormal = this.showWindowNormalCallId !== null;
+      this.updateWindowCallId =
+        activeUpdateWindowCallsByThread.get(threadId)?.at(-1) ?? null;
+      this.recordUpdateWindow = this.updateWindowCallId !== null;
+      if (
+        !this.recordSendMessage &&
+        !this.recordSetWindowPos &&
+        !this.recordShowWindowNormal &&
+        !this.recordUpdateWindow
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -7126,7 +7189,10 @@ function attachBgiMainWindowProcedureHook() {
           : null;
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.stateAtEntry =
-        this.recordSetWindowPos && setWindowPosWindowStateSnapshot !== null
+        (this.recordSetWindowPos ||
+          this.recordShowWindowNormal ||
+          this.recordUpdateWindow) &&
+        setWindowPosWindowStateSnapshot !== null
           ? setWindowPosWindowStateSnapshot(this.windowHandlePointer)
           : null;
       this.lastError = this.lastErrorBefore;
@@ -7201,6 +7267,18 @@ function attachBgiMainWindowProcedureHook() {
         setWindowPosWindowProcedureCalls.push({
           ...completed,
           setWindowPosCallId: this.setWindowPosCallId,
+        });
+      }
+      if (this.recordShowWindowNormal) {
+        showWindowNormalWindowProcedureCalls.push({
+          ...completed,
+          showWindowCallId: this.showWindowNormalCallId,
+        });
+      }
+      if (this.recordUpdateWindow) {
+        updateWindowWindowProcedureCalls.push({
+          ...completed,
+          updateWindowCallId: this.updateWindowCallId,
         });
       }
     },
@@ -7354,6 +7432,7 @@ function attachSetWindowPosHook(module) {
     clientToScreen: findExport(module, "ClientToScreen"),
     getWindowLongA: findExport(module, "GetWindowLongA"),
     isWindowVisible: findExport(module, "IsWindowVisible"),
+    getUpdateRect: findExport(module, "GetUpdateRect"),
     getActiveWindow: findExport(module, "GetActiveWindow"),
     getFocus: findExport(module, "GetFocus"),
     getForegroundWindow: findExport(module, "GetForegroundWindow"),
@@ -7411,6 +7490,15 @@ function attachSetWindowPosHook(module) {
           ["pointer"],
           "stdcall",
         );
+  const getUpdateRect =
+    stateQueryExports.getUpdateRect === null
+      ? null
+      : new NativeFunction(
+          stateQueryExports.getUpdateRect,
+          "int32",
+          ["pointer", "pointer", "int32"],
+          "stdcall",
+        );
   const getActiveWindow =
     stateQueryExports.getActiveWindow === null
       ? null
@@ -7441,6 +7529,7 @@ function attachSetWindowPosHook(module) {
   const windowRect = Memory.alloc(16);
   const clientRect = Memory.alloc(16);
   const clientOrigin = Memory.alloc(8);
+  const updateRect = Memory.alloc(16);
   const rectFields = (address) => ({
     left: address.readS32(),
     top: address.add(4).readS32(),
@@ -7454,6 +7543,7 @@ function attachSetWindowPosHook(module) {
       clientToScreen === null ||
       getWindowLongA === null ||
       isWindowVisible === null ||
+      getUpdateRect === null ||
       getActiveWindow === null ||
       getFocus === null ||
       getForegroundWindow === null
@@ -7463,12 +7553,15 @@ function attachSetWindowPosHook(module) {
     windowRect.writeByteArray(Array(16).fill(0));
     clientRect.writeByteArray(Array(16).fill(0));
     clientOrigin.writeByteArray(Array(8).fill(0));
+    updateRect.writeByteArray(Array(16).fill(0));
     const windowRectResult =
       Number(getWindowRect(windowHandle, windowRect)) >>> 0;
     const clientRectResult =
       Number(getClientRect(windowHandle, clientRect)) >>> 0;
     const clientOriginResult =
       Number(clientToScreen(windowHandle, clientOrigin)) >>> 0;
+    const updateRectResult =
+      Number(getUpdateRect(windowHandle, updateRect, 0)) >>> 0;
     const windowRelation = (relatedWindow) => ({
       windowHandle: relatedWindow.toString(),
       isNull: relatedWindow.isNull(),
@@ -7487,6 +7580,8 @@ function attachSetWindowPosHook(module) {
         clientOriginResult === 0
           ? null
           : { x: clientOrigin.readS32(), y: clientOrigin.add(4).readS32() },
+      updateRectResult,
+      updateRect: updateRectResult === 0 ? null : rectFields(updateRect),
       activeWindow: windowRelation(getActiveWindow()),
       focusWindow: windowRelation(getFocus()),
       foregroundWindow: windowRelation(getForegroundWindow()),
@@ -7686,6 +7781,476 @@ function attachSetWindowPosHook(module) {
         setImmediate(maybeCompleteSetWindowPosObservation);
       }
     },
+  });
+}
+
+function attachShowWindowNormalHook(module) {
+  const name = "ShowWindow";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  attachSetWindowPosHook(module);
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const windowHandlePointer = args[0];
+      const command = args[1].toUInt32();
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        caller.rva !== 0x000938da ||
+        command !== 1
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (setWindowPosWindowStateSnapshot === null) {
+        throw new Error("ShowWindow state snapshot authority is unavailable");
+      }
+      this.callerRva = caller.rva;
+      this.windowHandlePointer = windowHandlePointer;
+      this.windowHandle = windowHandlePointer.toString();
+      this.command = command;
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateBefore = setWindowPosWindowStateSnapshot(windowHandlePointer);
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          64,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          6,
+          24,
+        ),
+      };
+      this.lastError = this.lastErrorBefore;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle, this.command],
+          lastErrorBefore: this.lastErrorBefore,
+          showWindow: {
+            profile: "x86-bgi-show-window-normal-v1",
+            windowHandle: this.windowHandle,
+            command: this.command,
+            stateBefore: this.stateBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+      const stack =
+        activeShowWindowNormalCallsByThread.get(this.traceFrame.threadId) ?? [];
+      stack.push(this.traceFrame.callId);
+      activeShowWindowNormalCallsByThread.set(this.traceFrame.threadId, stack);
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const stack =
+        activeShowWindowNormalCallsByThread.get(this.traceFrame.threadId) ?? [];
+      if (stack.at(-1) === this.traceFrame.callId) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        activeShowWindowNormalCallsByThread.delete(this.traceFrame.threadId);
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      const stateAfter = setWindowPosWindowStateSnapshot(
+        this.windowHandlePointer,
+      );
+      this.lastError = lastError;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          showWindow: { result: resultValue, resultU32, stateAfter },
+        },
+        this.lastError,
+      );
+      if (!showWindowNormalCompletionRecorded) {
+        showWindowNormalMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.callerRva,
+          windowHandle: this.windowHandle,
+          command: this.command,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          stateBefore: this.stateBefore,
+          stateAfter,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleShowWindowNormalOracle(module, this.command);
+        setImmediate(maybeCompleteShowWindowNormalObservation);
+      }
+    },
+  });
+}
+
+function scheduleShowWindowNormalOracle(module, command) {
+  if (showWindowNormalOracleScheduled) {
+    return;
+  }
+  showWindowNormalOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "ShowWindow");
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const setLastErrorAddress = findExport(kernel32, "SetLastError");
+      if (address === null || setLastErrorAddress === null) {
+        throw new Error("ShowWindow oracle exports are unavailable");
+      }
+      const showWindow = new SystemFunction(
+        address,
+        "int32",
+        ["pointer", "int32"],
+        "stdcall",
+      );
+      const setLastError = new SystemFunction(
+        setLastErrorAddress,
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const sentinel = 0x55667788;
+      setLastError(sentinel);
+      const outcome = showWindow(ptr("0x1234"), command);
+      showWindowNormalOracleEvidence = {
+        profile: "x86-show-window-normal-invalid-window-v1",
+        call: {
+          windowHandle: "0x1234",
+          command,
+          sentinel,
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+        },
+      };
+      showWindowNormalOracleComplete = true;
+      emit("show-window-normal-oracle", showWindowNormalOracleEvidence);
+      maybeCompleteShowWindowNormalObservation();
+    } catch (error) {
+      emit("show-window-normal-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function attachUpdateWindowHook(module) {
+  const name = "UpdateWindow";
+  const address = findExport(module, name);
+  if (address === null) {
+    return;
+  }
+  attachSetWindowPosHook(module);
+  attachUpdateWindowPaintHooks(module);
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        caller.rva !== 0x000938e7
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      if (setWindowPosWindowStateSnapshot === null) {
+        throw new Error("UpdateWindow state snapshot authority is unavailable");
+      }
+      this.callerRva = caller.rva;
+      this.windowHandlePointer = args[0];
+      this.windowHandle = this.windowHandlePointer.toString();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.stateBefore = setWindowPosWindowStateSnapshot(
+        this.windowHandlePointer,
+      );
+      this.immediateConsumer = {
+        apiContinuation: snapshotInstructionsFollowingDirectJump(
+          this.returnAddress,
+          64,
+        ),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          6,
+          24,
+        ),
+      };
+      this.lastError = this.lastErrorBefore;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle],
+          lastErrorBefore: this.lastErrorBefore,
+          updateWindow: {
+            profile: "x86-bgi-update-window-full-client-paint-v1",
+            windowHandle: this.windowHandle,
+            stateBefore: this.stateBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+      const stack =
+        activeUpdateWindowCallsByThread.get(this.traceFrame.threadId) ?? [];
+      stack.push(this.traceFrame.callId);
+      activeUpdateWindowCallsByThread.set(this.traceFrame.threadId, stack);
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const stack =
+        activeUpdateWindowCallsByThread.get(this.traceFrame.threadId) ?? [];
+      if (stack.at(-1) === this.traceFrame.callId) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        activeUpdateWindowCallsByThread.delete(this.traceFrame.threadId);
+      }
+      const lastError = Number(this.lastError) >>> 0;
+      const resultValue = result.toString();
+      const resultU32 = result.toUInt32();
+      const stateAfter = setWindowPosWindowStateSnapshot(
+        this.windowHandlePointer,
+      );
+      this.lastError = lastError;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: resultValue,
+          updateWindow: { result: resultValue, resultU32, stateAfter },
+        },
+        this.lastError,
+      );
+      if (!updateWindowCompletionRecorded) {
+        updateWindowMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.callerRva,
+          windowHandle: this.windowHandle,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          stateBefore: this.stateBefore,
+          stateAfter,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleUpdateWindowOracle(module);
+        setImmediate(maybeCompleteUpdateWindowObservation);
+      }
+    },
+  });
+}
+
+function attachUpdateWindowPaintHooks(module) {
+  for (const name of ["BeginPaint", "EndPaint"]) {
+    const address = findExport(module, name);
+    if (address === null) {
+      throw new Error(`${name} export is unavailable`);
+    }
+    const key = address.toString();
+    if (attached.has(key)) {
+      continue;
+    }
+    attached.add(key);
+    Interceptor.attach(address, {
+      onEnter(args) {
+        const threadId = Process.getCurrentThreadId();
+        this.updateWindowCallId =
+          activeUpdateWindowCallsByThread.get(threadId)?.at(-1) ?? null;
+        if (this.updateWindowCallId === null) {
+          this.traceFrame = null;
+          return;
+        }
+        this.name = name;
+        this.windowHandlePointer = args[0];
+        this.windowHandle = this.windowHandlePointer.toString();
+        this.paintStructPointer = args[1];
+        this.paintStructAddress = this.paintStructPointer.toString();
+        this.lastErrorBefore = Number(this.lastError) >>> 0;
+        this.stateBefore = setWindowPosWindowStateSnapshot(
+          this.windowHandlePointer,
+        );
+        this.paintStructBefore = snapshotPaintStruct(this.paintStructPointer);
+        this.lastError = this.lastErrorBefore;
+        this.traceFrame = beginCall(
+          {
+            module: module.name,
+            api: name,
+            arguments: [this.windowHandle, this.paintStructAddress],
+            lastErrorBefore: this.lastErrorBefore,
+            updateWindowPaint: {
+              profile: "x86-bgi-update-window-paint-api-v1",
+              updateWindowCallId: this.updateWindowCallId,
+              stateBefore: this.stateBefore,
+              paintStructBefore: this.paintStructBefore,
+            },
+          },
+          this.returnAddress,
+        );
+      },
+      onLeave(result) {
+        if (this.traceFrame === null) {
+          return;
+        }
+        const lastError = Number(this.lastError) >>> 0;
+        const resultValue = result.toString();
+        const resultU32 = result.toUInt32();
+        const stateAfter = setWindowPosWindowStateSnapshot(
+          this.windowHandlePointer,
+        );
+        const paintStructAfter = snapshotPaintStruct(this.paintStructPointer);
+        this.lastError = lastError;
+        finishCall(
+          this.traceFrame,
+          {
+            module: module.name,
+            api: this.name,
+            result: resultValue,
+            updateWindowPaint: {
+              result: resultValue,
+              resultU32,
+              stateAfter,
+              paintStructAfter,
+            },
+          },
+          this.lastError,
+        );
+        updateWindowPaintCalls.push({
+          callId: this.traceFrame.callId,
+          parentCallId: this.traceFrame.parentCallId,
+          updateWindowCallId: this.updateWindowCallId,
+          api: this.name,
+          returnAddress: this.returnAddress.toString(),
+          windowHandle: this.windowHandle,
+          paintStructAddress: this.paintStructAddress,
+          result: resultValue,
+          resultU32,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          stateBefore: this.stateBefore,
+          stateAfter,
+          paintStructBefore: this.paintStructBefore,
+          paintStructAfter,
+        });
+      },
+    });
+  }
+}
+
+function scheduleUpdateWindowOracle(module) {
+  if (updateWindowOracleScheduled) {
+    return;
+  }
+  updateWindowOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "UpdateWindow");
+      const beginPaintAddress = findExport(module, "BeginPaint");
+      const endPaintAddress = findExport(module, "EndPaint");
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const setLastErrorAddress = findExport(kernel32, "SetLastError");
+      if (
+        address === null ||
+        beginPaintAddress === null ||
+        endPaintAddress === null ||
+        setLastErrorAddress === null
+      ) {
+        throw new Error("UpdateWindow oracle exports are unavailable");
+      }
+      const updateWindow = new SystemFunction(
+        address,
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const setLastError = new SystemFunction(
+        setLastErrorAddress,
+        "void",
+        ["uint32"],
+        "stdcall",
+      );
+      const beginPaint = new SystemFunction(
+        beginPaintAddress,
+        "pointer",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const endPaint = new SystemFunction(
+        endPaintAddress,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const sentinel = 0x55667788;
+      setLastError(sentinel);
+      const outcome = updateWindow(ptr("0x1234"));
+      const paintStruct = Memory.alloc(64);
+      paintStruct.writeByteArray(Array(64).fill(0xa5));
+      const paintStructBefore = snapshotPaintStruct(paintStruct);
+      setLastError(sentinel);
+      const beginPaintOutcome = beginPaint(ptr("0x1234"), paintStruct);
+      const paintStructAfterBeginPaint = snapshotPaintStruct(paintStruct);
+      paintStruct.writeByteArray(Array(64).fill(0x5a));
+      const paintStructBeforeEndPaint = snapshotPaintStruct(paintStruct);
+      setLastError(sentinel);
+      const endPaintOutcome = endPaint(ptr("0x1234"), paintStruct);
+      const paintStructAfterEndPaint = snapshotPaintStruct(paintStruct);
+      updateWindowOracleEvidence = {
+        profile: "x86-update-window-paint-invalid-window-v1",
+        call: {
+          windowHandle: "0x1234",
+          sentinel,
+          result: Number(outcome.value) >>> 0,
+          lastError: Number(outcome.lastError) >>> 0,
+        },
+        beginPaint: {
+          windowHandle: "0x1234",
+          sentinel,
+          paintStructBefore,
+          result: beginPaintOutcome.value.toString(),
+          lastError: Number(beginPaintOutcome.lastError) >>> 0,
+          paintStructAfter: paintStructAfterBeginPaint,
+        },
+        endPaint: {
+          windowHandle: "0x1234",
+          sentinel,
+          paintStructBefore: paintStructBeforeEndPaint,
+          result: Number(endPaintOutcome.value) >>> 0,
+          lastError: Number(endPaintOutcome.lastError) >>> 0,
+          paintStructAfter: paintStructAfterEndPaint,
+        },
+      };
+      updateWindowOracleComplete = true;
+      emit("update-window-oracle", updateWindowOracleEvidence);
+      maybeCompleteUpdateWindowObservation();
+    } catch (error) {
+      emit("update-window-oracle-error", { error: error.message });
+    }
   });
 }
 
@@ -19617,6 +20182,71 @@ function maybeCompleteSetWindowPosObservation() {
   }
 }
 
+function maybeCompleteShowWindowNormalObservation() {
+  if (
+    showWindowNormalCompletionRecorded ||
+    !showWindowNormalOracleComplete ||
+    showWindowNormalMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteShowWindowNormalObservation, 10);
+    return;
+  }
+  showWindowNormalCompletionRecorded = true;
+  const selectedCallIds = new Set(
+    showWindowNormalMainModuleCalls.map((call) => call.callId),
+  );
+  emit("show-window-normal-complete", {
+    profile: "x86-bgi-show-window-normal-v1",
+    quiescenceMilliseconds: 0,
+    mainModuleCalls: showWindowNormalMainModuleCalls.map((call) => ({
+      ...call,
+    })),
+    windowProcedureCalls: showWindowNormalWindowProcedureCalls
+      .filter((call) => selectedCallIds.has(call.showWindowCallId))
+      .map((call) => ({ ...call })),
+    oracle: showWindowNormalOracleEvidence,
+  });
+  if (stopOnEvent === "show-window-normal-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteUpdateWindowObservation() {
+  if (
+    updateWindowCompletionRecorded ||
+    !updateWindowOracleComplete ||
+    updateWindowMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteUpdateWindowObservation, 10);
+    return;
+  }
+  updateWindowCompletionRecorded = true;
+  const selectedCallIds = new Set(
+    updateWindowMainModuleCalls.map((call) => call.callId),
+  );
+  emit("update-window-complete", {
+    profile: "x86-bgi-update-window-full-client-paint-v1",
+    quiescenceMilliseconds: 0,
+    mainModuleCalls: updateWindowMainModuleCalls.map((call) => ({ ...call })),
+    windowProcedureCalls: updateWindowWindowProcedureCalls
+      .filter((call) => selectedCallIds.has(call.updateWindowCallId))
+      .map((call) => ({ ...call })),
+    paintCalls: updateWindowPaintCalls
+      .filter((call) => selectedCallIds.has(call.updateWindowCallId))
+      .map((call) => ({ ...call })),
+    oracle: updateWindowOracleEvidence,
+  });
+  if (stopOnEvent === "update-window-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
 function maybeCompleteLoadIconAObservation() {
   if (
     loadIconACompletionRecorded ||
@@ -23190,6 +23820,34 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "SetWindowPos",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      focusedShowWindowNormalObservation
+    ) {
+      try {
+        attachShowWindowNormalHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "ShowWindow",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      focusedUpdateWindowObservation
+    ) {
+      try {
+        attachUpdateWindowHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "UpdateWindow",
           error: error.message,
         });
       }

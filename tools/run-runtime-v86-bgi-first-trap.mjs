@@ -212,6 +212,8 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
+        "user32-show-window-normal",
+        "user32-update-window",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -344,6 +346,8 @@ assert(
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
+      "user32-show-window-normal",
+      "user32-update-window",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -353,7 +357,9 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-create-directory-a" ||
     genericRuntimeCapability === "user32-set-window-pos-repeat-activation" ||
     genericRuntimeCapability === "d3d9-recreated-textures" ||
-    genericRuntimeCapability === "user32-set-window-pos-frame-change-move"
+    genericRuntimeCapability === "user32-set-window-pos-frame-change-move" ||
+    genericRuntimeCapability === "user32-show-window-normal" ||
+    genericRuntimeCapability === "user32-update-window"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -654,7 +660,13 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const updateWindowCheckpointEnabled =
+  genericRuntimeCapability === "user32-update-window";
+const showWindowNormalCheckpointEnabled =
+  updateWindowCheckpointEnabled ||
+  genericRuntimeCapability === "user32-show-window-normal";
 const setWindowPosFrameChangeMoveCheckpointEnabled =
+  showWindowNormalCheckpointEnabled ||
   genericRuntimeCapability === "user32-set-window-pos-frame-change-move";
 const d3d9RecreatedTexturesCheckpointEnabled =
   setWindowPosFrameChangeMoveCheckpointEnabled ||
@@ -1020,7 +1032,11 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? setWindowPosFrameChangeMoveCheckpointEnabled
+    ? updateWindowCheckpointEnabled
+      ? "v86-bgi-update-window"
+      : showWindowNormalCheckpointEnabled
+        ? "v86-bgi-show-window-normal"
+      : setWindowPosFrameChangeMoveCheckpointEnabled
       ? "v86-bgi-set-window-pos-frame-change-move"
       : d3d9RecreatedTexturesCheckpointEnabled
         ? "v86-bgi-d3d9-recreated-textures"
@@ -5398,6 +5414,10 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (updateWindowCheckpointEnabled) {
+        validateUpdateWindowResult(genericResult);
+      } else if (showWindowNormalCheckpointEnabled) {
+        validateShowWindowNormalResult(genericResult);
       } else if (setWindowPosFrameChangeMoveCheckpointEnabled) {
         validateSetWindowPosFrameChangeMoveResult(genericResult);
       } else if (d3d9RecreatedTexturesCheckpointEnabled) {
@@ -5649,7 +5669,11 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : setWindowPosFrameChangeMoveCheckpointEnabled
+          : updateWindowCheckpointEnabled
+            ? "bgi UpdateWindow full-client BeginPaint/EndPaint session"
+            : showWindowNormalCheckpointEnabled
+              ? "bgi ShowWindow visible SW_SHOWNORMAL no-op"
+            : setWindowPosFrameChangeMoveCheckpointEnabled
             ? "bgi SetWindowPos frame-change move"
             : d3d9RecreatedTexturesCheckpointEnabled
               ? "bgi D3D9 recreated texture sequence"
@@ -7094,7 +7118,7 @@ async function runGenericRuntimeReentry({
         symbol: endpoint.symbol,
         occurrence,
         trapInstructionCount: continuation.instructionCount,
-        arguments: terminal.stackWords.slice(1, 1 + entry.argumentCount),
+        arguments: terminal.stackWords.slice(1, 1 + entry.apiArgumentCount),
         pendingCallback: true,
       });
       const outerState = continuation.finalState;
@@ -8046,6 +8070,9 @@ function buildGenericCallRecord(
     ...(completionFrame.window === undefined
       ? {}
       : { window: completionFrame.window }),
+    ...(completionFrame.paint === undefined
+      ? {}
+      : { paint: completionFrame.paint }),
     ...(completionFrame.windowTimer === undefined
       ? {}
       : { windowTimer: completionFrame.windowTimer }),
@@ -8145,6 +8172,7 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(
     ready.implementedApiContracts,
     declaredDispatches.length +
+      4 +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
@@ -8331,7 +8359,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23",
+      "user32-single-monitor-window-frame-change-show-update-paint-v26",
     );
     assert.equal(
       ready.displayProfileId,
@@ -9282,6 +9310,9 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
   assert.equal(entry.endpoint.endpoint.id, endpoint.id);
   assert.equal(entry.endpoint.endpoint.address, endpoint.address);
   assert(Number.isSafeInteger(entry.frameId) && entry.frameId > 0);
+  assert(
+    Number.isSafeInteger(entry.apiArgumentCount) && entry.apiArgumentCount >= 0,
+  );
   assert.equal(entry.memory.generation, generation);
   assert.equal(entry.memory.acknowledgedGeneration, generation);
   assert.equal(entry.memory.dirtyPages, 0);
@@ -19964,9 +19995,12 @@ function validateSetWindowPosRepeatActivationResult(result) {
   );
 }
 
-function validateD3d9RecreatedTexturesResult(result) {
+function validateD3d9RecreatedTexturesResult(
+  result,
+  { activeCallbackDepth = 0, pendingCallbackCount = 0 } = {},
+) {
   assert.equal(result.frozenSemanticCalls, 17);
-  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.activeCallbackDepth, activeCallbackDepth);
   assert(
     result.supportedCalls.length > 108_736,
     "recreated textures did not advance beyond the frozen MessageBoxA branch",
@@ -19974,7 +20008,7 @@ function validateD3d9RecreatedTexturesResult(result) {
   assert.equal(
     result.supportedCalls.filter((call) => call.pendingCallback === true)
       .length,
-    0,
+    pendingCallbackCount,
   );
   const recreatedTextureCalls = result.supportedCalls.filter(
     (call) =>
@@ -20055,8 +20089,8 @@ function validateD3d9RecreatedTexturesResult(result) {
   );
 }
 
-function validateSetWindowPosFrameChangeMoveResult(result) {
-  validateD3d9RecreatedTexturesResult(result);
+function validateSetWindowPosFrameChangeMoveResult(result, callbackState) {
+  validateD3d9RecreatedTexturesResult(result, callbackState);
   const calls = result.supportedCalls.filter(
     (call) => call.implementationId === "user32.set-window-pos.v5",
   );
@@ -20094,6 +20128,124 @@ function validateSetWindowPosFrameChangeMoveResult(result) {
     [0x4801_0001, 0x0003, 0, 0x00b4_0140],
   );
   assert.equal(nestedMoveEvents[1].result, 0);
+  assert.deepEqual(frameChange.window.pendingUpdateRect, {
+    left: 0,
+    top: 0,
+    right: 1_280,
+    bottom: 720,
+  });
+}
+
+function validateShowWindowNormalResult(result, callbackState) {
+  validateSetWindowPosFrameChangeMoveResult(result, callbackState);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.show-window.visible-normal-noop.v1",
+  );
+  assert.equal(calls.length, 1, "ShowWindow must complete exactly once");
+  const showWindow = calls[0];
+  assert.deepEqual(showWindow.arguments, [0x4801_0001, 1]);
+  assert.deepEqual(showWindow.result, { action: "set", value: 1 });
+  assert.equal(showWindow.returnAddress, 0x1009_38da);
+  assert.equal(showWindow.lastError, 0);
+  assert.deepEqual(showWindow.guestWrites, []);
+  assert.equal(
+    result.callbackEvents.filter((event) => event.sequence === showWindow.sequence)
+      .length,
+    0,
+    "already-visible SW_SHOWNORMAL must not emit a callback",
+  );
+}
+
+function validateUpdateWindowResult(result) {
+  validateShowWindowNormalResult(result, {
+    activeCallbackDepth: 1,
+    pendingCallbackCount: 1,
+  });
+  const updateCalls = result.supportedCalls.filter(
+    (call) => call.module.toLowerCase() === "user32.dll" && call.symbol === "UpdateWindow",
+  );
+  assert.equal(updateCalls.length, 1, "UpdateWindow must enter exactly once");
+  const updateWindow = updateCalls[0];
+  assert.equal(updateWindow.sequence, 127_352);
+  assert.equal(updateWindow.occurrence, 1);
+  assert.equal(updateWindow.trapInstructionCount, 28_761_031);
+  assert.deepEqual(updateWindow.arguments, [0x4801_0001]);
+  assert.equal(updateWindow.pendingCallback, true);
+  const events = result.callbackEvents.filter(
+    (event) => event.sequence === updateWindow.sequence,
+  );
+  assert.equal(events.length, 1, "UpdateWindow must remain in its WM_PAINT callback");
+  assert.equal(events[0].action, "enter");
+  assert.deepEqual(events[0].arguments, [0x4801_0001, 0x000f, 0, 0]);
+
+  const beginCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.begin-paint.full-client-logical-dc.v1",
+  );
+  const endCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.end-paint.matching-session.v1",
+  );
+  assert.equal(beginCalls.length, 1, "BeginPaint must complete exactly once");
+  assert.equal(endCalls.length, 1, "EndPaint must complete exactly once");
+  const beginPaint = beginCalls[0];
+  const endPaint = endCalls[0];
+  assert.equal(beginPaint.sequence, updateWindow.sequence + 1);
+  assert.equal(endPaint.sequence, beginPaint.sequence + 1);
+  assert.deepEqual(beginPaint.arguments, [0x4801_0001, 0x006f_f318]);
+  assert.deepEqual(beginPaint.result, { action: "set", value: 0x4701_0009 });
+  assert.equal(beginPaint.returnAddress, 0x1009_28d9);
+  assert.equal(beginPaint.lastError, 0);
+  assert.equal(beginPaint.guestWrites.length, 1);
+  assert.equal(beginPaint.guestWrites[0].address, 0x006f_f318);
+  assert.deepEqual(beginPaint.guestWrites[0].bytes, [
+    0x09, 0x00, 0x01, 0x47,
+    0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x05, 0x00, 0x00,
+    0xd0, 0x02, 0x00, 0x00,
+    ...Array(40).fill(0),
+  ]);
+  assert.equal(beginPaint.paint.action, "begun");
+  assert.equal(beginPaint.paint.window.pendingUpdateRect, undefined);
+  assert.equal(beginPaint.paint.window.paintGeneration, 0);
+  assert.equal(beginPaint.paint.session.windowId, beginPaint.paint.window.id);
+  assert.equal(beginPaint.paint.session.ownerThreadId, 8192);
+  assert.equal(beginPaint.paint.session.paintGeneration, 1);
+  assert.equal(beginPaint.paint.session.paintStructAddress, 0x006f_f318);
+  assert.equal(beginPaint.paint.session.deviceContextHandle, 0x4701_0009);
+  assert.deepEqual(
+    beginPaint.paint.session.paintStructBytes,
+    beginPaint.guestWrites[0].bytes,
+  );
+  assert.equal(beginPaint.paint.deviceContext.handle, 0x4701_0009);
+  assert.equal(beginPaint.paint.livePaintSessions, 1);
+
+  assert.deepEqual(endPaint.arguments, [0x4801_0001, 0x006f_f318]);
+  assert.deepEqual(endPaint.result, { action: "set", value: 1 });
+  assert.equal(endPaint.returnAddress, 0x1009_28e5);
+  assert.equal(endPaint.lastError, 0);
+  assert.deepEqual(endPaint.guestWrites, []);
+  assert.equal(endPaint.paint.action, "ended");
+  assert.equal(endPaint.paint.window.pendingUpdateRect, undefined);
+  assert.equal(endPaint.paint.window.paintGeneration, 1);
+  assert.equal(endPaint.paint.paintStructAddress, 0x006f_f318);
+  assert.equal(endPaint.paint.livePaintSessions, 0);
+  assert.equal(
+    endPaint.paint.liveDeviceContexts,
+    beginPaint.paint.liveDeviceContexts - 1,
+  );
+
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(result.fault.endpoint.target.method.slot, 43);
+  assert.equal(result.fault.endpoint.target.method.name, "Clear");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_af9e);
+  assert.equal(result.terminal.instructionCount, 28_761_128);
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -24777,6 +24929,71 @@ function buildGenericRuntimeReentryReport({
       "frame-change move requires one balanced nested WM_MOVE callback",
     );
   }
+  const showWindowNormalCalls = showWindowNormalCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "user32.show-window.visible-normal-noop.v1",
+      )
+    : [];
+  const showWindowNormalCall = showWindowNormalCalls[0] ?? null;
+  if (showWindowNormalCheckpointEnabled) {
+    assert.equal(
+      showWindowNormalCalls.length,
+      1,
+      "ShowWindow report summary requires one completion",
+    );
+    assert.equal(
+      genericResult.callbackEvents.filter(
+        (event) => event.sequence === showWindowNormalCall.sequence,
+      ).length,
+      0,
+      "already-visible SW_SHOWNORMAL report must remain callback-free",
+    );
+  }
+  const updateWindowCalls = updateWindowCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "UpdateWindow",
+      )
+    : [];
+  const updateWindowCall = updateWindowCalls[0] ?? null;
+  const updateWindowCallbackEvents =
+    updateWindowCall === null
+      ? []
+      : genericResult.callbackEvents.filter(
+          (event) => event.sequence === updateWindowCall.sequence,
+        );
+  const beginPaintCalls = updateWindowCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "user32.begin-paint.full-client-logical-dc.v1",
+      )
+    : [];
+  const endPaintCalls = updateWindowCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId === "user32.end-paint.matching-session.v1",
+      )
+    : [];
+  const beginPaintCall = beginPaintCalls[0] ?? null;
+  const endPaintCall = endPaintCalls[0] ?? null;
+  if (updateWindowCheckpointEnabled) {
+    assert.equal(
+      updateWindowCalls.length,
+      1,
+      "UpdateWindow report summary requires one callback entry",
+    );
+    assert.equal(
+      updateWindowCallbackEvents.length,
+      1,
+      "UpdateWindow report summary requires one active WM_PAINT callback",
+    );
+    assert.equal(beginPaintCalls.length, 1);
+    assert.equal(endPaintCalls.length, 1);
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -24850,7 +25067,11 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : setWindowPosFrameChangeMoveCheckpointEnabled
+        : updateWindowCheckpointEnabled
+          ? "vine.v86-bgi-user32-update-window"
+          : showWindowNormalCheckpointEnabled
+            ? "vine.v86-bgi-user32-show-window-normal"
+          : setWindowPosFrameChangeMoveCheckpointEnabled
           ? "vine.v86-bgi-user32-set-window-pos-frame-change-move"
           : d3d9RecreatedTexturesCheckpointEnabled
             ? "vine.v86-bgi-d3d9-recreated-textures"
@@ -25410,6 +25631,43 @@ function buildGenericRuntimeReentryReport({
             gdiResourceMutation: false,
             browserResourceCreated: false,
             nonClientPaintAndEraseModeled: false,
+          },
+        }
+      : {}),
+    ...(showWindowNormalCheckpointEnabled
+      ? {
+          showWindowNormal: {
+            callCount: showWindowNormalCalls.length,
+            call: showWindowNormalCall,
+            windowAuthority: "rust-runtime-user32-logical-window",
+            relationAuthority:
+              "rust-runtime-user32-thread-and-process-window-relations",
+            mutation: false,
+            callbackCount: 0,
+            browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(updateWindowCheckpointEnabled
+      ? {
+          updateWindow: {
+            callCount: updateWindowCalls.length,
+            call: updateWindowCall,
+            callbackEvents: updateWindowCallbackEvents,
+            beginPaint: beginPaintCall,
+            endPaint: endPaintCall,
+            windowAuthority: "rust-runtime-user32-logical-window",
+            updateRegionAuthority: "rust-runtime-user32-window-update-region",
+            updateRegionSource:
+              "set-window-pos-frame-change-nccalcsize-completion",
+            updateRegionConsumption: "begin-paint-targeted-commit",
+            paintSessionAuthority: "rust-runtime-user32-paint-session",
+            deviceContextAuthority: "rust-runtime-gdi-device-context",
+            paintSessionRetired: true,
+            deviceContextRetired: true,
+            failureAtomicity: true,
+            callbackActiveAtStop: true,
+            browserResourceCreated: false,
           },
         }
       : {}),

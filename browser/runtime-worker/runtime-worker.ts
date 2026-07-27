@@ -28,6 +28,12 @@ import {
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
+  type RuntimeBeginPaintCallSnapshot,
+  type RuntimeEndPaintCallSnapshot,
+  type RuntimePaintSnapshot,
+  type RuntimeShowWindowNormalCallSnapshot,
+  type RuntimeUpdateWindowCallbackEvent,
+  type RuntimeUpdateWindowEntrySnapshot,
   type RuntimeSupportedCallSnapshot,
   type RuntimeImm32Snapshot,
   type RuntimeThreadSelectionSnapshot,
@@ -72,6 +78,24 @@ import { TaskTimerPacingDriver, TimerPacingService } from "./timer-pacing.js";
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
+const BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES = [
+  0x09, 0x00, 0x01, 0x47,
+  0x01, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x05, 0x00, 0x00,
+  0xd0, 0x02, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+] as const;
 const yieldChannel = new MessageChannel();
 
 function includesSetWindowPosRepeatActivation(
@@ -88,14 +112,35 @@ function includesD3d9RecreatedTextures(
 ): boolean {
   return (
     profile === "d3d9-recreated-textures" ||
-    profile === "user32-set-window-pos-frame-change-move"
+    profile === "user32-set-window-pos-frame-change-move" ||
+    profile === "user32-show-window-normal" ||
+    profile === "user32-update-window"
   );
 }
 
 function isSetWindowPosFrameChangeMove(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-set-window-pos-frame-change-move";
+  return (
+    profile === "user32-set-window-pos-frame-change-move" ||
+    profile === "user32-show-window-normal" ||
+    profile === "user32-update-window"
+  );
+}
+
+function includesShowWindowNormal(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "user32-show-window-normal" ||
+    profile === "user32-update-window"
+  );
+}
+
+function isUpdateWindow(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-update-window";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -233,6 +278,7 @@ interface CompletionMetadata {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   window?: RuntimeWindowSnapshot;
+  paint?: RuntimePaintSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
@@ -315,6 +361,7 @@ interface HostCompletionMetadata {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   window?: RuntimeWindowSnapshot;
+  paint?: RuntimePaintSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
@@ -399,6 +446,7 @@ interface CallbackCompletionMetadata {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   window?: RuntimeWindowSnapshot;
+  paint?: RuntimePaintSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
@@ -644,6 +692,9 @@ class BrowserRuntimeSession {
     [];
   readonly #setWindowPosFrameChangeMoveNestedMoveEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[] =
     [];
+  #updateWindowEntry: RuntimeUpdateWindowEntrySnapshot | null = null;
+  #updateWindowCallbackEvent: RuntimeUpdateWindowCallbackEvent | null = null;
+  #beginPaintCall: RuntimeBeginPaintCallSnapshot | null = null;
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #enterCriticalSectionCompletions = 0;
@@ -737,6 +788,8 @@ class BrowserRuntimeSession {
       null as SessionReport["setWindowPosRepeatActivation"],
     setWindowPosFrameChangeMove:
       null as SessionReport["setWindowPosFrameChangeMove"],
+    showWindowNormal: null as SessionReport["showWindowNormal"],
+    updateWindow: null as SessionReport["updateWindow"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
@@ -2670,6 +2723,49 @@ class BrowserRuntimeSession {
             "BGI callback frame reused an active call sequence",
           );
           if (
+            isUpdateWindow(this.#configuration.capabilityProfile) &&
+            sequence === 127_352
+          ) {
+            const windowHandle = engine.readGuestU32(stackPointer + 4);
+            const callbackArguments = [
+              engine.readGuestU32(metadata.stackPointer + 4),
+              engine.readGuestU32(metadata.stackPointer + 8),
+              engine.readGuestU32(metadata.stackPointer + 12),
+              engine.readGuestU32(metadata.stackPointer + 16),
+            ] as [number, number, number, number];
+            invariant(
+              this.#updateWindowEntry === null &&
+                this.#updateWindowCallbackEvent === null &&
+                windowHandle === 0x4801_0001 &&
+                metadata.depth === 1 &&
+                metadata.target === 0x1009_2550 &&
+                metadata.stackPointer === 0x006f_f674 &&
+                callbackArguments[0] === windowHandle &&
+                callbackArguments[1] === 0x000f &&
+                callbackArguments[2] === 0 &&
+                callbackArguments[3] === 0,
+              "UpdateWindow WM_PAINT callback identity or arguments changed",
+            );
+            this.#updateWindowEntry = {
+              sequence,
+              module: "USER32.dll",
+              symbol: "UpdateWindow",
+              occurrence: 1,
+              trapInstructionCount: this.#report.instructions,
+              arguments: [windowHandle],
+              pendingCallback: true,
+            };
+            this.#updateWindowCallbackEvent = {
+              action: "enter",
+              sequence,
+              frameId: metadata.frameId,
+              instructionCount: this.#report.instructions,
+              target: metadata.target,
+              stackPointer: metadata.stackPointer,
+              arguments: [windowHandle, 0x000f, 0, 0],
+            };
+          }
+          if (
             includesSetWindowPosRepeatActivation(
               this.#configuration.capabilityProfile,
             ) &&
@@ -3011,6 +3107,8 @@ class BrowserRuntimeSession {
       completion.implementationId === "user32.set-window-pos.v5" ||
       completion.implementationId === "user32.set-window-long-a.gwl-style.v1" ||
       completion.implementationId ===
+        "user32.update-window.full-client-paint.v1" ||
+      completion.implementationId ===
         "shell32.drag-accept-files.logical-window-style-v1";
     invariant(
       isLogicalWindowCompletion === (metadata.window !== undefined),
@@ -3041,6 +3139,15 @@ class BrowserRuntimeSession {
     invariant(
       isGdiCompletion === (metadata.gdi !== undefined),
       "BGI GDI completion metadata mismatch",
+    );
+    const isPaintCompletion =
+      completion.implementationId ===
+        "user32.begin-paint.full-client-logical-dc.v1" ||
+      completion.implementationId ===
+        "user32.end-paint.matching-session.v1";
+    invariant(
+      isPaintCompletion === (metadata.paint !== undefined),
+      "BGI paint completion metadata mismatch",
     );
     const isGdiplusCompletion = [
       "gdiplus.startup.primary-v1",
@@ -3109,6 +3216,7 @@ class BrowserRuntimeSession {
         ? {}
         : { windowClass: metadata.windowClass }),
       ...(metadata.window === undefined ? {} : { window: metadata.window }),
+      ...(metadata.paint === undefined ? {} : { paint: metadata.paint }),
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),
@@ -3351,6 +3459,232 @@ class BrowserRuntimeSession {
           nonClientPaintAndEraseModeled: false,
         };
       }
+    }
+    if (
+      completion.implementationId ===
+      "user32.show-window.visible-normal-noop.v1"
+    ) {
+      const [windowHandle, command] = call.arguments;
+      invariant(
+        includesShowWindowNormal(this.#configuration.capabilityProfile) &&
+          this.#report.showWindowNormal === null &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "ShowWindow" &&
+          sequence === 127_351 &&
+          this.#report.instructions === 28_761_027 &&
+          call.arguments.length === 2 &&
+          windowHandle === 0x4801_0001 &&
+          command === 1 &&
+          completion.eax.action === "set" &&
+          completion.eax.value === 1 &&
+          completion.instructionPointer === 0x1009_38da &&
+          frame.stackPointer === 0x006f_f684 &&
+          completion.stackPointer === 0x006f_f690 &&
+          completion.lastError === 0 &&
+          guestWrites.length === 0 &&
+          metadata.window === undefined &&
+          metadata.paint === undefined,
+        "ShowWindow(SW_SHOWNORMAL) ABI or no-op visibility completion changed",
+      );
+      const showWindowCall: RuntimeShowWindowNormalCallSnapshot = {
+        sequence,
+        module: endpoint.module,
+        symbol: "ShowWindow",
+        occurrence: 1,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [windowHandle, 1],
+        result: { action: "set", value: 1 },
+        implementationId: "user32.show-window.visible-normal-noop.v1",
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [],
+      };
+      this.#report.showWindowNormal = {
+        callCount: 1,
+        call: showWindowCall,
+        windowAuthority: "rust-runtime-user32-logical-window",
+        relationAuthority:
+          "rust-runtime-user32-thread-and-process-window-relations",
+        mutation: false,
+        callbackCount: 0,
+        browserResourceCreated: false,
+      };
+    }
+    if (
+      completion.implementationId ===
+      "user32.begin-paint.full-client-logical-dc.v1"
+    ) {
+      const [windowHandle, paintStructAddress] = call.arguments;
+      const paint = metadata.paint;
+      const paintWrite = call.guestWrites[0];
+      invariant(
+        isUpdateWindow(this.#configuration.capabilityProfile) &&
+          this.#beginPaintCall === null &&
+          this.#report.updateWindow === null &&
+          this.#updateWindowEntry?.sequence === 127_352 &&
+          this.#updateWindowCallbackEvent?.sequence === 127_352 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "BeginPaint" &&
+          sequence === 127_353 &&
+          this.#report.instructions === 28_761_068 &&
+          call.arguments.length === 2 &&
+          windowHandle === 0x4801_0001 &&
+          paintStructAddress === 0x006f_f318 &&
+          completion.eax.action === "set" &&
+          completion.eax.value === 0x4701_0009 &&
+          completion.instructionPointer === 0x1009_28d9 &&
+          frame.stackPointer === 0x006f_f2cc &&
+          completion.stackPointer === 0x006f_f2d8 &&
+          completion.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          paintWrite?.address === paintStructAddress &&
+          paintWrite.bytes.length ===
+            BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES.length &&
+          paintWrite.bytes.every(
+            (byte, index) =>
+              byte === BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES[index],
+          ) &&
+          paint?.action === "begun" &&
+          paint.window.id === 1 &&
+          paint.window.handle === windowHandle &&
+          paint.window.ownerThreadId === 8192 &&
+          paint.window.visible === true &&
+          paint.window.paintGeneration === 0 &&
+          paint.window.pendingUpdateRect === undefined &&
+          paint.window.geometry.clientWidth === 1_280 &&
+          paint.window.geometry.clientHeight === 720 &&
+          paint.session.windowId === paint.window.id &&
+          paint.session.windowHandle === windowHandle &&
+          paint.session.ownerThreadId === 8192 &&
+          paint.session.paintGeneration === 1 &&
+          paint.session.updateRect.left === 0 &&
+          paint.session.updateRect.top === 0 &&
+          paint.session.updateRect.right === 1_280 &&
+          paint.session.updateRect.bottom === 720 &&
+          paint.session.deviceContextId === 9 &&
+          paint.session.deviceContextHandle === completion.eax.value &&
+          paint.session.paintStructAddress === paintStructAddress &&
+          paint.session.paintStructBytes.length === paintWrite.bytes.length &&
+          paint.session.paintStructBytes.every(
+            (byte, index) => byte === paintWrite.bytes[index],
+          ) &&
+          paint.deviceContext.id === paint.session.deviceContextId &&
+          paint.deviceContext.handle === paint.session.deviceContextHandle &&
+          paint.deviceContext.windowId === paint.session.windowId &&
+          paint.deviceContext.windowHandle === windowHandle &&
+          paint.deviceContext.ownerThreadId === 8192 &&
+          paint.deviceContext.surfaceId === 1 &&
+          paint.livePaintSessions === 1 &&
+          paint.liveDeviceContexts === 1,
+        "BeginPaint ABI, PAINTSTRUCT, or Rust authority relation changed",
+      );
+      this.#beginPaintCall = {
+        sequence,
+        module: endpoint.module,
+        symbol: "BeginPaint",
+        occurrence: 1,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [windowHandle, paintStructAddress],
+        result: { action: "set", value: completion.eax.value },
+        implementationId: "user32.begin-paint.full-client-logical-dc.v1",
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [{ address: paintWrite.address, bytes: [...paintWrite.bytes] }],
+        paint: structuredClone(paint),
+      };
+    }
+    if (
+      completion.implementationId ===
+      "user32.end-paint.matching-session.v1"
+    ) {
+      const [windowHandle, paintStructAddress] = call.arguments;
+      const paint = metadata.paint;
+      const updateEntry = this.#updateWindowEntry;
+      const callbackEvent = this.#updateWindowCallbackEvent;
+      const beginPaint = this.#beginPaintCall;
+      invariant(
+        isUpdateWindow(this.#configuration.capabilityProfile) &&
+          this.#report.updateWindow === null &&
+          updateEntry !== null &&
+          callbackEvent !== null &&
+          beginPaint !== null &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "EndPaint" &&
+          sequence === 127_354 &&
+          this.#report.instructions === 28_761_073 &&
+          call.arguments.length === 2 &&
+          windowHandle === 0x4801_0001 &&
+          paintStructAddress === 0x006f_f318 &&
+          completion.eax.action === "set" &&
+          completion.eax.value === 1 &&
+          completion.instructionPointer === 0x1009_28e5 &&
+          frame.stackPointer === 0x006f_f2cc &&
+          completion.stackPointer === 0x006f_f2d8 &&
+          completion.lastError === 0 &&
+          guestWrites.length === 0 &&
+          paint?.action === "ended" &&
+          paint.window.id === beginPaint.paint.window.id &&
+          paint.window.handle === windowHandle &&
+          paint.window.ownerThreadId === 8192 &&
+          paint.window.visible === true &&
+          paint.window.paintGeneration === 1 &&
+          paint.window.pendingUpdateRect === undefined &&
+          paint.paintStructAddress === paintStructAddress &&
+          paint.livePaintSessions === 0 &&
+          paint.liveDeviceContexts === 0 &&
+          beginPaint.arguments[0] === windowHandle &&
+          beginPaint.arguments[1] === paintStructAddress &&
+          beginPaint.result.value === 0x4701_0009 &&
+          updateEntry.arguments[0] === windowHandle &&
+          updateEntry.trapInstructionCount === 28_761_031 &&
+          callbackEvent.frameId === 30 &&
+          callbackEvent.instructionCount === updateEntry.trapInstructionCount &&
+          callbackEvent.target === 0x1009_2550 &&
+          callbackEvent.stackPointer === 0x006f_f674,
+        "EndPaint ABI or paint-session retirement relation changed",
+      );
+      const endPaint: RuntimeEndPaintCallSnapshot = {
+        sequence,
+        module: endpoint.module,
+        symbol: "EndPaint",
+        occurrence: 1,
+        trapInstructionCount: this.#report.instructions,
+        arguments: [windowHandle, paintStructAddress],
+        result: { action: "set", value: 1 },
+        implementationId: "user32.end-paint.matching-session.v1",
+        returnAddress: completion.instructionPointer,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: completion.stackPointer,
+        lastError: completion.lastError,
+        guestWrites: [],
+        paint: structuredClone(paint),
+      };
+      this.#report.updateWindow = {
+        callCount: 1,
+        call: structuredClone(updateEntry),
+        callbackEvents: [structuredClone(callbackEvent)],
+        beginPaint: structuredClone(beginPaint),
+        endPaint,
+        windowAuthority: "rust-runtime-user32-logical-window",
+        updateRegionAuthority: "rust-runtime-user32-window-update-region",
+        updateRegionSource:
+          "set-window-pos-frame-change-nccalcsize-completion",
+        updateRegionConsumption: "begin-paint-targeted-commit",
+        paintSessionAuthority: "rust-runtime-user32-paint-session",
+        deviceContextAuthority: "rust-runtime-gdi-device-context",
+        paintSessionRetired: true,
+        deviceContextRetired: true,
+        failureAtomicity: true,
+        callbackActiveAtStop: true,
+        browserResourceCreated: false,
+      };
     }
     if (
       completion.implementationId ===
@@ -5652,6 +5986,39 @@ class BrowserRuntimeSession {
         "SetWindowPos frame-change move report omitted its callback or geometry evidence",
       );
     }
+    if (
+      includesShowWindowNormal(this.#configuration.capabilityProfile) &&
+      terminal.outcome === "structured-stop"
+    ) {
+      invariant(
+        this.#report.showWindowNormal?.call.sequence === 127_351 &&
+          this.#report.showWindowNormal.mutation === false,
+        "ShowWindow report omitted its bounded SW_SHOWNORMAL completion",
+      );
+    }
+    if (
+      isUpdateWindow(this.#configuration.capabilityProfile) &&
+      terminal.outcome === "structured-stop"
+    ) {
+      const update = this.#report.updateWindow;
+      const firstUnsupported = this.#report.firstUnsupported;
+      invariant(
+        update !== null &&
+          update.call.sequence === 127_352 &&
+          update.call.pendingCallback === true &&
+          update.callbackEvents[0].frameId === 30 &&
+          update.beginPaint.sequence === 127_353 &&
+          update.beginPaint.paint.livePaintSessions === 1 &&
+          update.beginPaint.paint.liveDeviceContexts === 1 &&
+          update.endPaint.sequence === 127_354 &&
+          update.endPaint.paint.livePaintSessions === 0 &&
+          update.endPaint.paint.liveDeviceContexts === 0 &&
+          firstUnsupported?.capabilityCluster ===
+            "d3d9-idirect3ddevice9-method" &&
+          firstUnsupported.instructionCount === 28_761_128,
+        "UpdateWindow report omitted its pending callback or paint-session lifecycle",
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -5817,6 +6184,8 @@ worker.addEventListener(
               createDirectoryA: null,
               setWindowPosRepeatActivation: null,
               setWindowPosFrameChangeMove: null,
+              showWindowNormal: null,
+              updateWindow: null,
               d3d9RecreatedTextures: null,
               firstUnsupported: null,
               checkpointCompletion: null,

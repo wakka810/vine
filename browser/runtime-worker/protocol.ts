@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 27 as const;
+export const protocolVersion = 28 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -20,7 +20,9 @@ export type BgiCapabilityProfile =
   | "kernel32-create-directory-a"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
-  | "user32-set-window-pos-frame-change-move";
+  | "user32-set-window-pos-frame-change-move"
+  | "user32-show-window-normal"
+  | "user32-update-window";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -163,6 +165,105 @@ export interface RuntimeSetWindowPosFrameChangeMoveCallbackEvent {
   stackPointer?: number;
   arguments?: [number, number, number, number];
   result?: number;
+}
+
+export interface RuntimeShowWindowNormalCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "ShowWindow";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number, 1];
+  result: { action: "set"; value: 1 };
+  implementationId: "user32.show-window.visible-normal-noop.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+}
+
+export interface RuntimeUpdateWindowEntrySnapshot {
+  sequence: number;
+  module: string;
+  symbol: "UpdateWindow";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number];
+  pendingCallback: true;
+}
+
+export interface RuntimeUpdateWindowCallbackEvent {
+  action: "enter";
+  sequence: number;
+  frameId: number;
+  instructionCount: number;
+  target: number;
+  stackPointer: number;
+  arguments: [number, 0x000f, 0, 0];
+}
+
+export interface RuntimePaintSessionSnapshot {
+  windowId: number;
+  windowHandle: number;
+  ownerThreadId: number;
+  paintGeneration: number;
+  updateRect: { left: number; top: number; right: number; bottom: number };
+  deviceContextId: number;
+  deviceContextHandle: number;
+  paintStructAddress: number;
+  paintStructBytes: number[];
+}
+
+export type RuntimePaintSnapshot =
+  | {
+      action: "begun";
+      window: RuntimeWindowSnapshot;
+      session: RuntimePaintSessionSnapshot;
+      deviceContext: RuntimeGdiDeviceContextSnapshot;
+      livePaintSessions: number;
+      liveDeviceContexts: number;
+    }
+  | {
+      action: "ended";
+      window: RuntimeWindowSnapshot;
+      paintStructAddress: number;
+      livePaintSessions: number;
+      liveDeviceContexts: number;
+    };
+
+export interface RuntimeBeginPaintCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "BeginPaint";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number, number];
+  result: { action: "set"; value: number };
+  implementationId: "user32.begin-paint.full-client-logical-dc.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: Array<{ address: number; bytes: number[] }>;
+  paint: Extract<RuntimePaintSnapshot, { action: "begun" }>;
+}
+
+export interface RuntimeEndPaintCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "EndPaint";
+  occurrence: 1;
+  trapInstructionCount: number;
+  arguments: [number, number];
+  result: { action: "set"; value: 1 };
+  implementationId: "user32.end-paint.matching-session.v1";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+  paint: Extract<RuntimePaintSnapshot, { action: "ended" }>;
 }
 
 export interface PageLifecycleSnapshot {
@@ -344,6 +445,14 @@ export interface RuntimeWindowSnapshot {
     | { state: "created" };
   visible: boolean;
   topmost: boolean;
+  pendingUpdateRect?: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
+  paintGeneration: number;
+  smallIcon?: { iconId: number; handle: number };
 }
 
 export interface RuntimeComApartmentSnapshot {
@@ -448,6 +557,7 @@ export interface RuntimeSupportedCallSnapshot {
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
   window?: RuntimeWindowSnapshot;
+  paint?: RuntimePaintSnapshot;
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
@@ -668,6 +778,33 @@ export interface SessionReport {
     gdiResourceMutation: false;
     browserResourceCreated: false;
     nonClientPaintAndEraseModeled: false;
+  } | null;
+  showWindowNormal: {
+    callCount: 1;
+    call: RuntimeShowWindowNormalCallSnapshot;
+    windowAuthority: "rust-runtime-user32-logical-window";
+    relationAuthority: "rust-runtime-user32-thread-and-process-window-relations";
+    mutation: false;
+    callbackCount: 0;
+    browserResourceCreated: false;
+  } | null;
+  updateWindow: {
+    callCount: 1;
+    call: RuntimeUpdateWindowEntrySnapshot;
+    callbackEvents: [RuntimeUpdateWindowCallbackEvent];
+    beginPaint: RuntimeBeginPaintCallSnapshot;
+    endPaint: RuntimeEndPaintCallSnapshot;
+    windowAuthority: "rust-runtime-user32-logical-window";
+    updateRegionAuthority: "rust-runtime-user32-window-update-region";
+    updateRegionSource: "set-window-pos-frame-change-nccalcsize-completion";
+    updateRegionConsumption: "begin-paint-targeted-commit";
+    paintSessionAuthority: "rust-runtime-user32-paint-session";
+    deviceContextAuthority: "rust-runtime-gdi-device-context";
+    paintSessionRetired: true;
+    deviceContextRetired: true;
+    failureAtomicity: true;
+    callbackActiveAtStop: true;
+    browserResourceCreated: false;
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];

@@ -1251,6 +1251,23 @@ atomicity、GDI surfaceとactive／focus／foreground relation不変を比較す
 `ShowWindow(hwnd,SW_SHOWNORMAL)` structured stopまでを一致させる。General z-order、repaint、multi-window move、
 DOM positioningは実装済みまたはgoldenとしない。
 
+続くalready-visible `ShowWindow(SW_SHOWNORMAL)` leafは、native resultのopaque nonzero 24をBOOL 1へ正規化し、
+LastError、geometry、visibility、active／focus／foreground relation、update regionを不変に保つ。Invalid HWNDは
+FALSE／1,400である。Focused Rust testsはunsupported command、wrong lifecycle／relation、disabled policyを
+mutation前に拒否することを固定する。Node／Chromeはsequence 127,351、zero guest writes、callback 0、browser
+resource 0を一致させる。
+
+`UpdateWindow` paint leafは、pending full-client regionがあるvisible same-thread windowだけを対象に
+`WM_PAINT` frame 30を同期開始する。`BeginPaint`はregionを消費し、one logical paint HDC、paint generation 1、
+64-byte PAINTSTRUCTをUser32／GDI／GuestMemory joint transactionでpublishする。`EndPaint`はsame HWND／thread／
+PAINTSTRUCT bytesだけを受理し、sessionとHDCをretireする。Focused model／dispatcher testsはcallback entry前の
+region不変、Begin後のsession／HDC／bytes、generic `ReleaseDC` rejection、corrupted structure、wrong callback result、
+invalid HWND、missing region、disabled policy、stale／duplicate planのfailure atomicityを比較する。Node／Chrome
+protocol v28はBegin sequence 127,353、End sequence 127,354、full-client rect、erase 1、zero live session／HDC after
+Endを一致させる。Outer UpdateWindowは次の`IDirect3DDevice9::Clear` slot 43 stop時点でcallback-activeなので、
+completed-call countへ含めない。General invalidation、nested paint、clip／background erase、queued dispatch、Canvas／
+WebGL presentationはこのleafのacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、
