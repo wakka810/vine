@@ -5386,3 +5386,31 @@ texture dirty-region callへのpointer relationである。Runtimeはguest-memor
 NULLでは書込を行わない。Canonical Node／Chromeはinstruction 28,761,157でこのcallを完了し、8 instructions後の
 `IDirect3DTexture9::AddDirtyRect(0x006FF29C)`で停止する。Texture dirty-region semantics、NULL dirty rect、
 UpdateTexture以降の描画はこのevidenceからclaimしない。
+
+## 160. BGI first recreated-texture `AddDirtyRect` and rectangle variants
+
+Focused primary captureは509,016 bytes／1,193 lines／SHA-256
+`5677e484c6650c33f3757265d4185649816ee92b823b9339b44bd15fac838680`、summaryは303,427 bytes／
+SHA-256 `c39f201c909ec5f6b9cb242a389d382e6f27fe427a03a156eb9580cd08c6a209`で、556 API pairsが
+balancedである。Independent confirmation captureは508,597 bytes／1,192 lines／SHA-256
+`a8eb8bb0d19b84392b0543ebdae66f76d938b997bf7856e36726b54c790b89bf`、summaryは303,587 bytes／
+SHA-256 `5071dc1b418c0c173e4deae4f62f23b0ee9f1d1e7450b896e7bcac12f03bf3fa`で、555 API pairsが
+balancedである。両runともdiagnostics 0、profileは
+`x86-bgi-first-recreated-texture-add-dirty-rect-v1`、controlled oracleは
+`x86-system-memory-texture-rect-variants-v1`である。Raw trace／summaryは`.work/windows-traces/`に保持し、
+source executable hashは不変である。
+
+Source textureはcaller RVA `0x0005A715`から作られた`2048x1024`、level 1、usage 0、format 22、
+SYSTEMMEM poolのrecreated variantである。Primary caller return RVA `0x0005B01D`は
+`RECT [0,0,1280,720]`を渡して`D3D_OK`／LastError 0を観測する。各runはprimaryに加えてfull、interior
+`[1,2,17,19]`、NULL、empty、inverted、negative、out-of-boundsのcontrolled callsを含む。Full／interior／
+NULLは`D3D_OK`、四つのinvalid geometryは`D3DERR_INVALIDCALL 0x8876086C`であり、全LastError sentinelが
+保存される。Native opaque texture pointerやtrace sequenceはsemantic goldenにしない。
+
+Goldenはlive SYSTEMMEM source relation、strict in-bounds RECT validation、NULL whole-texture semantics、
+HRESULT class、LastError preserve、zero guest writesである。Canonical Node／Chromeはsequence 127,357、
+instruction 28,761,165で同じprimary callを完了し、Rust-owned logical texture 7／COM object 22／device 3、
+whole-texture dirty state、generation 40を一致させる。Creation時点で既にwhole dirtyのため、このmarkは
+idempotent completionでgenerationを進めない。10 instructions後に
+`IDirect3DDevice9::UpdateTexture(source=0x01020004,destination=0x01030004)` slot 31へ停止する。Dirty-region
+consume、destination mutation、pixel storage、renderer upload、draw／Presentはこのevidenceからclaimしない。

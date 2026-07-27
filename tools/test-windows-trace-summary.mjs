@@ -4144,6 +4144,17 @@ setRectSelection.find(
 ).selectedObservations = ["set-rect"];
 assert.doesNotThrow(() => summarizeTrace(encode(setRectSelection)));
 
+const d3d9TextureAddDirtyRectSelection = structuredClone(events);
+d3d9TextureAddDirtyRectSelection[0].arguments.observations = [
+  "d3d9-texture-add-dirty-rect",
+];
+d3d9TextureAddDirtyRectSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-texture-add-dirty-rect"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(d3d9TextureAddDirtyRectSelection)),
+);
+
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];
 windowDcSelection.find(

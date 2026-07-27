@@ -65,6 +65,9 @@ const focusedD3d9InitialTexturesObservation =
 const focusedD3d9RecreatedTexturesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-recreated-textures");
+const focusedD3d9TextureAddDirtyRectObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-texture-add-dirty-rect");
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
@@ -100,6 +103,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9ResourceObservation ||
   focusedD3d9InitialTexturesObservation ||
   focusedD3d9RecreatedTexturesObservation ||
+  focusedD3d9TextureAddDirtyRectObservation ||
   focusedD3d9InitialVertexBufferObservation ||
   focusedD3d9InitialRenderStatesObservation ||
   focusedD3d9RasterStatusObservation;
@@ -119,6 +123,16 @@ let focusedD3d9RecreatedTextureDevice = null;
 let focusedD3d9RecreatedTexturesStarted = false;
 let focusedD3d9RecreatedTexturesComplete = false;
 const focusedD3d9RecreatedTextureCalls = [];
+let focusedD3d9TextureAddDirtyRectDevice = null;
+let focusedD3d9TextureAddDirtyRectObject = null;
+let focusedD3d9TextureAddDirtyRectCreation = null;
+let focusedD3d9TextureAddDirtyRectMainModuleCall = null;
+let focusedD3d9TextureAddDirtyRectOracleScheduled = false;
+let focusedD3d9TextureAddDirtyRectOracleCall = null;
+let focusedD3d9TextureAddDirtyRectOracleComplete = false;
+let focusedD3d9TextureAddDirtyRectOracleEvidence = null;
+let focusedD3d9TextureAddDirtyRectComplete = false;
+let focusedD3d9TextureAddDirtyRectQuiescentNextCallId = null;
 let focusedD3d9InitialVertexBufferDevice = null;
 let focusedD3d9InitialVertexBufferObject = null;
 let focusedD3d9InitialVertexBufferData = null;
@@ -4269,10 +4283,64 @@ function attachIdirect3dtexture9(object) {
             return;
           }
           const objectAddress = args[0].toString();
+          if (focusedD3d9TextureAddDirtyRectObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const callerModule = caller.module?.toLowerCase() ?? null;
+            const isMainModuleCaller =
+              callerModule === Process.mainModule.name.toLowerCase();
+            const isOracleCaller =
+              callerModule === "frida-agent.dll" &&
+              focusedD3d9TextureAddDirtyRectOracleCall !== null;
+            if (
+              focusedD3d9TextureAddDirtyRectComplete ||
+              slot !== 21 ||
+              objectAddress.toLowerCase() !==
+                focusedD3d9TextureAddDirtyRectObject ||
+              (!isMainModuleCaller && !isOracleCaller) ||
+              (isMainModuleCaller &&
+                focusedD3d9TextureAddDirtyRectMainModuleCall !== null)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            this.traceD3d9TextureAddDirtyRectMainModuleCaller =
+              isMainModuleCaller;
+            this.traceD3d9TextureAddDirtyRectOracleCaller = isOracleCaller;
+            if (isOracleCaller) {
+              this.lastError =
+                focusedD3d9TextureAddDirtyRectOracleCall.sentinel;
+            }
+            this.traceD3d9TextureAddDirtyRectLastErrorBefore =
+              Number(this.lastError) >>> 0;
+          }
           const arguments_ = Array.from({ length: argumentCount }, (_, index) =>
             args[index + 1].toString(),
           );
+          this.traceArguments = arguments_;
           this.traceObject = objectAddress;
+          this.traceD3d9TextureAddDirtyRectPointer =
+            focusedD3d9TextureAddDirtyRectObservation && slot === 21
+              ? args[1]
+              : null;
+          this.traceD3d9TextureAddDirtyRect =
+            this.traceD3d9TextureAddDirtyRectPointer === null
+              ? null
+              : {
+                  rectPointer:
+                    this.traceD3d9TextureAddDirtyRectPointer.toString(),
+                  rect: snapshotRect(
+                    this.traceD3d9TextureAddDirtyRectPointer,
+                  ),
+                  lastErrorBefore:
+                    this.traceD3d9TextureAddDirtyRectLastErrorBefore,
+                  immediateConsumer:
+                    this.traceD3d9TextureAddDirtyRectMainModuleCaller
+                      ? snapshotInstructionsFollowingDirectJump(
+                          this.returnAddress,
+                          128,
+                        )
+                      : null,
+                };
           this.traceD3d9SurfaceLevelOutput = slot === 18 ? args[2] : null;
           this.traceD3d9GetSurfaceLevel =
             this.traceD3d9SurfaceLevelOutput === null
@@ -4317,6 +4385,15 @@ function attachIdirect3dtexture9(object) {
                     ),
                   },
                 };
+          const d3d9TextureAddDirtyRect =
+            this.traceD3d9TextureAddDirtyRect === null
+              ? null
+              : {
+                  ...this.traceD3d9TextureAddDirtyRect,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: Number(this.lastError) >>> 0,
+                };
           finishCall(
             this.traceFrame,
             {
@@ -4327,6 +4404,9 @@ function attachIdirect3dtexture9(object) {
               object: this.traceObject,
               result: result.toString(),
               ...(d3d9GetSurfaceLevel === null ? {} : { d3d9GetSurfaceLevel }),
+              ...(d3d9TextureAddDirtyRect === null
+                ? {}
+                : { d3d9TextureAddDirtyRect }),
             },
             this.lastError,
           );
@@ -4346,6 +4426,39 @@ function attachIdirect3dtexture9(object) {
           }
           if (focusedD3d9ResourceObservation) {
             focusedD3d9TextureMethodCaptured = true;
+          }
+          if (d3d9TextureAddDirtyRect !== null) {
+            if (this.traceD3d9TextureAddDirtyRectOracleCaller) {
+              focusedD3d9TextureAddDirtyRectOracleCall.hookResult =
+                d3d9TextureAddDirtyRect.result;
+              focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter =
+                d3d9TextureAddDirtyRect.lastErrorAfter;
+              focusedD3d9TextureAddDirtyRectOracleCall.hookRect =
+                d3d9TextureAddDirtyRect.rect;
+            } else if (this.traceD3d9TextureAddDirtyRectMainModuleCaller) {
+              focusedD3d9TextureAddDirtyRectMainModuleCall = {
+                callId: this.traceFrame.callId,
+                api: name,
+                interface: "IDirect3DTexture9",
+                vtableSlot: slot,
+                object: this.traceObject,
+                arguments: this.traceArguments,
+                result: result.toInt32(),
+                resultU32: result.toUInt32(),
+                lastErrorBefore:
+                  this.traceD3d9TextureAddDirtyRectLastErrorBefore,
+                lastError: Number(this.lastError) >>> 0,
+                rectPointer: d3d9TextureAddDirtyRect.rectPointer,
+                rect: d3d9TextureAddDirtyRect.rect,
+                immediateConsumer:
+                  d3d9TextureAddDirtyRect.immediateConsumer,
+                caller: this.traceFrame.caller,
+              };
+              scheduleFocusedD3d9TextureAddDirtyRectOracle();
+              setImmediate(
+                maybeCompleteFocusedD3d9TextureAddDirtyRectObservation,
+              );
+            }
           }
         },
       });
@@ -4654,6 +4767,32 @@ function attachIdirect3ddevice9(object) {
             }
             focusedD3d9RecreatedTexturesStarted = true;
             focusedD3d9RecreatedTextureDevice ??= objectAddress;
+          } else if (focusedD3d9TextureAddDirtyRectObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const isTargetCreation =
+              slot === 23 &&
+              caller.module?.toLowerCase() ===
+                Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5a715 &&
+              args[1].toUInt32() === 2_048 &&
+              args[2].toUInt32() === 1_024 &&
+              args[3].toUInt32() === 1 &&
+              args[4].toUInt32() === 0 &&
+              args[5].toUInt32() === 22 &&
+              args[6].toUInt32() === 2 &&
+              args[8].isNull();
+            if (
+              focusedD3d9TextureAddDirtyRectComplete ||
+              focusedD3d9TextureAddDirtyRectCreation !== null ||
+              !isTargetCreation ||
+              (focusedD3d9TextureAddDirtyRectDevice !== null &&
+                objectAddress !== focusedD3d9TextureAddDirtyRectDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9TextureAddDirtyRectDevice ??= objectAddress;
           } else if (
             focusedD3d9DeviceObservation &&
             focusedD3d9DeviceMethodCaptured
@@ -4669,7 +4808,8 @@ function attachIdirect3ddevice9(object) {
           this.traceD3d9CreateTextureOutput =
             (focusedD3d9ResourceObservation ||
               focusedD3d9InitialTexturesObservation ||
-              focusedD3d9RecreatedTexturesObservation) &&
+              focusedD3d9RecreatedTexturesObservation ||
+              focusedD3d9TextureAddDirtyRectObservation) &&
             slot === 23
               ? args[7]
               : null;
@@ -4821,6 +4961,31 @@ function attachIdirect3ddevice9(object) {
               caller: this.traceFrame.caller,
             });
             maybeCompleteFocusedD3d9RecreatedTexturesObservation();
+          }
+          if (focusedD3d9TextureAddDirtyRectObservation) {
+            focusedD3d9TextureAddDirtyRectCreation = {
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toInt32(),
+              resultU32: result.toUInt32(),
+              lastError,
+              d3d9CreateTexture,
+              caller: this.traceFrame.caller,
+            };
+            if (
+              d3d9CreateTexture !== null &&
+              result.toInt32() >= 0 &&
+              typeof d3d9CreateTexture.textureOutput.after.value ===
+                "string" &&
+              d3d9CreateTexture.textureOutput.after.value !== "0x0"
+            ) {
+              focusedD3d9TextureAddDirtyRectObject =
+                d3d9CreateTexture.textureOutput.after.value.toLowerCase();
+            }
           }
           if (focusedD3d9InitialVertexBufferObservation) {
             focusedD3d9InitialVertexBufferCalls.push({
@@ -5706,6 +5871,170 @@ function maybeCompleteFocusedD3d9RecreatedTexturesObservation() {
     calls: focusedD3d9RecreatedTextureCalls,
   });
   if (stopOnEvent === "d3d9-recreated-textures-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function scheduleFocusedD3d9TextureAddDirtyRectOracle() {
+  if (focusedD3d9TextureAddDirtyRectOracleScheduled) {
+    return;
+  }
+  focusedD3d9TextureAddDirtyRectOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      if (focusedD3d9TextureAddDirtyRectObject === null) {
+        throw new Error("AddDirtyRect oracle has no live texture object");
+      }
+      const texture = ptr(focusedD3d9TextureAddDirtyRectObject);
+      const method = texture
+        .readPointer()
+        .add(21 * Process.pointerSize)
+        .readPointer();
+      const addDirtyRect = new SystemFunction(
+        method,
+        "int32",
+        ["pointer", "pointer"],
+        "stdcall",
+      );
+      const invoke = ({ id, fields, sentinel }) => {
+        const rectPointer = fields === null ? ptr(0) : Memory.alloc(16);
+        if (fields !== null) {
+          rectPointer.writeS32(fields.left);
+          rectPointer.add(4).writeS32(fields.top);
+          rectPointer.add(8).writeS32(fields.right);
+          rectPointer.add(12).writeS32(fields.bottom);
+        }
+        focusedD3d9TextureAddDirtyRectOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookRect: null,
+        };
+        try {
+          const outcome = addDirtyRect(texture, rectPointer);
+          const systemResult = Number(outcome.value) | 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            focusedD3d9TextureAddDirtyRectOracleCall.hookResult === null ||
+            focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter ===
+              null
+          ) {
+            throw new Error("AddDirtyRect oracle did not pass through the hook");
+          }
+          return {
+            id,
+            rectPointer: rectPointer.toString(),
+            rect: snapshotRect(rectPointer),
+            sentinel,
+            systemResult,
+            systemResultU32: systemResult >>> 0,
+            systemLastError,
+            hookResult:
+              focusedD3d9TextureAddDirtyRectOracleCall.hookResult,
+            hookLastErrorAfter:
+              focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter,
+            hookRect: focusedD3d9TextureAddDirtyRectOracleCall.hookRect,
+            hookResultMatches:
+              focusedD3d9TextureAddDirtyRectOracleCall.hookResult ===
+              systemResult,
+            hookAndSystemLastErrorMatch:
+              focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter ===
+              systemLastError,
+          };
+        } finally {
+          focusedD3d9TextureAddDirtyRectOracleCall = null;
+        }
+      };
+      const calls = [
+        {
+          id: "primary-full-presentation",
+          fields: { left: 0, top: 0, right: 1280, bottom: 720 },
+          sentinel: 0x11223344,
+        },
+        {
+          id: "valid-interior",
+          fields: { left: 1, top: 2, right: 17, bottom: 19 },
+          sentinel: 0x22334455,
+        },
+        { id: "null-whole-texture", fields: null, sentinel: 0x33445566 },
+        {
+          id: "empty-width",
+          fields: { left: 4, top: 5, right: 4, bottom: 6 },
+          sentinel: 0x44556677,
+        },
+        {
+          id: "inverted-width",
+          fields: { left: 8, top: 5, right: 7, bottom: 6 },
+          sentinel: 0x55667788,
+        },
+        {
+          id: "negative-left",
+          fields: { left: -1, top: 0, right: 1, bottom: 1 },
+          sentinel: 0x66778899,
+        },
+        {
+          id: "right-out-of-bounds",
+          fields: { left: 0, top: 0, right: 2049, bottom: 1024 },
+          sentinel: 0x778899aa,
+        },
+      ].map(invoke);
+      focusedD3d9TextureAddDirtyRectOracleEvidence = {
+        profile: "x86-system-memory-texture-rect-variants-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      focusedD3d9TextureAddDirtyRectOracleComplete = true;
+      emit(
+        "d3d9-texture-add-dirty-rect-oracle",
+        focusedD3d9TextureAddDirtyRectOracleEvidence,
+      );
+      maybeCompleteFocusedD3d9TextureAddDirtyRectObservation();
+    } catch (error) {
+      emit("d3d9-texture-add-dirty-rect-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
+function maybeCompleteFocusedD3d9TextureAddDirtyRectObservation() {
+  if (
+    focusedD3d9TextureAddDirtyRectComplete ||
+    focusedD3d9TextureAddDirtyRectCreation === null ||
+    focusedD3d9TextureAddDirtyRectMainModuleCall === null ||
+    !focusedD3d9TextureAddDirtyRectOracleComplete
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    focusedD3d9TextureAddDirtyRectQuiescentNextCallId = null;
+    setTimeout(
+      maybeCompleteFocusedD3d9TextureAddDirtyRectObservation,
+      10,
+    );
+    return;
+  }
+  if (focusedD3d9TextureAddDirtyRectQuiescentNextCallId !== nextCallId) {
+    focusedD3d9TextureAddDirtyRectQuiescentNextCallId = nextCallId;
+    setTimeout(
+      maybeCompleteFocusedD3d9TextureAddDirtyRectObservation,
+      100,
+    );
+    return;
+  }
+  focusedD3d9TextureAddDirtyRectComplete = true;
+  emit("d3d9-texture-add-dirty-rect-complete", {
+    profile: "x86-bgi-first-recreated-texture-add-dirty-rect-v1",
+    device: focusedD3d9TextureAddDirtyRectDevice,
+    texture: focusedD3d9TextureAddDirtyRectObject,
+    creation: focusedD3d9TextureAddDirtyRectCreation,
+    mainModuleCall: focusedD3d9TextureAddDirtyRectMainModuleCall,
+    oracle: focusedD3d9TextureAddDirtyRectOracleEvidence,
+  });
+  if (stopOnEvent === "d3d9-texture-add-dirty-rect-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }

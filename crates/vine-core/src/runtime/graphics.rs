@@ -159,6 +159,14 @@ pub struct RuntimeGraphicsTextureDescriptor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "rect", rename_all = "kebab-case")]
+pub enum RuntimeGraphicsTextureDirtyRegion {
+    Clean,
+    Rect(RuntimeRect),
+    WholeTexture,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSurfaceDescriptor {
     pub level: u32,
@@ -282,6 +290,7 @@ pub struct RuntimeGraphicsTexture {
     pub device_id: RuntimeGraphicsDeviceId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
     pub com_object_id: RuntimeComObjectId,
+    pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
     pub generation: u64,
 }
 
@@ -349,6 +358,12 @@ pub(crate) struct RuntimeGraphicsBackBufferClearRequest {
 pub(crate) struct RuntimeGraphicsTextureCreateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureDirtyRegionMarkRequest {
+    pub texture_com_object_id: RuntimeComObjectId,
+    pub rect: Option<RuntimeRect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +447,18 @@ pub(crate) struct RuntimeGraphicsTextureCreationPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureDirtyRegionMarkPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    texture_id: RuntimeGraphicsTextureId,
+    texture_generation: u64,
+    next_texture_generation: u64,
+    previous_dirty_region: RuntimeGraphicsTextureDirtyRegion,
+    dirty_region: RuntimeGraphicsTextureDirtyRegion,
+    request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsSurfaceCreationPlan {
     expected_generation: u64,
     next_generation: u64,
@@ -511,6 +538,15 @@ pub struct RuntimeGraphicsBackBufferClearResult {
     pub device_generation: u64,
     pub content_generation: u64,
     pub clear: RuntimeGraphicsBackBufferClear,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureDirtyRegionMarkResult {
+    pub texture_id: RuntimeGraphicsTextureId,
+    pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
+    pub changed: bool,
+    pub texture_generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1063,6 +1099,7 @@ impl RuntimeGraphics {
             device_id: plan.device_id,
             descriptor: plan.request.descriptor,
             com_object_id,
+            dirty_region: RuntimeGraphicsTextureDirtyRegion::WholeTexture,
             generation: plan.next_generation,
         };
         self.texture_com_object_index
@@ -1077,6 +1114,114 @@ impl RuntimeGraphics {
         self.next_texture_id = next_texture_id;
         self.generation = plan.next_generation;
         texture
+    }
+
+    pub(super) fn plan_texture_dirty_region_mark(
+        &self,
+        request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    ) -> Result<RuntimeGraphicsTextureDirtyRegionMarkPlan, RuntimeStateError> {
+        validate_texture_dirty_region_mark_request(request)?;
+        let texture_id = self
+            .texture_com_object_index
+            .get(&request.texture_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-texture-dirty-region-com-object-unknown",
+                    "logical texture dirty-region mark requires a live texture COM object",
+                )
+            })?;
+        self.validate_texture_association(request.texture_com_object_id, texture_id)?;
+        let texture = self
+            .textures
+            .get(&texture_id)
+            .expect("validated logical texture association disappeared");
+        let dirty_region =
+            merged_texture_dirty_region(texture.dirty_region, request.rect, texture.descriptor)?;
+        let changed = dirty_region != texture.dirty_region;
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_texture_generation = if changed {
+            texture.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-texture-generation-exhausted",
+                    "logical graphics texture generation is exhausted",
+                )
+            })?
+        } else {
+            texture.generation
+        };
+        Ok(RuntimeGraphicsTextureDirtyRegionMarkPlan {
+            expected_generation: self.generation,
+            next_generation,
+            texture_id,
+            texture_generation: texture.generation,
+            next_texture_generation,
+            previous_dirty_region: texture.dirty_region,
+            dirty_region,
+            request,
+        })
+    }
+
+    pub(super) fn preflight_texture_dirty_region_mark(
+        &self,
+        plan: &RuntimeGraphicsTextureDirtyRegionMarkPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(stale_plan("graphics-texture-dirty-region-plan-stale"));
+        }
+        let texture = self
+            .textures
+            .get(&plan.texture_id)
+            .ok_or_else(|| stale_plan("graphics-texture-dirty-region-plan-stale"))?;
+        let dirty_region = merged_texture_dirty_region(
+            texture.dirty_region,
+            plan.request.rect,
+            texture.descriptor,
+        )?;
+        let changed = dirty_region != texture.dirty_region;
+        if texture.com_object_id != plan.request.texture_com_object_id
+            || texture.generation != plan.texture_generation
+            || texture.dirty_region != plan.previous_dirty_region
+            || dirty_region != plan.dirty_region
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || texture.generation.checked_add(1) != Some(plan.next_texture_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_texture_generation != texture.generation))
+        {
+            return Err(stale_plan("graphics-texture-dirty-region-plan-stale"));
+        }
+        self.validate_texture_association(texture.com_object_id, texture.id)
+    }
+
+    pub(super) fn commit_texture_dirty_region_mark(
+        &mut self,
+        plan: RuntimeGraphicsTextureDirtyRegionMarkPlan,
+    ) -> RuntimeGraphicsTextureDirtyRegionMarkResult {
+        debug_assert!(self.preflight_texture_dirty_region_mark(&plan).is_ok());
+        let texture = self
+            .textures
+            .get_mut(&plan.texture_id)
+            .expect("preflighted graphics texture disappeared");
+        let changed = texture.dirty_region != plan.dirty_region;
+        if changed {
+            texture.dirty_region = plan.dirty_region;
+            texture.generation = plan.next_texture_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsTextureDirtyRegionMarkResult {
+            texture_id: texture.id,
+            dirty_region: texture.dirty_region,
+            changed,
+            texture_generation: texture.generation,
+        }
     }
 
     pub(super) fn plan_vertex_buffer_creation(
@@ -2395,6 +2540,95 @@ fn validate_texture_creation_request(
     Ok(())
 }
 
+fn validate_texture_dirty_region_mark_request(
+    request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.texture_com_object_id.0 == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-dirty-region-request-invalid",
+            "logical texture dirty-region mark requires a live texture COM object",
+        ));
+    }
+    Ok(())
+}
+
+fn full_texture_rect(
+    descriptor: RuntimeGraphicsTextureDescriptor,
+) -> Result<RuntimeRect, RuntimeStateError> {
+    let right = i32::try_from(descriptor.width).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-texture-width-invalid",
+            "logical graphics texture width does not fit x86 coordinates",
+        )
+    })?;
+    let bottom = i32::try_from(descriptor.height).map_err(|_| {
+        RuntimeStateError::runtime_defect(
+            "runtime-graphics",
+            "graphics-texture-height-invalid",
+            "logical graphics texture height does not fit x86 coordinates",
+        )
+    })?;
+    Ok(RuntimeRect {
+        left: 0,
+        top: 0,
+        right,
+        bottom,
+    })
+}
+
+fn validate_texture_dirty_rect(
+    rect: RuntimeRect,
+    descriptor: RuntimeGraphicsTextureDescriptor,
+) -> Result<(), RuntimeStateError> {
+    let full = full_texture_rect(descriptor)?;
+    if rect.left < 0
+        || rect.top < 0
+        || rect.right <= rect.left
+        || rect.bottom <= rect.top
+        || rect.right > full.right
+        || rect.bottom > full.bottom
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-dirty-rect-out-of-bounds",
+            "logical texture dirty rectangle must be nonempty, ordered, and in bounds",
+        ));
+    }
+    Ok(())
+}
+
+fn merged_texture_dirty_region(
+    current: RuntimeGraphicsTextureDirtyRegion,
+    rect: Option<RuntimeRect>,
+    descriptor: RuntimeGraphicsTextureDescriptor,
+) -> Result<RuntimeGraphicsTextureDirtyRegion, RuntimeStateError> {
+    let full = full_texture_rect(descriptor)?;
+    let Some(rect) = rect else {
+        return Ok(RuntimeGraphicsTextureDirtyRegion::WholeTexture);
+    };
+    validate_texture_dirty_rect(rect, descriptor)?;
+    if current == RuntimeGraphicsTextureDirtyRegion::WholeTexture {
+        return Ok(current);
+    }
+    let merged = match current {
+        RuntimeGraphicsTextureDirtyRegion::Clean => rect,
+        RuntimeGraphicsTextureDirtyRegion::Rect(previous) => RuntimeRect {
+            left: previous.left.min(rect.left),
+            top: previous.top.min(rect.top),
+            right: previous.right.max(rect.right),
+            bottom: previous.bottom.max(rect.bottom),
+        },
+        RuntimeGraphicsTextureDirtyRegion::WholeTexture => unreachable!(),
+    };
+    Ok(if merged == full {
+        RuntimeGraphicsTextureDirtyRegion::WholeTexture
+    } else {
+        RuntimeGraphicsTextureDirtyRegion::Rect(merged)
+    })
+}
+
 fn validate_vertex_buffer_creation_request(
     request: RuntimeGraphicsVertexBufferCreateRequest,
 ) -> Result<(), RuntimeStateError> {
@@ -2826,6 +3060,10 @@ mod tests {
         assert_eq!(texture.device_id, device.id);
         assert_eq!(texture.com_object_id, RuntimeComObjectId(8));
         assert_eq!(
+            texture.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::WholeTexture
+        );
+        assert_eq!(
             graphics
                 .preflight_texture_creation(&stale)
                 .unwrap_err()
@@ -2893,6 +3131,163 @@ mod tests {
             .unwrap();
         graphics.commit_com_object_retirement(retirement);
         assert!(graphics.is_empty());
+    }
+
+    #[test]
+    fn texture_dirty_regions_are_bounded_coalesced_and_failure_atomic() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+            .unwrap();
+        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+
+        let before_initial_mark = graphics.clone();
+        let initial_mark = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(8),
+                rect: Some(RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 800,
+                    bottom: 600,
+                }),
+            })
+            .unwrap();
+        let result = graphics.commit_texture_dirty_region_mark(initial_mark);
+        assert!(!result.changed);
+        assert_eq!(
+            result.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::WholeTexture
+        );
+        assert_eq!(graphics, before_initial_mark);
+
+        graphics.textures.get_mut(&texture.id).unwrap().dirty_region =
+            RuntimeGraphicsTextureDirtyRegion::Clean;
+        let first = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(8),
+                rect: Some(RuntimeRect {
+                    left: 1,
+                    top: 2,
+                    right: 17,
+                    bottom: 19,
+                }),
+            })
+            .unwrap();
+        let stale = first.clone();
+        graphics
+            .preflight_texture_dirty_region_mark(&first)
+            .unwrap();
+        let first = graphics.commit_texture_dirty_region_mark(first);
+        assert!(first.changed);
+        assert_eq!(
+            first.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Rect(RuntimeRect {
+                left: 1,
+                top: 2,
+                right: 17,
+                bottom: 19,
+            })
+        );
+        assert_eq!(
+            graphics
+                .preflight_texture_dirty_region_mark(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-texture-dirty-region-plan-stale"
+        );
+
+        let second = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(8),
+                rect: Some(RuntimeRect {
+                    left: 8,
+                    top: 10,
+                    right: 32,
+                    bottom: 40,
+                }),
+            })
+            .unwrap();
+        let second = graphics.commit_texture_dirty_region_mark(second);
+        assert_eq!(
+            second.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Rect(RuntimeRect {
+                left: 1,
+                top: 2,
+                right: 32,
+                bottom: 40,
+            })
+        );
+
+        for rect in [
+            RuntimeRect {
+                left: 4,
+                top: 5,
+                right: 4,
+                bottom: 6,
+            },
+            RuntimeRect {
+                left: -1,
+                top: 0,
+                right: 1,
+                bottom: 1,
+            },
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1_025,
+                bottom: 1_024,
+            },
+        ] {
+            let before = graphics.clone();
+            assert_eq!(
+                graphics
+                    .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                        texture_com_object_id: RuntimeComObjectId(8),
+                        rect: Some(rect),
+                    },)
+                    .unwrap_err()
+                    .code,
+                "graphics-texture-dirty-rect-out-of-bounds"
+            );
+            assert_eq!(graphics, before);
+        }
+
+        let whole = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(8),
+                rect: None,
+            })
+            .unwrap();
+        let whole = graphics.commit_texture_dirty_region_mark(whole);
+        assert!(whole.changed);
+        assert_eq!(
+            whole.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::WholeTexture
+        );
+
+        graphics.textures.get_mut(&texture.id).unwrap().dirty_region =
+            RuntimeGraphicsTextureDirtyRegion::Clean;
+        graphics.generation = u64::MAX;
+        let exhausted = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                    texture_com_object_id: RuntimeComObjectId(8),
+                    rect: Some(RuntimeRect {
+                        left: 0,
+                        top: 0,
+                        right: 1,
+                        bottom: 1,
+                    }),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(graphics, exhausted);
     }
 
     #[test]

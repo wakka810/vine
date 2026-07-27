@@ -249,6 +249,7 @@ enum GenericRuntimeCapability {
     D3d9RecreatedTextures,
     D3d9Clear,
     SetRect,
+    D3d9AddDirtyRect,
 }
 
 struct GenericRuntimeProcess {
@@ -482,6 +483,8 @@ struct GenericRuntimeComCompletion {
     completion: ComCallCompletion,
     #[serde(skip_serializing_if = "Option::is_none")]
     graphics_device: Option<vine_core::RuntimeGraphicsDevice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphics_texture: Option<vine_core::RuntimeGraphicsTexture>,
     memory: MemoryStats,
 }
 
@@ -2676,6 +2679,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9RecreatedTextures
                     | GenericRuntimeCapability::D3d9Clear
                     | GenericRuntimeCapability::SetRect
+                    | GenericRuntimeCapability::D3d9AddDirtyRect
             )
         ) {
             let loader = kernel32_policy
@@ -3341,7 +3345,12 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let set_rect_enabled = matches!(enabled_capability, Some(GenericRuntimeCapability::SetRect));
+    let d3d9_add_dirty_rect_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::D3d9AddDirtyRect)
+    );
+    let set_rect_enabled = d3d9_add_dirty_rect_enabled
+        || matches!(enabled_capability, Some(GenericRuntimeCapability::SetRect));
     let d3d9_clear_enabled = set_rect_enabled
         || matches!(
             enabled_capability,
@@ -3855,9 +3864,12 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v18();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v19();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
+    }
+    if !d3d9_add_dirty_rect_enabled {
+        d3d9_policy.add_dirty_rect = None;
     }
     if !matches!(
         requested_capability,
@@ -6234,6 +6246,7 @@ fn run_v86_generic_runtime_session(
                         16 => d3d9_policy.create_device.is_some(),
                         18 => d3d9_policy.get_surface_level.is_some(),
                         19 => d3d9_policy.raster_status.is_some(),
+                        21 => d3d9_add_dirty_rect_enabled && d3d9_policy.add_dirty_rect.is_some(),
                         23 => d3d9_policy.create_texture.is_some(),
                         26 | 11 | 12 => d3d9_policy.initial_vertex_buffer.is_some(),
                         43 => d3d9_clear_enabled && d3d9_policy.clear.is_some(),
@@ -6299,6 +6312,18 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let graphics_texture = if completion.frame.interface == "IDirect3DTexture9"
+                            && completion.frame.method == "AddDirtyRect"
+                        {
+                            process
+                                .runtime
+                                .graphics_textures()
+                                .values()
+                                .find(|texture| texture.com_object_id == completion.frame.object_id)
+                                .cloned()
+                        } else {
+                            None
+                        };
                         send_pending_runtime_delta(input, memory)?;
                         write_runtime_json_frame(
                             RUNTIME_FRAME_API_COMPLETION,
@@ -6308,6 +6333,7 @@ fn run_v86_generic_runtime_session(
                                 endpoint,
                                 completion,
                                 graphics_device,
+                                graphics_texture,
                                 memory: memory.stats(),
                             },
                         )?;
@@ -13936,6 +13962,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-update-window" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "d3d9-clear" => GenericRuntimeCapability::D3d9Clear,
                 "user32-set-rect" => GenericRuntimeCapability::SetRect,
+                "d3d9-add-dirty-rect" => GenericRuntimeCapability::D3d9AddDirtyRect,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

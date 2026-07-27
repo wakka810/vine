@@ -1238,7 +1238,7 @@ cross-thread／multi-window activationは実装済みまたはgoldenとしない
 Reached D3D9 recreated-texture bandは、native二runでRVA `0x5A715`／`0x5A7B7`／`0x5A7DC`からの
 `2048x1024`、level 1、format 22、system-memory static／default static／default dynamicの三callを固定する。
 各callは`S_OK`、LastError 0、4-byte output publication、non-NULL distinct texture、HRESULT sign consumerを要求する。
-Rust model／dispatcher testsはversion 18の六descriptor allow-list、system-memory variant indices `0,3`だけの
+Rust model／dispatcher testsはversion 19の六descriptor allow-list、system-memory variant indices `0,3`だけの
 `GetSurfaceLevel(0)`、capacity／bad pointer／unsupported descriptorのfailure atomicity、COM／graphics／guest-memoryの
 cross-owner preflightを比較する。Node／Chrome protocol v26はsequence 108,735–108,743の
 `CreateTexture -> GetSurfaceLevel -> GetDC -> GetStockObject -> FillRect -> ReleaseDC -> Release -> CreateTexture -> CreateTexture`
@@ -1300,6 +1300,20 @@ bytesのauthorityであり、User32またはTypeScriptにpersistent RECT state�
 instruction、report artifact、next-stop identityはcurrent manifestだけを正本とする。RECTの意味をtexture
 dirty-regionへ反映すること、NULL dirty rect、texture generation、upload／draw／Presentはこのleafのacceptanceへ
 含めない。
+
+続く`IDirect3DTexture9::AddDirtyRect` checkpointは、focused native二runが各8 callsを観測し、primary
+`RECT [0,0,1280,720]`、interior `[1,2,17,19]`、NULLが`D3D_OK`、empty／inverted／negative／
+out-of-boundsが`D3DERR_INVALIDCALL`、全LastError sentinelがpreserveされることをoracleとする。Primary
+caller RVAは`0x5B01D`、source creation RVAは`0x5A715`、immediate consumerはdevice slot 31
+`UpdateTexture`である。Focused Rust model／dispatcher testsはsystem-memory source profile、initial
+whole-texture dirty state、partial bounding union、NULL／full canonicalization、idempotent generation、wrong-owner／
+disabled-policy／invalid RECT／state-changing stale／duplicate plan／generation exhaustionのfailure atomicityを固定する。
+
+Protocol v31のNode／Chrome acceptanceはsequence 127,357、instruction 28,761,165、source texture 7／COM 22、
+device 3、descriptor `2048x1024`／one level／static X8R8G8B8 SYSTEMMEM、dirty region whole、generation 40、
+zero guest writes、reference count 1、renderer resourceなしを一致させる。Canonical stopは10 instructions後の
+`IDirect3DDevice9::UpdateTexture(0x01020004,0x01030004)` slot 31である。Dirty-region consume、destination
+mutation、texture bytes、browser upload、draw／Presentはこのcheckpointのacceptanceへ含めない。
 
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。

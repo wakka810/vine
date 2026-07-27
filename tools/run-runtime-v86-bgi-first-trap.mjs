@@ -216,6 +216,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-update-window",
         "d3d9-clear",
         "user32-set-rect",
+        "d3d9-add-dirty-rect",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -352,6 +353,7 @@ assert(
       "user32-update-window",
       "d3d9-clear",
       "user32-set-rect",
+      "d3d9-add-dirty-rect",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -365,7 +367,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-show-window-normal" ||
     genericRuntimeCapability === "user32-update-window" ||
     genericRuntimeCapability === "d3d9-clear" ||
-    genericRuntimeCapability === "user32-set-rect"
+    genericRuntimeCapability === "user32-set-rect" ||
+    genericRuntimeCapability === "d3d9-add-dirty-rect"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -666,7 +669,11 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
-const setRectCheckpointEnabled = genericRuntimeCapability === "user32-set-rect";
+const d3d9AddDirtyRectCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-add-dirty-rect";
+const setRectCheckpointEnabled =
+  d3d9AddDirtyRectCheckpointEnabled ||
+  genericRuntimeCapability === "user32-set-rect";
 const d3d9ClearCheckpointEnabled =
   setRectCheckpointEnabled || genericRuntimeCapability === "d3d9-clear";
 const updateWindowCheckpointEnabled =
@@ -1042,7 +1049,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? setRectCheckpointEnabled
+    ? d3d9AddDirtyRectCheckpointEnabled
+      ? "v86-bgi-d3d9-add-dirty-rect"
+      : setRectCheckpointEnabled
       ? "v86-bgi-set-rect"
       : d3d9ClearCheckpointEnabled
       ? "v86-bgi-d3d9-clear"
@@ -5428,6 +5437,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9AddDirtyRectCheckpointEnabled) {
+        validateD3d9AddDirtyRectResult(genericResult);
       } else if (setRectCheckpointEnabled) {
         validateSetRectResult(genericResult);
       } else if (d3d9ClearCheckpointEnabled) {
@@ -5687,7 +5698,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : setRectCheckpointEnabled
+          : d3d9AddDirtyRectCheckpointEnabled
+            ? "bgi IDirect3DTexture9::AddDirtyRect full-presentation region"
+            : setRectCheckpointEnabled
             ? "bgi USER32 SetRect full-presentation RECT"
             : d3d9ClearCheckpointEnabled
             ? "bgi IDirect3DDevice9::Clear full render target"
@@ -8174,6 +8187,9 @@ function buildGenericComCallRecord(
     ...(completionFrame.graphicsDevice === undefined
       ? {}
       : { graphicsDevice: completionFrame.graphicsDevice }),
+    ...(completionFrame.graphicsTexture === undefined
+      ? {}
+      : { graphicsTexture: completionFrame.graphicsTexture }),
   };
 }
 
@@ -20392,7 +20408,7 @@ function validateD3d9ClearResult(result, expectSetRectFault = true) {
   ]);
 }
 
-function validateSetRectResult(result) {
+function validateSetRectResult(result, expectAddDirtyRectFault = true) {
   validateD3d9ClearResult(result, false);
   const calls = result.supportedCalls.filter(
     (call) =>
@@ -20428,6 +20444,9 @@ function validateSetRectResult(result) {
       },
     },
   ]);
+  if (!expectAddDirtyRectFault) {
+    return;
+  }
   assert.equal(result.fault.capabilityCluster, "d3d9-idirect3dtexture9-method");
   assert.equal(result.fault.endpoint.kind, "com-method");
   assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DTexture9");
@@ -20458,6 +20477,78 @@ function validateSetRectResult(result) {
     0x1005_b01d,
     0x0102_0004,
     0x006f_f29c,
+  ]);
+}
+
+function validateD3d9AddDirtyRectResult(result) {
+  validateSetRectResult(result, false);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DTexture9" &&
+      call.vtableSlot === 21 &&
+      call.symbol === "IDirect3DTexture9.AddDirtyRect",
+  );
+  assert.equal(calls.length, 1, "IDirect3DTexture9::AddDirtyRect must complete once");
+  const dirty = calls[0];
+  assert.equal(dirty.sequence, 127_357);
+  assert.equal(dirty.occurrence, 1);
+  assert.equal(dirty.trapInstructionCount, 28_761_165);
+  assert.deepEqual(dirty.arguments, [0x0102_0004, 0x006f_f29c]);
+  assert.deepEqual(dirty.result, { kind: "h-result", value: 0 });
+  assert.equal(dirty.returnAddress, 0x1005_b01d);
+  assert.equal(dirty.stackPointerBefore, 0x006f_f25c);
+  assert.equal(dirty.stackPointerAfter, 0x006f_f268);
+  assert.equal(dirty.referenceCount, 1);
+  assert.equal(dirty.objectRetired, false);
+  assert.deepEqual(dirty.guestWrites, []);
+  const texture = dirty.graphicsTexture;
+  assert(texture, "AddDirtyRect completion omitted the Rust graphics texture snapshot");
+  assert.equal(texture.namespace, "vine.logical-graphics-texture.v1");
+  assert.equal(texture.id, 7);
+  assert.equal(texture.deviceId, 3);
+  assert.deepEqual(texture.descriptor, {
+    width: 2_048,
+    height: 1_024,
+    levels: 1,
+    usage: "none",
+    colorFormat: "b8g8r8x8-unorm",
+    pool: "system-memory",
+  });
+  assert.equal(texture.comObjectId, "22");
+  assert.deepEqual(texture.dirtyRegion, { kind: "whole-texture" });
+  assert.equal(texture.generation, 40);
+
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.object.id, "21");
+  assert.equal(result.fault.endpoint.target.interface.id, "42");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(result.fault.endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(result.fault.endpoint.target.method.slot, 31);
+  assert.equal(result.fault.endpoint.target.method.name, "UpdateTexture");
+  assert.equal(result.fault.endpoint.target.method.endpoint, 0x0101_1220);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b038);
+  assert.equal(result.fault.memory.generation, 235_507);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "2e8deed2908c310e490b75ba714ebc8eb615a87b66efab2ab49287784d0a408a",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 28_761_165);
+  assert.equal(result.terminal.additionalInstructionCount, 10);
+  assert.equal(result.terminal.instructionCount, 28_761_175);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1220);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 31);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b038);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1005_b038,
+    0x0101_0004,
+    0x0102_0004,
+    0x0103_0004,
   ]);
 }
 
@@ -25240,6 +25331,23 @@ function buildGenericRuntimeReentryReport({
       "SetRect report summary requires one completion",
     );
   }
+  const d3d9AddDirtyRectCalls = d3d9AddDirtyRectCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.interface === "IDirect3DTexture9" &&
+          call.vtableSlot === 21 &&
+          call.symbol === "IDirect3DTexture9.AddDirtyRect",
+      )
+    : [];
+  const d3d9AddDirtyRectCall = d3d9AddDirtyRectCalls[0] ?? null;
+  if (d3d9AddDirtyRectCheckpointEnabled) {
+    assert.equal(
+      d3d9AddDirtyRectCalls.length,
+      1,
+      "D3D9 AddDirtyRect report summary requires one completion",
+    );
+    assert(d3d9AddDirtyRectCall.graphicsTexture);
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -25313,7 +25421,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : setRectCheckpointEnabled
+        : d3d9AddDirtyRectCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-add-dirty-rect"
+          : setRectCheckpointEnabled
           ? "vine.v86-bgi-user32-set-rect"
           : d3d9ClearCheckpointEnabled
           ? "vine.v86-bgi-d3d9-clear"
@@ -25853,7 +25963,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -25869,7 +25979,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority:
               "rust-runtime-graphics-logical-device-back-buffer",
@@ -25893,6 +26003,23 @@ function buildGenericRuntimeReentryReport({
             mutation: "guest-memory-preflight-atomic-write",
             nullOutputReturnsFalse: true,
             browserOwnsRectState: false,
+          },
+        }
+      : {}),
+    ...(d3d9AddDirtyRectCheckpointEnabled
+      ? {
+          d3d9AddDirtyRect: {
+            call: d3d9AddDirtyRectCall,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+            addDirtyRectProfileId:
+              "primary-recreated-system-memory-texture-dirty-rect-v1",
+            textureAuthority: "rust-runtime-graphics-logical-texture",
+            initialDirtyRegion: "whole-texture",
+            mutation: "validate-plan-preflight-idempotent-completion",
+            textureGenerationChanged: false,
+            failureAtomicity: true,
+            dirtyRegionConsumed: false,
+            browserRendererResourceCreated: false,
           },
         }
       : {}),

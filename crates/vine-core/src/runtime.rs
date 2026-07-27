@@ -123,7 +123,8 @@ pub use graphics::{
     RuntimeGraphicsRenderStateUpdateResult, RuntimeGraphicsRenderStates,
     RuntimeGraphicsRendererAssociation, RuntimeGraphicsRendererOwnership, RuntimeGraphicsSurface,
     RuntimeGraphicsSurfaceDescriptor, RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId,
-    RuntimeGraphicsTexture, RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureId,
+    RuntimeGraphicsTexture, RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
+    RuntimeGraphicsTextureDirtyRegionMarkResult, RuntimeGraphicsTextureId,
     RuntimeGraphicsTexturePool, RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBuffer,
     RuntimeGraphicsVertexBufferBacking, RuntimeGraphicsVertexBufferDescriptor,
     RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBufferLock,
@@ -133,8 +134,8 @@ pub use graphics::{
 pub(crate) use graphics::{
     RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsDeviceCreateRequest,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsVertexBufferCreateRequest,
-    RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

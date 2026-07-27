@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `user32-set-rect` and uses protocol
-`vine.browser-runtime-worker.v30`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-add-dirty-rect` and uses protocol
+`vine.browser-runtime-worker.v31`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -128,8 +128,16 @@ created in either Rust or TypeScript. Protocol version 30 adds the typed argumen
 output address and bytes, stack transition, and failure-policy evidence. Node and Chrome agree
 on sequence 127,356, instruction 28,761,157, output
 `000000000000000000050000d0020000`, and the cumulative semantic and terminal-memory digests.
-Both engines stop eight instructions later at `IDirect3DTexture9::AddDirtyRect` slot 21 with
-the same texture identity and `RECT*`; that method is the next structured stop.
+Both engines continue eight instructions later through `IDirect3DTexture9::AddDirtyRect`
+slot 21 with the same texture identity and `RECT*`. Rust validates the recreated static
+SYSTEMMEM source texture and stores its authoritative dirty region in `RuntimeGraphics`.
+Because creation already marked the whole level dirty, the primary rectangle succeeds
+idempotently without changing texture generation. Protocol version 31 adds the logical
+texture descriptor, COM relation, dirty-region snapshot, mutation policy, and non-claims.
+Node and Chrome agree on sequence 127,357, instruction 28,761,165, texture 7／COM 22,
+device 3, `2048x1024`, whole-texture dirty state, generation 40, zero guest writes, and no
+renderer resource. Both engines stop ten instructions later at
+`IDirect3DDevice9::UpdateTexture(source=0x01020004,destination=0x01030004)` slot 31.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -168,3 +176,6 @@ fingerprint before and after execution.
   HDC operations.
 - The reached Clear does not claim partial rectangles, depth／stencil clears, pixel storage,
   upload, draw, Present, device loss, or visible browser output.
+- The reached AddDirtyRect stores only a bounded Rust-owned dirty region. It does not
+  consume that region, copy source bytes, mutate the destination texture, allocate pixel
+  storage, upload to a renderer, draw, or Present.

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 30 as const;
+export const protocolVersion = 31 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -24,7 +24,8 @@ export type BgiCapabilityProfile =
   | "user32-show-window-normal"
   | "user32-update-window"
   | "d3d9-clear"
-  | "user32-set-rect";
+  | "user32-set-rect"
+  | "d3d9-add-dirty-rect";
 
 export interface RuntimeGraphicsDeviceSnapshot {
   id: number;
@@ -62,6 +63,29 @@ export interface RuntimeGraphicsDeviceSnapshot {
     resourceId: number;
     ownership: "non-owning";
   };
+  generation: number;
+}
+
+export interface RuntimeGraphicsTextureSnapshot {
+  id: number;
+  namespace: "vine.logical-graphics-texture.v1";
+  deviceId: number;
+  descriptor: {
+    width: number;
+    height: number;
+    levels: number;
+    usage: "none" | "dynamic";
+    colorFormat: "b8g8r8x8-unorm";
+    pool: "default" | "system-memory";
+  };
+  comObjectId: string;
+  dirtyRegion:
+    | { kind: "clean" }
+    | {
+        kind: "rect";
+        rect: { left: number; top: number; right: number; bottom: number };
+      }
+    | { kind: "whole-texture" };
   generation: number;
 }
 
@@ -608,6 +632,7 @@ export interface RuntimeSupportedCallSnapshot {
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
+  graphicsTexture?: RuntimeGraphicsTextureSnapshot;
 }
 
 export interface SessionReport {
@@ -850,7 +875,7 @@ export interface SessionReport {
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
     createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
     getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
@@ -860,7 +885,7 @@ export interface SessionReport {
   } | null;
   d3d9Clear: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
     clearProfileId: "primary-full-render-target-black-v1";
     targetAuthority: "rust-runtime-graphics-logical-device-back-buffer";
     targetScope: "full-presentation-back-buffer";
@@ -868,6 +893,18 @@ export interface SessionReport {
     failureAtomicity: true;
     depthStencilCleared: false;
     partialRectsImplemented: false;
+    browserRendererResourceCreated: false;
+  } | null;
+  d3d9AddDirtyRect: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19";
+    addDirtyRectProfileId: "primary-recreated-system-memory-texture-dirty-rect-v1";
+    textureAuthority: "rust-runtime-graphics-logical-texture";
+    initialDirtyRegion: "whole-texture";
+    mutation: "validate-plan-preflight-idempotent-completion";
+    textureGenerationChanged: false;
+    failureAtomicity: true;
+    dirtyRegionConsumed: false;
     browserRendererResourceCreated: false;
   } | null;
   setRect: {

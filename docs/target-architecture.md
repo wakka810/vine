@@ -808,7 +808,7 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 geometry resource、`SetRenderState` gatewayでreached typed device state、`Clear` gatewayでlogical back-buffer
 contentを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
-device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、back-buffer
+device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、back-buffer
 content generationとclear sequenceを
 owner-local plan／commitで管理し、各4,096-object capacity、stale
 plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
@@ -823,7 +823,7 @@ identity、logical graphics deviceは一つの外部観測可能transactionと�
 必要ならroot retirementへcascadeする。Renderer resourceはこのgatewayでは作らない。
 
 `CreateTexture`はlive device association、policy-bounded descriptor、guest output span、COM child registration、
-graphics texture capacityを全てpreflightする。Version 18のactive bandは1024×1024または2048×1024／
+graphics texture capacityを全てpreflightする。Version 19のactive bandは1024×1024または2048×1024／
 one-level／X8R8G8B8に対し、static SYSTEMMEM、static DEFAULT、dynamic DEFAULTの六variantだけを許可する。各completionはdistinct guest
 texture pointer、child COM identity、logical textureを一つの外部観測可能transactionとしてpublishし、各Textureは
 device interfaceを一reference保持する。Final releaseはtexture associationを退役して必要ならdevice／root
@@ -852,6 +852,15 @@ rectangleを検証し、`RuntimeGraphicsDevice`のpristineまたは既存content
 Global／device／content／sequence generationをpreflightしてからuniform-clear commandだけをtargeted commitし、stale／
 duplicate planとprofile外variantは全stateを不変にする。Depth／stencil、partial rectangle、pixel backing、renderer
 resourceはこのgatewayで作らず、TypeScriptはlogical back-buffer stateを複製しない。
+
+Reached `IDirect3DTexture9::AddDirtyRect`はlive COM-to-texture relation、versioned source-texture descriptor、
+nullable level-zero RECTを検証し、dirty regionを`RuntimeGraphicsTexture`だけに保持する。Creation時の
+`whole-texture`状態、partial rectangleのbounding union、NULL／full rectangleのwhole canonicalization、
+idempotent successをowner-local plan／preflight／targeted commitで処理する。Invalid geometry、wrong owner、
+state-changing stale／duplicate plan、generation exhaustionはCOM、guest bytes、allocator、dirty region、generationを変更せず、
+既にcoveredなrepeat markはmutation-free successとする。
+TypeScriptはsnapshotを検証するだけで第二のdirty trackerを持たず、dirty regionのconsume、source-to-destination
+copy、pixel backing、renderer uploadは続く`UpdateTexture` gatewayの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

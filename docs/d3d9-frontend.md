@@ -17,8 +17,8 @@ delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
 and slot 43 `Clear` delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
-interface whose IUnknown methods and slot 18 `GetSurfaceLevel` delegate to
-implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
+interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
+`AddDirtyRect` delegate to implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
 `IDirect3DSurface9` interface whose IUnknown methods plus slot 15 `GetDC` and
 slot 16 `ReleaseDC` delegate to implemented handlers. `CreateVertexBuffer`
 publishes a complete 14-slot `IDirect3DVertexBuffer9` interface whose IUnknown
@@ -46,7 +46,7 @@ relations for the private workload.
 
 ## Bounded logical adapter count
 
-Version 18 of `D3d9CompatibilityPolicy` retains profile
+Version 19 of `D3d9CompatibilityPolicy` retains profile
 `single-logical-adapter-v1`. `IDirect3D9::GetAdapterCount` returns unsigned
 value `1` after validating that `RuntimeDisplays` still exposes the coherent
 `single-monitor-1920x1080-work-1920x1032-v2` profile. The count is D3D9 policy authority; the
@@ -66,7 +66,7 @@ enumeration and host or browser GPU topology remain outside this profile.
 
 ## Bounded adapter-to-monitor mapping
 
-The version 18 `primary-adapter-monitor-v1` profile maps adapter `0` to the
+The version 19 `primary-adapter-monitor-v1` profile maps adapter `0` to the
 logical primary HMONITOR owned by `RuntimeDisplays`. The D3D9 policy owns only
 the adapter-to-display-profile mapping; it neither allocates nor copies the
 monitor identity. `GetAdapterMonitor(0)` therefore returns `0x4f010001`, the
@@ -90,7 +90,7 @@ are recorded in the current manifest.
 
 ## Bounded adapter display mode
 
-Version 18 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
+Version 19 of `D3d9CompatibilityPolicy` describes one coherent logical adapter.
 Its display-mode profile is `primary-adapter-1920x1080-60-x8r8g8b8-v1`.
 Width and height are derived from the primary monitor owned by
 `RuntimeDisplays`; refresh rate `60` and format `22` (`D3DFMT_X8R8G8B8`)
@@ -123,7 +123,7 @@ checkpoint manifest.
 
 ## Bounded virtual adapter identity
 
-The same version 18 policy enables adapter `0`, flags `0`, and profile
+The same version 19 policy enables adapter `0`, flags `0`, and profile
 `primary-virtual-adapter-identifier-v1`. It serializes one zero-filled,
 1,100-byte `D3DADAPTER_IDENTIFIER9` from policy-owned virtual identity:
 
@@ -157,7 +157,7 @@ fixture. Raw native captures remain ignored under `.work/`.
 
 ## Bounded virtual device capabilities
 
-Version 18 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
+Version 19 also enables adapter `0`, `D3DDEVTYPE_HAL`, and profile
 `primary-hal-readscanline-dynamic-textures-ps3-v1`. The handler zero-fills one
 304-byte, 4-byte-aligned x86 `D3DCAPS9` and publishes only these nonzero words:
 
@@ -193,7 +193,7 @@ guest-memory transaction.
 
 ## Bounded device-type predicate
 
-Version 18 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
+Version 19 retains profile `primary-hal-x8r8g8b8-windowed-fullscreen-v1` for
 `IDirect3D9::CheckDeviceType`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 `D3DFMT_X8R8G8B8` adapter／back-buffer formats, and both windowed and
 full-screen mode. The x86 `BOOL` follows the Windows convention: zero means
@@ -217,7 +217,7 @@ completion. Every path preserves LastError, COM reference count, guest memory,
 
 ## Bounded device-format predicate
 
-Version 18 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
+Version 19 retains profile `primary-hal-x8r8g8b8-texture-basic-dynamic-v1` for
 `IDirect3D9::CheckDeviceFormat`. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 adapter／checked format `D3DFMT_X8R8G8B8`, resource type `D3DRTYPE_TEXTURE`,
 and either Usage `0` or `D3DUSAGE_DYNAMIC` (`0x200`). The predicate is
@@ -242,7 +242,7 @@ renderer resources.
 
 ## Bounded logical device creation
 
-Version 18 retains `primary-windowed-hal-device-v1` for the reached
+Version 19 retains `primary-windowed-hal-device-v1` for the reached
 `IDirect3D9::CreateDevice` call. It accepts adapter `0`, `D3DDEVTYPE_HAL`,
 behavior flags `D3DCREATE_MULTITHREADED | D3DCREATE_HARDWARE_VERTEXPROCESSING`
 (`0x44`), one live focus／device HWND, and one 56-byte x86
@@ -287,7 +287,7 @@ guest identities.
 
 ## Bounded logical texture creation
 
-Version 18 retains the texture profile introduced in version 17,
+Version 19 retains the texture profile introduced in version 17,
 `primary-initial-and-recreated-x8r8g8b8-textures-v2`. Every accepted variant
 has height `1024`, one mip level, `D3DFMT_X8R8G8B8`, and a NULL shared-handle
 pointer. Width is either the initial `1024` or the reached recreated `2048`;
@@ -337,7 +337,7 @@ caller use, not broader resource behavior.
 
 ## Bounded initial vertex buffer
 
-Version 18 retains profile `primary-initial-xyzw-diffuse-tex1-quad-v1` for device
+Version 19 retains profile `primary-initial-xyzw-diffuse-tex1-quad-v1` for device
 slot 26. It accepts exactly a 112-byte, `D3DUSAGE_WRITEONLY`,
 `D3DFVF_XYZRHW|D3DFVF_DIFFUSE|D3DFVF_TEX1`, `D3DPOOL_MANAGED` vertex buffer
 with a NULL shared-handle pointer. Zero length, NULL output, or a non-NULL
@@ -375,7 +375,7 @@ opaque artifact identity.
 
 ## Bounded initial render states
 
-Version 18 retains profile `primary-initial-fixed-function-render-states-v1` for
+Version 19 retains profile `primary-initial-fixed-function-render-states-v1` for
 device slot 57. The reached band is exactly the ordered startup cluster
 `D3DRS_CULLMODE=D3DCULL_NONE`, `D3DRS_ZENABLE=FALSE`,
 `D3DRS_LIGHTING=FALSE`, and `D3DRS_ALPHABLENDENABLE=TRUE`. A well-formed setting
@@ -400,7 +400,7 @@ browser renderer allocation.
 
 ## Bounded raster status
 
-Version 18 retains `primary-stable-nonblank-scanline-v1` for device slot 19
+Version 19 retains `primary-stable-nonblank-scanline-v1` for device slot 19
 `GetRasterStatus(0, output)`. The policy returns one fully initialized
 `D3DRASTER_STATUS`: normalized `InVBlank=FALSE` and `ScanLine=1`. These values
 are a deterministic compatibility sample, not imported host or browser scanout
@@ -428,7 +428,7 @@ stable nonblank sample. Node and Chrome both complete call 17,866 at instruction
 
 ## Bounded level-zero surface retrieval
 
-Version 18 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the
+Version 19 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the
 reached `IDirect3DTexture9::GetSurfaceLevel` calls. It accepts only level `0` on
 one-level logical textures created from source variant indices `0` and `3`, the
 `1024x1024` and `2048x1024` static system-memory descriptors, with a non-NULL
@@ -469,7 +469,7 @@ leaves the output unchanged while returning `D3DERR_INVALIDCALL`.
 
 ## Bounded surface DC and GDI fill bridge
 
-Version 18 retains `primary-surface-gdi-dc-v1` for surface slots 15 and 16.
+Version 19 retains `primary-surface-gdi-dc-v1` for surface slots 15 and 16.
 `GetDC` accepts one non-NULL writable HDC output on a live logical surface.
 Guest-memory access, the live COM-to-graphics association, the current surface
 descriptor, GDI capacity, identity allocation, and the one-outstanding-HDC rule
@@ -510,7 +510,7 @@ violation; Vine retains the repository-wide checked-memory fault boundary.
 
 ## Bounded full-target Clear
 
-Version 18 adds `primary-full-render-target-black-v1` for device slot 43. The
+Version 19 adds `primary-full-render-target-black-v1` for device slot 43. The
 accepted call is exactly `Clear(0, NULL, D3DCLEAR_TARGET, 0xFF000000, 1.0f, 0)`.
 It clears the complete presentation back buffer of the live logical device to
 opaque black. Count or rectangle-pointer changes, another flag or color, or
@@ -546,6 +546,45 @@ This slice does not clear depth or stencil, accept partial rectangles, allocate
 pixel storage, upload texture content, draw, Present, model device loss, or
 produce a visible browser frame.
 
+## Bounded system-memory texture dirty region
+
+Version 19 adds
+`primary-recreated-system-memory-texture-dirty-rect-v1` for texture slot 21.
+It admits only recreated source-texture variant 3: a live `2048x1024`, one-level,
+static X8R8G8B8 SYSTEMMEM texture. The primary call passes
+`RECT [0,0,1280,720]`; a NULL pointer marks the whole texture. Strictly ordered,
+nonempty, nonnegative in-bounds rectangles return `D3D_OK`, while empty,
+inverted, negative, or out-of-bounds rectangles return `D3DERR_INVALIDCALL`.
+LastError, guest bytes, COM reference count, and browser resources remain
+unchanged.
+
+`RuntimeGraphicsTexture` is the sole dirty-region authority. Texture creation
+begins dirty over the whole level-zero image, matching D3D9 managed update
+semantics. A mutation-free owner plan validates the live COM-to-texture
+relation, descriptor, rectangle, and generations before targeted commit.
+Success merges partial rectangles by bounding union; NULL or a full rectangle
+canonicalizes to `whole-texture`. Repeating a mark already covered by the
+current region succeeds without consuming an identity or incrementing the
+texture generation. State-changing stale／duplicate plans, capacity exhaustion,
+policy mismatch, wrong-owner COM objects, and malformed rectangles fail before
+any observable state changes; a repeated already-covered mark remains an
+explicit mutation-free success.
+
+Two focused Windows trace-v2 runs each contain the primary call plus seven
+controlled variants. The primary return RVA is `0x5B01D`; all full, interior,
+and NULL calls return `D3D_OK`, while all four invalid geometry classes return
+`D3DERR_INVALIDCALL`. Sentinel LastError values are preserved. Both native
+runs immediately consume the source texture through
+`IDirect3DDevice9::UpdateTexture` slot 31. Canonical Node and Chrome sessions
+complete AddDirtyRect at sequence 127,357 and instruction 28,761,165. They
+agree on logical texture 7／COM object 22, device 3, whole-texture dirty state,
+generation 40, zero guest writes, and no renderer resource, then stop at that
+UpdateTexture call.
+
+This slice does not consume the dirty region, copy bytes to the default-pool
+destination, allocate texture pixel storage, upload to a browser renderer,
+draw, or Present.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -560,15 +599,16 @@ and `CreateVertexBuffer` creates the first guest-backed logical geometry
 resource.
 The initial-resource slice leaves three logical textures live on one
 device: one system-memory static texture and two default-pool textures, the last
-of which is dynamic. The version 18 policy admits the same three descriptors at
+of which is dynamic. The version 19 policy admits the same three descriptors at
 `2048x1024` when the guest recreates the resources; it does not infer a general
 dimension or pool policy. The surface `GetDC` gateway adds a typed GDI acquisition
 relation, and reached
 `FillRect` appends the first `RuntimeGraphics`-owned surface command.
 Reached slot 43 `Clear` similarly appends authoritative uniform content to the
 logical device back buffer without crossing into a renderer adapter.
-The following `SetRect` leaf only materializes the caller-owned guest structure; texture
-dirty-region authority remains unmodified until the reached slot-21 method is implemented.
+The following `SetRect` leaf materializes the caller-owned guest structure, and
+slot 21 `AddDirtyRect` updates only the source texture's Rust-owned dirty-region
+state. The following `UpdateTexture` gateway remains the first consumer boundary.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -585,7 +625,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile user32-set-rect
+npm run check:runtime:bgi -- --profile d3d9-add-dirty-rect
 npm run check:runtime:bgi-browser
 ```
 
@@ -616,8 +656,10 @@ The cumulative runtime additionally fixes four typed device render-state
 updates, their idempotent same-value behavior, and the bounded
 `GetRasterStatus` output. It subsequently records the exact full-target Clear,
 logical device／COM relation, back-buffer generation, and the exact full-presentation
-`SetRect` guest bytes before stopping at texture slot 21 `AddDirtyRect`, without creating a
-browser renderer resource or a second dirty-region authority.
+`SetRect` guest bytes. It then records the exact slot-21 `AddDirtyRect`, logical
+texture／COM relation, authoritative whole-texture dirty state, idempotent
+generation, and zero writes before stopping at device slot 31 `UpdateTexture`,
+without creating a browser renderer resource or a second dirty-region authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -637,8 +679,11 @@ and stops at `kernel32.dll!QueryPerformanceFrequency`. Profile selection does
 not add callsite branches to the semantic handler or move Windows state into
 the browser runtime. The historical `user32-update-window` profile stops at
 slot 43, while `d3d9-clear` enables only the exact Clear profile and stops at
-`USER32.dll!SetRect`. The active `user32-set-rect` profile additionally enables that exact
-User32 contract and stops at `IDirect3DTexture9::AddDirtyRect` slot 21.
+`USER32.dll!SetRect`. The historical `user32-set-rect` profile additionally
+enables that exact User32 contract and stops at `IDirect3DTexture9::AddDirtyRect`
+slot 21. The active `d3d9-add-dirty-rect` profile enables only the bounded
+source-texture dirty-region contract and stops at `IDirect3DDevice9::UpdateTexture`
+slot 31.
 
 ## Non-claims
 
@@ -650,14 +695,15 @@ User32 contract and stops at `IDirect3DTexture9::AddDirtyRect` slot 21.
   surface `GetDC`／black `FillRect`／`ReleaseDC` profile plus the exact initial
   `CreateVertexBuffer`／full-range `Lock`／`Unlock` sequence, the exact four
   initial `SetRenderState` settings, one bounded `GetRasterStatus` query, and
-  one exact full-target black `Clear` are implemented. Mode
+  one exact full-target black `Clear`, and one bounded source-texture
+  `AddDirtyRect` are implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
-  device/resource state, texture dirty-region updates including `AddDirtyRect`,
+  device/resource state, dirty-region consumption, `UpdateTexture`,
   partial／depth／stencil Clear, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
-  fill, vertex-buffer gateway, and full-target Clear create Rust logical state
+  fill, vertex-buffer gateway, full-target Clear, and bounded AddDirtyRect create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

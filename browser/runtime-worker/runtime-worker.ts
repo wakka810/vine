@@ -26,6 +26,7 @@ import {
   type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
   type RuntimeGraphicsDeviceSnapshot,
+  type RuntimeGraphicsTextureSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -117,7 +118,8 @@ function includesD3d9RecreatedTextures(
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
-    profile === "user32-set-rect"
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect"
   );
 }
 
@@ -129,7 +131,8 @@ function isSetWindowPosFrameChangeMove(
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
-    profile === "user32-set-rect"
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect"
   );
 }
 
@@ -140,7 +143,8 @@ function includesShowWindowNormal(
     profile === "user32-show-window-normal" ||
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
-    profile === "user32-set-rect"
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect"
   );
 }
 
@@ -150,7 +154,8 @@ function isUpdateWindow(
   return (
     profile === "user32-update-window" ||
     profile === "d3d9-clear" ||
-    profile === "user32-set-rect"
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect"
   );
 }
 
@@ -163,13 +168,25 @@ function isD3d9Clear(
 function includesD3d9Clear(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return isD3d9Clear(profile) || profile === "user32-set-rect";
+  return (
+    isD3d9Clear(profile) ||
+    profile === "user32-set-rect" ||
+    profile === "d3d9-add-dirty-rect"
+  );
 }
 
 function isSetRect(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-set-rect";
+  return (
+    profile === "user32-set-rect" || profile === "d3d9-add-dirty-rect"
+  );
+}
+
+function isD3d9AddDirtyRect(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-add-dirty-rect";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -365,6 +382,7 @@ interface ComCompletionMetadata {
     guestWrites: Array<{ address: number; bytes: number[] }>;
   };
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
+  graphicsTexture?: RuntimeGraphicsTextureSnapshot;
   memory: { generation: number; acknowledgedGeneration: number };
 }
 
@@ -822,6 +840,7 @@ class BrowserRuntimeSession {
     updateWindow: null as SessionReport["updateWindow"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
+    d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
     setRect: null as SessionReport["setRect"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
@@ -964,6 +983,7 @@ class BrowserRuntimeSession {
                 failInvariant("BGI writable profile is missing"),
               includesD3d9Clear(this.#configuration.capabilityProfile),
               isSetRect(this.#configuration.capabilityProfile),
+              isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2960,9 +2980,13 @@ class BrowserRuntimeSession {
       ...(metadata.graphicsDevice === undefined
         ? {}
         : { graphicsDevice: metadata.graphicsDevice }),
+      ...(metadata.graphicsTexture === undefined
+        ? {}
+        : { graphicsTexture: metadata.graphicsTexture }),
     };
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordD3d9ClearCall(call);
+    this.#recordD3d9AddDirtyRectCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4328,7 +4352,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -4397,7 +4421,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v18",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -4405,6 +4429,61 @@ class BrowserRuntimeSession {
       failureAtomicity: true,
       depthStencilCleared: false,
       partialRectsImplemented: false,
+      browserRendererResourceCreated: false,
+    };
+  }
+
+  #recordD3d9AddDirtyRectCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isD3d9AddDirtyRect(this.#configuration.capabilityProfile) ||
+      call.interface !== "IDirect3DTexture9" ||
+      call.vtableSlot !== 21
+    ) {
+      return;
+    }
+    const texture = call.graphicsTexture;
+    invariant(
+      this.#report.d3d9AddDirtyRect === null &&
+        call.sequence === 127_357 &&
+        call.symbol === "IDirect3DTexture9.AddDirtyRect" &&
+        call.arguments.length === 2 &&
+        call.arguments[0] === 0x0102_0004 &&
+        call.arguments[1] === 0x006f_f29c &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b01d &&
+        call.stackPointerBefore === 0x006f_f25c &&
+        call.stackPointerAfter === 0x006f_f268 &&
+        call.referenceCount === 1 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        texture !== undefined &&
+        texture.namespace === "vine.logical-graphics-texture.v1" &&
+        texture.id === 7 &&
+        texture.deviceId === 3 &&
+        texture.descriptor.width === 2_048 &&
+        texture.descriptor.height === 1_024 &&
+        texture.descriptor.levels === 1 &&
+        texture.descriptor.usage === "none" &&
+        texture.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+        texture.descriptor.pool === "system-memory" &&
+        texture.comObjectId === "22" &&
+        texture.dirtyRegion.kind === "whole-texture" &&
+        texture.generation === 40,
+      "D3D9 AddDirtyRect ABI or Rust logical texture dirty-region state changed",
+    );
+    this.#report.d3d9AddDirtyRect = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v19",
+      addDirtyRectProfileId:
+        "primary-recreated-system-memory-texture-dirty-rect-v1",
+      textureAuthority: "rust-runtime-graphics-logical-texture",
+      initialDirtyRegion: "whole-texture",
+      mutation: "validate-plan-preflight-idempotent-completion",
+      textureGenerationChanged: false,
+      failureAtomicity: true,
+      dirtyRegionConsumed: false,
       browserRendererResourceCreated: false,
     };
   }
@@ -6158,12 +6237,19 @@ class BrowserRuntimeSession {
           update.endPaint.paint.livePaintSessions === 0 &&
           update.endPaint.paint.liveDeviceContexts === 0 &&
           firstUnsupported?.capabilityCluster ===
-            (isSetRect(this.#configuration.capabilityProfile)
+            (isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+              ? "d3d9-idirect3ddevice9-method"
+              : isSetRect(this.#configuration.capabilityProfile)
               ? "d3d9-idirect3dtexture9-method"
               : isD3d9Clear(this.#configuration.capabilityProfile)
                 ? "user32-api-contract"
                 : "d3d9-idirect3ddevice9-method") &&
-          (isSetRect(this.#configuration.capabilityProfile)
+          (isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+              this.#report.setRect?.call.sequence === 127_356 &&
+              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
+              firstUnsupported.instructionCount === 28_761_175
+            : isSetRect(this.#configuration.capabilityProfile)
             ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
               this.#report.setRect?.call.sequence === 127_356 &&
               firstUnsupported.instructionCount === 28_761_165
@@ -6343,6 +6429,7 @@ worker.addEventListener(
               updateWindow: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
+              d3d9AddDirtyRect: null,
               setRect: null,
               firstUnsupported: null,
               checkpointCompletion: null,
