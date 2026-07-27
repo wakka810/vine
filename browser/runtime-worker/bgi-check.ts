@@ -29,11 +29,14 @@ declare global {
   }
 }
 
-const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), {
+  type: "module",
+});
 const status = requiredElement<HTMLOutputElement>("#status");
 const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
-const evidenceLevel = searchParams.get("evidence") === "full" ? "full" : "summary";
+const evidenceLevel =
+  searchParams.get("evidence") === "full" ? "full" : "summary";
 const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
 const sessionId = 1;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
@@ -62,31 +65,42 @@ const heartbeat = window.setInterval(() => {
 
 window.__vineBgiCheck = { result: null, error: null };
 
-worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) => {
-  const message = event.data;
-  assertProtocolVersion(message.protocolVersion);
-  if (message.sessionId !== sessionId) {
-    return;
-  }
-  if (message.type === "session-status") {
-    statuses.push({ phase: message.phase, detail: message.detail });
-    status.textContent = message.detail;
-    if (scenario === "cancel-pending" && message.phase === "running" && !cancellationSent) {
-      cancellationSent = true;
-      worker.postMessage({
-        type: "cancel-session",
-        protocolVersion,
-        sessionId,
-      } satisfies MainToWorkerMessage);
+worker.addEventListener(
+  "message",
+  (event: MessageEvent<WorkerToMainMessage>) => {
+    const message = event.data;
+    assertProtocolVersion(message.protocolVersion);
+    if (message.sessionId !== sessionId) {
+      return;
     }
-    return;
-  }
-  if (message.type === "host-request") {
-    fail(new Error(`BGI emitted unexpected browser host request ${message.service}`));
-    return;
-  }
-  finish(message.report);
-});
+    if (message.type === "session-status") {
+      statuses.push({ phase: message.phase, detail: message.detail });
+      status.textContent = message.detail;
+      if (
+        scenario === "cancel-pending" &&
+        message.phase === "running" &&
+        !cancellationSent
+      ) {
+        cancellationSent = true;
+        worker.postMessage({
+          type: "cancel-session",
+          protocolVersion,
+          sessionId,
+        } satisfies MainToWorkerMessage);
+      }
+      return;
+    }
+    if (message.type === "host-request") {
+      fail(
+        new Error(
+          `BGI emitted unexpected browser host request ${message.service}`,
+        ),
+      );
+      return;
+    }
+    finish(message.report);
+  },
+);
 
 worker.addEventListener("error", (event) => fail(new Error(event.message)));
 
@@ -107,7 +121,8 @@ worker.postMessage({
         ? 1
         : capabilityProfile === "kernel32-create-directory-a" ||
             capabilityProfile === "user32-set-window-pos-repeat-activation" ||
-            capabilityProfile === "d3d9-recreated-textures"
+            capabilityProfile === "d3d9-recreated-textures" ||
+            capabilityProfile === "user32-set-window-pos-frame-change-move"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -116,12 +131,13 @@ worker.postMessage({
       capabilityProfile === "kernel32-get-file-attributes-a" ||
       capabilityProfile === "kernel32-create-directory-a" ||
       capabilityProfile === "user32-set-window-pos-repeat-activation" ||
-      capabilityProfile === "d3d9-recreated-textures"
+      capabilityProfile === "d3d9-recreated-textures" ||
+      capabilityProfile === "user32-set-window-pos-frame-change-move"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
-          capabilityProfile === "kernel32-archive-source-read"
-        ? 180_000
-        : 20_000,
+            capabilityProfile === "kernel32-archive-source-read"
+          ? 180_000
+          : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
 } satisfies MainToWorkerMessage);
@@ -169,7 +185,9 @@ function parseScenario(value: string | null): SessionMode {
   return value === "cancel-pending" || value === "watchdog" ? value : "success";
 }
 
-function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | undefined {
+function parseCapabilityProfile(
+  value: string | null,
+): BgiCapabilityProfile | undefined {
   return value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||
@@ -183,7 +201,8 @@ function parseCapabilityProfile(value: string | null): BgiCapabilityProfile | un
     value === "kernel32-get-file-attributes-a" ||
     value === "kernel32-create-directory-a" ||
     value === "user32-set-window-pos-repeat-activation" ||
-    value === "d3d9-recreated-textures"
+    value === "d3d9-recreated-textures" ||
+    value === "user32-set-window-pos-frame-change-move"
     ? value
     : undefined;
 }

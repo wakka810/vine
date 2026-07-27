@@ -27,6 +27,12 @@ const focusedSetWindowPosSizeObservation =
   selectedObservations.size === 1 &&
   (selectedObservations.has("set-window-pos-size") ||
     selectedObservations.has("set-window-pos-resize"));
+const focusedSetWindowPosFrameChangeMoveObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("set-window-pos-frame-change-move");
+const focusedSetWindowPosStateObservation =
+  focusedSetWindowPosSizeObservation ||
+  focusedSetWindowPosFrameChangeMoveObservation;
 const focusedDragAcceptFilesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("drag-accept-files");
@@ -327,9 +333,9 @@ const setWindowPosWindowProcedureCalls = [];
 const setWindowPosDefaultProcedureCalls = [];
 const activeSetWindowPosCallsByThread = new Map();
 let setWindowPosWindowStateSnapshot = null;
-let setWindowPosSizeOracleScheduled = false;
-let setWindowPosSizeOracleComplete = false;
-let setWindowPosSizeOracleEvidence = null;
+let setWindowPosStateOracleScheduled = false;
+let setWindowPosStateOracleComplete = false;
+let setWindowPosStateOracleEvidence = null;
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -495,7 +501,11 @@ function snapshotNulTerminatedString(pointer, encoding) {
   }
   try {
     let byteLengthWithNul = null;
-    for (let offset = 0; offset + unitBytes <= maximumBytes; offset += unitBytes) {
+    for (
+      let offset = 0;
+      offset + unitBytes <= maximumBytes;
+      offset += unitBytes
+    ) {
       const terminator =
         unitBytes === 1
           ? pointer.add(offset).readU8() === 0
@@ -516,10 +526,12 @@ function snapshotNulTerminatedString(pointer, encoding) {
     const buffer = pointer.readByteArray(byteLengthWithNul);
     const bytes = [...new Uint8Array(buffer)];
     const api = encoding === "utf16" ? "GetCommandLineW" : "GetCommandLineA";
-    const firstPointer = commandLineFirstPointers.get(api) ?? pointer.toString();
+    const firstPointer =
+      commandLineFirstPointers.get(api) ?? pointer.toString();
     commandLineFirstPointers.set(api, firstPointer);
     commandLineLatestPointers.set(api, pointer.toString());
-    const otherApi = api === "GetCommandLineA" ? "GetCommandLineW" : "GetCommandLineA";
+    const otherApi =
+      api === "GetCommandLineA" ? "GetCommandLineW" : "GetCommandLineA";
     const otherPointer = commandLineLatestPointers.get(otherApi) ?? null;
     return {
       pointer: pointer.toString(),
@@ -1602,7 +1614,12 @@ function snapshotX86FrameCallerContinuations(
       }
       framePointer = nextFramePointer;
     } catch (error) {
-      return { maximumFrames, maximumInstructions, frames, error: error.message };
+      return {
+        maximumFrames,
+        maximumInstructions,
+        frames,
+        error: error.message,
+      };
     }
   }
   return { maximumFrames, maximumInstructions, frames };
@@ -1636,7 +1653,12 @@ function snapshotX86FrameCallerContinuationsFollowingDirectJump(
       }
       framePointer = nextFramePointer;
     } catch (error) {
-      return { maximumFrames, maximumInstructions, frames, error: error.message };
+      return {
+        maximumFrames,
+        maximumInstructions,
+        frames,
+        error: error.message,
+      };
     }
   }
   return { maximumFrames, maximumInstructions, frames };
@@ -1670,7 +1692,12 @@ function snapshotFlsGetValueCall(caller, returnAddress, lastErrorBefore) {
   };
 }
 
-function snapshotSetLastErrorCall(caller, returnAddress, lastErrorBefore, eaxBefore) {
+function snapshotSetLastErrorCall(
+  caller,
+  returnAddress,
+  lastErrorBefore,
+  eaxBefore,
+) {
   const recordsConsumer =
     !setLastErrorConsumerRecorded && caller.module.toLowerCase() === "bgi.exe";
   if (recordsConsumer) {
@@ -1699,7 +1726,10 @@ function snapshotGetAcpCall(caller, returnAddress, lastErrorBefore, context) {
             returnAddress,
             32,
           ),
-          frameCallerContinuation: snapshotX86FrameCallerContinuation(context, 8),
+          frameCallerContinuation: snapshotX86FrameCallerContinuation(
+            context,
+            8,
+          ),
         }
       : null,
   };
@@ -2068,7 +2098,10 @@ function snapshotGetStringTypeWCall(
     getStringTypeW: {
       infoType: infoType.toUInt32(),
       sourceCount: sourceUnits,
-      source: snapshotWideCharSource(source, sourceUnits < 0 ? -1 : sourceUnits),
+      source: snapshotWideCharSource(
+        source,
+        sourceUnits < 0 ? -1 : sourceUnits,
+      ),
       sourceContent: snapshotWordBuffer(source, Math.max(0, sourceUnits)),
       outputBefore: snapshotWordBuffer(output, Math.max(0, sourceUnits)),
       immediateConsumer: recordsConsumer
@@ -2115,7 +2148,10 @@ function snapshotLCMapStringWCall(
       flags: flags.toUInt32(),
       sourceCount: sourceUnits,
       destinationCount: destinationUnits,
-      source: snapshotWideCharSource(source, sourceUnits < 0 ? -1 : sourceUnits),
+      source: snapshotWideCharSource(
+        source,
+        sourceUnits < 0 ? -1 : sourceUnits,
+      ),
       sourceContent: snapshotWordBuffer(source, Math.max(0, sourceUnits)),
       destinationBefore: snapshotWideCharBuffer(
         destination,
@@ -2335,7 +2371,9 @@ function snapshotUtf16EnvironmentBlock(pointer, processEnvironmentPointer) {
               pseudoDriveEntryCount += 1;
             }
             foldedNames.push(
-              String.fromCharCode(...current.slice(0, assignmentIndex)).toUpperCase(),
+              String.fromCharCode(
+                ...current.slice(0, assignmentIndex),
+              ).toUpperCase(),
             );
           }
         }
@@ -2733,7 +2771,11 @@ function snapshotBoundedAnsiBytes(pointer, maximumBytes = 32) {
 function snapshotDsoundBufferContent(pointer, byteLength) {
   const maximumBytes = 1024 * 1024;
   const edgeBytes = 64;
-  if (!Number.isInteger(byteLength) || byteLength < 0 || byteLength > maximumBytes) {
+  if (
+    !Number.isInteger(byteLength) ||
+    byteLength < 0 ||
+    byteLength > maximumBytes
+  ) {
     return {
       pointer: pointer.toString(),
       byteLength,
@@ -2986,7 +3028,9 @@ function snapshotMonitorInfoA(pointer) {
       flags: pointer.add(36).readU32(),
     };
     if (capturedBytes >= 72) {
-      const deviceBytes = [...new Uint8Array(pointer.add(40).readByteArray(32))];
+      const deviceBytes = [
+        ...new Uint8Array(pointer.add(40).readByteArray(32)),
+      ];
       const terminator = deviceBytes.indexOf(0);
       result.fields.deviceBytes = deviceBytes;
       result.fields.deviceBytesWithoutNul =
@@ -3279,10 +3323,7 @@ if (selectedObservations.has("create-window-ex-a")) {
   hooks["user32.dll"] = hooks["user32.dll"].filter(
     ([name]) => name !== "CreateWindowExA",
   );
-  hooks["user32.dll"].push([
-    "DefWindowProcA",
-    [null, null, null, null],
-  ]);
+  hooks["user32.dll"].push(["DefWindowProcA", [null, null, null, null]]);
 }
 
 if (selectedObservations.has("get-system-menu")) {
@@ -3296,10 +3337,7 @@ if (selectedObservations.has("startup-info")) {
   hooks["kernel32.dll"].push(["GetStartupInfoW", [null]]);
 }
 if (selectedObservations.has("heap-set-information")) {
-  hooks["kernel32.dll"].push([
-    "HeapSetInformation",
-    [null, null, null, null],
-  ]);
+  hooks["kernel32.dll"].push(["HeapSetInformation", [null, null, null, null]]);
 }
 if (selectedObservations.has("heap-lifecycle")) {
   hooks["kernel32.dll"].push(
@@ -3383,10 +3421,7 @@ if (selectedObservations.has("set-handle-count")) {
   hooks["kernel32.dll"].push(["SetHandleCount", [null]]);
 }
 if (selectedObservations.has("command-line-a")) {
-  hooks["kernel32.dll"].push(
-    ["GetCommandLineA", []],
-    ["GetCommandLineW", []],
-  );
+  hooks["kernel32.dll"].push(["GetCommandLineA", []], ["GetCommandLineW", []]);
 }
 if (selectedObservations.has("environment-strings-w")) {
   hooks["kernel32.dll"].push(
@@ -3442,10 +3477,7 @@ if (selectedObservations.has("create-mutex-a")) {
   );
 }
 if (selectedObservations.has("get-string-type-w")) {
-  hooks["kernel32.dll"].push([
-    "GetStringTypeW",
-    [null, null, null, null],
-  ]);
+  hooks["kernel32.dll"].push(["GetStringTypeW", [null, null, null, null]]);
 }
 if (selectedObservations.has("lc-map-string-w")) {
   hooks["kernel32.dll"].push([
@@ -3487,10 +3519,7 @@ if (selectedObservations.has("global-memory-status")) {
   hooks["kernel32.dll"].push(["GlobalMemoryStatus", [null]]);
 }
 if (selectedObservations.has("enum-display-monitors")) {
-  hooks["user32.dll"].push([
-    "EnumDisplayMonitors",
-    [null, null, null, null],
-  ]);
+  hooks["user32.dll"].push(["EnumDisplayMonitors", [null, null, null, null]]);
 }
 if (selectedObservations.has("swap-mouse-button")) {
   hooks["user32.dll"].push(["SwapMouseButton", [null]]);
@@ -3813,7 +3842,10 @@ function attachGetCurrentThreadCallSites(module) {
       returnSite: describeCaller(address.add(6)),
       iatAddress: slot.toString(),
       callInstruction: snapshotInstructions(address, 1),
-      immediateConsumer: snapshotInstructionsFollowingDirectJump(address.add(6), 16),
+      immediateConsumer: snapshotInstructionsFollowingDirectJump(
+        address.add(6),
+        16,
+      ),
     })),
   });
 }
@@ -4057,7 +4089,8 @@ function attachD3d9SurfaceDcGdiHook(module, name) {
       if (
         !focusedD3d9SurfaceGetDcObservation ||
         focusedD3d9SurfaceDcComplete ||
-        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        caller.module?.toLowerCase() !==
+          Process.mainModule.name.toLowerCase() ||
         name !== expectedApi
       ) {
         this.traceFrame = null;
@@ -4117,7 +4150,13 @@ function maybeCompleteFocusedD3d9SurfaceDcObservation() {
   if (focusedD3d9SurfaceDcComplete) {
     return;
   }
-  const expected = ["GetDC", "GetStockObject", "FillRect", "ReleaseDC", "Release"];
+  const expected = [
+    "GetDC",
+    "GetStockObject",
+    "FillRect",
+    "ReleaseDC",
+    "Release",
+  ];
   if (
     focusedD3d9SurfaceDcCalls.length !== expected.length ||
     !expected.every(
@@ -4164,7 +4203,10 @@ function attachIdirect3dtexture9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (focusedD3d9ResourceObservation && focusedD3d9TextureMethodCaptured) {
+          if (
+            focusedD3d9ResourceObservation &&
+            focusedD3d9TextureMethodCaptured
+          ) {
             this.traceFrame = null;
             return;
           }
@@ -4180,7 +4222,9 @@ function attachIdirect3dtexture9(object) {
               : {
                   level: args[1].toUInt32(),
                   surfaceOutput: {
-                    before: snapshotPointerSlot(this.traceD3d9SurfaceLevelOutput),
+                    before: snapshotPointerSlot(
+                      this.traceD3d9SurfaceLevelOutput,
+                    ),
                   },
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
@@ -4210,7 +4254,9 @@ function attachIdirect3dtexture9(object) {
                   ...this.traceD3d9GetSurfaceLevel,
                   surfaceOutput: {
                     ...this.traceD3d9GetSurfaceLevel.surfaceOutput,
-                    after: snapshotPointerSlot(this.traceD3d9SurfaceLevelOutput),
+                    after: snapshotPointerSlot(
+                      this.traceD3d9SurfaceLevelOutput,
+                    ),
                   },
                 };
           finishCall(
@@ -4314,7 +4360,9 @@ function attachIdirect3dvertexbuffer9(object) {
               ? null
               : {
                   dataOutput: {
-                    before: snapshotPointerSlot(this.traceVertexBufferLockOutput),
+                    before: snapshotPointerSlot(
+                      this.traceVertexBufferLockOutput,
+                    ),
                   },
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
@@ -4354,7 +4402,9 @@ function attachIdirect3dvertexbuffer9(object) {
                   ...this.traceD3d9VertexBufferLock,
                   dataOutput: {
                     ...this.traceD3d9VertexBufferLock.dataOutput,
-                    after: snapshotPointerSlot(this.traceVertexBufferLockOutput),
+                    after: snapshotPointerSlot(
+                      this.traceVertexBufferLockOutput,
+                    ),
                   },
                 };
           if (
@@ -4387,8 +4437,7 @@ function attachIdirect3dvertexbuffer9(object) {
               ...(this.traceD3d9VertexBufferUnlock === null
                 ? {}
                 : {
-                    d3d9VertexBufferUnlock:
-                      this.traceD3d9VertexBufferUnlock,
+                    d3d9VertexBufferUnlock: this.traceD3d9VertexBufferUnlock,
                   }),
             },
             this.lastError,
@@ -4406,8 +4455,7 @@ function attachIdirect3dvertexbuffer9(object) {
             ...(this.traceD3d9VertexBufferUnlock === null
               ? {}
               : {
-                  d3d9VertexBufferUnlock:
-                    this.traceD3d9VertexBufferUnlock,
+                  d3d9VertexBufferUnlock: this.traceD3d9VertexBufferUnlock,
                 }),
             caller: this.traceFrame.caller,
           });
@@ -4572,7 +4620,9 @@ function attachIdirect3ddevice9(object) {
               ? null
               : {
                   textureOutput: {
-                    before: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
+                    before: snapshotPointerSlot(
+                      this.traceD3d9CreateTextureOutput,
+                    ),
                   },
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
@@ -4605,15 +4655,15 @@ function attachIdirect3ddevice9(object) {
               : {
                   swapChain: args[1].toUInt32(),
                   before: snapshotD3d9RasterStatus(
-                    this.traceD3d9RasterStatusOutput
+                    this.traceD3d9RasterStatusOutput,
                   ),
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
-                    256
+                    256,
                   ),
                   outerConsumer: snapshotInstructionsFollowingDirectJump(
                     this.context.ebp.add(Process.pointerSize).readPointer(),
-                    128
+                    128,
                   ),
                 };
           this.traceObject = objectAddress;
@@ -4640,7 +4690,9 @@ function attachIdirect3ddevice9(object) {
                   ...this.traceD3d9CreateTexture,
                   textureOutput: {
                     ...this.traceD3d9CreateTexture.textureOutput,
-                    after: snapshotPointerSlot(this.traceD3d9CreateTextureOutput),
+                    after: snapshotPointerSlot(
+                      this.traceD3d9CreateTextureOutput,
+                    ),
                   },
                 };
           const d3d9CreateVertexBuffer =
@@ -4661,7 +4713,7 @@ function attachIdirect3ddevice9(object) {
               : {
                   ...this.traceD3d9RasterStatus,
                   after: snapshotD3d9RasterStatus(
-                    this.traceD3d9RasterStatusOutput
+                    this.traceD3d9RasterStatusOutput,
                   ),
                 };
           const lastError = Number(this.lastError) >>> 0;
@@ -4842,9 +4894,8 @@ function attachIdirectsoundbuffer(object) {
         onEnter(args) {
           const caller = describeCaller(this.returnAddress);
           const calledObject = args[0].toString().toLowerCase();
-          const maximumBufferCalls = focusedDsoundBufferLockUnlockPlayObservation
-            ? 7
-            : 5;
+          const maximumBufferCalls =
+            focusedDsoundBufferLockUnlockPlayObservation ? 7 : 5;
           if (
             (focusedDsoundCreateBufferObservation &&
               focusedDsoundCreateBufferComplete) ||
@@ -5029,7 +5080,8 @@ function attachIdirectsoundbuffer(object) {
             lastError,
             directSoundBufferMethod,
           });
-          const queryOutput = directSoundBufferMethod.queryInterface?.output?.after?.value;
+          const queryOutput =
+            directSoundBufferMethod.queryInterface?.output?.after?.value;
           if (
             slot === 0 &&
             result.toInt32() >= 0 &&
@@ -5039,7 +5091,9 @@ function attachIdirectsoundbuffer(object) {
             attachIdirectsoundbuffer(ptr(queryOutput));
           }
           setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
-          setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
+          setImmediate(
+            maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation,
+          );
         },
       });
     }
@@ -5241,7 +5295,9 @@ function attachIdirectsound8(object) {
               attachIdirectsoundbuffer(ptr(output));
             }
             setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
-            setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
+            setImmediate(
+              maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation,
+            );
           }
         },
       });
@@ -5475,9 +5531,7 @@ function attachIdirectinput8a(object) {
               vtableSlot: slot,
               object: this.traceObject,
               result: result.toString(),
-              ...(dinput8CreateDevice === null
-                ? {}
-                : { dinput8CreateDevice }),
+              ...(dinput8CreateDevice === null ? {} : { dinput8CreateDevice }),
               ...(this.traceDinput8EnumDevices === null
                 ? {}
                 : { dinput8EnumDevices: this.traceDinput8EnumDevices }),
@@ -5500,9 +5554,7 @@ function attachIdirectinput8a(object) {
               result: result.toString(),
               signedResult: result.toInt32(),
               lastError: Number(lastError) >>> 0,
-              ...(dinput8CreateDevice === null
-                ? {}
-                : { dinput8CreateDevice }),
+              ...(dinput8CreateDevice === null ? {} : { dinput8CreateDevice }),
               ...(this.traceDinput8EnumDevices === null
                 ? {}
                 : { dinput8EnumDevices: this.traceDinput8EnumDevices }),
@@ -5707,8 +5759,13 @@ function attachIdirect3d9(object) {
               ? null
               : {
                   adapter: args[1].toUInt32(),
-                  before: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
-                  immediateConsumer: snapshotInstructions(this.returnAddress, 8),
+                  before: snapshotD3d9DisplayMode(
+                    this.traceD3d9DisplayModeOutput,
+                  ),
+                  immediateConsumer: snapshotInstructions(
+                    this.returnAddress,
+                    8,
+                  ),
                 };
           this.traceD3d9AdapterIdentifierOutput = slot === 5 ? args[3] : null;
           this.traceD3d9AdapterIdentifier =
@@ -5760,7 +5817,9 @@ function attachIdirect3d9(object) {
                     ),
                   },
                   deviceOutput: {
-                    before: snapshotPointerSlot(this.traceD3d9CreateDeviceOutput),
+                    before: snapshotPointerSlot(
+                      this.traceD3d9CreateDeviceOutput,
+                    ),
                   },
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
@@ -5786,7 +5845,9 @@ function attachIdirect3d9(object) {
               ? null
               : {
                   ...this.traceD3d9DisplayMode,
-                  after: snapshotD3d9DisplayMode(this.traceD3d9DisplayModeOutput),
+                  after: snapshotD3d9DisplayMode(
+                    this.traceD3d9DisplayModeOutput,
+                  ),
                 };
           const d3d9AdapterIdentifier =
             this.traceD3d9AdapterIdentifier === null
@@ -5802,9 +5863,7 @@ function attachIdirect3d9(object) {
               ? null
               : {
                   ...this.traceD3d9DeviceCaps,
-                  after: snapshotD3d9DeviceCaps(
-                    this.traceD3d9DeviceCapsOutput,
-                  ),
+                  after: snapshotD3d9DeviceCaps(this.traceD3d9DeviceCapsOutput),
                 };
           const d3d9CreateDevice =
             this.traceD3d9CreateDevice === null
@@ -5819,7 +5878,9 @@ function attachIdirect3d9(object) {
                   },
                   deviceOutput: {
                     ...this.traceD3d9CreateDevice.deviceOutput,
-                    after: snapshotPointerSlot(this.traceD3d9CreateDeviceOutput),
+                    after: snapshotPointerSlot(
+                      this.traceD3d9CreateDeviceOutput,
+                    ),
                   },
                 };
           finishCall(
@@ -6196,7 +6257,8 @@ function attachCreateDirectoryAHook(module) {
       const isMainModuleCaller =
         callerModule === Process.mainModule.name.toLowerCase();
       const isOracleCaller =
-        callerModule === "frida-agent.dll" && createDirectoryAOracleCall !== null;
+        callerModule === "frida-agent.dll" &&
+        createDirectoryAOracleCall !== null;
       if (!isMainModuleCaller && !isOracleCaller) {
         this.traceFrame = null;
         return;
@@ -6210,7 +6272,8 @@ function attachCreateDirectoryAHook(module) {
       }
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.pathBefore = snapshotNulTerminatedString(this.path, "ansi");
-      const recordsConsumer = isMainModuleCaller && !createDirectoryAConsumerRecorded;
+      const recordsConsumer =
+        isMainModuleCaller && !createDirectoryAConsumerRecorded;
       if (recordsConsumer) {
         createDirectoryAConsumerRecorded = true;
       }
@@ -6817,7 +6880,9 @@ function attachCreateWindowClassDiscoveryHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.registration = null;
         return;
       }
@@ -6873,7 +6938,9 @@ function attachCreateWindowExAHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -6950,7 +7017,8 @@ function attachCreateWindowExAHook(module) {
       if (this.traceFrame === null) {
         return;
       }
-      const calls = activeCreateWindowCallsByThread.get(this.windowCall.threadId) ?? [];
+      const calls =
+        activeCreateWindowCallsByThread.get(this.windowCall.threadId) ?? [];
       if (calls.at(-1) === this.windowCall) {
         calls.pop();
       } else {
@@ -6963,8 +7031,12 @@ function attachCreateWindowExAHook(module) {
         activeCreateWindowCallsByThread.delete(this.windowCall.threadId);
       }
       const lastError = Number(this.lastError) >>> 0;
-      const classNameAfter = snapshotClassNameA(this.windowCall.classNameAddress);
-      const windowNameAfter = snapshotClassNameA(this.windowCall.windowNameAddress);
+      const classNameAfter = snapshotClassNameA(
+        this.windowCall.classNameAddress,
+      );
+      const windowNameAfter = snapshotClassNameA(
+        this.windowCall.windowNameAddress,
+      );
       const resultValue = result.toString();
       const completed = {
         callId: this.traceFrame.callId,
@@ -7287,10 +7359,12 @@ function attachSetWindowPosHook(module) {
     getForegroundWindow: findExport(module, "GetForegroundWindow"),
   };
   if (
-    focusedSetWindowPosSizeObservation &&
-    Object.values(stateQueryExports).some((exportAddress) => exportAddress === null)
+    focusedSetWindowPosStateObservation &&
+    Object.values(stateQueryExports).some(
+      (exportAddress) => exportAddress === null,
+    )
   ) {
-    throw new Error("SetWindowPos size state-query exports are unavailable");
+    throw new Error("SetWindowPos state-query exports are unavailable");
   }
   const getWindowRect =
     stateQueryExports.getWindowRect === null
@@ -7349,7 +7423,12 @@ function attachSetWindowPosHook(module) {
   const getFocus =
     stateQueryExports.getFocus === null
       ? null
-      : new NativeFunction(stateQueryExports.getFocus, "pointer", [], "stdcall");
+      : new NativeFunction(
+          stateQueryExports.getFocus,
+          "pointer",
+          [],
+          "stdcall",
+        );
   const getForegroundWindow =
     stateQueryExports.getForegroundWindow === null
       ? null
@@ -7384,11 +7463,12 @@ function attachSetWindowPosHook(module) {
     windowRect.writeByteArray(Array(16).fill(0));
     clientRect.writeByteArray(Array(16).fill(0));
     clientOrigin.writeByteArray(Array(8).fill(0));
-    const windowRectResult = Number(getWindowRect(windowHandle, windowRect)) >>> 0;
-    const clientRectResult = Number(getClientRect(windowHandle, clientRect)) >>> 0;
-    const clientOriginResult = Number(
-      clientToScreen(windowHandle, clientOrigin),
-    ) >>> 0;
+    const windowRectResult =
+      Number(getWindowRect(windowHandle, windowRect)) >>> 0;
+    const clientRectResult =
+      Number(getClientRect(windowHandle, clientRect)) >>> 0;
+    const clientOriginResult =
+      Number(clientToScreen(windowHandle, clientOrigin)) >>> 0;
     const windowRelation = (relatedWindow) => ({
       windowHandle: relatedWindow.toString(),
       isNull: relatedWindow.isNull(),
@@ -7417,7 +7497,9 @@ function attachSetWindowPosHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -7443,24 +7525,41 @@ function attachSetWindowPosHook(module) {
         : null;
       const requestedResize =
         sizedStateBefore?.windowRect != null &&
-        (sizedStateBefore.windowRect.right - sizedStateBefore.windowRect.left !==
+        (sizedStateBefore.windowRect.right -
+          sizedStateBefore.windowRect.left !==
           this.width ||
-          sizedStateBefore.windowRect.bottom - sizedStateBefore.windowRect.top !==
+          sizedStateBefore.windowRect.bottom -
+            sizedStateBefore.windowRect.top !==
             this.height);
       const sizedCall =
         nonzeroSizeCall &&
         (selectedObservations.has("set-window-pos-size") || requestedResize);
-      if (!initialPlacementCall && !sizedCall) {
+      const frameChangeMoveCall =
+        focusedSetWindowPosFrameChangeMoveObservation &&
+        caller.rva === 0x000938c2 &&
+        this.insertAfter === "0x0" &&
+        this.x === 317 &&
+        this.y === 154 &&
+        this.width === 0 &&
+        this.height === 0 &&
+        this.flags === 0x0000_0025;
+      if (!initialPlacementCall && !sizedCall && !frameChangeMoveCall) {
         this.traceFrame = null;
         return;
       }
-      this.observation = sizedCall
-        ? selectedObservations.has("set-window-pos-resize")
-          ? "set-window-pos-resize"
-          : "set-window-pos-size"
-        : "set-window-pos";
+      this.observation = frameChangeMoveCall
+        ? "set-window-pos-frame-change-move"
+        : sizedCall
+          ? selectedObservations.has("set-window-pos-resize")
+            ? "set-window-pos-resize"
+            : "set-window-pos-size"
+          : "set-window-pos";
       this.lastErrorBefore = Number(this.lastError) >>> 0;
-      this.stateBefore = sizedCall ? sizedStateBefore : null;
+      this.stateBefore = frameChangeMoveCall
+        ? snapshotWindowState(this.windowHandlePointer)
+        : sizedCall
+          ? sizedStateBefore
+          : null;
       this.lastError = this.lastErrorBefore;
       this.immediateConsumer = {
         apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -7504,7 +7603,8 @@ function attachSetWindowPosHook(module) {
         },
         this.returnAddress,
       );
-      const stack = activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
+      const stack =
+        activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
       stack.push(this.traceFrame.callId);
       activeSetWindowPosCallsByThread.set(this.traceFrame.threadId, stack);
     },
@@ -7512,7 +7612,8 @@ function attachSetWindowPosHook(module) {
       if (this.traceFrame === null) {
         return;
       }
-      const stack = activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
+      const stack =
+        activeSetWindowPosCallsByThread.get(this.traceFrame.threadId) ?? [];
       if (stack.at(-1) === this.traceFrame.callId) {
         stack.pop();
       }
@@ -7524,7 +7625,8 @@ function attachSetWindowPosHook(module) {
       const resultU32 = result.toUInt32();
       this.stateAfter =
         this.observation === "set-window-pos-size" ||
-        this.observation === "set-window-pos-resize"
+        this.observation === "set-window-pos-resize" ||
+        this.observation === "set-window-pos-frame-change-move"
           ? snapshotWindowState(this.windowHandlePointer)
           : null;
       this.lastError = lastError;
@@ -7565,16 +7667,21 @@ function attachSetWindowPosHook(module) {
         });
         if (
           this.observation === "set-window-pos-size" ||
-          this.observation === "set-window-pos-resize"
+          this.observation === "set-window-pos-resize" ||
+          this.observation === "set-window-pos-frame-change-move"
         ) {
-          scheduleSetWindowPosSizeOracle(module, {
-            insertAfter: this.insertAfter,
-            x: this.x,
-            y: this.y,
-            width: this.width,
-            height: this.height,
-            flags: this.flags,
-          });
+          scheduleSetWindowPosStateOracle(
+            module,
+            {
+              insertAfter: this.insertAfter,
+              x: this.x,
+              y: this.y,
+              width: this.width,
+              height: this.height,
+              flags: this.flags,
+            },
+            this.observation,
+          );
         }
         setImmediate(maybeCompleteSetWindowPosObservation);
       }
@@ -7582,31 +7689,23 @@ function attachSetWindowPosHook(module) {
   });
 }
 
-function scheduleSetWindowPosSizeOracle(module, reachedCall) {
-  if (setWindowPosSizeOracleScheduled) {
+function scheduleSetWindowPosStateOracle(module, reachedCall, observation) {
+  if (setWindowPosStateOracleScheduled) {
     return;
   }
-  setWindowPosSizeOracleScheduled = true;
+  setWindowPosStateOracleScheduled = true;
   setImmediate(() => {
     try {
       const address = findExport(module, "SetWindowPos");
       const kernel32 = Process.getModuleByName("kernel32.dll");
       const setLastErrorAddress = findExport(kernel32, "SetLastError");
       if (address === null || setLastErrorAddress === null) {
-        throw new Error("SetWindowPos size oracle exports are unavailable");
+        throw new Error("SetWindowPos state oracle exports are unavailable");
       }
       const setWindowPos = new SystemFunction(
         address,
         "int32",
-        [
-          "pointer",
-          "pointer",
-          "int32",
-          "int32",
-          "int32",
-          "int32",
-          "uint32",
-        ],
+        ["pointer", "pointer", "int32", "int32", "int32", "int32", "uint32"],
         "stdcall",
       );
       const setLastError = new SystemFunction(
@@ -7626,8 +7725,12 @@ function scheduleSetWindowPosSizeOracle(module, reachedCall) {
         reachedCall.height,
         reachedCall.flags,
       );
-      setWindowPosSizeOracleEvidence = {
-        profile: "x86-set-window-pos-size-invalid-window-v1",
+      const frameChangeMove =
+        observation === "set-window-pos-frame-change-move";
+      setWindowPosStateOracleEvidence = {
+        profile: frameChangeMove
+          ? "x86-set-window-pos-frame-change-move-invalid-window-v1"
+          : "x86-set-window-pos-size-invalid-window-v1",
         call: {
           windowHandle: "0x1234",
           ...reachedCall,
@@ -7636,11 +7739,21 @@ function scheduleSetWindowPosSizeOracle(module, reachedCall) {
           lastError: Number(outcome.lastError) >>> 0,
         },
       };
-      setWindowPosSizeOracleComplete = true;
-      emit("set-window-pos-size-oracle", setWindowPosSizeOracleEvidence);
+      setWindowPosStateOracleComplete = true;
+      emit(
+        frameChangeMove
+          ? "set-window-pos-frame-change-move-oracle"
+          : "set-window-pos-size-oracle",
+        setWindowPosStateOracleEvidence,
+      );
       maybeCompleteSetWindowPosObservation();
     } catch (error) {
-      emit("set-window-pos-size-oracle-error", { error: error.message });
+      emit(
+        observation === "set-window-pos-frame-change-move"
+          ? "set-window-pos-frame-change-move-oracle-error"
+          : "set-window-pos-size-oracle-error",
+        { error: error.message },
+      );
     }
   });
 }
@@ -7661,7 +7774,9 @@ function attachSendMessageAHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -7732,7 +7847,10 @@ function attachSendMessageAHook(module) {
         },
         this.lastError,
       );
-      if (this.recordSendMessageObservation && !sendMessageACompletionRecorded) {
+      if (
+        this.recordSendMessageObservation &&
+        !sendMessageACompletionRecorded
+      ) {
         sendMessageAMainModuleCalls.push({
           callId: this.traceFrame.callId,
           returnAddress: this.returnAddress.toString(),
@@ -8126,7 +8244,8 @@ function attachRegisterClassExAHook(module) {
       const isMainModuleCaller =
         callerModule === Process.mainModule.name.toLowerCase();
       const isOracleCaller =
-        callerModule === "frida-agent.dll" && registerClassExAOracleCall !== null;
+        callerModule === "frida-agent.dll" &&
+        registerClassExAOracleCall !== null;
       if (!isMainModuleCaller && !isOracleCaller) {
         this.traceFrame = null;
         return;
@@ -8238,7 +8357,8 @@ function attachGetSystemMetricsHook(module) {
       const isMainModuleCaller =
         callerModule === Process.mainModule.name.toLowerCase();
       const isOracleCaller =
-        callerModule === "frida-agent.dll" && getSystemMetricsOracleCall !== null;
+        callerModule === "frida-agent.dll" &&
+        getSystemMetricsOracleCall !== null;
       if (!isMainModuleCaller && !isOracleCaller) {
         this.traceFrame = null;
         return;
@@ -8458,7 +8578,9 @@ function scheduleGetClientRectOracle(module, liveWindowHandle) {
             getClientRectOracleCall.hookResult === null ||
             getClientRectOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("GetClientRect oracle did not pass through the hook");
+            throw new Error(
+              "GetClientRect oracle did not pass through the hook",
+            );
           }
           const outputAfter = snapshotRect(output);
           return {
@@ -8599,7 +8721,9 @@ function attachSetTimerHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -8700,7 +8824,9 @@ function attachKillTimerHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -8811,7 +8937,9 @@ function attachCreateThreadHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -9047,7 +9175,8 @@ function maybeCompleteCreateThreadObservation() {
     (call) =>
       call.relatedCreateThreadCallId === targetCall.callId ||
       (call.threadId === targetCall.createdThreadId &&
-        call.startRoutine.toLowerCase() === targetCall.startRoutine.toLowerCase()),
+        call.startRoutine.toLowerCase() ===
+          targetCall.startRoutine.toLowerCase()),
   );
   if (focusedSetThreadPriorityObservation) {
     const targetPriorityCall = targetLifecycleCalls.find(
@@ -9078,7 +9207,9 @@ function maybeCompleteCreateThreadObservation() {
         profile: "x86-bgi-created-thread-priority-v1",
         createThreadCall: targetCall,
         targetCall: targetPriorityCall,
-        mainModuleCalls: createThreadMainModuleCalls.map((call) => ({ ...call })),
+        mainModuleCalls: createThreadMainModuleCalls.map((call) => ({
+          ...call,
+        })),
         lifecycleCalls: createThreadLifecycleCalls.map((call) => ({ ...call })),
         startCalls: createThreadStartCalls.map((call) => ({ ...call })),
       });
@@ -9143,7 +9274,8 @@ function attachGetMonitorInfoAHook(module) {
       const isMainModuleCaller =
         callerModule === Process.mainModule.name.toLowerCase();
       const isOracleCaller =
-        callerModule === "frida-agent.dll" && getMonitorInfoAOracleCall !== null;
+        callerModule === "frida-agent.dll" &&
+        getMonitorInfoAOracleCall !== null;
       if (!isMainModuleCaller && !isOracleCaller) {
         this.traceFrame = null;
         return;
@@ -9214,7 +9346,10 @@ function attachGetMonitorInfoAHook(module) {
         },
         this.lastError,
       );
-      if (this.mainModuleCaller && getMonitorInfoAMainModuleCalls.length === 0) {
+      if (
+        this.mainModuleCaller &&
+        getMonitorInfoAMainModuleCalls.length === 0
+      ) {
         getMonitorInfoAMainModuleCalls.push({
           callId: this.traceFrame.callId,
           returnAddress: this.returnAddress.toString(),
@@ -9279,7 +9414,9 @@ function scheduleGetMonitorInfoAOracle(module, liveMonitor) {
             getMonitorInfoAOracleCall.hookResult === null ||
             getMonitorInfoAOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("GetMonitorInfoA oracle did not pass through the hook");
+            throw new Error(
+              "GetMonitorInfoA oracle did not pass through the hook",
+            );
           }
           const outputAfter = snapshotMonitorInfoA(output);
           const outputRawAfter = snapshotBoundedRawBytes(
@@ -9302,8 +9439,7 @@ function scheduleGetMonitorInfoAOracle(module, liveMonitor) {
             outputRawBefore,
             outputRawAfter,
             hookResult: getMonitorInfoAOracleCall.hookResult,
-            hookLastErrorAfter:
-              getMonitorInfoAOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: getMonitorInfoAOracleCall.hookLastErrorAfter,
             hookOutputBefore: getMonitorInfoAOracleCall.hookOutputBefore,
             hookOutputAfter: getMonitorInfoAOracleCall.hookOutputAfter,
             hookResultMatches:
@@ -9432,7 +9568,11 @@ function maybeCompleteGetMonitorInfoAObservation() {
 function snapshotNccalcSizeParams(address) {
   const raw = snapshotBoundedRawBytes(address, 52);
   if (raw.error !== undefined) {
-    return { address: address.toString(), profile: "x86-nccalcsize-params-v1", raw };
+    return {
+      address: address.toString(),
+      profile: "x86-nccalcsize-params-v1",
+      raw,
+    };
   }
   try {
     const windowPositionPointer = address.add(48).readPointer();
@@ -9440,7 +9580,9 @@ function snapshotNccalcSizeParams(address) {
       address: address.toString(),
       profile: "x86-nccalcsize-params-v1",
       raw,
-      rectangles: [0, 16, 32].map((offset) => snapshotRect(address.add(offset))),
+      rectangles: [0, 16, 32].map((offset) =>
+        snapshotRect(address.add(offset)),
+      ),
       windowPositionPointer: windowPositionPointer.toString(),
       windowPosition: windowPositionPointer.isNull()
         ? null
@@ -9502,10 +9644,7 @@ function attachWindowDcHook(module, name) {
         case "ReleaseDC":
           this.windowHandle = args[0];
           this.dc = args[1];
-          this.arguments = [
-            this.windowHandle.toString(),
-            this.dc.toString(),
-          ];
+          this.arguments = [this.windowHandle.toString(), this.dc.toString()];
           break;
         case "FillRect":
           this.dc = args[0];
@@ -9689,11 +9828,17 @@ function scheduleWindowDcOracle(liveWindowHandle) {
         getDc(liveWindowHandle),
       );
       calls.push(firstGetDc);
-      const secondGetDc = invoke("live-get-dc-second", "GetDC", 0x22223333, () =>
-        getDc(liveWindowHandle),
+      const secondGetDc = invoke(
+        "live-get-dc-second",
+        "GetDC",
+        0x22223333,
+        () => getDc(liveWindowHandle),
       );
       calls.push(secondGetDc);
-      if (firstGetDc.systemResult === "0x0" || secondGetDc.systemResult === "0x0") {
+      if (
+        firstGetDc.systemResult === "0x0" ||
+        secondGetDc.systemResult === "0x0"
+      ) {
         throw new Error("live GetDC oracle returned NULL");
       }
       const firstStockObject = invoke(
@@ -9755,7 +9900,11 @@ function scheduleWindowDcOracle(liveWindowHandle) {
       );
       calls.push(
         invoke("invalid-hdc-fill", "FillRect", 0x10293847, () =>
-          fillRect(ptr("0x1234"), emptyRect, ptr(firstStockObject.systemResult)),
+          fillRect(
+            ptr("0x1234"),
+            emptyRect,
+            ptr(firstStockObject.systemResult),
+          ),
         ),
       );
       calls.push(
@@ -9920,7 +10069,8 @@ function attachScreenDcFontCallback(callback) {
   Interceptor.attach(callback, {
     onEnter(args) {
       const threadId = Process.getCurrentThreadId();
-      const active = activeScreenDcFontEnumerationsByThread.get(threadId) ?? null;
+      const active =
+        activeScreenDcFontEnumerationsByThread.get(threadId) ?? null;
       this.screenDcFontCallback = null;
       if (active === null) {
         return;
@@ -9975,9 +10125,14 @@ function attachScreenDcHook(module, name) {
         callerModule === "frida-agent.dll" &&
         screenDcOracleCall !== null &&
         screenDcOracleCall.api === name;
-      this.windowHandle = name === "GetDC" || name === "ReleaseDC" ? args[0] : null;
+      this.windowHandle =
+        name === "GetDC" || name === "ReleaseDC" ? args[0] : null;
       this.dc =
-        name === "EnumFontFamiliesExA" ? args[0] : name === "ReleaseDC" ? args[1] : null;
+        name === "EnumFontFamiliesExA"
+          ? args[0]
+          : name === "ReleaseDC"
+            ? args[1]
+            : null;
       this.logFontPointer = name === "EnumFontFamiliesExA" ? args[1] : null;
       this.fontCallback = name === "EnumFontFamiliesExA" ? args[2] : null;
       this.callbackParameter = name === "EnumFontFamiliesExA" ? args[3] : null;
@@ -10038,7 +10193,9 @@ function attachScreenDcHook(module, name) {
         attachScreenDcFontCallback(this.fontCallback);
         this.fontEnumerationThreadId = Process.getCurrentThreadId();
         this.previousFontEnumeration =
-          activeScreenDcFontEnumerationsByThread.get(this.fontEnumerationThreadId) ?? null;
+          activeScreenDcFontEnumerationsByThread.get(
+            this.fontEnumerationThreadId,
+          ) ?? null;
         this.fontEnumeration = {
           callback: this.fontCallback.toString(),
           callbackParameter: this.callbackParameter.toString(),
@@ -10085,7 +10242,8 @@ function attachScreenDcHook(module, name) {
       if (this.traceFrame === null) {
         return;
       }
-      const resultValue = this.api === "GetDC" ? result.toString() : signed32(result);
+      const resultValue =
+        this.api === "GetDC" ? result.toString() : signed32(result);
       const lastError = Number(this.lastError) >>> 0;
       if (this.oracleCaller) {
         screenDcOracleCall.hookResult = resultValue;
@@ -10146,7 +10304,12 @@ function scheduleScreenDcOracle() {
       if (getDcAddress === null || releaseDcAddress === null) {
         throw new Error("screen DC oracle export is unavailable");
       }
-      const getDc = new SystemFunction(getDcAddress, "pointer", ["pointer"], "stdcall");
+      const getDc = new SystemFunction(
+        getDcAddress,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
       const releaseDc = new SystemFunction(
         releaseDcAddress,
         "int32",
@@ -10183,7 +10346,9 @@ function scheduleScreenDcOracle() {
             screenDcOracleCall.hookResult === null ||
             screenDcOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error(`${api} screen oracle did not pass through the hook`);
+            throw new Error(
+              `${api} screen oracle did not pass through the hook`,
+            );
           }
           return {
             id,
@@ -10235,10 +10400,12 @@ function scheduleScreenDcOracle() {
       const fontInput = fontInputStorage.add(4);
       fontInput.writeByteArray(Array(60).fill(0));
       fontInput.add(23).writeU8(128);
-      fontInput.add(28).writeByteArray([
-        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
-        0x83, 0x4e, 0,
-      ]);
+      fontInput
+        .add(28)
+        .writeByteArray([
+          0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+          0x83, 0x4e, 0,
+        ]);
       const fontDcOutcome = getDc(ptr(0));
       const fontDc = fontDcOutcome.value;
       if (fontDc.isNull()) {
@@ -10349,7 +10516,8 @@ function scheduleScreenDcOracle() {
         profile: "x86-screen-dc-and-font-enumeration-v2",
         calls,
         relations: {
-          concurrentGetDcSameIdentity: first.systemResult === second.systemResult,
+          concurrentGetDcSameIdentity:
+            first.systemResult === second.systemResult,
         },
         allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
         allLastErrorsMatchHooks: calls.every(
@@ -10419,7 +10587,9 @@ function maybeCompleteScreenDcObservation() {
     screenDcCompletionRecorded ||
     !screenDcOracleComplete ||
     !screenDcMainModuleCalls.some((call) => call.api === "GetDC") ||
-    !screenDcMainModuleCalls.some((call) => call.api === "EnumFontFamiliesExA") ||
+    !screenDcMainModuleCalls.some(
+      (call) => call.api === "EnumFontFamiliesExA",
+    ) ||
     !screenDcMainModuleCalls.some((call) => call.api === "ReleaseDC")
   ) {
     return;
@@ -10608,8 +10778,10 @@ function diffDibPixelPlanes(dibSection, before, after) {
     const logicalY = dibSection.bitmapInfo.topDown
       ? storageRow
       : absoluteHeight - storageRow - 1;
-    minimumXByte = minimumXByte === null ? xByte : Math.min(minimumXByte, xByte);
-    maximumXByte = maximumXByte === null ? xByte : Math.max(maximumXByte, xByte);
+    minimumXByte =
+      minimumXByte === null ? xByte : Math.min(minimumXByte, xByte);
+    maximumXByte =
+      maximumXByte === null ? xByte : Math.max(maximumXByte, xByte);
     minimumStorageRow =
       minimumStorageRow === null
         ? storageRow
@@ -10747,7 +10919,8 @@ function attachFontObjectHook(module, name) {
       this.immediateConsumer = mainRelated
         ? snapshotInstructions(this.returnAddress, 96)
         : null;
-      this.createFont = name === "CreateFontA" ? snapshotCreateFontAArguments(args) : null;
+      this.createFont =
+        name === "CreateFontA" ? snapshotCreateFontAArguments(args) : null;
       this.outputPointer =
         name === "GetObjectA" ||
         name === "GetTextMetricsA" ||
@@ -10795,11 +10968,18 @@ function attachFontObjectHook(module, name) {
           : name === "SelectObject"
             ? [this.deviceContext.toString(), this.object.toString()]
             : name === "GetObjectA"
-              ? [this.handle.toString(), this.outputBytes, this.outputPointer.toString()]
+              ? [
+                  this.handle.toString(),
+                  this.outputBytes,
+                  this.outputPointer.toString(),
+                ]
               : name === "DeleteObject"
                 ? [this.handle.toString()]
                 : name === "GetTextMetricsA"
-                  ? [this.deviceContext.toString(), this.outputPointer.toString()]
+                  ? [
+                      this.deviceContext.toString(),
+                      this.outputPointer.toString(),
+                    ]
                   : [
                       this.deviceContext.toString(),
                       args[1].toString(),
@@ -10956,21 +11136,21 @@ function attachFontPipelineHook(module, name) {
       for (let index = 0; index < argumentCounts[name]; index += 1) {
         this.argumentPointers.push(args[index]);
       }
-      this.arguments = this.argumentPointers.map((argument) => argument.toString());
+      this.arguments = this.argumentPointers.map((argument) =>
+        argument.toString(),
+      );
       this.bitmapInfo =
         name === "CreateDIBSection" ? snapshotDibBitmapInfo(args[1]) : null;
       this.deviceContextKey =
-        name === "TextOutA" || name === "TextOutW"
-          ? args[0].toString()
-          : null;
+        name === "TextOutA" || name === "TextOutW" ? args[0].toString() : null;
       this.dibSectionKey =
         this.deviceContextKey === null
           ? null
-          : fontObjectSelectedBitmapByDc.get(this.deviceContextKey) ?? null;
+          : (fontObjectSelectedBitmapByDc.get(this.deviceContextKey) ?? null);
       this.dibSection =
         this.dibSectionKey === null
           ? null
-          : fontObjectDibSectionsByHandle.get(this.dibSectionKey) ?? null;
+          : (fontObjectDibSectionsByHandle.get(this.dibSectionKey) ?? null);
       this.pixelPlaneBefore =
         this.dibSection === null
           ? null
@@ -11024,7 +11204,11 @@ function attachFontPipelineHook(module, name) {
           output = {
             bitsPointer: bits.toString(),
           };
-          if (resultValue !== "0x0" && !bits.isNull() && this.bitmapInfo.error === undefined) {
+          if (
+            resultValue !== "0x0" &&
+            !bits.isNull() &&
+            this.bitmapInfo.error === undefined
+          ) {
             const dibSection = {
               handle: result,
               bits,
@@ -11037,7 +11221,10 @@ function attachFontPipelineHook(module, name) {
           output = { error: error.message };
         }
       } else if (this.api === "GetOutlineTextMetricsA") {
-        const requestedBytes = Math.min(this.argumentPointers[1].toUInt32(), 4096);
+        const requestedBytes = Math.min(
+          this.argumentPointers[1].toUInt32(),
+          4096,
+        );
         output = snapshotBoundedRawBytes(
           this.argumentPointers[2],
           requestedBytes,
@@ -11045,7 +11232,11 @@ function attachFontPipelineHook(module, name) {
         );
       } else if (this.api === "GetGlyphOutlineA") {
         output = {
-          glyphMetrics: snapshotBoundedRawBytes(this.argumentPointers[3], 20, 20),
+          glyphMetrics: snapshotBoundedRawBytes(
+            this.argumentPointers[3],
+            20,
+            20,
+          ),
           buffer: snapshotBoundedRawBytes(
             this.argumentPointers[5],
             Math.min(this.argumentPointers[4].toUInt32(), 4096),
@@ -11168,9 +11359,7 @@ function attachGdiplusHook(module, name, argumentCount) {
       this.lastErrorBefore = Number(this.lastError) >>> 0;
       this.token = name === "GdiplusStartup" ? args[0] : null;
       this.input =
-        name === "GdiplusStartup"
-          ? snapshotGdiplusStartupInput(args[1])
-          : null;
+        name === "GdiplusStartup" ? snapshotGdiplusStartupInput(args[1]) : null;
       this.output =
         name === "GdiplusStartup"
           ? snapshotGdiplusStartupOutput(args[2])
@@ -11339,11 +11528,11 @@ function attachVirtualAllocHook(module, name) {
     if (virtualQueryAddress === null) {
       throw new Error("VirtualQuery export is unavailable");
     }
-    virtualQueryFunction = new NativeFunction(
-      virtualQueryAddress,
+    virtualQueryFunction = new NativeFunction(virtualQueryAddress, "uint32", [
+      "pointer",
+      "pointer",
       "uint32",
-      ["pointer", "pointer", "uint32"],
-    );
+    ]);
   }
   const address = findExport(module, name);
   if (address === null) {
@@ -11496,7 +11685,11 @@ function snapshotImeWindowIdentity(window) {
     const threadId = inspector.getWindowThreadProcessId(window, processId);
     const classNameBuffer = Memory.alloc(64);
     classNameBuffer.writeByteArray(Array(64).fill(0));
-    const classNameLength = inspector.getClassNameA(window, classNameBuffer, 64);
+    const classNameLength = inspector.getClassNameA(
+      window,
+      classNameBuffer,
+      64,
+    );
     return {
       handle,
       nonNull: true,
@@ -11655,7 +11848,9 @@ function attachImmGetDefaultImeWindowHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -11733,7 +11928,9 @@ function attachImmAssociateContextHook(module) {
   Interceptor.attach(address, {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
-      if (caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()) {
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
         this.traceFrame = null;
         return;
       }
@@ -11806,7 +12003,10 @@ function scheduleFontObjectOracle(module) {
       const textOutAAddress = findExport(module, "TextOutA");
       const selectObjectAddress = findExport(module, "SelectObject");
       const deleteObjectAddress = findExport(module, "DeleteObject");
-      const createCompatibleDcAddress = findExport(module, "CreateCompatibleDC");
+      const createCompatibleDcAddress = findExport(
+        module,
+        "CreateCompatibleDC",
+      );
       const createDibSectionAddress = findExport(module, "CreateDIBSection");
       const deleteDcAddress = findExport(module, "DeleteDC");
       const getCurrentObjectAddress = findExport(module, "GetCurrentObject");
@@ -11912,7 +12112,12 @@ function scheduleFontObjectOracle(module) {
         ["pointer"],
         "stdcall",
       );
-      const getDc = new SystemFunction(getDcAddress, "pointer", ["pointer"], "stdcall");
+      const getDc = new SystemFunction(
+        getDcAddress,
+        "pointer",
+        ["pointer"],
+        "stdcall",
+      );
       const releaseDc = new SystemFunction(
         releaseDcAddress,
         "int32",
@@ -11940,7 +12145,9 @@ function scheduleFontObjectOracle(module) {
             fontObjectOracleCall.hookResult === null ||
             fontObjectOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error(`${api} ${id} oracle did not pass through the hook`);
+            throw new Error(
+              `${api} ${id} oracle did not pass through the hook`,
+            );
           }
           return {
             id,
@@ -11960,8 +12167,8 @@ function scheduleFontObjectOracle(module) {
       };
 
       const faceBytes = [
-        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
-        0x83, 0x4e, 0,
+        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83,
+        0x4e, 0,
       ];
       const face = Memory.alloc(faceBytes.length);
       face.writeByteArray(faceBytes);
@@ -11993,8 +12200,13 @@ function scheduleFontObjectOracle(module) {
         selected = invoke("select", "SelectObject", 0x33334444, () =>
           selectObject(dc, font),
         );
-        if (selected.systemResult === "0x0" || selected.systemResult === "0xffffffff") {
-          throw new Error("font object oracle SelectObject did not return a prior object");
+        if (
+          selected.systemResult === "0x0" ||
+          selected.systemResult === "0xffffffff"
+        ) {
+          throw new Error(
+            "font object oracle SelectObject did not return a prior object",
+          );
         }
         const outlineSize = invoke(
           "outline-size",
@@ -12003,7 +12215,9 @@ function scheduleFontObjectOracle(module) {
           () => getOutlineTextMetricsA(dc, 0, ptr(0)),
         );
         if (outlineSize.systemResult <= 0 || outlineSize.systemResult > 4096) {
-          throw new Error("outline text metrics oracle returned an invalid byte length");
+          throw new Error(
+            "outline text metrics oracle returned an invalid byte length",
+          );
         }
         const outlineByteLength = outlineSize.systemResult;
         const invokeOutlineBufferCase = (id, sentinel, requestedBytes) => {
@@ -12107,7 +12321,9 @@ function scheduleFontObjectOracle(module) {
         secondCompatibleDc.systemResult === "0x0" ||
         thirdCompatibleDc.systemResult === "0x0"
       ) {
-        throw new Error("compatible DC oracle CreateCompatibleDC returned NULL");
+        throw new Error(
+          "compatible DC oracle CreateCompatibleDC returned NULL",
+        );
       }
       const firstMemoryDc = ptr(firstCompatibleDc.systemResult);
       const secondMemoryDc = ptr(secondCompatibleDc.systemResult);
@@ -12217,11 +12433,7 @@ function scheduleFontObjectOracle(module) {
           rangeBase: range.base.toString(),
           rangeSize: range.size,
           protection: range.protection,
-          bytes: snapshotBoundedRawBytes(
-            address,
-            Math.min(byteLength, 64),
-            64,
-          ),
+          bytes: snapshotBoundedRawBytes(address, Math.min(byteLength, 64), 64),
         };
       };
       const dibBitsOutput = Memory.alloc(Process.pointerSize);
@@ -12232,14 +12444,7 @@ function scheduleFontObjectOracle(module) {
         "CreateDIBSection",
         0x10111213,
         () =>
-          createDibSection(
-            dibMemoryDc,
-            dibInfo,
-            0,
-            dibBitsOutput,
-            ptr(0),
-            0,
-          ),
+          createDibSection(dibMemoryDc, dibInfo, 0, dibBitsOutput, ptr(0), 0),
       );
       const dibBitsAfterCreate = dibBitsOutput.readPointer();
       if (dibCreated.systemResult === "0x0" || dibBitsAfterCreate.isNull()) {
@@ -12251,8 +12456,12 @@ function scheduleFontObjectOracle(module) {
         bits: dibBitsAfterCreate,
         bitmapInfo: snapshotDibBitmapInfo(dibInfo),
       };
-      const dibPixelPlaneAfterCreate = snapshotDibPixelPlane(dibSnapshot).evidence;
-      const dibBackingAfterCreate = snapshotAddressRange(dibBitsAfterCreate, 64);
+      const dibPixelPlaneAfterCreate =
+        snapshotDibPixelPlane(dibSnapshot).evidence;
+      const dibBackingAfterCreate = snapshotAddressRange(
+        dibBitsAfterCreate,
+        64,
+      );
 
       const textFontCreated = invoke(
         "text-create-font",
@@ -12274,7 +12483,9 @@ function scheduleFontObjectOracle(module) {
         textFontSelected.systemResult === "0x0" ||
         textFontSelected.systemResult === "0xffffffff"
       ) {
-        throw new Error("text raster oracle SelectObject did not return a prior font");
+        throw new Error(
+          "text raster oracle SelectObject did not return a prior font",
+        );
       }
 
       const dibObjectStorage = Memory.alloc(32);
@@ -12291,17 +12502,16 @@ function scheduleFontObjectOracle(module) {
         32,
         32,
       );
-      const dibSelected = invoke(
-        "dib-select",
-        "SelectObject",
-        0x30313233,
-        () => selectObject(dibMemoryDc, dib),
+      const dibSelected = invoke("dib-select", "SelectObject", 0x30313233, () =>
+        selectObject(dibMemoryDc, dib),
       );
       if (
         dibSelected.systemResult === "0x0" ||
         dibSelected.systemResult === "0xffffffff"
       ) {
-        throw new Error("DIB section oracle SelectObject did not return a prior object");
+        throw new Error(
+          "DIB section oracle SelectObject did not return a prior object",
+        );
       }
       const textBytes = Memory.alloc(1);
       textBytes.writeU8(0x61);
@@ -12315,11 +12525,8 @@ function scheduleFontObjectOracle(module) {
         textPlaneBefore.bytes,
         textPlaneAfterFirst.bytes,
       );
-      const textRepeat = invoke(
-        "text-out-repeat",
-        "TextOutA",
-        0x38393a3b,
-        () => textOutA(dibMemoryDc, 0, 0, textBytes, 1),
+      const textRepeat = invoke("text-out-repeat", "TextOutA", 0x38393a3b, () =>
+        textOutA(dibMemoryDc, 0, 0, textBytes, 1),
       );
       const textPlaneAfterRepeat = snapshotDibPixelPlane(dibSnapshot);
       const textRepeatDiff = diffDibPixelPlanes(
@@ -12357,7 +12564,10 @@ function scheduleFontObjectOracle(module) {
         () => selectObject(dibMemoryDc, ptr(dibSelected.systemResult)),
       );
       const dibTypeAfterRestore = Number(getObjectType(dib).value);
-      const dibBackingAfterRestore = snapshotAddressRange(dibBitsAfterCreate, 64);
+      const dibBackingAfterRestore = snapshotAddressRange(
+        dibBitsAfterCreate,
+        64,
+      );
       const textFontRestored = invoke(
         "text-restore-font",
         "SelectObject",
@@ -12383,7 +12593,10 @@ function scheduleFontObjectOracle(module) {
         () => deleteObject(dib),
       );
       const dibTypeAfterDelete = Number(getObjectType(dib).value);
-      const dibBackingAfterDelete = snapshotAddressRange(dibBitsAfterCreate, 64);
+      const dibBackingAfterDelete = snapshotAddressRange(
+        dibBitsAfterCreate,
+        64,
+      );
       dibObjectStorage.writeByteArray(Array(32).fill(0xa5));
       const dibStaleGetObject = invoke(
         "dib-get-object-stale",
@@ -12561,7 +12774,8 @@ function scheduleFontObjectOracle(module) {
           initialFontShared:
             firstInitialState.currentFont === secondInitialState.currentFont,
           initialBitmapShared:
-            firstInitialState.currentBitmap === secondInitialState.currentBitmap,
+            firstInitialState.currentBitmap ===
+            secondInitialState.currentBitmap,
           wrongReleaseResult: Number(wrongRelease.value),
           wrongReleaseLastError: Number(wrongRelease.lastError) >>> 0,
           firstTypeAfterWrongRelease,
@@ -12714,11 +12928,7 @@ function attachSetWindowLongAHook(module) {
         {
           module: module.name,
           api: name,
-          arguments: [
-            this.windowHandle.toString(),
-            this.index,
-            this.newValue,
-          ],
+          arguments: [this.windowHandle.toString(), this.index, this.newValue],
           lastErrorBefore: this.lastErrorBefore,
           setWindowLongA: {
             stateBefore: this.stateBefore,
@@ -12810,7 +13020,9 @@ function scheduleSetWindowLongAOracle(module, liveWindowHandle, liveStyle) {
             setWindowLongAOracleCall.hookResultUnsigned === null ||
             setWindowLongAOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("SetWindowLongA oracle did not pass through the hook");
+            throw new Error(
+              "SetWindowLongA oracle did not pass through the hook",
+            );
           }
           return {
             id,
@@ -12900,10 +13112,7 @@ function maybeCompleteSetWindowLongAObservation() {
 }
 
 function maybeCompleteDragAcceptFilesObservation() {
-  if (
-    dragAcceptFilesCompletionRecorded ||
-    dragAcceptFilesCompletion === null
-  ) {
+  if (dragAcceptFilesCompletionRecorded || dragAcceptFilesCompletion === null) {
     return;
   }
   if (activeCallsByThread.size !== 0) {
@@ -12944,7 +13153,7 @@ function maybeCompleteDragAcceptFilesObservation() {
     );
     const window = ptr(dragAcceptFilesCompletion.window);
     const acceptsFiles = () =>
-      (getWindowLongA(window, -20) >>> 0 & 0x0000_0010) !== 0;
+      ((getWindowLongA(window, -20) >>> 0) & 0x0000_0010) !== 0;
     const initialState = acceptsFiles();
     const invoke = (accept, sentinel) => {
       setLastError(sentinel);
@@ -12956,10 +13165,7 @@ function maybeCompleteDragAcceptFilesObservation() {
         stateAfter: acceptsFiles(),
       };
     };
-    const calls = [
-      invoke(true, 0x5566_7788),
-      invoke(false, 0x7a6b_5c4d),
-    ];
+    const calls = [invoke(true, 0x5566_7788), invoke(false, 0x7a6b_5c4d)];
     if (acceptsFiles() !== initialState) {
       calls.push(invoke(initialState, 0x1234_5678));
     }
@@ -12999,8 +13205,7 @@ function attachHook(module, name, decoders) {
         caller.module !== null &&
         caller.module.toLowerCase() === Process.mainModule.name.toLowerCase();
       const tracesDinput8Factory =
-        (focusedDinput8Observation ||
-          selectedVtables.has("idirectinput8a")) &&
+        (focusedDinput8Observation || selectedVtables.has("idirectinput8a")) &&
         (!focusedDinput8Observation ||
           (!focusedDinput8RootComplete &&
             focusedDinput8FactoryCall === null)) &&
@@ -13035,12 +13240,14 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-cp-info") &&
         name === "GetCPInfo" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedProcessorFeatureObservation =
         selectedObservations.has("processor-feature") &&
         name === "IsProcessorFeaturePresent" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedSetThreadAffinityMaskObservation =
         selectedObservations.has("set-thread-affinity-mask") &&
         name === "SetThreadAffinityMask" &&
@@ -13098,17 +13305,20 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("unhandled-exception-filter") &&
         name === "SetUnhandledExceptionFilter" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedHeapSizeObservation =
         selectedObservations.has("heap-size") &&
         name === "HeapSize" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedMultiByteObservation =
         selectedObservations.has("multi-byte-to-wide-char") &&
         name === "MultiByteToWideChar" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedSetCurrentDirectoryAObservation =
         selectedObservations.has("set-current-directory-a") &&
         name === "SetCurrentDirectoryA" &&
@@ -13159,17 +13369,20 @@ function attachHook(module, name, decoders) {
         selectedObservations.has("get-string-type-w") &&
         name === "GetStringTypeW" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedLCMapStringObservation =
         selectedObservations.has("lc-map-string-w") &&
         name === "LCMapStringW" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedInterlockedDecrementObservation =
         selectedObservations.has("interlocked-decrement") &&
         name === "InterlockedDecrement" &&
         caller.module !== null &&
-        (isMainModuleCaller || caller.module.toLowerCase() === "frida-agent.dll");
+        (isMainModuleCaller ||
+          caller.module.toLowerCase() === "frida-agent.dll");
       const focusedGetModuleFileNameAObservation =
         selectedObservations.has("get-module-file-name-a") &&
         name === "GetModuleFileNameA" &&
@@ -13614,7 +13827,9 @@ function attachHook(module, name, decoders) {
         this.lastError = heapSizeOracleSentinel;
       }
       const arguments_ = decoders.map((decoder, index) =>
-        decoder === null ? args[index].toString() : decodeArgument(args[index], decoder),
+        decoder === null
+          ? args[index].toString()
+          : decodeArgument(args[index], decoder),
       );
       this.traceDinput8Factory = tracesDinput8Factory
         ? {
@@ -13633,9 +13848,7 @@ function attachHook(module, name, decoders) {
             ),
           }
         : null;
-      this.traceDinput8FactoryOutput = tracesDinput8Factory
-        ? args[3]
-        : null;
+      this.traceDinput8FactoryOutput = tracesDinput8Factory ? args[3] : null;
       this.traceDinput8FactoryArguments = tracesDinput8Factory
         ? arguments_
         : null;
@@ -13665,7 +13878,9 @@ function attachHook(module, name, decoders) {
           ? ++setThreadAffinityMaskPrimaryCalls
           : null;
       this.traceThreadAffinityRequestedMask =
-        this.traceThreadAffinityPrimaryCall === null ? null : args[1].toUInt32();
+        this.traceThreadAffinityPrimaryCall === null
+          ? null
+          : args[1].toUInt32();
       this.traceHeapAllocation =
         focusedHeapObservation && name === "HeapAlloc"
           ? {
@@ -13728,7 +13943,9 @@ function attachHook(module, name, decoders) {
           ? null
           : (observedMainModuleHeapAllocations.get(heapSizePointer) ?? null);
       const recordsHeapSizeConsumer =
-        focusedHeapSizeObservation && isMainModuleCaller && heapSizeConsumersRecorded < 2;
+        focusedHeapSizeObservation &&
+        isMainModuleCaller &&
+        heapSizeConsumersRecorded < 2;
       if (recordsHeapSizeConsumer) {
         heapSizeConsumersRecorded += 1;
       }
@@ -13739,7 +13956,8 @@ function attachHook(module, name, decoders) {
               heap: args[0].toString().toLowerCase(),
               flags: args[1].toUInt32(),
               pointer: heapSizePointer,
-              relatedAllocationCallId: relatedHeapSizeAllocation?.callId ?? null,
+              relatedAllocationCallId:
+                relatedHeapSizeAllocation?.callId ?? null,
               requestedBytes: relatedHeapSizeAllocation?.requestedBytes ?? null,
               immediateConsumer: recordsHeapSizeConsumer
                 ? {
@@ -13747,11 +13965,8 @@ function attachHook(module, name, decoders) {
                       this.returnAddress,
                       24,
                     ),
-                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
-                      this.context,
-                      4,
-                      12,
-                    ),
+                    frameCallerContinuations:
+                      snapshotX86FrameCallerContinuations(this.context, 4, 12),
                   }
                 : null,
             };
@@ -13766,29 +13981,27 @@ function attachHook(module, name, decoders) {
               usedDefaultChar: args[7],
             }
           : null;
-      this.traceMultiByteConversion =
-        focusedMultiByteObservation
-          ? {
-              codePage: args[0],
-              flags: args[1],
-              source: args[2],
-              sourceBytes: signed32(args[3]),
-              destination: args[4],
-              destinationUnits: signed32(args[5]),
-            }
-          : null;
-      this.traceSetCurrentDirectoryA =
-        focusedSetCurrentDirectoryAObservation
-          ? {
-              path: args[0],
-              currentDirectoryBefore: (() => {
-                const lastErrorBefore = Number(this.lastError) >>> 0;
-                const currentDirectory = snapshotCurrentDirectoryA(module);
-                this.lastError = lastErrorBefore;
-                return currentDirectory;
-              })(),
-            }
-          : null;
+      this.traceMultiByteConversion = focusedMultiByteObservation
+        ? {
+            codePage: args[0],
+            flags: args[1],
+            source: args[2],
+            sourceBytes: signed32(args[3]),
+            destination: args[4],
+            destinationUnits: signed32(args[5]),
+          }
+        : null;
+      this.traceSetCurrentDirectoryA = focusedSetCurrentDirectoryAObservation
+        ? {
+            path: args[0],
+            currentDirectoryBefore: (() => {
+              const lastErrorBefore = Number(this.lastError) >>> 0;
+              const currentDirectory = snapshotCurrentDirectoryA(module);
+              this.lastError = lastErrorBefore;
+              return currentDirectory;
+            })(),
+          }
+        : null;
       this.traceSourceFileCreate = focusedSourceFileCreateObservation
         ? {
             path: snapshotMultiByteSource(args[0], -1),
@@ -13851,7 +14064,10 @@ function attachHook(module, name, decoders) {
                     bytesWritten: args[3],
                     bytesWrittenBefore: snapshotOptionalU32(args[3]),
                     overlapped: args[4].toString(),
-                    inputBefore: snapshotByteBuffer(args[1], args[2].toUInt32()),
+                    inputBefore: snapshotByteBuffer(
+                      args[1],
+                      args[2].toUInt32(),
+                    ),
                   }
                 : {}),
               ...(name === "SetFilePointer"
@@ -13869,15 +14085,14 @@ function attachHook(module, name, decoders) {
                   }
                 : {}),
             };
-      this.traceCreateMutexA =
-        focusedCreateMutexAObservation
-          ? {
-              securityAttributes: args[0],
-              initialOwner: args[1],
-              name: args[2],
-              nameBefore: snapshotMultiByteSource(args[2], -1),
-            }
-          : null;
+      this.traceCreateMutexA = focusedCreateMutexAObservation
+        ? {
+            securityAttributes: args[0],
+            initialOwner: args[1],
+            name: args[2],
+            nameBefore: snapshotMultiByteSource(args[2], -1),
+          }
+        : null;
       const recordsMutexLifecycleConsumer =
         focusedMutexLifecycleObservation &&
         isMainModuleCaller &&
@@ -13885,57 +14100,55 @@ function attachHook(module, name, decoders) {
       if (recordsMutexLifecycleConsumer) {
         mutexLifecycleConsumersRecorded += 1;
       }
-      this.traceMutexLifecycle =
-        focusedMutexLifecycleObservation
-          ? {
-              operation: name,
-              handle: mutexHandleKey,
-              trackedObject: trackedMutexHandles.get(mutexHandleKey),
-              timeoutMilliseconds:
-                name === "WaitForSingleObject" ? args[1].toUInt32() : null,
-              immediateConsumer: recordsMutexLifecycleConsumer
-                ? snapshotInstructionsFollowingDirectJump(this.returnAddress, 24)
-                : null,
-            }
-          : null;
-      this.traceGetStringTypeW =
-        focusedGetStringTypeObservation
-          ? {
-              infoType: args[0],
-              source: args[1],
-              sourceUnits: signed32(args[2]),
-              output: args[3],
-            }
-          : null;
-      this.traceLCMapStringW =
-        focusedLCMapStringObservation
-          ? {
-              locale: args[0],
-              flags: args[1],
-              source: args[2],
-              sourceUnits: signed32(args[3]),
-              destination: args[4],
-              destinationUnits: signed32(args[5]),
-            }
-          : null;
-      this.traceInterlockedDecrement =
-        focusedInterlockedDecrementObservation ? { target: args[0] } : null;
-      this.traceGetModuleFileNameA =
-        focusedGetModuleFileNameAObservation
-          ? {
-              moduleHandle: args[0],
-              output: args[1],
-              capacity: args[2].toUInt32(),
-            }
-          : null;
-      this.traceGetCpInfo =
-        focusedGetCpInfoObservation
-          ? { codePage: args[0], output: args[1] }
-          : null;
-      this.traceGetSystemInfo =
-        focusedGetSystemInfoObservation ? { output: args[0] } : null;
-      this.traceGlobalMemoryStatus =
-        focusedGlobalMemoryStatusObservation ? { output: args[0] } : null;
+      this.traceMutexLifecycle = focusedMutexLifecycleObservation
+        ? {
+            operation: name,
+            handle: mutexHandleKey,
+            trackedObject: trackedMutexHandles.get(mutexHandleKey),
+            timeoutMilliseconds:
+              name === "WaitForSingleObject" ? args[1].toUInt32() : null,
+            immediateConsumer: recordsMutexLifecycleConsumer
+              ? snapshotInstructionsFollowingDirectJump(this.returnAddress, 24)
+              : null,
+          }
+        : null;
+      this.traceGetStringTypeW = focusedGetStringTypeObservation
+        ? {
+            infoType: args[0],
+            source: args[1],
+            sourceUnits: signed32(args[2]),
+            output: args[3],
+          }
+        : null;
+      this.traceLCMapStringW = focusedLCMapStringObservation
+        ? {
+            locale: args[0],
+            flags: args[1],
+            source: args[2],
+            sourceUnits: signed32(args[3]),
+            destination: args[4],
+            destinationUnits: signed32(args[5]),
+          }
+        : null;
+      this.traceInterlockedDecrement = focusedInterlockedDecrementObservation
+        ? { target: args[0] }
+        : null;
+      this.traceGetModuleFileNameA = focusedGetModuleFileNameAObservation
+        ? {
+            moduleHandle: args[0],
+            output: args[1],
+            capacity: args[2].toUInt32(),
+          }
+        : null;
+      this.traceGetCpInfo = focusedGetCpInfoObservation
+        ? { codePage: args[0], output: args[1] }
+        : null;
+      this.traceGetSystemInfo = focusedGetSystemInfoObservation
+        ? { output: args[0] }
+        : null;
+      this.traceGlobalMemoryStatus = focusedGlobalMemoryStatusObservation
+        ? { output: args[0] }
+        : null;
       const recordsSystemDefaultLangIdConsumer =
         selectedObservations.has("system-default-lang-id") &&
         name === "GetSystemDefaultLangID" &&
@@ -13954,11 +14167,8 @@ function attachHook(module, name, decoders) {
                       this.returnAddress,
                       24,
                     ),
-                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
-                      this.context,
-                      0,
-                      12,
-                    ),
+                    frameCallerContinuations:
+                      snapshotX86FrameCallerContinuations(this.context, 0, 12),
                   }
                 : null,
             }
@@ -13981,11 +14191,8 @@ function attachHook(module, name, decoders) {
                       this.returnAddress,
                       32,
                     ),
-                    frameCallerContinuations: snapshotX86FrameCallerContinuations(
-                      this.context,
-                      4,
-                      16,
-                    ),
+                    frameCallerContinuations:
+                      snapshotX86FrameCallerContinuations(this.context, 4, 16),
                   }
                 : null,
             }
@@ -14141,8 +14348,7 @@ function attachHook(module, name, decoders) {
               name === "CoInitialize" || name === "CoInitializeEx"
                 ? args[0].toString()
                 : null,
-            concurrency:
-              name === "CoInitializeEx" ? args[1].toUInt32() : null,
+            concurrency: name === "CoInitializeEx" ? args[1].toUInt32() : null,
             immediateConsumer: recordsComInitializationConsumer
               ? {
                   apiContinuation: snapshotInstructionsFollowingDirectJump(
@@ -14151,7 +14357,11 @@ function attachHook(module, name, decoders) {
                   ),
                   frameCallerContinuations: snapshotX86FrameCallerContinuations(
                     this.context,
-                    name === "CoInitializeEx" ? 8 : name === "CoInitialize" ? 4 : 0,
+                    name === "CoInitializeEx"
+                      ? 8
+                      : name === "CoInitialize"
+                        ? 4
+                        : 0,
                     12,
                   ),
                 }
@@ -14164,336 +14374,627 @@ function attachHook(module, name, decoders) {
               lastErrorBefore: this.traceDinput8Factory.lastErrorBefore,
               directInput8Create: this.traceDinput8Factory,
             }
-        : this.traceDsoundFactory !== null
-          ? {
-              lastErrorBefore: this.traceDsoundFactory.lastErrorBefore,
-              directSoundCreate8: this.traceDsoundFactory,
-            }
-        : this.traceHeapAllocation !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              heapAllocation: this.traceHeapAllocation,
-            }
-        : this.traceHeapFree !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              heapFree: this.traceHeapFree,
-            }
-        : this.traceHeapSize !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              heapSize: this.traceHeapSize,
-            }
-        : name === "SetLastError" && selectedObservations.has("set-last-error")
-          ? snapshotSetLastErrorCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context.eax,
-            )
-        : name === "FlsGetValue" && selectedObservations.has("fls-lifecycle")
-          ? snapshotFlsGetValueCall(caller, this.returnAddress, this.lastError)
-        : name === "TlsGetValue" && selectedObservations.has("tls-lifecycle")
-          ? snapshotTlsGetValueCall(caller, this.returnAddress, this.lastError)
-        : name === "GetLastError" && selectedObservations.has("get-last-error")
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              immediateConsumer:
-                caller.module.toLowerCase() === "bgi.exe"
-                  ? snapshotInstructions(this.returnAddress, 4)
-                  : null,
-            }
-        : name === "GetSystemMenu" && selectedObservations.has("get-system-menu")
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              getSystemMenu: {
-                window: args[0].toString(),
-                revert: args[1].toUInt32(),
-                immediateConsumer: {
-                  apiContinuation: snapshotInstructionsFollowingDirectJump(
-                    this.returnAddress,
-                    24,
-                  ),
-                  frameCallerContinuations: snapshotX86FrameCallerContinuations(
-                    this.context,
-                    8,
-                    12,
-                  ),
-                },
-              },
-            }
-        : name === "GetACP" && selectedObservations.has("get-acp")
-          ? snapshotGetAcpCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-            )
-        : this.traceSystemDefaultLangId !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              systemDefaultLangId: this.traceSystemDefaultLangId,
-            }
-        : this.traceDriveType !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              driveType: this.traceDriveType,
-            }
-        : this.traceGetCpInfo !== null
-          ? snapshotGetCpInfoCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceGetCpInfo.codePage,
-              this.traceGetCpInfo.output,
-            )
-        : this.traceGetSystemInfo !== null
-          ? snapshotGetSystemInfoCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceGetSystemInfo.output,
-            )
-        : this.traceGlobalMemoryStatus !== null
-          ? snapshotGlobalMemoryStatusCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceGlobalMemoryStatus.output,
-            )
-        : this.traceEnumDisplayMonitors !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              enumDisplayMonitors: {
-                hdc: this.traceEnumDisplayMonitors.hdc,
-                clipRect: this.traceEnumDisplayMonitors.clipRect,
-                clipRectBefore: this.traceEnumDisplayMonitors.clipRectBefore,
-                callback: this.traceEnumDisplayMonitors.callback,
-                callbackInstructions:
-                  this.traceEnumDisplayMonitors.callbackInstructions,
-                data: this.traceEnumDisplayMonitors.data,
-                immediateConsumer:
-                  this.traceEnumDisplayMonitors.immediateConsumer,
-              },
-            }
-        : this.traceSwapMouseButton !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              swapMouseButton: this.traceSwapMouseButton,
-            }
-        : this.traceDragAcceptFiles !== null
-          ? {
-              lastErrorBefore: this.traceDragAcceptFiles.lastErrorBefore,
-              dragAcceptFiles: this.traceDragAcceptFiles,
-            }
-        : this.traceTimeGetDevCaps !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              timeGetDevCaps: {
-                outputAddress: this.traceTimeGetDevCaps.outputAddress,
-                size: this.traceTimeGetDevCaps.size,
-                outputBefore: this.traceTimeGetDevCaps.outputBefore,
-                immediateConsumer: this.traceTimeGetDevCaps.immediateConsumer,
-              },
-            }
-        : this.traceTimePeriod !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              timePeriod: this.traceTimePeriod,
-            }
-        : this.traceComInitialization !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              comInitialization: this.traceComInitialization,
-            }
-        : focusedProcessorFeatureObservation
-          ? snapshotProcessorFeatureCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              args[0],
-            )
-        : focusedSetThreadAffinityMaskObservation
-          ? snapshotSetThreadAffinityMaskCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              args[0],
-              args[1],
-            )
-        : focusedUnhandledExceptionFilterObservation
-          ? snapshotUnhandledExceptionFilterCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              args[0],
-            )
-        : this.traceMultiByteConversion !== null
-          ? snapshotMultiByteToWideCharCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceMultiByteConversion.codePage,
-              this.traceMultiByteConversion.flags,
-              this.traceMultiByteConversion.source,
-              this.traceMultiByteConversion.sourceBytes,
-              this.traceMultiByteConversion.destination,
-              this.traceMultiByteConversion.destinationUnits,
-            )
-        : this.traceSetCurrentDirectoryA !== null
-          ? snapshotSetCurrentDirectoryACall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceSetCurrentDirectoryA.path,
-              this.traceSetCurrentDirectoryA.currentDirectoryBefore,
-            )
-        : this.traceCreateMutexA !== null
-          ? snapshotCreateMutexACall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceCreateMutexA.securityAttributes,
-              this.traceCreateMutexA.initialOwner,
-              this.traceCreateMutexA.name,
-            )
-        : this.traceMutexLifecycle !== null
-          ? {
-              lastErrorBefore: Number(this.lastError) >>> 0,
-              mutexLifecycle: this.traceMutexLifecycle,
-            }
-        : this.traceGetStringTypeW !== null
-          ? snapshotGetStringTypeWCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceGetStringTypeW.infoType,
-              this.traceGetStringTypeW.source,
-              this.traceGetStringTypeW.sourceUnits,
-              this.traceGetStringTypeW.output,
-            )
-        : this.traceLCMapStringW !== null
-          ? snapshotLCMapStringWCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceLCMapStringW.locale,
-              this.traceLCMapStringW.flags,
-              this.traceLCMapStringW.source,
-              this.traceLCMapStringW.sourceUnits,
-              this.traceLCMapStringW.destination,
-              this.traceLCMapStringW.destinationUnits,
-            )
-        : this.traceInterlockedDecrement !== null
-          ? snapshotInterlockedDecrementCall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceInterlockedDecrement.target,
-            )
-        : this.traceGetModuleFileNameA !== null
-          ? snapshotGetModuleFileNameACall(
-              caller,
-              this.returnAddress,
-              this.lastError,
-              this.context,
-              this.traceGetModuleFileNameA.moduleHandle,
-              this.traceGetModuleFileNameA.output,
-              this.traceGetModuleFileNameA.capacity,
-            )
-        : name === "GetStartupInfoW"
-          ? { startupInfoBefore: snapshotStartupInfoW(args[0]) }
-          : selectedObservations.has("critical-section") &&
-              name.includes("CriticalSection")
+          : this.traceDsoundFactory !== null
             ? {
-                lastErrorBefore: Number(this.lastError) >>> 0,
-                criticalSectionBefore: snapshotCriticalSection(args[0]),
-                initializeCriticalSectionConsumer:
-                  recordsInitializeCriticalSectionConsumer
-                    ? {
-                        apiContinuation: snapshotInstructions(
-                          this.returnAddress,
-                          16,
-                        ),
-                        frameCallerContinuations:
-                          snapshotX86FrameCallerContinuations(
-                            this.context,
-                            4,
-                            12,
-                          ),
-                      }
-                    : null,
+                lastErrorBefore: this.traceDsoundFactory.lastErrorBefore,
+                directSoundCreate8: this.traceDsoundFactory,
               }
-          : name === "InterlockedIncrement" &&
-              selectedObservations.has("interlocked-increment")
-            ? {
-                lastErrorBefore: Number(this.lastError) >>> 0,
-                interlockedTargetBefore: snapshotLong(args[0]),
-              }
-          : name === "GetStdHandle" &&
-              selectedObservations.has("standard-handle")
-            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-          : name === "GetFileType" && selectedObservations.has("file-type")
-            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-          : name === "SetHandleCount" &&
-              selectedObservations.has("set-handle-count")
-            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-          : (name === "GetCommandLineA" || name === "GetCommandLineW") &&
-              selectedObservations.has("command-line-a")
-            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-          : (name === "GetEnvironmentStringsW" ||
-                name === "FreeEnvironmentStringsW") &&
-              selectedObservations.has("environment-strings-w")
-            ? {
-                lastErrorBefore: Number(this.lastError) >>> 0,
-                ...(name === "FreeEnvironmentStringsW"
+            : this.traceHeapAllocation !== null
+              ? {
+                  lastErrorBefore: Number(this.lastError) >>> 0,
+                  heapAllocation: this.traceHeapAllocation,
+                }
+              : this.traceHeapFree !== null
+                ? {
+                    lastErrorBefore: Number(this.lastError) >>> 0,
+                    heapFree: this.traceHeapFree,
+                  }
+                : this.traceHeapSize !== null
                   ? {
-                      environmentBlockBeforeFree: snapshotUtf16EnvironmentBlock(
-                        args[0],
-                        readProcessParametersEnvironmentPointer(),
-                      ),
+                      lastErrorBefore: Number(this.lastError) >>> 0,
+                      heapSize: this.traceHeapSize,
                     }
-                  : {}),
-              }
-          : this.traceWideCharConversion !== null
-            ? {
-                lastErrorBefore: Number(this.lastError) >>> 0,
-                codePage: args[0].toUInt32(),
-                flags: args[1].toUInt32(),
-                source: snapshotWideCharSource(
-                  this.traceWideCharConversion.source,
-                  this.traceWideCharConversion.sourceUnits,
-                ),
-                destinationBefore: snapshotByteBuffer(
-                  this.traceWideCharConversion.destination,
-                  Math.max(0, this.traceWideCharConversion.destinationBytes),
-                ),
-                defaultCharPointer: args[6].toString(),
-                usedDefaultCharBefore: snapshotOptionalBool(
-                  this.traceWideCharConversion.usedDefaultChar,
-                ),
-              }
-          : name.startsWith("Heap") ||
-              name.startsWith("GetModuleHandle") ||
-              (name.startsWith("Tls") && selectedObservations.has("tls-lifecycle")) ||
-              (name.startsWith("Fls") && selectedObservations.has("fls-lifecycle")) ||
-              ((name === "EncodePointer" || name === "DecodePointer") &&
-                selectedObservations.has("pointer-encoding")) ||
-              (name === "GetProcAddress" && selectedObservations.has("dynamic-export"))
-            ? { lastErrorBefore: Number(this.lastError) >>> 0 }
-            : {};
+                  : name === "SetLastError" &&
+                      selectedObservations.has("set-last-error")
+                    ? snapshotSetLastErrorCall(
+                        caller,
+                        this.returnAddress,
+                        this.lastError,
+                        this.context.eax,
+                      )
+                    : name === "FlsGetValue" &&
+                        selectedObservations.has("fls-lifecycle")
+                      ? snapshotFlsGetValueCall(
+                          caller,
+                          this.returnAddress,
+                          this.lastError,
+                        )
+                      : name === "TlsGetValue" &&
+                          selectedObservations.has("tls-lifecycle")
+                        ? snapshotTlsGetValueCall(
+                            caller,
+                            this.returnAddress,
+                            this.lastError,
+                          )
+                        : name === "GetLastError" &&
+                            selectedObservations.has("get-last-error")
+                          ? {
+                              lastErrorBefore: Number(this.lastError) >>> 0,
+                              immediateConsumer:
+                                caller.module.toLowerCase() === "bgi.exe"
+                                  ? snapshotInstructions(this.returnAddress, 4)
+                                  : null,
+                            }
+                          : name === "GetSystemMenu" &&
+                              selectedObservations.has("get-system-menu")
+                            ? {
+                                lastErrorBefore: Number(this.lastError) >>> 0,
+                                getSystemMenu: {
+                                  window: args[0].toString(),
+                                  revert: args[1].toUInt32(),
+                                  immediateConsumer: {
+                                    apiContinuation:
+                                      snapshotInstructionsFollowingDirectJump(
+                                        this.returnAddress,
+                                        24,
+                                      ),
+                                    frameCallerContinuations:
+                                      snapshotX86FrameCallerContinuations(
+                                        this.context,
+                                        8,
+                                        12,
+                                      ),
+                                  },
+                                },
+                              }
+                            : name === "GetACP" &&
+                                selectedObservations.has("get-acp")
+                              ? snapshotGetAcpCall(
+                                  caller,
+                                  this.returnAddress,
+                                  this.lastError,
+                                  this.context,
+                                )
+                              : this.traceSystemDefaultLangId !== null
+                                ? {
+                                    lastErrorBefore:
+                                      Number(this.lastError) >>> 0,
+                                    systemDefaultLangId:
+                                      this.traceSystemDefaultLangId,
+                                  }
+                                : this.traceDriveType !== null
+                                  ? {
+                                      lastErrorBefore:
+                                        Number(this.lastError) >>> 0,
+                                      driveType: this.traceDriveType,
+                                    }
+                                  : this.traceGetCpInfo !== null
+                                    ? snapshotGetCpInfoCall(
+                                        caller,
+                                        this.returnAddress,
+                                        this.lastError,
+                                        this.context,
+                                        this.traceGetCpInfo.codePage,
+                                        this.traceGetCpInfo.output,
+                                      )
+                                    : this.traceGetSystemInfo !== null
+                                      ? snapshotGetSystemInfoCall(
+                                          caller,
+                                          this.returnAddress,
+                                          this.lastError,
+                                          this.context,
+                                          this.traceGetSystemInfo.output,
+                                        )
+                                      : this.traceGlobalMemoryStatus !== null
+                                        ? snapshotGlobalMemoryStatusCall(
+                                            caller,
+                                            this.returnAddress,
+                                            this.lastError,
+                                            this.context,
+                                            this.traceGlobalMemoryStatus.output,
+                                          )
+                                        : this.traceEnumDisplayMonitors !== null
+                                          ? {
+                                              lastErrorBefore:
+                                                Number(this.lastError) >>> 0,
+                                              enumDisplayMonitors: {
+                                                hdc: this
+                                                  .traceEnumDisplayMonitors.hdc,
+                                                clipRect:
+                                                  this.traceEnumDisplayMonitors
+                                                    .clipRect,
+                                                clipRectBefore:
+                                                  this.traceEnumDisplayMonitors
+                                                    .clipRectBefore,
+                                                callback:
+                                                  this.traceEnumDisplayMonitors
+                                                    .callback,
+                                                callbackInstructions:
+                                                  this.traceEnumDisplayMonitors
+                                                    .callbackInstructions,
+                                                data: this
+                                                  .traceEnumDisplayMonitors
+                                                  .data,
+                                                immediateConsumer:
+                                                  this.traceEnumDisplayMonitors
+                                                    .immediateConsumer,
+                                              },
+                                            }
+                                          : this.traceSwapMouseButton !== null
+                                            ? {
+                                                lastErrorBefore:
+                                                  Number(this.lastError) >>> 0,
+                                                swapMouseButton:
+                                                  this.traceSwapMouseButton,
+                                              }
+                                            : this.traceDragAcceptFiles !== null
+                                              ? {
+                                                  lastErrorBefore:
+                                                    this.traceDragAcceptFiles
+                                                      .lastErrorBefore,
+                                                  dragAcceptFiles:
+                                                    this.traceDragAcceptFiles,
+                                                }
+                                              : this.traceTimeGetDevCaps !==
+                                                  null
+                                                ? {
+                                                    lastErrorBefore:
+                                                      Number(this.lastError) >>>
+                                                      0,
+                                                    timeGetDevCaps: {
+                                                      outputAddress:
+                                                        this.traceTimeGetDevCaps
+                                                          .outputAddress,
+                                                      size: this
+                                                        .traceTimeGetDevCaps
+                                                        .size,
+                                                      outputBefore:
+                                                        this.traceTimeGetDevCaps
+                                                          .outputBefore,
+                                                      immediateConsumer:
+                                                        this.traceTimeGetDevCaps
+                                                          .immediateConsumer,
+                                                    },
+                                                  }
+                                                : this.traceTimePeriod !== null
+                                                  ? {
+                                                      lastErrorBefore:
+                                                        Number(
+                                                          this.lastError,
+                                                        ) >>> 0,
+                                                      timePeriod:
+                                                        this.traceTimePeriod,
+                                                    }
+                                                  : this
+                                                        .traceComInitialization !==
+                                                      null
+                                                    ? {
+                                                        lastErrorBefore:
+                                                          Number(
+                                                            this.lastError,
+                                                          ) >>> 0,
+                                                        comInitialization:
+                                                          this
+                                                            .traceComInitialization,
+                                                      }
+                                                    : focusedProcessorFeatureObservation
+                                                      ? snapshotProcessorFeatureCall(
+                                                          caller,
+                                                          this.returnAddress,
+                                                          this.lastError,
+                                                          this.context,
+                                                          args[0],
+                                                        )
+                                                      : focusedSetThreadAffinityMaskObservation
+                                                        ? snapshotSetThreadAffinityMaskCall(
+                                                            caller,
+                                                            this.returnAddress,
+                                                            this.lastError,
+                                                            this.context,
+                                                            args[0],
+                                                            args[1],
+                                                          )
+                                                        : focusedUnhandledExceptionFilterObservation
+                                                          ? snapshotUnhandledExceptionFilterCall(
+                                                              caller,
+                                                              this
+                                                                .returnAddress,
+                                                              this.lastError,
+                                                              this.context,
+                                                              args[0],
+                                                            )
+                                                          : this
+                                                                .traceMultiByteConversion !==
+                                                              null
+                                                            ? snapshotMultiByteToWideCharCall(
+                                                                caller,
+                                                                this
+                                                                  .returnAddress,
+                                                                this.lastError,
+                                                                this.context,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .codePage,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .flags,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .source,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .sourceBytes,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .destination,
+                                                                this
+                                                                  .traceMultiByteConversion
+                                                                  .destinationUnits,
+                                                              )
+                                                            : this
+                                                                  .traceSetCurrentDirectoryA !==
+                                                                null
+                                                              ? snapshotSetCurrentDirectoryACall(
+                                                                  caller,
+                                                                  this
+                                                                    .returnAddress,
+                                                                  this
+                                                                    .lastError,
+                                                                  this.context,
+                                                                  this
+                                                                    .traceSetCurrentDirectoryA
+                                                                    .path,
+                                                                  this
+                                                                    .traceSetCurrentDirectoryA
+                                                                    .currentDirectoryBefore,
+                                                                )
+                                                              : this
+                                                                    .traceCreateMutexA !==
+                                                                  null
+                                                                ? snapshotCreateMutexACall(
+                                                                    caller,
+                                                                    this
+                                                                      .returnAddress,
+                                                                    this
+                                                                      .lastError,
+                                                                    this
+                                                                      .context,
+                                                                    this
+                                                                      .traceCreateMutexA
+                                                                      .securityAttributes,
+                                                                    this
+                                                                      .traceCreateMutexA
+                                                                      .initialOwner,
+                                                                    this
+                                                                      .traceCreateMutexA
+                                                                      .name,
+                                                                  )
+                                                                : this
+                                                                      .traceMutexLifecycle !==
+                                                                    null
+                                                                  ? {
+                                                                      lastErrorBefore:
+                                                                        Number(
+                                                                          this
+                                                                            .lastError,
+                                                                        ) >>> 0,
+                                                                      mutexLifecycle:
+                                                                        this
+                                                                          .traceMutexLifecycle,
+                                                                    }
+                                                                  : this
+                                                                        .traceGetStringTypeW !==
+                                                                      null
+                                                                    ? snapshotGetStringTypeWCall(
+                                                                        caller,
+                                                                        this
+                                                                          .returnAddress,
+                                                                        this
+                                                                          .lastError,
+                                                                        this
+                                                                          .context,
+                                                                        this
+                                                                          .traceGetStringTypeW
+                                                                          .infoType,
+                                                                        this
+                                                                          .traceGetStringTypeW
+                                                                          .source,
+                                                                        this
+                                                                          .traceGetStringTypeW
+                                                                          .sourceUnits,
+                                                                        this
+                                                                          .traceGetStringTypeW
+                                                                          .output,
+                                                                      )
+                                                                    : this
+                                                                          .traceLCMapStringW !==
+                                                                        null
+                                                                      ? snapshotLCMapStringWCall(
+                                                                          caller,
+                                                                          this
+                                                                            .returnAddress,
+                                                                          this
+                                                                            .lastError,
+                                                                          this
+                                                                            .context,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .locale,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .flags,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .source,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .sourceUnits,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .destination,
+                                                                          this
+                                                                            .traceLCMapStringW
+                                                                            .destinationUnits,
+                                                                        )
+                                                                      : this
+                                                                            .traceInterlockedDecrement !==
+                                                                          null
+                                                                        ? snapshotInterlockedDecrementCall(
+                                                                            caller,
+                                                                            this
+                                                                              .returnAddress,
+                                                                            this
+                                                                              .lastError,
+                                                                            this
+                                                                              .context,
+                                                                            this
+                                                                              .traceInterlockedDecrement
+                                                                              .target,
+                                                                          )
+                                                                        : this
+                                                                              .traceGetModuleFileNameA !==
+                                                                            null
+                                                                          ? snapshotGetModuleFileNameACall(
+                                                                              caller,
+                                                                              this
+                                                                                .returnAddress,
+                                                                              this
+                                                                                .lastError,
+                                                                              this
+                                                                                .context,
+                                                                              this
+                                                                                .traceGetModuleFileNameA
+                                                                                .moduleHandle,
+                                                                              this
+                                                                                .traceGetModuleFileNameA
+                                                                                .output,
+                                                                              this
+                                                                                .traceGetModuleFileNameA
+                                                                                .capacity,
+                                                                            )
+                                                                          : name ===
+                                                                              "GetStartupInfoW"
+                                                                            ? {
+                                                                                startupInfoBefore:
+                                                                                  snapshotStartupInfoW(
+                                                                                    args[0],
+                                                                                  ),
+                                                                              }
+                                                                            : selectedObservations.has(
+                                                                                  "critical-section",
+                                                                                ) &&
+                                                                                name.includes(
+                                                                                  "CriticalSection",
+                                                                                )
+                                                                              ? {
+                                                                                  lastErrorBefore:
+                                                                                    Number(
+                                                                                      this
+                                                                                        .lastError,
+                                                                                    ) >>>
+                                                                                    0,
+                                                                                  criticalSectionBefore:
+                                                                                    snapshotCriticalSection(
+                                                                                      args[0],
+                                                                                    ),
+                                                                                  initializeCriticalSectionConsumer:
+                                                                                    recordsInitializeCriticalSectionConsumer
+                                                                                      ? {
+                                                                                          apiContinuation:
+                                                                                            snapshotInstructions(
+                                                                                              this
+                                                                                                .returnAddress,
+                                                                                              16,
+                                                                                            ),
+                                                                                          frameCallerContinuations:
+                                                                                            snapshotX86FrameCallerContinuations(
+                                                                                              this
+                                                                                                .context,
+                                                                                              4,
+                                                                                              12,
+                                                                                            ),
+                                                                                        }
+                                                                                      : null,
+                                                                                }
+                                                                              : name ===
+                                                                                    "InterlockedIncrement" &&
+                                                                                  selectedObservations.has(
+                                                                                    "interlocked-increment",
+                                                                                  )
+                                                                                ? {
+                                                                                    lastErrorBefore:
+                                                                                      Number(
+                                                                                        this
+                                                                                          .lastError,
+                                                                                      ) >>>
+                                                                                      0,
+                                                                                    interlockedTargetBefore:
+                                                                                      snapshotLong(
+                                                                                        args[0],
+                                                                                      ),
+                                                                                  }
+                                                                                : name ===
+                                                                                      "GetStdHandle" &&
+                                                                                    selectedObservations.has(
+                                                                                      "standard-handle",
+                                                                                    )
+                                                                                  ? {
+                                                                                      lastErrorBefore:
+                                                                                        Number(
+                                                                                          this
+                                                                                            .lastError,
+                                                                                        ) >>>
+                                                                                        0,
+                                                                                    }
+                                                                                  : name ===
+                                                                                        "GetFileType" &&
+                                                                                      selectedObservations.has(
+                                                                                        "file-type",
+                                                                                      )
+                                                                                    ? {
+                                                                                        lastErrorBefore:
+                                                                                          Number(
+                                                                                            this
+                                                                                              .lastError,
+                                                                                          ) >>>
+                                                                                          0,
+                                                                                      }
+                                                                                    : name ===
+                                                                                          "SetHandleCount" &&
+                                                                                        selectedObservations.has(
+                                                                                          "set-handle-count",
+                                                                                        )
+                                                                                      ? {
+                                                                                          lastErrorBefore:
+                                                                                            Number(
+                                                                                              this
+                                                                                                .lastError,
+                                                                                            ) >>>
+                                                                                            0,
+                                                                                        }
+                                                                                      : (name ===
+                                                                                            "GetCommandLineA" ||
+                                                                                            name ===
+                                                                                              "GetCommandLineW") &&
+                                                                                          selectedObservations.has(
+                                                                                            "command-line-a",
+                                                                                          )
+                                                                                        ? {
+                                                                                            lastErrorBefore:
+                                                                                              Number(
+                                                                                                this
+                                                                                                  .lastError,
+                                                                                              ) >>>
+                                                                                              0,
+                                                                                          }
+                                                                                        : (name ===
+                                                                                              "GetEnvironmentStringsW" ||
+                                                                                              name ===
+                                                                                                "FreeEnvironmentStringsW") &&
+                                                                                            selectedObservations.has(
+                                                                                              "environment-strings-w",
+                                                                                            )
+                                                                                          ? {
+                                                                                              lastErrorBefore:
+                                                                                                Number(
+                                                                                                  this
+                                                                                                    .lastError,
+                                                                                                ) >>>
+                                                                                                0,
+                                                                                              ...(name ===
+                                                                                              "FreeEnvironmentStringsW"
+                                                                                                ? {
+                                                                                                    environmentBlockBeforeFree:
+                                                                                                      snapshotUtf16EnvironmentBlock(
+                                                                                                        args[0],
+                                                                                                        readProcessParametersEnvironmentPointer(),
+                                                                                                      ),
+                                                                                                  }
+                                                                                                : {}),
+                                                                                            }
+                                                                                          : this
+                                                                                                .traceWideCharConversion !==
+                                                                                              null
+                                                                                            ? {
+                                                                                                lastErrorBefore:
+                                                                                                  Number(
+                                                                                                    this
+                                                                                                      .lastError,
+                                                                                                  ) >>>
+                                                                                                  0,
+                                                                                                codePage:
+                                                                                                  args[0].toUInt32(),
+                                                                                                flags:
+                                                                                                  args[1].toUInt32(),
+                                                                                                source:
+                                                                                                  snapshotWideCharSource(
+                                                                                                    this
+                                                                                                      .traceWideCharConversion
+                                                                                                      .source,
+                                                                                                    this
+                                                                                                      .traceWideCharConversion
+                                                                                                      .sourceUnits,
+                                                                                                  ),
+                                                                                                destinationBefore:
+                                                                                                  snapshotByteBuffer(
+                                                                                                    this
+                                                                                                      .traceWideCharConversion
+                                                                                                      .destination,
+                                                                                                    Math.max(
+                                                                                                      0,
+                                                                                                      this
+                                                                                                        .traceWideCharConversion
+                                                                                                        .destinationBytes,
+                                                                                                    ),
+                                                                                                  ),
+                                                                                                defaultCharPointer:
+                                                                                                  args[6].toString(),
+                                                                                                usedDefaultCharBefore:
+                                                                                                  snapshotOptionalBool(
+                                                                                                    this
+                                                                                                      .traceWideCharConversion
+                                                                                                      .usedDefaultChar,
+                                                                                                  ),
+                                                                                              }
+                                                                                            : name.startsWith(
+                                                                                                  "Heap",
+                                                                                                ) ||
+                                                                                                name.startsWith(
+                                                                                                  "GetModuleHandle",
+                                                                                                ) ||
+                                                                                                (name.startsWith(
+                                                                                                  "Tls",
+                                                                                                ) &&
+                                                                                                  selectedObservations.has(
+                                                                                                    "tls-lifecycle",
+                                                                                                  )) ||
+                                                                                                (name.startsWith(
+                                                                                                  "Fls",
+                                                                                                ) &&
+                                                                                                  selectedObservations.has(
+                                                                                                    "fls-lifecycle",
+                                                                                                  )) ||
+                                                                                                ((name ===
+                                                                                                  "EncodePointer" ||
+                                                                                                  name ===
+                                                                                                    "DecodePointer") &&
+                                                                                                  selectedObservations.has(
+                                                                                                    "pointer-encoding",
+                                                                                                  )) ||
+                                                                                                (name ===
+                                                                                                  "GetProcAddress" &&
+                                                                                                  selectedObservations.has(
+                                                                                                    "dynamic-export",
+                                                                                                  ))
+                                                                                              ? {
+                                                                                                  lastErrorBefore:
+                                                                                                    Number(
+                                                                                                      this
+                                                                                                        .lastError,
+                                                                                                    ) >>>
+                                                                                                    0,
+                                                                                                }
+                                                                                              : {};
       this.traceStartupInfoPointer =
         name === "GetStartupInfoW" ? args[0] : null;
       this.traceCriticalSectionPointer =
@@ -14616,8 +15117,7 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceTimeGetDevCapsOracle) {
         timeGetDevCapsOracleCall.hookResult = result.toUInt32();
-        timeGetDevCapsOracleCall.hookLastErrorAfter =
-          Number(lastError) >>> 0;
+        timeGetDevCapsOracleCall.hookLastErrorAfter = Number(lastError) >>> 0;
       }
       if (this.traceTimePeriodOracle) {
         timePeriodOracleCall.hookResult = result.toUInt32();
@@ -14625,9 +15125,13 @@ function attachHook(module, name, decoders) {
       }
       if (this.traceComInitializationOracle) {
         comInitializationOracleCall.hookResult = result.toUInt32();
-        comInitializationOracleCall.hookLastErrorAfter = Number(lastError) >>> 0;
+        comInitializationOracleCall.hookLastErrorAfter =
+          Number(lastError) >>> 0;
       }
-      if (this.traceThreadAffinityPrimaryCall === 1 && result.toUInt32() !== 0) {
+      if (
+        this.traceThreadAffinityPrimaryCall === 1 &&
+        result.toUInt32() !== 0
+      ) {
         setThreadAffinityCalibration = {
           active: true,
           startedAtMs: Date.now(),
@@ -14660,7 +15164,10 @@ function attachHook(module, name, decoders) {
               calibration.firstValue === null || calibration.lastValue === null
                 ? null
                 : (calibration.lastValue - calibration.firstValue) >>> 0,
-            observedDurationMs: Math.max(0, Date.now() - calibration.startedAtMs),
+            observedDurationMs: Math.max(
+              0,
+              Date.now() - calibration.startedAtMs,
+            ),
             firstSamples: calibration.firstSamples,
             lastSamples: calibration.lastSamples,
           });
@@ -14769,14 +15276,18 @@ function attachHook(module, name, decoders) {
         ...(this.traceInterlockedPointer === null
           ? {}
           : {
-              interlockedTargetAfter: snapshotLong(this.traceInterlockedPointer),
+              interlockedTargetAfter: snapshotLong(
+                this.traceInterlockedPointer,
+              ),
             }),
         ...(this.traceInterlockedDecrement === null
           ? {}
           : {
               interlockedDecrement: {
                 result: signed32(result),
-                targetAfter: snapshotLong(this.traceInterlockedDecrement.target),
+                targetAfter: snapshotLong(
+                  this.traceInterlockedDecrement.target,
+                ),
               },
             }),
         ...(this.traceGetModuleFileNameA === null
@@ -14790,7 +15301,8 @@ function attachHook(module, name, decoders) {
                 ),
               },
             }),
-        ...(name === "SetLastError" && selectedObservations.has("set-last-error")
+        ...(name === "SetLastError" &&
+        selectedObservations.has("set-last-error")
           ? { eaxAfter: result.toUInt32() }
           : {}),
         ...((name === "GetCommandLineA" || name === "GetCommandLineW") &&
@@ -14820,7 +15332,10 @@ function attachHook(module, name, decoders) {
                   this.traceWideCharConversion.destination,
                   wideCharResult > 0
                     ? wideCharResult
-                    : Math.max(0, this.traceWideCharConversion.destinationBytes),
+                    : Math.max(
+                        0,
+                        this.traceWideCharConversion.destinationBytes,
+                      ),
                 ),
                 usedDefaultCharAfter: snapshotOptionalBool(
                   this.traceWideCharConversion.usedDefaultChar,
@@ -14836,7 +15351,10 @@ function attachHook(module, name, decoders) {
                   this.traceMultiByteConversion.destination,
                   multiByteResult > 0
                     ? multiByteResult
-                    : Math.max(0, this.traceMultiByteConversion.destinationUnits),
+                    : Math.max(
+                        0,
+                        this.traceMultiByteConversion.destinationUnits,
+                      ),
                 ),
               },
             }),
@@ -14875,8 +15393,10 @@ function attachHook(module, name, decoders) {
                       );
                       const transferredBytes = bytesReadAfter.value ?? 0;
                       return {
-                        requestedBytes: this.traceSourceFileOperation.requestedBytes,
-                        bytesReadBefore: this.traceSourceFileOperation.bytesReadBefore,
+                        requestedBytes:
+                          this.traceSourceFileOperation.requestedBytes,
+                        bytesReadBefore:
+                          this.traceSourceFileOperation.bytesReadBefore,
                         bytesReadAfter,
                         overlapped: this.traceSourceFileOperation.overlapped,
                         outputAfter: snapshotByteBuffer(
@@ -14888,7 +15408,8 @@ function attachHook(module, name, decoders) {
                   : {}),
                 ...(this.traceSourceFileOperation.api === "WriteFile"
                   ? {
-                      requestedBytes: this.traceSourceFileOperation.requestedBytes,
+                      requestedBytes:
+                        this.traceSourceFileOperation.requestedBytes,
                       bytesWrittenBefore:
                         this.traceSourceFileOperation.bytesWrittenBefore,
                       bytesWrittenAfter: snapshotOptionalU32(
@@ -14911,7 +15432,8 @@ function attachHook(module, name, decoders) {
                   : {}),
                 ...(this.traceSourceFileOperation.api === "GetFileSize"
                   ? {
-                      sizeHighBefore: this.traceSourceFileOperation.sizeHighBefore,
+                      sizeHighBefore:
+                        this.traceSourceFileOperation.sizeHighBefore,
                       sizeHighAfter: snapshotOptionalU32(
                         this.traceSourceFileOperation.sizeHigh,
                       ),
@@ -15070,8 +15592,7 @@ function attachHook(module, name, decoders) {
           : {
               comInitialization: {
                 ...this.traceComInitialization,
-                result:
-                  name === "CoUninitialize" ? null : result.toUInt32(),
+                result: name === "CoUninitialize" ? null : result.toUInt32(),
                 signedResult:
                   name === "CoUninitialize" ? null : signed32(result),
               },
@@ -15158,7 +15679,9 @@ function attachHook(module, name, decoders) {
         } else if (focusedDsoundCreateBufferObservation) {
           setImmediate(maybeCompleteFocusedDsoundCreateBufferObservation);
         } else {
-          setImmediate(maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation);
+          setImmediate(
+            maybeCompleteFocusedDsoundBufferLockUnlockPlayObservation,
+          );
         }
       }
       if (
@@ -15310,10 +15833,7 @@ function attachHook(module, name, decoders) {
           });
         }
       }
-      if (
-        this.traceDriveType !== null &&
-        this.traceDriveTypeMainModuleCaller
-      ) {
+      if (this.traceDriveType !== null && this.traceDriveTypeMainModuleCaller) {
         driveTypeMainModuleCallCount += 1;
         if (
           !driveTypeScanCompletionRecorded &&
@@ -15426,7 +15946,9 @@ function scheduleSetCurrentDirectoryAOracle(module) {
         originalBytes.length < 2 ||
         originalBytes.at(-1) !== 0
       ) {
-        throw new Error("current-directory oracle could not snapshot its original path");
+        throw new Error(
+          "current-directory oracle could not snapshot its original path",
+        );
       }
 
       const allocatePath = (bytes) => {
@@ -15448,7 +15970,9 @@ function scheduleSetCurrentDirectoryAOracle(module) {
             setCurrentDirectoryOracleResult === null ||
             setCurrentDirectoryOracleLastError === null
           ) {
-            throw new Error(`${id} did not pass through the current-directory hook`);
+            throw new Error(
+              `${id} did not pass through the current-directory hook`,
+            );
           }
           return {
             record: {
@@ -15472,7 +15996,8 @@ function scheduleSetCurrentDirectoryAOracle(module) {
 
       const parent = invoke("relative-parent", 87, [0x2e, 0x2e, 0]);
       parent.pointer.writeByteArray([0x58, 0x58, 0]);
-      const currentDirectoryAfterInputMutation = snapshotCurrentDirectoryA(module);
+      const currentDirectoryAfterInputMutation =
+        snapshotCurrentDirectoryA(module);
       const self = invoke("relative-self", 88, [0x2e, 0]);
 
       const originalWithoutNul = originalBytes.slice(0, -1);
@@ -15489,9 +16014,10 @@ function scheduleSetCurrentDirectoryAOracle(module) {
       const missingPathBytes = [
         ...originalWithoutNul,
         ...separator,
-        ..."__vine_missing_current_directory_oracle_31__"].map((value) =>
-          typeof value === "number" ? value : value.charCodeAt(0),
-        );
+        ..."__vine_missing_current_directory_oracle_31__",
+      ].map((value) =>
+        typeof value === "number" ? value : value.charCodeAt(0),
+      );
       missingPathBytes.push(0);
       const file = invoke("existing-file-not-directory", 89, filePathBytes);
       const missing = invoke("missing-directory", 90, missingPathBytes);
@@ -15523,7 +16049,11 @@ function scheduleSetCurrentDirectoryAOracle(module) {
       setCurrentDirectoryOracleSentinel = null;
       setCurrentDirectoryOracleResult = null;
       setCurrentDirectoryOracleLastError = null;
-      if (!restored && setCurrentDirectoryA !== null && originalPointer !== null) {
+      if (
+        !restored &&
+        setCurrentDirectoryA !== null &&
+        originalPointer !== null
+      ) {
         try {
           setCurrentDirectoryA(originalPointer);
         } catch (error) {
@@ -15576,9 +16106,9 @@ function scheduleCreateMutexAOracle(module) {
         ["pointer"],
         "stdcall",
       );
-      const nameBytes = [
-        ...`Local\\VineCreateMutexAOracle-${Process.id}`,
-      ].map((character) => character.charCodeAt(0));
+      const nameBytes = [...`Local\\VineCreateMutexAOracle-${Process.id}`].map(
+        (character) => character.charCodeAt(0),
+      );
       nameBytes.push(0);
       const allocateName = () => {
         const pointer = Memory.alloc(nameBytes.length);
@@ -15765,7 +16295,8 @@ function scheduleCreateMutexAOracle(module) {
         relations: {
           nameCopiedBeforeCallerMutation: duplicate.systemLastError === 183,
           sameObjectReturnedThroughDistinctHandles:
-            duplicate.systemLastError === 183 && first.result !== duplicate.result,
+            duplicate.systemLastError === 183 &&
+            first.result !== duplicate.result,
           newObjectClearsLastError:
             first.systemLastError === 0 && recreated.systemLastError === 0,
           initialOwnerGrantedAndExistingInitialOwnerIgnored:
@@ -15846,13 +16377,17 @@ function scheduleCommandLineOracle(module) {
         profile: "x86-process-lifetime-stability-v1",
         observations,
         ansiPointerStable:
-          observations[0].commandLine.pointer === observations[1].commandLine.pointer,
+          observations[0].commandLine.pointer ===
+          observations[1].commandLine.pointer,
         utf16PointerStable:
-          observations[2].commandLine.pointer === observations[3].commandLine.pointer,
+          observations[2].commandLine.pointer ===
+          observations[3].commandLine.pointer,
         ansiAndUtf16PointersDistinct:
-          observations[0].commandLine.pointer !== observations[2].commandLine.pointer,
+          observations[0].commandLine.pointer !==
+          observations[2].commandLine.pointer,
         stringsEqual:
-          observations[0].commandLine.string === observations[2].commandLine.string,
+          observations[0].commandLine.string ===
+          observations[2].commandLine.string,
       });
     } catch (error) {
       emit("command-line-oracle-error", { error: error.message });
@@ -15886,7 +16421,8 @@ function scheduleEnvironmentStringsOracle(module) {
         ["pointer"],
         "stdcall",
       );
-      const processEnvironmentPointer = readProcessParametersEnvironmentPointer();
+      const processEnvironmentPointer =
+        readProcessParametersEnvironmentPointer();
       const invoke = (step, sentinel, operation) => {
         environmentStringsOracleSentinel = sentinel;
         environmentStringsOracleLastError = null;
@@ -15894,7 +16430,9 @@ function scheduleEnvironmentStringsOracle(module) {
           const result = operation();
           const lastErrorAfter = environmentStringsOracleLastError;
           if (lastErrorAfter === null) {
-            throw new Error(`${step} did not pass through the environment hook`);
+            throw new Error(
+              `${step} did not pass through the environment hook`,
+            );
           }
           return { result, lastErrorAfter };
         } finally {
@@ -15903,7 +16441,9 @@ function scheduleEnvironmentStringsOracle(module) {
         }
       };
       const acquire = (sentinel) => {
-        const outcome = invoke("acquire", sentinel, () => getEnvironmentStringsW());
+        const outcome = invoke("acquire", sentinel, () =>
+          getEnvironmentStringsW(),
+        );
         return {
           sentinel,
           lastErrorAfter: outcome.lastErrorAfter,
@@ -15939,7 +16479,8 @@ function scheduleEnvironmentStringsOracle(module) {
         contentShapesEqual:
           acquisitions[0].block.byteLengthWithDoubleNul ===
             acquisitions[1].block.byteLengthWithDoubleNul &&
-          acquisitions[0].block.entryCount === acquisitions[1].block.entryCount &&
+          acquisitions[0].block.entryCount ===
+            acquisitions[1].block.entryCount &&
           acquisitions[0].block.contentFnv1a32 ===
             acquisitions[1].block.contentFnv1a32,
       });
@@ -16005,7 +16546,9 @@ function scheduleWideCharOracle(module) {
           destination.writeByteArray(Array(destinationBytes).fill(0xa5));
         }
         const defaultChar =
-          defaultCharBytes === null ? ptr(0) : Memory.alloc(defaultCharBytes.length);
+          defaultCharBytes === null
+            ? ptr(0)
+            : Memory.alloc(defaultCharBytes.length);
         if (!defaultChar.isNull()) {
           defaultChar.writeByteArray(defaultCharBytes);
         }
@@ -16043,8 +16586,14 @@ function scheduleWideCharOracle(module) {
             lastErrorAfter: wideCharOracleLastError,
             destinationBytes: destination.isNull()
               ? null
-              : [...new Uint8Array(destination.readByteArray(destinationBytes))],
-            usedDefaultChar: usedDefault.isNull() ? null : usedDefault.readU32(),
+              : [
+                  ...new Uint8Array(
+                    destination.readByteArray(destinationBytes),
+                  ),
+                ],
+            usedDefaultChar: usedDefault.isNull()
+              ? null
+              : usedDefault.readU32(),
           };
         } finally {
           wideCharOracleSentinel = null;
@@ -16330,19 +16879,16 @@ function scheduleGetStringTypeOracle(module) {
         getStringTypeOracleResult = null;
         getStringTypeOracleLastError = null;
         try {
-          const outcome = getStringTypeW(
-            infoType,
-            source,
-            sourceCount,
-            output,
-          );
+          const outcome = getStringTypeW(infoType, source, sourceCount, output);
           const result = Number(outcome.value) >>> 0;
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (
             getStringTypeOracleResult === null ||
             getStringTypeOracleLastError === null
           ) {
-            throw new Error(`${id} did not pass through the classification hook`);
+            throw new Error(
+              `${id} did not pass through the classification hook`,
+            );
           }
           return {
             id,
@@ -16376,40 +16922,10 @@ function scheduleGetStringTypeOracle(module) {
       };
 
       const representativeWords = [
-        0x0000,
-        0x0009,
-        0x000a,
-        0x000d,
-        0x0020,
-        0x0021,
-        0x002b,
-        0x002c,
-        0x002e,
-        0x0030,
-        0x0039,
-        0x0041,
-        0x005a,
-        0x005f,
-        0x0061,
-        0x007a,
-        0x007f,
-        0x0080,
-        0x00a0,
-        0x00a5,
-        0x3000,
-        0x3042,
-        0x30a2,
-        0x30fb,
-        0x4e00,
-        0xff01,
-        0xff10,
-        0xff21,
-        0xff41,
-        0xff61,
-        0xff66,
-        0xff71,
-        0xff9e,
-        0xf8f0,
+        0x0000, 0x0009, 0x000a, 0x000d, 0x0020, 0x0021, 0x002b, 0x002c, 0x002e,
+        0x0030, 0x0039, 0x0041, 0x005a, 0x005f, 0x0061, 0x007a, 0x007f, 0x0080,
+        0x00a0, 0x00a5, 0x3000, 0x3042, 0x30a2, 0x30fb, 0x4e00, 0xff01, 0xff10,
+        0xff21, 0xff41, 0xff61, 0xff66, 0xff71, 0xff9e, 0xf8f0,
       ];
       const calls = [0, 87, 0x12345678].map((sentinel, index) =>
         invoke({
@@ -16501,15 +17017,14 @@ function scheduleLCMapStringOracle(module) {
             Array(guardBytes + destinationCapacity * 2 + guardBytes).fill(0xa5),
           );
         }
-        const destination =
-          storage === null ? ptr(0) : storage.add(guardBytes);
+        const destination = storage === null ? ptr(0) : storage.add(guardBytes);
         const trailingGuard =
-          storage === null
-            ? null
-            : destination.add(destinationCapacity * 2);
+          storage === null ? null : destination.add(destinationCapacity * 2);
         const sourceBefore = snapshotWideCharBuffer(source, sourceWords.length);
         const leadingGuardBefore =
-          storage === null ? null : snapshotBoundedRawBytes(storage, guardBytes);
+          storage === null
+            ? null
+            : snapshotBoundedRawBytes(storage, guardBytes);
         const destinationBefore = snapshotWideCharBuffer(
           destination,
           destinationCapacity,
@@ -16577,13 +17092,7 @@ function scheduleLCMapStringOracle(module) {
       };
 
       const representativeWords = [
-        0x0041,
-        0x005a,
-        0x0061,
-        0x3042,
-        0x30a2,
-        0xff21,
-        0xff41,
+        0x0041, 0x005a, 0x0061, 0x3042, 0x30a2, 0xff21, 0xff41,
       ];
       const calls = [
         invoke({
@@ -16759,13 +17268,16 @@ function scheduleGetModuleFileNameAOracle(module) {
           ? null
           : Memory.alloc(guardBytes + capacity + guardBytes);
         if (storage !== null) {
-          storage.writeByteArray(Array(guardBytes + capacity + guardBytes).fill(0xa5));
+          storage.writeByteArray(
+            Array(guardBytes + capacity + guardBytes).fill(0xa5),
+          );
         }
         const output = storage === null ? ptr(0) : storage.add(guardBytes);
-        const trailingGuard =
-          storage === null ? null : output.add(capacity);
+        const trailingGuard = storage === null ? null : output.add(capacity);
         const leadingGuardBefore =
-          storage === null ? null : snapshotBoundedRawBytes(storage, guardBytes);
+          storage === null
+            ? null
+            : snapshotBoundedRawBytes(storage, guardBytes);
         const outputBefore = snapshotAnsiOutputBuffer(output, capacity);
         const trailingGuardBefore =
           trailingGuard === null
@@ -16782,7 +17294,9 @@ function scheduleGetModuleFileNameAOracle(module) {
             getModuleFileNameAOracleResult === null ||
             getModuleFileNameAOracleLastError === null
           ) {
-            throw new Error(`${id} did not pass through the module-file-name hook`);
+            throw new Error(
+              `${id} did not pass through the module-file-name hook`,
+            );
           }
           return {
             id,
@@ -16820,7 +17334,9 @@ function scheduleGetModuleFileNameAOracle(module) {
         capacity: 1024,
       });
       if (generous.result === 0 || generous.result >= 1024) {
-        throw new Error("main-module generous query did not return a bounded path");
+        throw new Error(
+          "main-module generous query did not return a bounded path",
+        );
       }
       const calls = [
         generous,
@@ -16889,12 +17405,7 @@ function scheduleGetLastErrorOracle(module) {
       if (address === null) {
         throw new Error("GetLastError export is unavailable");
       }
-      const getLastError = new NativeFunction(
-        address,
-        "uint32",
-        [],
-        "stdcall",
-      );
+      const getLastError = new NativeFunction(address, "uint32", [], "stdcall");
       const invoke = (sentinel) => {
         getLastErrorOracleSentinel = sentinel;
         getLastErrorOracleResult = null;
@@ -16905,7 +17416,9 @@ function scheduleGetLastErrorOracle(module) {
             getLastErrorOracleResult === null ||
             getLastErrorOracleLastError === null
           ) {
-            throw new Error("GetLastError oracle did not pass through the hook");
+            throw new Error(
+              "GetLastError oracle did not pass through the hook",
+            );
           }
           return {
             sentinel,
@@ -16971,14 +17484,17 @@ function scheduleSetLastErrorOracle(module) {
             setLastErrorOracleEaxAfter === null ||
             setLastErrorOracleLastErrorAfter === null
           ) {
-            throw new Error("SetLastError oracle did not pass through the hook");
+            throw new Error(
+              "SetLastError oracle did not pass through the hook",
+            );
           }
           return {
             sentinel,
             hookArgument: setLastErrorOracleArgument,
             eaxBefore: setLastErrorOracleEaxBefore,
             eaxAfter: setLastErrorOracleEaxAfter,
-            preservesEax: setLastErrorOracleEaxAfter === setLastErrorOracleEaxBefore,
+            preservesEax:
+              setLastErrorOracleEaxAfter === setLastErrorOracleEaxBefore,
             hookLastErrorAfter: setLastErrorOracleLastErrorAfter,
             systemLastError,
             argumentMatches: setLastErrorOracleArgument === sentinel,
@@ -17151,7 +17667,10 @@ function scheduleDriveTypeOracle(module) {
   setImmediate(() => {
     try {
       const driveTypeAddress = findExport(module, "GetDriveTypeA");
-      const currentDirectoryAddress = findExport(module, "GetCurrentDirectoryA");
+      const currentDirectoryAddress = findExport(
+        module,
+        "GetCurrentDirectoryA",
+      );
       if (driveTypeAddress === null || currentDirectoryAddress === null) {
         throw new Error("drive-type oracle exports are unavailable");
       }
@@ -17203,7 +17722,9 @@ function scheduleDriveTypeOracle(module) {
             driveTypeOracleResult === null ||
             driveTypeOracleLastError === null
           ) {
-            throw new Error("GetDriveTypeA oracle did not pass through the hook");
+            throw new Error(
+              "GetDriveTypeA oracle did not pass through the hook",
+            );
           }
           return {
             id,
@@ -17271,7 +17792,9 @@ function scheduleSwapMouseButtonStateObserver(module) {
       const swapAddress = findExport(module, "SwapMouseButton");
       const metricsAddress = findExport(module, "GetSystemMetrics");
       if (swapAddress === null || metricsAddress === null) {
-        throw new Error("SwapMouseButton state-observer exports are unavailable");
+        throw new Error(
+          "SwapMouseButton state-observer exports are unavailable",
+        );
       }
       swapMouseButtonGetSystemMetrics = new NativeFunction(
         metricsAddress,
@@ -17303,7 +17826,9 @@ function completeSwapMouseButtonObservation(calls) {
       swapMouseButtonGetSystemMetrics === null ||
       swapMouseButtonRestore === null
     ) {
-      throw new Error("SwapMouseButton initial state was not captured before the BGI call");
+      throw new Error(
+        "SwapMouseButton initial state was not captured before the BGI call",
+      );
     }
     if (calls.length !== 2) {
       throw new Error("SwapMouseButton completion requires the two BGI calls");
@@ -17349,9 +17874,7 @@ function maybeCompleteTimeGetDevCapsObservation() {
     timeGetDevCapsCompletionRecorded ||
     !timeGetDevCapsOracleComplete ||
     timeGetDevCapsMainModuleCalls.length === 0 ||
-    !timePeriodMainModuleCalls.some(
-      (call) => call.api === "timeBeginPeriod",
-    )
+    !timePeriodMainModuleCalls.some((call) => call.api === "timeBeginPeriod")
   ) {
     return;
   }
@@ -17369,10 +17892,7 @@ function maybeCompleteTimeGetDevCapsObservation() {
     if (timeGetDevCapsCompletionRecorded) {
       return;
     }
-    if (
-      activeCallsByThread.size !== 0 ||
-      nextCallId !== expectedNextCallId
-    ) {
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
       maybeCompleteTimeGetDevCapsObservation();
       return;
     }
@@ -17626,13 +18146,14 @@ function scheduleQueryPerformanceCounterOracle(module) {
         }
       };
       const calls = [0, 87, 0x12345678, 0x87654321].map(invoke);
-      const deltas = calls.slice(1).map(
-        (call, index) =>
+      const deltas = calls
+        .slice(1)
+        .map((call, index) =>
           Number(
             BigInt(call.outputAfter.value) -
               BigInt(calls[index].outputAfter.value),
           ),
-      );
+        );
       queryPerformanceCounterOracleEvidence = {
         profile: "x86-monotonic-performance-counter-v1",
         calls,
@@ -17649,8 +18170,7 @@ function scheduleQueryPerformanceCounterOracle(module) {
             call.hookPreservesLastError && call.systemPreservesLastError,
         ),
         allGuardsUnchanged: calls.every(
-          (call) =>
-            call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+          (call) => call.prefixGuardUnchanged && call.suffixGuardUnchanged,
         ),
       };
       queryPerformanceCounterOracleComplete = true;
@@ -17871,8 +18391,7 @@ function scheduleQueryPerformanceFrequencyOracle(module) {
             call.hookPreservesLastError && call.systemPreservesLastError,
         ),
         allGuardsUnchanged: calls.every(
-          (call) =>
-            call.prefixGuardUnchanged && call.suffixGuardUnchanged,
+          (call) => call.prefixGuardUnchanged && call.suffixGuardUnchanged,
         ),
       };
       queryPerformanceFrequencyOracleComplete = true;
@@ -18119,7 +18638,9 @@ function scheduleTimeGetDevCapsOracle(module) {
             timeGetDevCapsOracleCall.hookResult === null ||
             timeGetDevCapsOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("timeGetDevCaps oracle did not pass through the hook");
+            throw new Error(
+              "timeGetDevCaps oracle did not pass through the hook",
+            );
           }
           const storageAfter = snapshotBoundedRawBytes(storage, storageBytes);
           const beforeBytes = storageBefore.bytes ?? [];
@@ -18134,8 +18655,7 @@ function scheduleTimeGetDevCapsOracle(module) {
           const changedOutputOffsets = changedStorageOffsets
             .filter(
               (offset) =>
-                offset >= guardBytes &&
-                offset < guardBytes + outputCapacity,
+                offset >= guardBytes && offset < guardBytes + outputCapacity,
             )
             .map((offset) => offset - guardBytes);
           return {
@@ -18143,8 +18663,7 @@ function scheduleTimeGetDevCapsOracle(module) {
             sentinel,
             hookResult: timeGetDevCapsOracleCall.hookResult,
             systemResult,
-            hookLastErrorAfter:
-              timeGetDevCapsOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: timeGetDevCapsOracleCall.hookLastErrorAfter,
             systemLastError,
             storageOffset: guardBytes,
             outputCapacity,
@@ -18155,9 +18674,7 @@ function scheduleTimeGetDevCapsOracle(module) {
             changedOutputOffsets,
             prefixGuardUnchanged:
               afterBytes.length === storageBytes &&
-              afterBytes
-                .slice(0, guardBytes)
-                .every((value) => value === 0xa5),
+              afterBytes.slice(0, guardBytes).every((value) => value === 0xa5),
             suffixGuardUnchanged:
               afterBytes.length === storageBytes &&
               afterBytes
@@ -18190,7 +18707,9 @@ function scheduleTimeGetDevCapsOracle(module) {
       const successfulCalls = calls.filter((call) => call.size >= 8);
       const referenceFields = successfulCalls[0]?.outputAfter.fields ?? null;
       if (referenceFields === null) {
-        throw new Error("timeGetDevCaps oracle did not produce timer capabilities");
+        throw new Error(
+          "timeGetDevCaps oracle did not produce timer capabilities",
+        );
       }
       const beginAddress = findExport(module, "timeBeginPeriod");
       const endAddress = findExport(module, "timeEndPeriod");
@@ -18251,7 +18770,11 @@ function scheduleTimeGetDevCapsOracle(module) {
       const differentValid = minimum < maximum ? minimum + 1 : minimum;
       const aboveMaximum = maximum === 0xffff_ffff ? maximum : maximum + 1;
       const periodCalls = [
-        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x01020304 },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0x01020304,
+        },
         { api: "timeBeginPeriod", periodMilliseconds: 0, sentinel: 0x11121314 },
         { api: "timeEndPeriod", periodMilliseconds: 0, sentinel: 0x21222324 },
         {
@@ -18264,22 +18787,66 @@ function scheduleTimeGetDevCapsOracle(module) {
           periodMilliseconds: aboveMaximum,
           sentinel: 0x41424344,
         },
-        { api: "timeBeginPeriod", periodMilliseconds: differentValid, sentinel: 0x45464748 },
-        { api: "timeEndPeriod", periodMilliseconds: differentValid, sentinel: 0x494a4b4c },
-        { api: "timeBeginPeriod", periodMilliseconds: 0xffff_ffff, sentinel: 0x4d4e4f50 },
-        { api: "timeEndPeriod", periodMilliseconds: 0xffff_ffff, sentinel: 0x55565758 },
-        { api: "timeBeginPeriod", periodMilliseconds: minimum, sentinel: 0x51525354 },
-        { api: "timeBeginPeriod", periodMilliseconds: minimum, sentinel: 0x61626364 },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: differentValid,
+          sentinel: 0x45464748,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: differentValid,
+          sentinel: 0x494a4b4c,
+        },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: 0xffff_ffff,
+          sentinel: 0x4d4e4f50,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: 0xffff_ffff,
+          sentinel: 0x55565758,
+        },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0x51525354,
+        },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0x61626364,
+        },
         {
           api: "timeEndPeriod",
           periodMilliseconds: differentValid,
           sentinel: 0x71727374,
         },
-        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x81828384 },
-        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0x91929394 },
-        { api: "timeEndPeriod", periodMilliseconds: minimum, sentinel: 0xa1a2a3a4 },
-        { api: "timeBeginPeriod", periodMilliseconds: maximum, sentinel: 0xb1b2b3b4 },
-        { api: "timeEndPeriod", periodMilliseconds: maximum, sentinel: 0xc1c2c3c4 },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0x81828384,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0x91929394,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: minimum,
+          sentinel: 0xa1a2a3a4,
+        },
+        {
+          api: "timeBeginPeriod",
+          periodMilliseconds: maximum,
+          sentinel: 0xb1b2b3b4,
+        },
+        {
+          api: "timeEndPeriod",
+          periodMilliseconds: maximum,
+          sentinel: 0xc1c2c3c4,
+        },
       ].map(invokePeriod);
       timePeriodOracleEvidence = {
         profile: "x86-time-period-range-and-pairing-v1",
@@ -18288,7 +18855,9 @@ function scheduleTimeGetDevCapsOracle(module) {
         differentValidPeriodMilliseconds: differentValid,
         aboveMaximumPeriodMilliseconds: aboveMaximum,
         calls: periodCalls,
-        allResultsMatchHooks: periodCalls.every((call) => call.hookResultMatches),
+        allResultsMatchHooks: periodCalls.every(
+          (call) => call.hookResultMatches,
+        ),
         allPreserveLastError: periodCalls.every(
           (call) =>
             call.hookPreservesLastError && call.systemPreservesLastError,
@@ -18388,7 +18957,11 @@ function scheduleCreateWaitableTimerAOracle(module) {
       const createAddress = findExport(module, "CreateWaitableTimerA");
       const waitAddress = findExport(module, "WaitForSingleObject");
       const closeAddress = findExport(module, "CloseHandle");
-      if (createAddress === null || waitAddress === null || closeAddress === null) {
+      if (
+        createAddress === null ||
+        waitAddress === null ||
+        closeAddress === null
+      ) {
         throw new Error("waitable timer oracle exports are unavailable");
       }
       const createWaitableTimerA = new SystemFunction(
@@ -18620,8 +19193,7 @@ function scheduleSetWaitableTimerOracle(module) {
             setResult: Number(setOutcome.value) >>> 0,
             systemLastError: Number(setOutcome.lastError) >>> 0,
             hookResult: setWaitableTimerOracleCall.hookResult,
-            hookLastErrorAfter:
-              setWaitableTimerOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: setWaitableTimerOracleCall.hookLastErrorAfter,
             firstWaitResult: Number(firstWait.value) >>> 0,
             secondWaitResult: Number(secondWait.value) >>> 0,
             closeResult: Number(closeHandle(handle).value) >>> 0,
@@ -18713,10 +19285,7 @@ function maybeCompleteWaitForSingleObjectExObservation() {
     if (waitForSingleObjectExCompletionRecorded) {
       return;
     }
-    if (
-      activeCallsByThread.size !== 0 ||
-      nextCallId !== expectedNextCallId
-    ) {
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
       maybeCompleteWaitForSingleObjectExObservation();
       return;
     }
@@ -18835,12 +19404,7 @@ function scheduleWaitForSingleObjectExOracle(module) {
           "wait for single object ex oracle could not create a timeout timer",
         );
       }
-      const timeoutWait = invokeWait(
-        nonsignaledTimer,
-        0,
-        true,
-        0x33445566,
-      );
+      const timeoutWait = invokeWait(nonsignaledTimer, 0, true, 0x33445566);
       const nonsignaledCloseResult =
         Number(closeHandle(nonsignaledTimer).value) >>> 0;
       const invalidWait = invokeWait(ptr(0x1234), 10, true, 0x44556677);
@@ -18870,8 +19434,12 @@ function scheduleWaitForSingleObjectExOracle(module) {
           armedWait.systemLastError === armedWait.sentinel &&
           repeatedWait.systemLastError === repeatedWait.sentinel &&
           timeoutWait.systemLastError === timeoutWait.sentinel,
-        allResultsMatchHooks: [armedWait, repeatedWait, timeoutWait, invalidWait]
-          .every((call) => call.hookResult === call.result),
+        allResultsMatchHooks: [
+          armedWait,
+          repeatedWait,
+          timeoutWait,
+          invalidWait,
+        ].every((call) => call.hookResult === call.result),
         allLastErrorsMatchHooks: [
           armedWait,
           repeatedWait,
@@ -18980,23 +19548,29 @@ function maybeCompleteSendMessageAObservation() {
 }
 
 function maybeCompleteSetWindowPosObservation() {
+  const frameChangeMoveObservation = selectedObservations.has(
+    "set-window-pos-frame-change-move",
+  );
   const resizeObservation = selectedObservations.has("set-window-pos-resize");
   const sizeObservation =
     selectedObservations.has("set-window-pos-size") || resizeObservation;
-  const selectedSizeObservation = resizeObservation
-    ? "set-window-pos-resize"
-    : "set-window-pos-size";
-  const selectedMainCalls = sizeObservation
+  const stateObservation = sizeObservation || frameChangeMoveObservation;
+  const selectedStateObservation = frameChangeMoveObservation
+    ? "set-window-pos-frame-change-move"
+    : resizeObservation
+      ? "set-window-pos-resize"
+      : "set-window-pos-size";
+  const selectedMainCalls = stateObservation
     ? setWindowPosMainModuleCalls.filter(
-        (call) => call.observation === selectedSizeObservation,
+        (call) => call.observation === selectedStateObservation,
       )
     : setWindowPosMainModuleCalls.filter(
         (call) => call.observation === "set-window-pos",
       );
   if (
     setWindowPosCompletionRecorded ||
-    (sizeObservation
-      ? selectedMainCalls.length === 0 || !setWindowPosSizeOracleComplete
+    (stateObservation
+      ? selectedMainCalls.length === 0 || !setWindowPosStateOracleComplete
       : selectedMainCalls.length < 2)
   ) {
     return;
@@ -19007,30 +19581,36 @@ function maybeCompleteSetWindowPosObservation() {
   }
   setWindowPosCompletionRecorded = true;
   const selectedCallIds = new Set(selectedMainCalls.map((call) => call.callId));
-  const completionKind = resizeObservation
-    ? "set-window-pos-resize-complete"
-    : sizeObservation
-      ? "set-window-pos-size-complete"
-      : "set-window-pos-complete";
-  emit(completionKind, {
-    profile: resizeObservation
-      ? "x86-bgi-first-set-window-pos-resize-v1"
+  const completionKind = frameChangeMoveObservation
+    ? "set-window-pos-frame-change-move-complete"
+    : resizeObservation
+      ? "set-window-pos-resize-complete"
       : sizeObservation
-        ? "x86-bgi-first-set-window-pos-size-v1"
-        : "x86-bgi-set-window-pos-initial-placement-v1",
+        ? "set-window-pos-size-complete"
+        : "set-window-pos-complete";
+  emit(completionKind, {
+    profile: frameChangeMoveObservation
+      ? "x86-bgi-set-window-pos-frame-change-move-v1"
+      : resizeObservation
+        ? "x86-bgi-first-set-window-pos-resize-v1"
+        : sizeObservation
+          ? "x86-bgi-first-set-window-pos-size-v1"
+          : "x86-bgi-set-window-pos-initial-placement-v1",
     quiescenceMilliseconds: 0,
     mainModuleCalls: selectedMainCalls.map((call) => ({ ...call })),
     windowProcedureCalls: setWindowPosWindowProcedureCalls
       .filter(
-        (call) => !sizeObservation || selectedCallIds.has(call.setWindowPosCallId),
+        (call) =>
+          !stateObservation || selectedCallIds.has(call.setWindowPosCallId),
       )
       .map((call) => ({ ...call })),
     defaultProcedureCalls: setWindowPosDefaultProcedureCalls
       .filter(
-        (call) => !sizeObservation || selectedCallIds.has(call.setWindowPosCallId),
+        (call) =>
+          !stateObservation || selectedCallIds.has(call.setWindowPosCallId),
       )
       .map((call) => ({ ...call })),
-    ...(sizeObservation ? { oracle: setWindowPosSizeOracleEvidence } : {}),
+    ...(stateObservation ? { oracle: setWindowPosStateOracleEvidence } : {}),
   });
   if (stopOnEvent === completionKind) {
     recv("vine-trace-stop", () => {}).wait();
@@ -19212,10 +19792,7 @@ function scheduleLoadIconAOracle(module) {
           hookLastErrorAfter: null,
         };
         try {
-          const outcome = loadIconA(
-            Process.mainModule.base,
-            ptr(resourceId),
-          );
+          const outcome = loadIconA(Process.mainModule.base, ptr(resourceId));
           const handle = outcome.value;
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (
@@ -19846,14 +20423,12 @@ function scheduleGetSystemMetricsOracle(module) {
             sentinel,
             hookResult: getSystemMetricsOracleCall.hookResult,
             systemResult,
-            hookLastErrorAfter:
-              getSystemMetricsOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: getSystemMetricsOracleCall.hookLastErrorAfter,
             systemLastError,
             hookResultMatches:
               getSystemMetricsOracleCall.hookResult === systemResult,
             hookAndSystemLastErrorMatch:
-              getSystemMetricsOracleCall.hookLastErrorAfter ===
-              systemLastError,
+              getSystemMetricsOracleCall.hookLastErrorAfter === systemLastError,
             successLastErrorPreserved: systemLastError === sentinel,
           };
         } finally {
@@ -20062,18 +20637,13 @@ function scheduleRegisterClassExAOracle(module) {
             hookResult: registerClassExAOracleCall.hookResult,
             systemResult: atom,
             succeeded: atom !== 0,
-            hookLastErrorAfter:
-              registerClassExAOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: registerClassExAOracleCall.hookLastErrorAfter,
             systemLastError,
-            hookResultMatches:
-              registerClassExAOracleCall.hookResult === atom,
+            hookResultMatches: registerClassExAOracleCall.hookResult === atom,
             hookAndSystemLastErrorMatch:
-              registerClassExAOracleCall.hookLastErrorAfter ===
-              systemLastError,
-            windowClassBefore:
-              registerClassExAOracleCall.hookWindowClassBefore,
-            windowClassAfter:
-              registerClassExAOracleCall.hookWindowClassAfter,
+              registerClassExAOracleCall.hookLastErrorAfter === systemLastError,
+            windowClassBefore: registerClassExAOracleCall.hookWindowClassBefore,
+            windowClassAfter: registerClassExAOracleCall.hookWindowClassAfter,
           };
         } finally {
           registerClassExAOracleCall = null;
@@ -20166,8 +20736,7 @@ function scheduleRegisterClassExAOracle(module) {
         queryByAtom,
         cleanup,
         queryAfterCleanup,
-        validCallsSucceeded:
-          first.succeeded && correctedAfterInvalid.succeeded,
+        validCallsSucceeded: first.succeeded && correctedAfterInvalid.succeeded,
         validAtomsDistinct:
           first.systemResult !== correctedAfterInvalid.systemResult,
         duplicateRejected: !duplicate.succeeded,
@@ -20232,7 +20801,9 @@ function maybeCompleteGetVersionExAObservation() {
       profile: "x86-bgi-get-version-ex-a-v1",
       oracleProfile: getVersionExAOracleEvidence.profile,
       quiescenceMilliseconds: 250,
-      mainModuleCalls: getVersionExAMainModuleCalls.map((call) => ({ ...call })),
+      mainModuleCalls: getVersionExAMainModuleCalls.map((call) => ({
+        ...call,
+      })),
     });
     if (stopOnEvent === "get-version-ex-a-complete") {
       recv("vine-trace-stop", () => {}).wait();
@@ -20284,8 +20855,7 @@ function scheduleGetFileAttributesAOracle(module) {
             sentinel,
             hookResult: getFileAttributesAOracleCall.hookResult,
             systemResult,
-            hookLastErrorAfter:
-              getFileAttributesAOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: getFileAttributesAOracleCall.hookLastErrorAfter,
             systemLastError,
             hookResultMatches:
               getFileAttributesAOracleCall.hookResult === systemResult,
@@ -20324,8 +20894,7 @@ function scheduleGetFileAttributesAOracle(module) {
         allLastErrorsMatchHooks: calls.every(
           (call) => call.hookLastErrorMatchesSystem,
         ),
-        existingFileIsRegular:
-          !calls[0].isInvalid && !calls[0].isDirectory,
+        existingFileIsRegular: !calls[0].isInvalid && !calls[0].isDirectory,
         existingDirectoryIsDirectory:
           !calls[1].isInvalid && calls[1].isDirectory,
         missingFileIsInvalid: calls[2].isInvalid,
@@ -20385,7 +20954,15 @@ function scheduleCreateDirectoryAOracle(module) {
       const createFileA = new NativeFunction(
         createFileAddress,
         "pointer",
-        ["pointer", "uint32", "uint32", "pointer", "uint32", "uint32", "pointer"],
+        [
+          "pointer",
+          "uint32",
+          "uint32",
+          "pointer",
+          "uint32",
+          "uint32",
+          "pointer",
+        ],
         "stdcall",
       );
       deleteFile = new NativeFunction(
@@ -20418,7 +20995,9 @@ function scheduleCreateDirectoryAOracle(module) {
       filePath = `${basePath}\\existing-file.bin`;
       const basePointer = Memory.allocUtf8String(basePath);
       if (createDirectoryRaw(basePointer, ptr(0)) === 0) {
-        throw new Error("CreateDirectoryA oracle could not create its temporary root");
+        throw new Error(
+          "CreateDirectoryA oracle could not create its temporary root",
+        );
       }
       const filePointer = Memory.allocUtf8String(filePath);
       const fileHandle = createFileA(
@@ -20431,7 +21010,9 @@ function scheduleCreateDirectoryAOracle(module) {
         ptr(0),
       );
       if (fileHandle.equals(ptr("0xffffffff"))) {
-        throw new Error("CreateDirectoryA oracle could not create its file conflict");
+        throw new Error(
+          "CreateDirectoryA oracle could not create its file conflict",
+        );
       }
       closeHandle(fileHandle);
 
@@ -20446,13 +21027,15 @@ function scheduleCreateDirectoryAOracle(module) {
         };
         try {
           const outcome = createDirectoryA(pathPointer, ptr(0));
-          const systemResult = (Number(outcome.value) >>> 0) !== 0;
+          const systemResult = Number(outcome.value) >>> 0 !== 0;
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (
             createDirectoryAOracleCall.hookResult === null ||
             createDirectoryAOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("CreateDirectoryA oracle did not pass through the hook");
+            throw new Error(
+              "CreateDirectoryA oracle did not pass through the hook",
+            );
           }
           return {
             id,
@@ -20460,8 +21043,7 @@ function scheduleCreateDirectoryAOracle(module) {
             sentinel,
             hookResult: createDirectoryAOracleCall.hookResult,
             systemResult,
-            hookLastErrorAfter:
-              createDirectoryAOracleCall.hookLastErrorAfter,
+            hookLastErrorAfter: createDirectoryAOracleCall.hookLastErrorAfter,
             systemLastError,
             hookResultMatches:
               createDirectoryAOracleCall.hookResult === systemResult,
@@ -20504,7 +21086,8 @@ function scheduleCreateDirectoryAOracle(module) {
       createdPath = null;
       basePath = null;
       emit("create-directory-a-oracle", {
-        profile: "ansi-null-security-create-duplicate-parent-and-file-conflict-v1",
+        profile:
+          "ansi-null-security-create-duplicate-parent-and-file-conflict-v1",
         calls,
         allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
         allLastErrorsMatchHooks: calls.every(
@@ -20576,7 +21159,9 @@ function scheduleGetVersionExAOracle(module) {
             getVersionExAOracleCall.hookResult === null ||
             getVersionExAOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("GetVersionExA oracle did not pass through the hook");
+            throw new Error(
+              "GetVersionExA oracle did not pass through the hook",
+            );
           }
           const storageAfter = snapshotBoundedRawBytes(
             storage,
@@ -20595,8 +21180,7 @@ function scheduleGetVersionExAOracle(module) {
           const changedOutputOffsets = changedStorageOffsets
             .filter(
               (offset) =>
-                offset >= guardBytes &&
-                offset < guardBytes + outputCapacity,
+                offset >= guardBytes && offset < guardBytes + outputCapacity,
             )
             .map((offset) => offset - guardBytes);
           return {
@@ -20781,7 +21365,9 @@ function scheduleGetSystemInfoOracle(module) {
           const outcome = getSystemInfo(output);
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (getSystemInfoOracleLastError === null) {
-            throw new Error("GetSystemInfo oracle did not pass through the hook");
+            throw new Error(
+              "GetSystemInfo oracle did not pass through the hook",
+            );
           }
           const storageAfter = snapshotBoundedRawBytes(storage, 64);
           const bytes = storageAfter.bytes ?? [];
@@ -20794,9 +21380,11 @@ function scheduleGetSystemInfoOracle(module) {
             storageAfter,
             measuredOutput: snapshotSystemInfo(output),
             prefixGuardUnchanged:
-              bytes.length === 64 && bytes.slice(0, 16).every((value) => value === 0xa5),
+              bytes.length === 64 &&
+              bytes.slice(0, 16).every((value) => value === 0xa5),
             suffixGuardUnchanged:
-              bytes.length === 64 && bytes.slice(52).every((value) => value === 0xa5),
+              bytes.length === 64 &&
+              bytes.slice(52).every((value) => value === 0xa5),
             hookPreservesLastError: getSystemInfoOracleLastError === sentinel,
             systemPreservesLastError: systemLastError === sentinel,
           };
@@ -20991,8 +21579,7 @@ function scheduleEnumDisplayMonitorsOracle(module) {
             systemResult,
             systemLastError,
             callbacks,
-            hookResultMatches:
-              enumDisplayMonitorsOracleResult === systemResult,
+            hookResultMatches: enumDisplayMonitorsOracleResult === systemResult,
             hookPreservesLastError:
               enumDisplayMonitorsOracleLastError === sentinel,
             systemPreservesLastError: systemLastError === sentinel,
@@ -21102,7 +21689,9 @@ function scheduleComInitializationOracle(module) {
             observation.hookResult === null ||
             observation.hookLastErrorAfter === null
           ) {
-            throw new Error(`${api} ${id} oracle did not pass through the hook`);
+            throw new Error(
+              `${api} ${id} oracle did not pass through the hook`,
+            );
           }
           if ((systemResult & 0x80000000) === 0) {
             successfulCalls += 1;
@@ -21115,8 +21704,7 @@ function scheduleComInitializationOracle(module) {
             hookResultMatches: observation.hookResult === systemResult,
             hookAndSystemLastErrorMatch:
               observation.hookLastErrorAfter === systemLastError,
-            hookPreservesSentinel:
-              observation.hookLastErrorAfter === sentinel,
+            hookPreservesSentinel: observation.hookLastErrorAfter === sentinel,
             systemPreservesSentinel: systemLastError === sentinel,
           };
         } finally {
@@ -21136,7 +21724,13 @@ function scheduleComInitializationOracle(module) {
         invoke("sta-first", "CoInitialize", coInitialize, [ptr(0)], 0x11111111),
       );
       calls.push(
-        invoke("sta-repeat", "CoInitialize", coInitialize, [ptr(0)], 0x22222222),
+        invoke(
+          "sta-repeat",
+          "CoInitialize",
+          coInitialize,
+          [ptr(0)],
+          0x22222222,
+        ),
       );
       calls.push(
         invoke(
@@ -21199,14 +21793,8 @@ function scheduleComInitializationOracle(module) {
       balanceOne();
 
       const expectedResults = [
-        0x00000000,
-        0x00000001,
-        0x80010106,
-        0x80010106,
-        0x00000000,
-        0x00000001,
-        0x80010106,
-        0x00000000,
+        0x00000000, 0x00000001, 0x80010106, 0x80010106, 0x00000000, 0x00000001,
+        0x80010106, 0x00000000,
       ];
       emit("com-initialization-oracle", {
         profile: "x86-balanced-agent-thread-com-initialization-v1",
@@ -21214,7 +21802,8 @@ function scheduleComInitializationOracle(module) {
         expectedResults,
         expectedResultsObserved: calls.every(
           (call, index) =>
-            call.systemResult === expectedResults[index] && call.hookResultMatches,
+            call.systemResult === expectedResults[index] &&
+            call.hookResultMatches,
         ),
         allHookAndSystemLastErrorMatch: calls.every(
           (call) => call.hookAndSystemLastErrorMatch,
@@ -21225,7 +21814,8 @@ function scheduleComInitializationOracle(module) {
               call.id.includes("repeat") || call.id.includes("conflict"),
           )
           .every(
-            (call) => call.hookPreservesSentinel && call.systemPreservesSentinel,
+            (call) =>
+              call.hookPreservesSentinel && call.systemPreservesSentinel,
           ),
         firstSuccessLastErrors: calls
           .filter((call) => call.id.includes("first"))
@@ -21280,7 +21870,9 @@ function scheduleProcessorFeatureOracle(module) {
             processorFeatureOracleResult === null ||
             processorFeatureOracleLastError === null
           ) {
-            throw new Error("processor-feature oracle did not pass through the hook");
+            throw new Error(
+              "processor-feature oracle did not pass through the hook",
+            );
           }
           return {
             feature,
@@ -21290,7 +21882,8 @@ function scheduleProcessorFeatureOracle(module) {
             hookLastErrorAfter: processorFeatureOracleLastError,
             systemLastError,
             hookResultMatches: processorFeatureOracleResult === result,
-            hookPreservesLastError: processorFeatureOracleLastError === sentinel,
+            hookPreservesLastError:
+              processorFeatureOracleLastError === sentinel,
             systemPreservesLastError: systemLastError === sentinel,
           };
         } finally {
@@ -21311,8 +21904,7 @@ function scheduleProcessorFeatureOracle(module) {
         feature10Stable: calls
           .slice(0, 3)
           .every(
-            (call) =>
-              call.result === calls[0].result && call.hookResultMatches,
+            (call) => call.result === calls[0].result && call.hookResultMatches,
           ),
         invalidFeatureRejected: calls[3].result === 0,
         allPreserveLastError: calls.every(
@@ -21492,7 +22084,10 @@ function scheduleHeapSizeOracle(module) {
           const outcome = heapSize(heap, flags, pointer);
           const result = Number(outcome.value) >>> 0;
           const systemLastError = Number(outcome.lastError) >>> 0;
-          if (heapSizeOracleResult === null || heapSizeOracleLastError === null) {
+          if (
+            heapSizeOracleResult === null ||
+            heapSizeOracleLastError === null
+          ) {
             throw new Error("heap-size oracle did not pass through the hook");
           }
           return {
@@ -21539,7 +22134,8 @@ function scheduleHeapSizeOracle(module) {
         failureSentinel: 0xffffffff,
         calls,
         liveResultStable:
-          live.result === liveRepeat.result && live.result === noSerialize.result,
+          live.result === liveRepeat.result &&
+          live.result === noSerialize.result,
         invalidPointersReturnFailure:
           interior.result === 0xffffffff && freed.result === 0xffffffff,
         allHookResultsMatch: calls.every((call) => call.hookResultMatches),
@@ -21577,12 +22173,7 @@ function scheduleHeapSizeOracle(module) {
         if (!heap.isNull()) {
           const address = findExport(module, "HeapDestroy");
           if (address !== null) {
-            new NativeFunction(
-              address,
-              "bool",
-              ["pointer"],
-              "stdcall",
-            )(heap);
+            new NativeFunction(address, "bool", ["pointer"], "stdcall")(heap);
           }
         }
       } catch (cleanupError) {
@@ -21614,16 +22205,40 @@ function scheduleGetCurrentThreadOracle(module) {
         Number.parseInt(targetBytes.slice(0, 2), 16),
       ];
       const machineCode = [
-        0x8b, 0x4c, 0x24, 0x04, // mov ecx, [esp + 4]
-        0x64, 0x89, 0x0d, 0x34, 0x00, 0x00, 0x00, // mov fs:[0x34], ecx
+        0x8b,
+        0x4c,
+        0x24,
+        0x04, // mov ecx, [esp + 4]
+        0x64,
+        0x89,
+        0x0d,
+        0x34,
+        0x00,
+        0x00,
+        0x00, // mov fs:[0x34], ecx
         0xb8,
         ...targetLittleEndian, // mov eax, GetCurrentThread
-        0xff, 0xd0, // call eax
-        0x8b, 0x54, 0x24, 0x08, // mov edx, [esp + 8]
-        0x89, 0x02, // mov [edx], eax
-        0x64, 0x8b, 0x0d, 0x34, 0x00, 0x00, 0x00, // mov ecx, fs:[0x34]
-        0x89, 0x4a, 0x04, // mov [edx + 4], ecx
-        0xc2, 0x08, 0x00, // ret 8
+        0xff,
+        0xd0, // call eax
+        0x8b,
+        0x54,
+        0x24,
+        0x08, // mov edx, [esp + 8]
+        0x89,
+        0x02, // mov [edx], eax
+        0x64,
+        0x8b,
+        0x0d,
+        0x34,
+        0x00,
+        0x00,
+        0x00, // mov ecx, fs:[0x34]
+        0x89,
+        0x4a,
+        0x04, // mov [edx + 4], ecx
+        0xc2,
+        0x08,
+        0x00, // ret 8
       ];
       Memory.patchCode(oracleCode, machineCode.length, (writable) => {
         writable.writeByteArray(machineCode);
@@ -21725,7 +22340,7 @@ function scheduleSetThreadAffinityMaskOracle(module) {
         processMaskStorage,
         systemMaskStorage,
       );
-      if ((Number(affinityQuery.value) >>> 0) === 0) {
+      if (Number(affinityQuery.value) >>> 0 === 0) {
         throw new Error(
           `GetProcessAffinityMask failed with ${Number(affinityQuery.lastError) >>> 0}`,
         );
@@ -21734,7 +22349,9 @@ function scheduleSetThreadAffinityMaskOracle(module) {
       const systemMask = systemMaskStorage.readU32();
       const selectedMask = (processMask & -processMask) >>> 0;
       if (selectedMask === 0) {
-        throw new Error("process affinity mask has no usable x86 processor bit");
+        throw new Error(
+          "process affinity mask has no usable x86 processor bit",
+        );
       }
 
       const invoke = (label, threadHandle, requestedMask, sentinel) => {
@@ -21773,7 +22390,12 @@ function scheduleSetThreadAffinityMaskOracle(module) {
         }
       };
 
-      const firstSet = invoke("set-selected", currentThread, selectedMask, 0x12345678);
+      const firstSet = invoke(
+        "set-selected",
+        currentThread,
+        selectedMask,
+        0x12345678,
+      );
       if (firstSet.result === 0) {
         throw new Error(
           `valid affinity set failed with ${firstSet.systemLastError}`,
@@ -21781,7 +22403,12 @@ function scheduleSetThreadAffinityMaskOracle(module) {
       }
       originalMask = firstSet.result;
       currentMask = selectedMask;
-      const restore = invoke("restore-original", currentThread, originalMask, 87);
+      const restore = invoke(
+        "restore-original",
+        currentThread,
+        originalMask,
+        87,
+      );
       if (restore.result !== selectedMask) {
         throw new Error(
           `affinity restore returned ${restore.result} instead of ${selectedMask}`,
@@ -21789,7 +22416,12 @@ function scheduleSetThreadAffinityMaskOracle(module) {
       }
       currentMask = originalMask;
       const zeroMask = invoke("reject-zero-mask", currentThread, 0, 122);
-      const invalidHandle = invoke("reject-null-handle", ptr(0), selectedMask, 0);
+      const invalidHandle = invoke(
+        "reject-null-handle",
+        ptr(0),
+        selectedMask,
+        0,
+      );
 
       emit("set-thread-affinity-mask-oracle", {
         profile: "x86-current-thread-logical-affinity-v1",
@@ -22112,7 +22744,9 @@ function scheduleCriticalSectionOracle(module) {
       );
       const storage = Memory.alloc(24);
       storage.writeByteArray(Array(24).fill(0xa5));
-      const states = [{ step: "before", snapshot: snapshotCriticalSection(storage) }];
+      const states = [
+        { step: "before", snapshot: snapshotCriticalSection(storage) },
+      ];
       const defaultStorage = Memory.alloc(24);
       defaultStorage.writeByteArray(Array(24).fill(0xa5));
       const defaultBefore = snapshotCriticalSection(defaultStorage);
@@ -22139,7 +22773,9 @@ function scheduleCriticalSectionOracle(module) {
           const result = operation();
           const lastError = criticalSectionOracleLastError;
           if (lastError === null) {
-            throw new Error(`${step} did not pass through the critical-section hook`);
+            throw new Error(
+              `${step} did not pass through the critical-section hook`,
+            );
           }
           states.push({
             step,
@@ -22545,7 +23181,8 @@ Process.attachModuleObserver({
       module.name.toLowerCase() === "user32.dll" &&
       (selectedObservations.has("set-window-pos") ||
         selectedObservations.has("set-window-pos-size") ||
-        selectedObservations.has("set-window-pos-resize"))
+        selectedObservations.has("set-window-pos-resize") ||
+        selectedObservations.has("set-window-pos-frame-change-move"))
     ) {
       try {
         attachSetWindowPosHook(module);

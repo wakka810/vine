@@ -1239,6 +1239,18 @@ cross-owner preflightを比較する。Node／Chrome protocol v26はsequence 108
 次の`SetWindowPos(HWND_TOP,317,154,0,0,0x25)` structured stopを比較する。General texture dimensions、mip chain、
 device loss、GPU allocation／upload／presentはこのbandのacceptanceへ含めない。
 
+続くframe-change move leafは、native二runのcaller RVA `0x938C2`、BOOL 1／LastError preserve、invalid HWNDの
+FALSE／1,400、outer origin `15360,8640 -> 317,154`、client origin `15363,8666 -> 320,180`を固定する。
+Native message orderは`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE -> WM_NCPAINT -> WM_ERASEBKGND ->
+WM_WINDOWPOSCHANGED -> WM_MOVE`である。Runtime acceptanceはpaint／eraseをnon-claimとして除外し、frames
+26–28の`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE -> WM_WINDOWPOSCHANGED`とnested frame 29の`WM_MOVE`
+だけをモデル化する。Focused model／dispatcher testsはNCCALCSIZE completion前のgeometry不変、completion時の
+targeted commit、callback result mismatch、stale／duplicate plan、wrong geometry／insert-after／HWNDのfailure
+atomicity、GDI surfaceとactive／focus／foreground relation不変を比較する。Node／Chrome protocol v27はsequence
+127,346、nested sequence 127,349、zero guest writes、同じsemantic／memory digest、次の
+`ShowWindow(hwnd,SW_SHOWNORMAL)` structured stopまでを一致させる。General z-order、repaint、multi-window move、
+DOM positioningは実装済みまたはgoldenとしない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

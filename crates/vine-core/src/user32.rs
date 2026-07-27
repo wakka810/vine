@@ -32,7 +32,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 22;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 23;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -40,7 +40,7 @@ pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1"
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
-pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v4";
+pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v5";
 pub const SET_WINDOW_LONG_A_IMPLEMENTATION: &str = "user32.set-window-long-a.gwl-style.v1";
 pub const SET_TIMER_IMPLEMENTATION: &str = "user32.set-timer.live-window-callback-registration.v1";
 pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
@@ -80,6 +80,7 @@ pub const USER32_IMC_CLOSESTATUSWINDOW: u32 = 0x0021;
 pub const USER32_IMC_OPENSTATUSWINDOW: u32 = 0x0022;
 const ICON_SMALL: u32 = 0;
 const ICON_SMALL2: u32 = 2;
+const HWND_TOP: u32 = 0;
 const HWND_NOTOPMOST: u32 = 0xffff_fffe;
 const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
 const ERROR_SUCCESS: u32 = 0;
@@ -161,6 +162,12 @@ pub struct User32SetWindowPosPolicy {
     pub resize_client_height: u32,
     pub resize_nccalc_window_pos_flags: u32,
     pub resize_changed_flags: u32,
+    pub frame_change_insert_after: u32,
+    pub frame_change_move_x: i32,
+    pub frame_change_move_y: i32,
+    pub frame_change_move_flags: u32,
+    pub frame_change_nccalc_window_pos_flags: u32,
+    pub frame_change_changed_flags: u32,
     pub activate_app_other_thread_id: u32,
     pub ime_set_context_flags: u32,
     pub ime_notify_command: u32,
@@ -299,11 +306,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v22() -> Self {
+    pub fn controlled_v23() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22"
+            id: "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -354,7 +361,7 @@ impl User32CompatibilityPolicy {
             }),
             set_window_pos: Some(User32SetWindowPosPolicy {
                 profile_id:
-                    "initial-offscreen-show-hide-same-geometry-activation-resize-v3".to_owned(),
+                    "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4".to_owned(),
                 insert_after: HWND_NOTOPMOST,
                 initial_show_screen_multiplier: 8,
                 initial_show_flags: 0x0000_0559,
@@ -371,6 +378,12 @@ impl User32CompatibilityPolicy {
                 resize_client_height: 720,
                 resize_nccalc_window_pos_flags: 0x0000_190e,
                 resize_changed_flags: 0x0000_110e,
+                frame_change_insert_after: HWND_TOP,
+                frame_change_move_x: 317,
+                frame_change_move_y: 154,
+                frame_change_move_flags: 0x0000_0025,
+                frame_change_nccalc_window_pos_flags: 0x0000_1825,
+                frame_change_changed_flags: 0x0000_0825,
                 activate_app_other_thread_id: 0,
                 ime_set_context_flags: 0xc000_000f,
                 ime_notify_command: 2,
@@ -593,6 +606,12 @@ impl User32CompatibilityPolicy {
                 || profile.resize_client_height >= profile.resize_outer_height
                 || profile.resize_nccalc_window_pos_flags != 0x0000_190e
                 || profile.resize_changed_flags != 0x0000_110e
+                || profile.frame_change_insert_after != HWND_TOP
+                || profile.frame_change_move_x != 317
+                || profile.frame_change_move_y != 154
+                || profile.frame_change_move_flags != 0x0000_0025
+                || profile.frame_change_nccalc_window_pos_flags != 0x0000_1825
+                || profile.frame_change_changed_flags != 0x0000_0825
                 || profile.activate_app_other_thread_id != 0
                 || profile.ime_set_context_flags != 0xc000_000f
                 || profile.ime_notify_command != 2
@@ -603,7 +622,7 @@ impl User32CompatibilityPolicy {
             return Err(ApiFault::runtime_defect(
                 "user32-compatibility-policy",
                 "user32-set-window-pos-profile-invalid",
-                "User32 SetWindowPos profile requires the reached logical window, small-icon message, display, and show/hide callback sequence",
+                "User32 SetWindowPos profile requires the reached logical window, small-icon message, display, show/hide, resize, and frame-change move callback sequences",
             ));
         }
         if let Some(profile) = self.set_window_long_a.as_ref()
@@ -2078,11 +2097,20 @@ fn handle_set_window_pos(
     let width = required_argument(contract, frame, 4, "width")?;
     let height = required_argument(contract, frame, 5, "height")?;
     let flags = required_argument(contract, frame, 6, "flags")?;
-    if insert_after != position_policy.insert_after {
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let frame_change_move_request = insert_after == position_policy.frame_change_insert_after
+        && x == position_policy.frame_change_move_x
+        && y == position_policy.frame_change_move_y
+        && width == 0
+        && height == 0
+        && flags == position_policy.frame_change_move_flags;
+    if insert_after != position_policy.insert_after && !frame_change_move_request {
         return Err(ApiFault::unsupported(
             "user32-windows",
             "set-window-pos-insert-after-unsupported",
-            "SetWindowPos currently supports only the reached HWND_NOTOPMOST ordering",
+            "SetWindowPos insert-after identity is outside the reached HWND_NOTOPMOST and NOZORDER HWND_TOP variants",
         ));
     }
     let display = policy.display_profile().ok_or_else(|| {
@@ -2154,12 +2182,18 @@ fn handle_set_window_pos(
                 "validated initial offscreen y position overflowed",
             )
         })?;
-    let window = session
-        .runtime()
-        .window(window_handle)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .clone();
-    let (variant, next_geometry, next_visible, callback_flags) = if width == 0
+    let window = match session.runtime().window(window_handle) {
+        Ok(window) => window.clone(),
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_WINDOW_HANDLE),
+            ));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let (variant, next_geometry, next_visible, callback_flags, callback_insert_after) = if width
+        == 0
         && height == 0
         && flags == position_policy.initial_show_flags
         && x == show_x
@@ -2211,6 +2245,7 @@ fn handle_set_window_pos(
             geometry,
             true,
             position_policy.initial_show_callback_flags,
+            position_policy.insert_after,
         )
     } else if width == 0
         && height == 0
@@ -2223,6 +2258,7 @@ fn handle_set_window_pos(
             window.creation.geometry,
             false,
             position_policy.initial_hide_callback_flags,
+            position_policy.insert_after,
         )
     } else if flags == position_policy.activation_flags
         && x == 0
@@ -2235,6 +2271,7 @@ fn handle_set_window_pos(
             window.creation.geometry,
             true,
             position_policy.activation_flags,
+            position_policy.insert_after,
         )
     } else if flags == position_policy.activation_flags
         && x == 0
@@ -2252,6 +2289,67 @@ fn handle_set_window_pos(
             geometry,
             true,
             position_policy.activation_flags,
+            position_policy.insert_after,
+        )
+    } else if frame_change_move_request {
+        if window.creation.geometry.width != position_policy.resize_outer_width
+            || window.creation.geometry.height != position_policy.resize_outer_height
+            || window.creation.geometry.client_width != position_policy.resize_client_width
+            || window.creation.geometry.client_height != position_policy.resize_client_height
+        {
+            return Err(ApiFault::invalid_call(
+                "user32-windows",
+                "set-window-pos-frame-change-move-geometry-invalid",
+                "frame-change move requires the reached resized outer and client geometry",
+            ));
+        }
+        let offset_x = window
+            .creation
+            .geometry
+            .client_x
+            .checked_sub(window.creation.geometry.x)
+            .ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-windows",
+                    "set-window-pos-frame-change-client-offset-x-invalid",
+                    "validated frame-change client x offset underflowed",
+                )
+            })?;
+        let offset_y = window
+            .creation
+            .geometry
+            .client_y
+            .checked_sub(window.creation.geometry.y)
+            .ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-windows",
+                    "set-window-pos-frame-change-client-offset-y-invalid",
+                    "validated frame-change client y offset underflowed",
+                )
+            })?;
+        let mut geometry = window.creation.geometry;
+        geometry.x = position_policy.frame_change_move_x;
+        geometry.y = position_policy.frame_change_move_y;
+        geometry.client_x = geometry.x.checked_add(offset_x).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-frame-change-client-x-overflow",
+                "validated frame-change client x position overflowed",
+            )
+        })?;
+        geometry.client_y = geometry.y.checked_add(offset_y).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-frame-change-client-y-overflow",
+                "validated frame-change client y position overflowed",
+            )
+        })?;
+        (
+            RuntimeSetWindowPosVariant::FrameChangeMove,
+            geometry,
+            true,
+            position_policy.frame_change_move_flags,
+            position_policy.frame_change_insert_after,
         )
     } else {
         let (code, message) = if width != 0 || height != 0 {
@@ -2275,12 +2373,16 @@ fn handle_set_window_pos(
             next_geometry,
             next_visible,
             next_topmost: false,
+            entry_last_error,
             callback_flags,
-            callback_insert_after: position_policy.insert_after,
+            callback_insert_after,
             activation_insert_after: position_policy.activation_insert_after,
             activation_internal_flags: position_policy.activation_internal_flags,
             resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
             resize_changed_flags: position_policy.resize_changed_flags,
+            frame_change_nccalc_window_pos_flags: position_policy
+                .frame_change_nccalc_window_pos_flags,
+            frame_change_changed_flags: position_policy.frame_change_changed_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let class = session
@@ -2297,7 +2399,7 @@ fn handle_set_window_pos(
         RuntimeSetWindowPosVariant::RepeatActivation => {
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
         }
-        RuntimeSetWindowPosVariant::Resize => {
+        RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::FrameChangeMove => {
             RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
         }
     };
@@ -2366,9 +2468,10 @@ pub(crate) fn resolve_set_window_pos_callback(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
-        RuntimeSetWindowPosCallbackAction::Completed { .. } => {
-            ApiHandlerResult::Immediate(ApiImmediate::new(ApiReturnValue::Bool32(true)))
-        }
+        RuntimeSetWindowPosCallbackAction::Completed { .. } => ApiHandlerResult::Immediate(
+            ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(operation.entry_last_error),
+        ),
     }
 }
 
@@ -2468,10 +2571,10 @@ fn set_window_pos_callback_request(
     }
     let (message_id, w_param, l_param, scratch, scratch_pointer_relocations) = match message {
         RuntimeSetWindowPosCallbackMessage::WindowPositionChanged => {
-            let flags = if operation.variant == RuntimeSetWindowPosVariant::Resize {
-                operation.resize_changed_flags
-            } else {
-                operation.callback_flags
+            let flags = match operation.variant {
+                RuntimeSetWindowPosVariant::Resize => operation.resize_changed_flags,
+                RuntimeSetWindowPosVariant::FrameChangeMove => operation.frame_change_changed_flags,
+                _ => operation.callback_flags,
             };
             let scratch = window_pos_callback_scratch(
                 operation.window_handle,
@@ -2497,26 +2600,39 @@ fn set_window_pos_callback_request(
             Vec::new(),
             Vec::new(),
         ),
-        RuntimeSetWindowPosCallbackMessage::WindowPositionChanging => (
-            WM_WINDOWPOSCHANGING,
-            0,
-            GuestCallbackArgument::ScratchPointer { offset: 0 },
-            window_pos_callback_scratch(
-                operation.window_handle,
-                operation.callback_insert_after,
+        RuntimeSetWindowPosCallbackMessage::WindowPositionChanging => {
+            let (x, y, width, height) =
+                if operation.variant == RuntimeSetWindowPosVariant::FrameChangeMove {
+                    (operation.next_geometry.x, operation.next_geometry.y, 0, 0)
+                } else {
+                    (
+                        0,
+                        0,
+                        operation.next_geometry.width,
+                        operation.next_geometry.height,
+                    )
+                };
+            (
+                WM_WINDOWPOSCHANGING,
                 0,
-                0,
-                operation.next_geometry.width,
-                operation.next_geometry.height,
-                operation.callback_flags,
-            )?,
-            Vec::new(),
-        ),
+                GuestCallbackArgument::ScratchPointer { offset: 0 },
+                window_pos_callback_scratch(
+                    operation.window_handle,
+                    operation.callback_insert_after,
+                    x,
+                    y,
+                    width,
+                    height,
+                    operation.callback_flags,
+                )?,
+                Vec::new(),
+            )
+        }
         RuntimeSetWindowPosCallbackMessage::NonClientCalculate => (
             WM_NCCALCSIZE,
             1,
             GuestCallbackArgument::ScratchPointer { offset: 0 },
-            resize_nccalc_callback_scratch(operation)?,
+            set_window_pos_nccalc_callback_scratch(operation)?,
             vec![GuestCallbackScratchPointerRelocation {
                 write_offset: 48,
                 target_offset: 52,
@@ -2581,7 +2697,7 @@ fn set_window_pos_callback_request(
     })
 }
 
-fn resize_nccalc_callback_scratch(
+fn set_window_pos_nccalc_callback_scratch(
     operation: RuntimeSetWindowPosOperation,
 ) -> Result<Vec<u8>, ApiFault> {
     let rect = |geometry: RuntimeWindowGeometry, client: bool| -> Result<[i32; 4], ApiFault> {
@@ -2622,6 +2738,19 @@ fn resize_nccalc_callback_scratch(
         }
     }
     scratch.extend_from_slice(&0_u32.to_le_bytes());
+    let nccalc_window_pos_flags = match operation.variant {
+        RuntimeSetWindowPosVariant::Resize => operation.resize_nccalc_window_pos_flags,
+        RuntimeSetWindowPosVariant::FrameChangeMove => {
+            operation.frame_change_nccalc_window_pos_flags
+        }
+        _ => {
+            return Err(ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-pos-nccalc-variant-invalid",
+                "NCCALCSIZE scratch requires a resize or frame-change move operation",
+            ));
+        }
+    };
     scratch.extend_from_slice(&window_pos_callback_scratch(
         operation.window_handle,
         operation.callback_insert_after,
@@ -2629,7 +2758,7 @@ fn resize_nccalc_callback_scratch(
         operation.next_geometry.y,
         operation.next_geometry.width,
         operation.next_geometry.height,
-        operation.resize_nccalc_window_pos_flags,
+        nccalc_window_pos_flags,
     )?);
     debug_assert_eq!(scratch.len(), 80);
     Ok(scratch)
@@ -3622,11 +3751,11 @@ fn handle_def_window_proc_window_position(
         ));
     }
     let words = read_window_pos_words(session.memory(), GuestAddress(l_param), &contract.endpoint)?;
-    if words[0] != handle || words[1] != position_policy.insert_after {
+    if words[0] != handle {
         return Err(ApiFault::invalid_call(
             "user32-windows",
             "def-window-proc-position-identity-mismatch",
-            "WINDOWPOS logical HWND or insert-after identity does not match the active window",
+            "WINDOWPOS logical HWND does not match the active window",
         ));
     }
     if words[6] == position_policy.resize_changed_flags {
@@ -3656,6 +3785,63 @@ fn handle_def_window_proc_window_position(
         return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
             ApiReturnValue::U32(0),
         )));
+    }
+    if words[6] == position_policy.frame_change_changed_flags {
+        let geometry = window.creation.geometry;
+        if words
+            != [
+                handle,
+                position_policy.frame_change_insert_after,
+                position_policy.frame_change_move_x as u32,
+                position_policy.frame_change_move_y as u32,
+                geometry.width,
+                geometry.height,
+                position_policy.frame_change_changed_flags,
+            ]
+            || geometry.x != position_policy.frame_change_move_x
+            || geometry.y != position_policy.frame_change_move_y
+            || geometry.width != position_policy.resize_outer_width
+            || geometry.height != position_policy.resize_outer_height
+            || geometry.client_width != position_policy.resize_client_width
+            || geometry.client_height != position_policy.resize_client_height
+        {
+            return Err(ApiFault::invalid_call(
+                "user32-windows",
+                "def-window-proc-frame-change-changed-payload-mismatch",
+                "frame-change WM_WINDOWPOSCHANGED does not match the committed logical geometry",
+            ));
+        }
+        require_window_activation_relations(session, handle, true, true, true, contract)?;
+        let procedure = session
+            .runtime()
+            .resolve_window_procedure(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let request = GuestCallbackRequest {
+            target: procedure.address,
+            arguments: vec![
+                GuestCallbackArgument::U32(handle),
+                GuestCallbackArgument::U32(WM_MOVE),
+                GuestCallbackArgument::U32(0),
+                GuestCallbackArgument::U32(window_creation_move_l_param(&geometry)?),
+            ],
+            scratch: Vec::new(),
+            scratch_pointer_relocations: Vec::new(),
+            return_sentinel: callback_return_sentinel,
+            completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
+        };
+        session.preflight_guest_callback(&ApiGuestCallbackCall {
+            request: request.clone(),
+            contract: contract.clone(),
+            frame: frame.clone(),
+        })?;
+        return Ok(ApiHandlerResult::GuestCallback(request));
+    }
+    if words[1] != position_policy.insert_after {
+        return Err(ApiFault::invalid_call(
+            "user32-windows",
+            "def-window-proc-position-identity-mismatch",
+            "WINDOWPOS insert-after identity does not match the reached initial or resize variant",
+        ));
     }
     let callback_geometry = RuntimeWindowGeometry {
         x: words[2] as i32,
@@ -3721,12 +3907,18 @@ fn handle_def_window_proc_window_position(
             next_geometry,
             next_visible,
             next_topmost: false,
+            entry_last_error: session
+                .last_error()
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
             callback_flags: words[6],
             callback_insert_after: position_policy.insert_after,
             activation_insert_after: position_policy.activation_insert_after,
             activation_internal_flags: position_policy.activation_internal_flags,
             resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
             resize_changed_flags: position_policy.resize_changed_flags,
+            frame_change_nccalc_window_pos_flags: position_policy
+                .frame_change_nccalc_window_pos_flags,
+            frame_change_changed_flags: position_policy.frame_change_changed_flags,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if !notify_move {
@@ -3803,33 +3995,128 @@ fn handle_def_window_proc_resize(
                     "resize WM_NCCALCSIZE requires the reached TRUE wParam",
                 ));
             }
-            let mut next_geometry = window.creation.geometry;
-            next_geometry.width = position_policy.resize_outer_width;
-            next_geometry.height = position_policy.resize_outer_height;
-            next_geometry.client_width = position_policy.resize_client_width;
-            next_geometry.client_height = position_policy.resize_client_height;
+            let flags_address = l_param.checked_add(76).ok_or_else(|| {
+                ApiFault::invalid_call(
+                    "user32-windows",
+                    "def-window-proc-nccalc-pointer-overflow",
+                    "NCCALCSIZE_PARAMS WINDOWPOS flags pointer overflowed x86 address space",
+                )
+            })?;
+            let flags_bytes = session
+                .memory()
+                .read(GuestAddress(flags_address), 4)
+                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            let nccalc_flags =
+                u32::from_le_bytes(flags_bytes.try_into().expect("WINDOWPOS flags word"));
+            let (variant, next_geometry, callback_flags, callback_insert_after) = if nccalc_flags
+                == position_policy.resize_nccalc_window_pos_flags
+            {
+                let mut geometry = window.creation.geometry;
+                geometry.width = position_policy.resize_outer_width;
+                geometry.height = position_policy.resize_outer_height;
+                geometry.client_width = position_policy.resize_client_width;
+                geometry.client_height = position_policy.resize_client_height;
+                (
+                    RuntimeSetWindowPosVariant::Resize,
+                    geometry,
+                    position_policy.activation_flags,
+                    position_policy.insert_after,
+                )
+            } else if nccalc_flags == position_policy.frame_change_nccalc_window_pos_flags {
+                if window.creation.geometry.width != position_policy.resize_outer_width
+                    || window.creation.geometry.height != position_policy.resize_outer_height
+                    || window.creation.geometry.client_width != position_policy.resize_client_width
+                    || window.creation.geometry.client_height
+                        != position_policy.resize_client_height
+                {
+                    return Err(ApiFault::invalid_call(
+                        "user32-windows",
+                        "def-window-proc-frame-change-geometry-invalid",
+                        "frame-change NCCALCSIZE requires the reached resized outer and client geometry",
+                    ));
+                }
+                let offset_x = window
+                    .creation
+                    .geometry
+                    .client_x
+                    .checked_sub(window.creation.geometry.x)
+                    .ok_or_else(|| {
+                        ApiFault::runtime_defect(
+                            "user32-windows",
+                            "def-window-proc-frame-change-client-offset-x-invalid",
+                            "validated frame-change client x offset underflowed",
+                        )
+                    })?;
+                let offset_y = window
+                    .creation
+                    .geometry
+                    .client_y
+                    .checked_sub(window.creation.geometry.y)
+                    .ok_or_else(|| {
+                        ApiFault::runtime_defect(
+                            "user32-windows",
+                            "def-window-proc-frame-change-client-offset-y-invalid",
+                            "validated frame-change client y offset underflowed",
+                        )
+                    })?;
+                let mut geometry = window.creation.geometry;
+                geometry.x = position_policy.frame_change_move_x;
+                geometry.y = position_policy.frame_change_move_y;
+                geometry.client_x = geometry.x.checked_add(offset_x).ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "user32-windows",
+                        "def-window-proc-frame-change-client-x-overflow",
+                        "validated frame-change client x position overflowed",
+                    )
+                })?;
+                geometry.client_y = geometry.y.checked_add(offset_y).ok_or_else(|| {
+                    ApiFault::runtime_defect(
+                        "user32-windows",
+                        "def-window-proc-frame-change-client-y-overflow",
+                        "validated frame-change client y position overflowed",
+                    )
+                })?;
+                (
+                    RuntimeSetWindowPosVariant::FrameChangeMove,
+                    geometry,
+                    position_policy.frame_change_move_flags,
+                    position_policy.frame_change_insert_after,
+                )
+            } else {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-nccalc-flags-unsupported",
+                    "NCCALCSIZE WINDOWPOS flags are outside the reached resize and frame-change move variants",
+                ));
+            };
             let operation = session
                 .runtime()
                 .preview_set_window_pos(RuntimeSetWindowPosRequest {
                     window_handle: handle,
-                    variant: RuntimeSetWindowPosVariant::Resize,
+                    variant,
                     next_geometry,
                     next_visible: true,
                     next_topmost: false,
-                    callback_flags: position_policy.activation_flags,
-                    callback_insert_after: position_policy.insert_after,
+                    entry_last_error: session
+                        .last_error()
+                        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+                    callback_flags,
+                    callback_insert_after,
                     activation_insert_after: position_policy.activation_insert_after,
                     activation_internal_flags: position_policy.activation_internal_flags,
                     resize_nccalc_window_pos_flags: position_policy.resize_nccalc_window_pos_flags,
                     resize_changed_flags: position_policy.resize_changed_flags,
+                    frame_change_nccalc_window_pos_flags: position_policy
+                        .frame_change_nccalc_window_pos_flags,
+                    frame_change_changed_flags: position_policy.frame_change_changed_flags,
                 })
                 .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-            let mut expected = resize_nccalc_callback_scratch(operation)?;
+            let mut expected = set_window_pos_nccalc_callback_scratch(operation)?;
             let window_pos_address = l_param.checked_add(52).ok_or_else(|| {
                 ApiFault::invalid_call(
                     "user32-windows",
-                    "def-window-proc-resize-nccalc-pointer-overflow",
-                    "resize NCCALCSIZE_PARAMS WINDOWPOS pointer overflowed x86 address space",
+                    "def-window-proc-nccalc-pointer-overflow",
+                    "NCCALCSIZE_PARAMS WINDOWPOS pointer overflowed x86 address space",
                 )
             })?;
             expected[48..52].copy_from_slice(&window_pos_address.to_le_bytes());
@@ -3840,8 +4127,8 @@ fn handle_def_window_proc_resize(
             if before != expected {
                 return Err(ApiFault::invalid_call(
                     "user32-windows",
-                    "def-window-proc-resize-nccalc-payload-mismatch",
-                    "resize NCCALCSIZE_PARAMS does not match the pending logical geometry",
+                    "def-window-proc-nccalc-payload-mismatch",
+                    "NCCALCSIZE_PARAMS does not match the pending logical geometry",
                 ));
             }
             let geometry = operation.next_geometry;
@@ -3851,8 +4138,8 @@ fn handle_def_window_proc_resize(
                 .ok_or_else(|| {
                     ApiFault::runtime_defect(
                         "user32-windows",
-                        "def-window-proc-resize-client-right-overflow",
-                        "validated resize client right edge overflowed",
+                        "def-window-proc-nccalc-client-right-overflow",
+                        "validated client right edge overflowed",
                     )
                 })?;
             let client_bottom = geometry
@@ -3861,8 +4148,8 @@ fn handle_def_window_proc_resize(
                 .ok_or_else(|| {
                     ApiFault::runtime_defect(
                         "user32-windows",
-                        "def-window-proc-resize-client-bottom-overflow",
-                        "validated resize client bottom edge overflowed",
+                        "def-window-proc-nccalc-client-bottom-overflow",
+                        "validated client bottom edge overflowed",
                     )
                 })?;
             let bytes = [
@@ -3981,6 +4268,16 @@ fn handle_def_window_proc_activation(
                     position_policy.resize_outer_height,
                     position_policy.activation_flags,
                 ];
+            let frame_change_move = words
+                == [
+                    handle,
+                    position_policy.frame_change_insert_after,
+                    position_policy.frame_change_move_x as u32,
+                    position_policy.frame_change_move_y as u32,
+                    0,
+                    0,
+                    position_policy.frame_change_move_flags,
+                ];
             if first {
                 let already_focused = session
                     .runtime()
@@ -3997,13 +4294,13 @@ fn handle_def_window_proc_activation(
                 )?;
             } else if internal {
                 require_window_activation_relations(session, handle, true, false, true, contract)?;
-            } else if resize {
+            } else if resize || frame_change_move {
                 require_window_activation_relations(session, handle, true, true, true, contract)?;
             } else {
                 return Err(ApiFault::invalid_call(
                     "user32-windows",
                     "def-window-proc-activation-window-pos-mismatch",
-                    "WM_WINDOWPOSCHANGING payload is outside the reached activation pair",
+                    "WM_WINDOWPOSCHANGING payload is outside the reached activation, resize, and frame-change variants",
                 ));
             }
             Ok(ApiHandlerResult::Immediate(ApiImmediate::new(
@@ -4358,15 +4655,20 @@ fn handle_def_window_proc_a_immediate(
             Ok(ApiImmediate::new(ApiReturnValue::U32(0)))
         }
         (WM_MOVE, 0, RuntimeWindowLifecycle::Created) if policy.set_window_pos.is_some() => {
-            let expected_geometry =
-                initial_set_window_pos_show_geometry(policy, session, &window, &contract.endpoint)?;
-            let expected = window_creation_move_l_param(&expected_geometry)?;
-            if l_param != expected {
+            let current = window_creation_move_l_param(&window.creation.geometry)?;
+            let initial_show =
+                window_creation_move_l_param(&initial_set_window_pos_show_geometry(
+                    policy,
+                    session,
+                    &window,
+                    &contract.endpoint,
+                )?)?;
+            if l_param != current && l_param != initial_show {
                 return Err(ApiFault::invalid_call(
                     "user32-windows",
                     "def-window-proc-position-move-lparam-mismatch",
                     format!(
-                        "DefWindowProcA positioned WM_MOVE lParam {l_param:#010x} does not match controlled client position {expected:#010x}"
+                        "DefWindowProcA positioned WM_MOVE lParam {l_param:#010x} does not match current {current:#010x} or initial-show {initial_show:#010x} client position"
                     ),
                 ));
             }
@@ -5237,10 +5539,10 @@ pub fn set_window_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
             return_value: ApiReturnSchema::Bool32,
             stack_cleanup: StackCleanup::Callee,
         },
-        last_error_policy: LastErrorPolicy::Preserve,
+        last_error_policy: LastErrorPolicy::FromHandler,
         reentrancy_policy: ReentrancyPolicy::Allowed,
         behavior: ApiBehavior::Immediate,
-        callback_policy: CallbackPolicy::Required,
+        callback_policy: CallbackPolicy::Optional,
         implementation_id: SET_WINDOW_POS_IMPLEMENTATION.to_owned(),
     })
 }
@@ -5752,7 +6054,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v22();
+        let policy = User32CompatibilityPolicy::controlled_v23();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -5799,7 +6101,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v23();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -5811,14 +6113,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v23();
         invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v23();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -5829,21 +6131,21 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v23();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v23();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v23();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -5854,7 +6156,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v23();
         invalid_timer
             .set_timer
             .as_mut()
@@ -5865,14 +6167,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v23();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v23();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -5883,7 +6185,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v23();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -5894,7 +6196,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v23();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -5905,7 +6207,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v23();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -5917,7 +6219,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v23();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -5928,7 +6230,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v23();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -5939,7 +6241,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v23();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -5950,7 +6252,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v22();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v23();
         invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

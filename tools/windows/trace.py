@@ -49,6 +49,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-window-pos",
     "set-window-pos-size",
     "set-window-pos-resize",
+    "set-window-pos-frame-change-move",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",

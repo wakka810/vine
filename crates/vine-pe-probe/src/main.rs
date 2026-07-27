@@ -3645,7 +3645,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v22();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v23();
     if !matches!(
         user32_capability,
         Some(
@@ -13763,6 +13763,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
                 "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
+                "user32-set-window-pos-frame-change-move" => {
+                    GenericRuntimeCapability::D3d9RecreatedTextures
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

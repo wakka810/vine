@@ -33,7 +33,10 @@ adapterIdentifierView.setUint32(1068, 0x1c82, true);
 adapterIdentifierView.setUint32(1072, 0x11aa_22bb, true);
 adapterIdentifierView.setUint32(1076, 0xa1, true);
 adapterIdentifierBytes.set(
-  [0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00],
+  [
+    0x44, 0x33, 0x22, 0x11, 0x66, 0x55, 0x88, 0x77, 0x99, 0xaa, 0xbb, 0xcc,
+    0xdd, 0xee, 0xff, 0x00,
+  ],
   1080,
 );
 adapterIdentifierView.setUint32(1096, 1, true);
@@ -990,8 +993,7 @@ assert.equal(deviceCaps.lastError, 0);
 assert.equal(
   deviceCaps.changedBytes,
   deviceCapsBefore.reduce(
-    (count, byte, index) =>
-      count + (byte === deviceCapsAfter[index] ? 0 : 1),
+    (count, byte, index) => count + (byte === deviceCapsAfter[index] ? 0 : 1),
     0,
   ),
 );
@@ -1373,7 +1375,10 @@ assert.deepEqual(
   ["IDirect3DDevice9", "IDirect3DTexture9", "IDirect3DSurface9"],
 );
 assert.equal(d3d9ResourceSummary.d3d9.createTextures.length, 1);
-assert.equal(d3d9ResourceSummary.d3d9.createTextures[0].returnedTexture, "0x500000");
+assert.equal(
+  d3d9ResourceSummary.d3d9.createTextures[0].returnedTexture,
+  "0x500000",
+);
 assert.equal(d3d9ResourceSummary.d3d9.getSurfaceLevels.length, 1);
 assert.deepEqual(d3d9ResourceSummary.d3d9.getSurfaceLevels[0], {
   sequence: 7,
@@ -1392,7 +1397,10 @@ assert.deepEqual(d3d9ResourceSummary.d3d9.getSurfaceLevels[0], {
   returnedSurface: "0x510000",
   immediateConsumer: null,
 });
-assert.equal(d3d9ResourceSummary.d3d9.textureCalls[0].method, "GetSurfaceLevel");
+assert.equal(
+  d3d9ResourceSummary.d3d9.textureCalls[0].method,
+  "GetSurfaceLevel",
+);
 assert.equal(d3d9ResourceSummary.d3d9.surfaceCalls[0].method, "GetDC");
 
 const mismatchedSurfaceOutput = structuredClone(d3d9ResourceEvents);
@@ -1502,8 +1510,16 @@ for (const [index, fixture] of [
   ];
   const observation = {
     textureOutput: {
-      before: pointerSlot(fixture.output, "0xcccccccc", [0xcc, 0xcc, 0xcc, 0xcc]),
-      after: pointerSlot(fixture.output, fixture.returned, fixture.returnedBytes),
+      before: pointerSlot(
+        fixture.output,
+        "0xcccccccc",
+        [0xcc, 0xcc, 0xcc, 0xcc],
+      ),
+      after: pointerSlot(
+        fixture.output,
+        fixture.returned,
+        fixture.returnedBytes,
+      ),
     },
     immediateConsumer: null,
   };
@@ -1580,11 +1596,13 @@ const d3d9InitialTextureSummary = summarizeTrace(
 assert.equal(d3d9InitialTextureSummary.d3d9.createTextures.length, 3);
 assert.equal(d3d9InitialTextureSummary.d3d9.initialTextureSequences.length, 1);
 assert.deepEqual(
-  d3d9InitialTextureSummary.d3d9.initialTextureSequences[0].calls.map((call) => ({
-    caller: call.caller,
-    arguments: call.arguments.slice(0, 6),
-    returnedTexture: call.returnedTexture,
-  })),
+  d3d9InitialTextureSummary.d3d9.initialTextureSequences[0].calls.map(
+    (call) => ({
+      caller: call.caller,
+      arguments: call.arguments.slice(0, 6),
+      returnedTexture: call.returnedTexture,
+    }),
+  ),
   [
     {
       caller: { module: "BGI.exe", rva: 0x5a715 },
@@ -1921,11 +1939,15 @@ assert.deepEqual(
 assert.equal(
   d3d9InitialVertexBufferSummary.d3d9.initialVertexBufferSequences[0].unlock
     .dataAtUnlock.bytesSha256,
-  crypto.createHash("sha256").update(Uint8Array.from(vertexPayload)).digest("hex"),
+  crypto
+    .createHash("sha256")
+    .update(Uint8Array.from(vertexPayload))
+    .digest("hex"),
 );
-const missingInitialVertexBufferCompletion = d3d9InitialVertexBufferEvents.filter(
-  (event) => event.kind !== "d3d9-initial-vertex-buffer-complete",
-);
+const missingInitialVertexBufferCompletion =
+  d3d9InitialVertexBufferEvents.filter(
+    (event) => event.kind !== "d3d9-initial-vertex-buffer-complete",
+  );
 assert.throws(
   () => summarizeTrace(encode(missingInitialVertexBufferCompletion)),
   /requires exactly one structured completion/,
@@ -2097,10 +2119,38 @@ const d3d9InitialRenderStateSummary = summarizeTrace(
 assert.deepEqual(
   d3d9InitialRenderStateSummary.d3d9.initialRenderStateSequences[0].calls,
   [
-    { sequence: 4, caller: { module: "BGI.exe", rva: 0x5ad13 }, state: 22, value: 1, result: "0x0", lastError: 0 },
-    { sequence: 6, caller: { module: "BGI.exe", rva: 0x5ad26 }, state: 7, value: 0, result: "0x0", lastError: 0 },
-    { sequence: 8, caller: { module: "BGI.exe", rva: 0x5ad3c }, state: 137, value: 0, result: "0x0", lastError: 0 },
-    { sequence: 10, caller: { module: "BGI.exe", rva: 0x5ad50 }, state: 27, value: 1, result: "0x0", lastError: 0 },
+    {
+      sequence: 4,
+      caller: { module: "BGI.exe", rva: 0x5ad13 },
+      state: 22,
+      value: 1,
+      result: "0x0",
+      lastError: 0,
+    },
+    {
+      sequence: 6,
+      caller: { module: "BGI.exe", rva: 0x5ad26 },
+      state: 7,
+      value: 0,
+      result: "0x0",
+      lastError: 0,
+    },
+    {
+      sequence: 8,
+      caller: { module: "BGI.exe", rva: 0x5ad3c },
+      state: 137,
+      value: 0,
+      result: "0x0",
+      lastError: 0,
+    },
+    {
+      sequence: 10,
+      caller: { module: "BGI.exe", rva: 0x5ad50 },
+      state: 27,
+      value: 1,
+      result: "0x0",
+      lastError: 0,
+    },
   ],
 );
 const missingInitialRenderStateCompletion = d3d9InitialRenderStateEvents.filter(
@@ -2331,7 +2381,7 @@ const d3d9RasterStatusEvents = [
 ];
 const d3d9RasterStatusSummary = summarizeTrace(
   encode(d3d9RasterStatusEvents),
-  "d3d9-raster-status-fixture.jsonl"
+  "d3d9-raster-status-fixture.jsonl",
 );
 assert.deepEqual(d3d9RasterStatusSummary.d3d9.rasterStatusObservations, [
   {
@@ -2367,10 +2417,10 @@ assert.deepEqual(d3d9RasterStatusSummary.d3d9.rasterStatusObservations, [
 const vBlankRasterStatus = structuredClone(d3d9RasterStatusEvents);
 for (const observation of [
   vBlankRasterStatus.find(
-    (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+    (event) => event.kind === "api-leave" && event.api === "GetRasterStatus",
   ).d3d9RasterStatus,
   vBlankRasterStatus.find(
-    (event) => event.kind === "d3d9-raster-status-complete"
+    (event) => event.kind === "d3d9-raster-status-complete",
   ).calls[0].d3d9RasterStatus,
 ]) {
   observation.after.bytes = [1, 0, 0, 0, 0, 0, 0, 0];
@@ -2379,47 +2429,47 @@ for (const observation of [
 assert.deepEqual(
   summarizeTrace(encode(vBlankRasterStatus)).d3d9.rasterStatusObservations[0]
     .status.after.fields,
-  { inVBlank: 1, scanLine: 0 }
+  { inVBlank: 1, scanLine: 0 },
 );
 const missingRasterStatusCompletion = d3d9RasterStatusEvents.filter(
-  (event) => event.kind !== "d3d9-raster-status-complete"
+  (event) => event.kind !== "d3d9-raster-status-complete",
 );
 assert.throws(
   () => summarizeTrace(encode(missingRasterStatusCompletion)),
-  /requires exactly one structured completion/
+  /requires exactly one structured completion/,
 );
 const malformedRasterStatusBytes = structuredClone(d3d9RasterStatusEvents);
 malformedRasterStatusBytes.find(
-  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus",
 ).d3d9RasterStatus.after.bytes[4] = 0;
 malformedRasterStatusBytes.find(
-  (event) => event.kind === "d3d9-raster-status-complete"
+  (event) => event.kind === "d3d9-raster-status-complete",
 ).calls[0].d3d9RasterStatus.after.bytes[4] = 0;
 assert.throws(
   () => summarizeTrace(encode(malformedRasterStatusBytes)),
-  /inconsistent D3DRASTER_STATUS after bytes/
+  /inconsistent D3DRASTER_STATUS after bytes/,
 );
 const malformedRasterImmediateConsumer = structuredClone(
-  d3d9RasterStatusEvents
+  d3d9RasterStatusEvents,
 );
 malformedRasterImmediateConsumer.find(
-  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus"
+  (event) => event.kind === "api-leave" && event.api === "GetRasterStatus",
 ).d3d9RasterStatus.immediateConsumer.entry.instructions[4].opStr = "eax, 0";
 malformedRasterImmediateConsumer.find(
-  (event) => event.kind === "d3d9-raster-status-complete"
+  (event) => event.kind === "d3d9-raster-status-complete",
 ).calls[0].d3d9RasterStatus.immediateConsumer.entry.instructions[4].opStr =
   "eax, 0";
 assert.throws(
   () => summarizeTrace(encode(malformedRasterImmediateConsumer)),
-  /unexpected immediate consumer/
+  /unexpected immediate consumer/,
 );
 
 const d3d9SurfaceDcEvents = structuredClone(d3d9ResourceEvents);
 d3d9SurfaceDcEvents[0].arguments.stopOnEvent = "d3d9-surface-get-dc-complete";
 d3d9SurfaceDcEvents[0].arguments.observations = ["d3d9-surface-get-dc"];
-d3d9SurfaceDcEvents.find((event) => event.kind === "agent-ready").selectedObservations = [
-  "d3d9-surface-get-dc",
-];
+d3d9SurfaceDcEvents.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-surface-get-dc"];
 const getDcLeave = d3d9SurfaceDcEvents.find(
   (event) => event.kind === "api-leave" && event.api === "GetDC",
 );
@@ -2641,9 +2691,18 @@ assert.equal(surfaceDcFlow.sequence, 20);
 assert.equal(surfaceDcFlow.surface, "0x510000");
 assert.equal(surfaceDcFlow.hdc, "0x52010a1e");
 assert.equal(surfaceDcFlow.stockBrush, "0x900011");
-assert.deepEqual(surfaceDcFlow.rect, { left: 0, top: 0, right: 800, bottom: 600 });
+assert.deepEqual(surfaceDcFlow.rect, {
+  left: 0,
+  top: 0,
+  right: 800,
+  bottom: 600,
+});
 assert.deepEqual(
-  surfaceDcFlow.calls.map((call) => [call.method, call.caller.rva, call.result]),
+  surfaceDcFlow.calls.map((call) => [
+    call.method,
+    call.caller.rva,
+    call.result,
+  ]),
   [
     ["GetDC", 0x5a746, "0x0"],
     ["GetStockObject", 0x5a76c, "0x900011"],
@@ -2652,7 +2711,10 @@ assert.deepEqual(
     ["Release", 0x5a79a, "0x1"],
   ],
 );
-assert.deepEqual(surfaceDcFlow.getDcOutput.after, getDcObservation.output.after);
+assert.deepEqual(
+  surfaceDcFlow.getDcOutput.after,
+  getDcObservation.output.after,
+);
 
 const mismatchedSurfaceDcCompletion = structuredClone(d3d9SurfaceDcEvents);
 mismatchedSurfaceDcCompletion.find(
@@ -2791,7 +2853,11 @@ const timeGetTimeEvents = [
 ];
 for (const [index, sentinel] of [0, 87, 0x1234_5678].entries()) {
   const sequence = 3 + index * 2;
-  const caller = { address: "0x70001000", module: "frida-agent.dll", rva: 0x1000 };
+  const caller = {
+    address: "0x70001000",
+    module: "frida-agent.dll",
+    rva: 0x1000,
+  };
   timeGetTimeEvents.push(
     {
       schema,
@@ -2902,7 +2968,9 @@ assert.equal(
   "x86-time-get-time-shared-tick-epoch-v1",
 );
 assert.deepEqual(
-  timeGetTimeSummary.winmm.timeGetTime[0].oracle.calls.map((call) => call.sentinel),
+  timeGetTimeSummary.winmm.timeGetTime[0].oracle.calls.map(
+    (call) => call.sentinel,
+  ),
   [0, 87, 0x1234_5678],
 );
 assert.deepEqual(timeGetTimeSummary.winmm.timeGetTime[0].mainModuleCalls[0], {
@@ -3198,9 +3266,10 @@ assert.deepEqual(
   ),
   [0, 87, 0x1234_5678],
 );
-const missingPerformanceFrequencyCompletion = queryPerformanceFrequencyEvents.filter(
-  (event) => event.kind !== "query-performance-frequency-complete",
-);
+const missingPerformanceFrequencyCompletion =
+  queryPerformanceFrequencyEvents.filter(
+    (event) => event.kind !== "query-performance-frequency-complete",
+  );
 assert.throws(
   () => summarizeTrace(encode(missingPerformanceFrequencyCompletion)),
   /requires exactly one oracle and structured completion/,
@@ -3560,15 +3629,18 @@ const getMonitorInfoASummary = summarizeTrace(
   encode(getMonitorInfoAFixtureEvents),
   "get-monitor-info-a-fixture.jsonl",
 );
-assert.deepEqual(getMonitorInfoASummary.user32.getMonitorInfoA[0].mainModuleCall.outputAfter, {
-  pointer: "0x600000",
-  cbSize: 40,
-  capturedBytes: 40,
-  rawBytes: monitorInfoABytes(40, true).slice(0, 40),
-  monitor: { left: 0, top: 0, right: 1920, bottom: 1080 },
-  work: { left: 0, top: 0, right: 1920, bottom: 1032 },
-  flags: 1,
-});
+assert.deepEqual(
+  getMonitorInfoASummary.user32.getMonitorInfoA[0].mainModuleCall.outputAfter,
+  {
+    pointer: "0x600000",
+    cbSize: 40,
+    capturedBytes: 40,
+    rawBytes: monitorInfoABytes(40, true).slice(0, 40),
+    monitor: { left: 0, top: 0, right: 1920, bottom: 1080 },
+    work: { left: 0, top: 0, right: 1920, bottom: 1032 },
+    flags: 1,
+  },
+);
 assert.deepEqual(
   getMonitorInfoASummary.user32.getMonitorInfoA[0].oracle.calls
     .filter((call) => call.result === 0)
@@ -3586,7 +3658,9 @@ assert.deepEqual(
   ],
 );
 
-const mutatedMonitorInfoAFailure = structuredClone(getMonitorInfoAFixtureEvents);
+const mutatedMonitorInfoAFailure = structuredClone(
+  getMonitorInfoAFixtureEvents,
+);
 mutatedMonitorInfoAFailure
   .find((event) => event.kind === "get-monitor-info-a-oracle")
   .calls.find((call) => call.id === "live-size-39").outputRawAfter.bytes[4] = 0;
@@ -3619,7 +3693,13 @@ assert.throws(
 const stopBeforeTail = [
   ...events.slice(0, -1),
   events.at(-1),
-  { schema, sequence: 26, kind: "module-load", module: "late.dll", path: "late.dll" },
+  {
+    schema,
+    sequence: 26,
+    kind: "module-load",
+    module: "late.dll",
+    path: "late.dll",
+  },
 ];
 assert.throws(
   () => summarizeTrace(encode(stopBeforeTail)),
@@ -3781,7 +3861,9 @@ assert.throws(
 );
 
 const truncatedDeviceMethodArguments = structuredClone(events);
-truncatedDeviceMethodArguments.find((event) => event.sequence === 33).arguments.pop();
+truncatedDeviceMethodArguments
+  .find((event) => event.sequence === 33)
+  .arguments.pop();
 assert.throws(
   () => summarizeTrace(encode(truncatedDeviceMethodArguments)),
   /IDirect3DDevice9 api pair at sequence 33 is invalid/,
@@ -3797,8 +3879,9 @@ assert.throws(
 );
 
 const overflowingDeviceTypeArgument = structuredClone(events);
-overflowingDeviceTypeArgument.find((event) => event.sequence === 20).arguments[0] =
-  "0x100000000";
+overflowingDeviceTypeArgument.find(
+  (event) => event.sequence === 20,
+).arguments[0] = "0x100000000";
 assert.throws(
   () => summarizeTrace(encode(overflowingDeviceTypeArgument)),
   /invalid CheckDeviceType argument 0/,
@@ -3814,8 +3897,9 @@ assert.throws(
 );
 
 const overflowingDeviceFormatArgument = structuredClone(events);
-overflowingDeviceFormatArgument.find((event) => event.sequence === 28).arguments[3] =
-  "0x100000000";
+overflowingDeviceFormatArgument.find(
+  (event) => event.sequence === 28,
+).arguments[3] = "0x100000000";
 assert.throws(
   () => summarizeTrace(encode(overflowingDeviceFormatArgument)),
   /invalid CheckDeviceFormat argument 3/,
@@ -3873,21 +3957,31 @@ criticalSectionSelection.find(
 assert.doesNotThrow(() => summarizeTrace(encode(criticalSectionSelection)));
 
 const interlockedIncrementSelection = structuredClone(events);
-interlockedIncrementSelection[0].arguments.observations = ["interlocked-increment"];
+interlockedIncrementSelection[0].arguments.observations = [
+  "interlocked-increment",
+];
 interlockedIncrementSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["interlocked-increment"];
-assert.doesNotThrow(() => summarizeTrace(encode(interlockedIncrementSelection)));
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(interlockedIncrementSelection)),
+);
 
 const interlockedDecrementSelection = structuredClone(events);
-interlockedDecrementSelection[0].arguments.observations = ["interlocked-decrement"];
+interlockedDecrementSelection[0].arguments.observations = [
+  "interlocked-decrement",
+];
 interlockedDecrementSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["interlocked-decrement"];
-assert.doesNotThrow(() => summarizeTrace(encode(interlockedDecrementSelection)));
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(interlockedDecrementSelection)),
+);
 
 const getModuleFileNameASelection = structuredClone(events);
-getModuleFileNameASelection[0].arguments.observations = ["get-module-file-name-a"];
+getModuleFileNameASelection[0].arguments.observations = [
+  "get-module-file-name-a",
+];
 getModuleFileNameASelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["get-module-file-name-a"];
@@ -3922,7 +4016,9 @@ commandLineSelection.find(
 assert.doesNotThrow(() => summarizeTrace(encode(commandLineSelection)));
 
 const environmentStringsSelection = structuredClone(events);
-environmentStringsSelection[0].arguments.observations = ["environment-strings-w"];
+environmentStringsSelection[0].arguments.observations = [
+  "environment-strings-w",
+];
 environmentStringsSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["environment-strings-w"];
@@ -4071,6 +4167,17 @@ setWindowPosResizeSelection.find(
 ).selectedObservations = ["set-window-pos-resize"];
 assert.doesNotThrow(() => summarizeTrace(encode(setWindowPosResizeSelection)));
 
+const setWindowPosFrameChangeMoveSelection = structuredClone(events);
+setWindowPosFrameChangeMoveSelection[0].arguments.observations = [
+  "set-window-pos-frame-change-move",
+];
+setWindowPosFrameChangeMoveSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["set-window-pos-frame-change-move"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(setWindowPosFrameChangeMoveSelection)),
+);
+
 const getSystemMenuSelection = structuredClone(events);
 getSystemMenuSelection[0].arguments.observations = ["get-system-menu"];
 getSystemMenuSelection.find(
@@ -4178,7 +4285,9 @@ unhandledExceptionFilterSelection[0].arguments.observations = [
 unhandledExceptionFilterSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["unhandled-exception-filter"];
-assert.doesNotThrow(() => summarizeTrace(encode(unhandledExceptionFilterSelection)));
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(unhandledExceptionFilterSelection)),
+);
 
 const comInitializationSelection = structuredClone(events);
 comInitializationSelection[0].arguments.observations = ["com-initialization"];
@@ -4205,13 +4314,16 @@ for (const event of legacyEvents) {
     delete event.lastError;
   }
 }
-delete legacyEvents.find((event) => event.kind === "agent-ready").selectedVtables;
+delete legacyEvents.find((event) => event.kind === "agent-ready")
+  .selectedVtables;
 delete legacyEvents[0].arguments.vtables;
 const legacySummary = summarizeTrace(encode(legacyEvents));
 assert.equal(legacySummary.trace.inputSchema, "vine.win32-trace.v1");
 assert.equal(legacySummary.trace.apiPairing.contract, "legacy-thread-stack");
 
-const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vine-trace-"));
+const temporaryDirectory = fs.mkdtempSync(
+  path.join(os.tmpdir(), "vine-trace-"),
+);
 try {
   const input = path.join(temporaryDirectory, "trace.jsonl");
   const output = path.join(temporaryDirectory, "summary.json");
@@ -4219,7 +4331,13 @@ try {
     new URL("./summarize-windows-trace.mjs", import.meta.url),
   );
   fs.writeFileSync(input, buffer);
-  const first = spawnSync(process.execPath, [script, "--input", input, "--output", output]);
+  const first = spawnSync(process.execPath, [
+    script,
+    "--input",
+    input,
+    "--output",
+    output,
+  ]);
   assert.equal(first.status, 0, first.stderr.toString());
   const overwrite = spawnSync(process.execPath, [
     script,

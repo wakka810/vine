@@ -290,6 +290,7 @@ pub enum RuntimeSetWindowPosVariant {
     ActivateSameGeometry,
     RepeatActivation,
     Resize,
+    FrameChangeMove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -320,12 +321,15 @@ pub struct RuntimeSetWindowPosRequest {
     pub next_geometry: RuntimeWindowGeometry,
     pub next_visible: bool,
     pub next_topmost: bool,
+    pub entry_last_error: u32,
     pub callback_flags: u32,
     pub callback_insert_after: u32,
     pub activation_insert_after: u32,
     pub activation_internal_flags: u32,
     pub resize_nccalc_window_pos_flags: u32,
     pub resize_changed_flags: u32,
+    pub frame_change_nccalc_window_pos_flags: u32,
+    pub frame_change_changed_flags: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -343,12 +347,15 @@ pub struct RuntimeSetWindowPosOperation {
     pub next_topmost: bool,
     pub previous_effective_style: u32,
     pub next_effective_style: u32,
+    pub entry_last_error: u32,
     pub callback_flags: u32,
     pub callback_insert_after: u32,
     pub activation_insert_after: u32,
     pub activation_internal_flags: u32,
     pub resize_nccalc_window_pos_flags: u32,
     pub resize_changed_flags: u32,
+    pub frame_change_nccalc_window_pos_flags: u32,
+    pub frame_change_changed_flags: u32,
     pub small_icon_handle: u32,
 }
 
@@ -2989,6 +2996,9 @@ impl RuntimeUser32 {
             || (request.variant == RuntimeSetWindowPosVariant::Resize
                 && (request.resize_nccalc_window_pos_flags == 0
                     || request.resize_changed_flags == 0))
+            || (request.variant == RuntimeSetWindowPosVariant::FrameChangeMove
+                && (request.frame_change_nccalc_window_pos_flags == 0
+                    || request.frame_change_changed_flags == 0))
         {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-user32",
@@ -3098,6 +3108,23 @@ impl RuntimeUser32 {
                     "logical resize requires one visible active, focused, foreground owner-thread window and changed bounded geometry",
                 ));
             }
+            RuntimeSetWindowPosVariant::FrameChangeMove
+                if !window.visible
+                    || window.topmost
+                    || !request.next_visible
+                    || request.next_topmost
+                    || request.next_geometry == window.creation.geometry
+                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                    || self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
+                    || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
+                    || self.foreground_window != Some(window.id) =>
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-user32",
+                    "set-window-pos-frame-change-move-state-invalid",
+                    "frame-change move requires one visible active, focused, foreground owner-thread window and changed bounded position",
+                ));
+            }
             _ => {}
         }
         Ok(RuntimeSetWindowPosOperation {
@@ -3113,12 +3140,15 @@ impl RuntimeUser32 {
             next_topmost: request.next_topmost,
             previous_effective_style: window.creation.effective_style,
             next_effective_style,
+            entry_last_error: request.entry_last_error,
             callback_flags: request.callback_flags,
             callback_insert_after: request.callback_insert_after,
             activation_insert_after: request.activation_insert_after,
             activation_internal_flags: request.activation_internal_flags,
             resize_nccalc_window_pos_flags: request.resize_nccalc_window_pos_flags,
             resize_changed_flags: request.resize_changed_flags,
+            frame_change_nccalc_window_pos_flags: request.frame_change_nccalc_window_pos_flags,
+            frame_change_changed_flags: request.frame_change_changed_flags,
             small_icon_handle,
         })
     }
@@ -3337,6 +3367,52 @@ impl RuntimeUser32 {
                     "logical resize received an out-of-order window callback",
                 ));
             }
+            (
+                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "frame-change move WINDOWPOS")?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "frame-change WM_NCCALCSIZE")?;
+                self.window_geometry_update_disposition(
+                    previous,
+                    operation,
+                    RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                )?
+            }
+            (
+                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            ) => {
+                require_set_window_pos_callback_result(
+                    result,
+                    0,
+                    "frame-change WM_WINDOWPOSCHANGED",
+                )?;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    window: previous.clone(),
+                    action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+                }
+            }
+            (RuntimeSetWindowPosVariant::FrameChangeMove, _) => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-user32",
+                    "set-window-pos-callback-order-mismatch",
+                    "frame-change move received an out-of-order window callback",
+                ));
+            }
         };
         Ok(RuntimeSetWindowPosCallbackPlan {
             expected_generation: self.generation,
@@ -3475,6 +3551,19 @@ impl RuntimeUser32 {
         previous: RuntimeWindow,
         operation: RuntimeSetWindowPosOperation,
     ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
+        self.window_geometry_update_disposition(
+            previous,
+            operation,
+            RuntimeSetWindowPosCallbackMessage::Size,
+        )
+    }
+
+    fn window_geometry_update_disposition(
+        &self,
+        previous: RuntimeWindow,
+        operation: RuntimeSetWindowPosOperation,
+        next_message: RuntimeSetWindowPosCallbackMessage,
+    ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
         let next_generation = self.next_generation()?;
         let mut next = previous.clone();
         next.creation.geometry = operation.next_geometry;
@@ -3484,7 +3573,7 @@ impl RuntimeUser32 {
             action: RuntimeSetWindowPosCallbackAction::Continue {
                 window: next.clone(),
                 operation: next_operation,
-                next_message: RuntimeSetWindowPosCallbackMessage::Size,
+                next_message,
             },
             previous,
             next: Box::new(next),
@@ -3517,12 +3606,15 @@ impl RuntimeUser32 {
         } else {
             operation.previous_effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
         };
-        let expected_geometry = if operation.variant == RuntimeSetWindowPosVariant::Resize
-            && matches!(
-                message,
-                RuntimeSetWindowPosCallbackMessage::Size
-                    | RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
-            ) {
+        let geometry_committed = matches!(
+            operation.variant,
+            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::FrameChangeMove
+        ) && matches!(
+            message,
+            RuntimeSetWindowPosCallbackMessage::Size
+                | RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+        );
+        let expected_geometry = if geometry_committed {
             operation.next_geometry
         } else {
             operation.previous_geometry
@@ -3579,7 +3671,10 @@ impl RuntimeUser32 {
                 ));
             }
         }
-        if operation.variant == RuntimeSetWindowPosVariant::Resize {
+        if matches!(
+            operation.variant,
+            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::FrameChangeMove
+        ) {
             let owner_thread_id = window.creation.owner_thread_id;
             let target = Some(window.id);
             if self.active_windows.get(&owner_thread_id).copied() != target
@@ -3588,8 +3683,8 @@ impl RuntimeUser32 {
             {
                 return Err(RuntimeStateError::conflict(
                     "runtime-user32",
-                    "set-window-pos-resize-state-stale",
-                    "logical active, focused, or foreground relation changed during resize",
+                    "set-window-pos-geometry-state-stale",
+                    "logical active, focused, or foreground relation changed during resize or frame-change move",
                 ));
             }
         }
@@ -4117,6 +4212,8 @@ fn validate_position_geometry_transition(
             && next.client_height == previous.client_height
             && next_client_offset_x == previous_client_offset_x
             && next_client_offset_y == previous_client_offset_y
+            && (variant != RuntimeSetWindowPosVariant::FrameChangeMove
+                || (next.x != previous.x && next.y != previous.y))
     };
     if !valid {
         return Err(RuntimeStateError::invalid_input(
@@ -4713,12 +4810,15 @@ mod tests {
                     next_geometry: show_geometry,
                     next_visible: true,
                     next_topmost: false,
+                    entry_last_error: 0x1234_5678,
                     callback_flags: 0x1000_0d59,
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
                     resize_nccalc_window_pos_flags: 0x190e,
                     resize_changed_flags: 0x110e,
+                    frame_change_nccalc_window_pos_flags: 0x1825,
+                    frame_change_changed_flags: 0x0825,
                 },
             )
             .unwrap();
@@ -4772,12 +4872,15 @@ mod tests {
                     next_geometry: show_geometry,
                     next_visible: false,
                     next_topmost: false,
+                    entry_last_error: 0x1234_5678,
                     callback_flags: 0x0000_1d9f,
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
                     resize_nccalc_window_pos_flags: 0x190e,
                     resize_changed_flags: 0x110e,
+                    frame_change_nccalc_window_pos_flags: 0x1825,
+                    frame_change_changed_flags: 0x0825,
                 },
             )
             .unwrap();
@@ -4814,12 +4917,15 @@ mod tests {
                     next_geometry: show_geometry,
                     next_visible: false,
                     next_topmost: false,
+                    entry_last_error: 0x1234_5678,
                     callback_flags: 0x0000_1d9f,
                     callback_insert_after: 0xffff_fffe,
                     activation_insert_after: 0,
                     activation_internal_flags: 3,
                     resize_nccalc_window_pos_flags: 0x190e,
                     resize_changed_flags: 0x110e,
+                    frame_change_nccalc_window_pos_flags: 0x1825,
+                    frame_change_changed_flags: 0x0825,
                 },
             )
             .unwrap();
@@ -4903,12 +5009,15 @@ mod tests {
             next_geometry: show_geometry,
             next_visible: true,
             next_topmost: false,
+            entry_last_error: 0x1234_5678,
             callback_flags: 0x0000_010a,
             callback_insert_after: 0xffff_fffe,
             activation_insert_after: 0,
             activation_internal_flags: 3,
             resize_nccalc_window_pos_flags: 0x190e,
             resize_changed_flags: 0x110e,
+            frame_change_nccalc_window_pos_flags: 0x1825,
+            frame_change_changed_flags: 0x0825,
         };
         let repeat = user32
             .preview_set_window_pos(owner_thread_id, repeat_request)
@@ -4945,6 +5054,122 @@ mod tests {
             RuntimeSetWindowPosCallbackAction::Completed { .. }
         ));
         assert_eq!(user32, before_repeat_commit);
+
+        let move_geometry = RuntimeWindowGeometry {
+            x: 317,
+            y: 154,
+            client_x: 320,
+            client_y: 180,
+            ..show_geometry
+        };
+        let move_operation = user32
+            .preview_set_window_pos(
+                owner_thread_id,
+                RuntimeSetWindowPosRequest {
+                    window_handle,
+                    variant: RuntimeSetWindowPosVariant::FrameChangeMove,
+                    next_geometry: move_geometry,
+                    next_visible: true,
+                    next_topmost: false,
+                    entry_last_error: 0x1234_5678,
+                    callback_flags: 0x0025,
+                    callback_insert_after: 0,
+                    activation_insert_after: 0,
+                    activation_internal_flags: 3,
+                    resize_nccalc_window_pos_flags: 0x190e,
+                    resize_changed_flags: 0x110e,
+                    frame_change_nccalc_window_pos_flags: 0x1825,
+                    frame_change_changed_flags: 0x0825,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            move_operation.variant,
+            RuntimeSetWindowPosVariant::FrameChangeMove
+        );
+        let before_wrong_move_result = user32.clone();
+        assert_eq!(
+            user32
+                .plan_set_window_pos_callback(
+                    move_operation,
+                    RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                    1,
+                )
+                .unwrap_err()
+                .code,
+            "set-window-pos-window-procedure-result-invalid"
+        );
+        assert_eq!(user32, before_wrong_move_result);
+
+        let changing = user32
+            .plan_set_window_pos_callback(
+                move_operation,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                0,
+            )
+            .unwrap();
+        let before_changing = user32.clone();
+        assert!(matches!(
+            user32.commit_set_window_pos_callback(changing).unwrap(),
+            RuntimeSetWindowPosCallbackAction::Continue {
+                next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+                ..
+            }
+        ));
+        assert_eq!(user32, before_changing);
+
+        let nccalc = user32
+            .plan_set_window_pos_callback(
+                move_operation,
+                RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+                0,
+            )
+            .unwrap();
+        let stale_nccalc = nccalc.clone();
+        let moved = user32.commit_set_window_pos_callback(nccalc).unwrap();
+        let RuntimeSetWindowPosCallbackAction::Continue {
+            window: moved_window,
+            operation: moved_operation,
+            next_message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+        } = moved
+        else {
+            panic!("frame-change NCCALCSIZE must commit geometry before changed notification");
+        };
+        assert_eq!(moved_window.creation.geometry, move_geometry);
+        assert_eq!(user32.window(window_handle).unwrap(), &moved_window);
+        let before_stale_nccalc = user32.clone();
+        assert_eq!(
+            user32
+                .commit_set_window_pos_callback(stale_nccalc)
+                .unwrap_err()
+                .code,
+            "set-window-pos-callback-plan-stale"
+        );
+        assert_eq!(user32, before_stale_nccalc);
+
+        let changed = user32
+            .plan_set_window_pos_callback(
+                moved_operation,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                0,
+            )
+            .unwrap();
+        let before_changed = user32.clone();
+        assert!(matches!(
+            user32.commit_set_window_pos_callback(changed).unwrap(),
+            RuntimeSetWindowPosCallbackAction::Completed { window }
+                if window == moved_window
+        ));
+        assert_eq!(user32, before_changed);
+        assert_eq!(
+            user32.active_windows.get(&owner_thread_id),
+            Some(&moved_window.id)
+        );
+        assert_eq!(
+            user32.focused_windows.get(&owner_thread_id),
+            Some(&moved_window.id)
+        );
+        assert_eq!(user32.foreground_window, Some(moved_window.id));
 
         let before_unknown = user32.clone();
         assert_eq!(

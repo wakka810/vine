@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-recreated-textures` and uses protocol
-`vine.browser-runtime-worker.v26`. It inherits the immutable boot-archive snapshot,
+The active private profile is `user32-set-window-pos-frame-change-move` and uses protocol
+`vine.browser-runtime-worker.v27`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -92,9 +92,14 @@ and Rust `RuntimeUser32` authority. They then reproduce the three `2048x1024` D3
 texture creations and the exact nine-call system-memory surface fill chain with
 `RuntimeGraphics`／`RuntimeCom` authority, no browser renderer resource, and a
 transactional publication boundary. The final semantic and memory digests agree at the
-following `SetWindowPos(HWND_TOP, ..., 0x25)` structured stop. Protocol version 25 is
-the repeat-activation predecessor; version 26 adds the recreated-texture profile and
-typed evidence report without moving COM, graphics, or window state to TypeScript.
+following frame-change call. That sixth `SetWindowPos` then completes direct frames 26–28
+for `WM_WINDOWPOSCHANGING`, `WM_NCCALCSIZE`, and `WM_WINDOWPOSCHANGED`, plus nested frame 29
+for `WM_MOVE`. Rust commits only the outer／client origin at NCCALCSIZE completion; active／
+focus／foreground relations and GDI resources remain unchanged. Native non-client paint and
+erase are explicit non-claims, and TypeScript creates no browser window resource. The final
+semantic and memory digests agree at `ShowWindow(hwnd, SW_SHOWNORMAL)`. Protocol version 26
+is the recreated-texture predecessor; version 27 adds typed frame-change and nested-move
+evidence without moving Windows state to TypeScript.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

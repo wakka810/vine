@@ -722,6 +722,15 @@ Surfaceが存在すればidentityを保持し、reached `NOCOPYBITS` policyに�
 stale generation、source geometry mismatchは両ownerを変更せず拒否する。General resize、z-order、content preservation、
 cross-thread／multi-window activationは別contractである。
 
+Reached frame-change moveは、既にresize済みのsame-owner windowに対する
+`SetWindowPos(HWND_TOP,317,154,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED)`だけを別variantとして扱う。
+`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE -> WM_WINDOWPOSCHANGED`をsame-depth replacementで進め、
+NCCALCSIZE completionでouter／client originだけをtargeted commitする。Final default processingがnested
+`WM_MOVE`を生成するが、active／focus／foreground、topmost、GDI surface identity／contentは変更しない。
+Nativeで到達した`WM_NCPAINT`／`WM_ERASEBKGND`はbrowser renderer contractがないため明示的なnon-claimとし、
+silent successにはしない。Unknown HWNDはcallbackやallocator mutation前にFALSE／`ERROR_INVALID_WINDOW_HANDLE`、
+successはentry LastErrorを保存する。TypeScriptはcallback evidenceとimmutable final snapshotだけを観測する。
+
 System menuも`RuntimeUser32`内の独立したidentity domainとする。Created windowごとに最大一つのlogical HMENUを
 monotonic allocator、window index、handle indexで所有し、repeat `GetSystemMenu(FALSE)`は同じidentityを返す。
 Reached `EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)`は初期enabled stateを確認するidempotent updateである。

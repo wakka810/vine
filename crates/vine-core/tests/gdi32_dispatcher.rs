@@ -290,7 +290,7 @@ impl FontFixture {
             ],
         )
         .expect("GDI fixture dispatcher");
-        let user32_policy = User32CompatibilityPolicy::controlled_v22();
+        let user32_policy = User32CompatibilityPolicy::controlled_v23();
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");

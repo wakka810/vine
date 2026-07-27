@@ -5268,3 +5268,34 @@ Canonical Node reportは127,345 supported calls、instruction 28,760,801、seman
 ordered nine-call evidenceとdigestを再現した。次stopはendpoint ID 202／address `0x7F000C90`／IAT `0x100D1400`／
 return `0x100938C2`の`USER32.dll!SetWindowPos(0x48010001,HWND_TOP,317,154,0,0,0x25)`で、faultは
 `set-window-pos-insert-after-unsupported`である。General dimensions／mips／pool、texel backing、upload、present、device lossはclaimしない。
+
+## 155. BGI `SetWindowPos` frame-change move
+
+Focused `set-window-pos-frame-change-move` traceを同じsource executableから独立に二回取得した。Primary raw traceは
+390,979 bytes／1,089 lines／SHA-256 `fb45116bc693efca694f434038389f386946ce5c1f238276717a258d085cae47`、
+summaryは51,851 bytes／SHA-256 `872c2b3268c90a1ba4a0f2483befbff00c3d70d27939de875349492b911058ee`で、
+506 API pairsがbalancedである。Confirmation raw traceは392,371 bytes／1,093 lines／SHA-256
+`55041bd50d378fbf1af7ffba4cf324e34077a7fe57be677718a0b640db2d690f`、summaryは52,080 bytes／SHA-256
+`c0c94f363a7b4aae52602d4337455d1c4eae0a82660bfcdda030df5a70b6251b`で、508 API pairsがbalancedである。
+両runともdiagnostics／hook errorsは0で、raw trace／summary／compact semantic extractionは
+`.work/windows-traces/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Caller return RVA `0x000938C2`は
+`SetWindowPos(hwnd,HWND_TOP,317,154,0,0,SWP_NOSIZE|SWP_NOZORDER|SWP_FRAMECHANGED)`を呼ぶ。
+両runともBOOL 1、entry／exit LastError 0で、outer rectは`15360,8640,16646,9389`から
+`317,154,1603,903`へ、client originは`15363,8666`から`320,180`へ移る一方、client extent `1280x720`、
+style `0x94CA0000`、extended style `0x00040100`、active／focus／foreground relationは不変である。
+Callback順は`WM_WINDOWPOSCHANGING(0x25) -> WM_NCCALCSIZE(TRUE,0x1825) -> WM_NCPAINT ->
+WM_ERASEBKGND -> WM_WINDOWPOSCHANGED(0x825) -> WM_MOVE(0x00B40140)`、全result 0である。Invalid HWND
+`0x1234`はFALSE／`ERROR_INVALID_WINDOW_HANDLE` 1,400となる。CallerはBOOLを直後のhelper inputで上書きする。
+
+Runtimeはnative paint／eraseを明示的にモデル化せず、direct frames 26–28とnested frame 29だけを再現する。
+NCCALCSIZE completion前は旧geometryを保ち、completionでouter／client originをtargeted commitする。
+GDI surface identity／content、topmost、active／focus／foreground relationは変更しない。Canonical Nodeは127,350
+supported calls、instruction 28,761,027、semantic digest
+`6288683381bcc5df62a20abad70a9b73bbedb153dd0f5f8aa9cfe2e3abde300c`、memory digest
+`b7a48b1a742ff2e7bf477880574bdad5f9334288f4adc3c9d6a8616ed49ad628`で完了し、Chrome protocol v27も一致した。
+次stopはendpoint ID 235／address `0x7F000EA0`／IAT `0x100D1484`／return `0x100938DA`の
+`USER32.dll!ShowWindow(0x48010001,SW_SHOWNORMAL)`／`endpoint-contract-missing`である。General z-order、
+non-client repaint、multi-window positioning、DOM placementはclaimしない。

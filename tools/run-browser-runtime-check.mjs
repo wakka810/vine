@@ -47,7 +47,9 @@ const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
-const checkpoint = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
+const checkpoint = loadCurrentCheckpoint(
+  path.join(root, "docs", "current-checkpoint.json"),
+);
 const bgiProfileOverride = optionValue("--bgi-profile");
 const bgiPolicyOverride = optionValue("--bgi-policy");
 const bgiBenchmarkConfigurationOverride = optionValue("--bgi-benchmark-config");
@@ -74,7 +76,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const setWindowPosFrameChangeMoveProfile =
+  bgiProfile === "user32-set-window-pos-frame-change-move";
 const d3d9RecreatedTexturesProfile =
+  setWindowPosFrameChangeMoveProfile ||
   bgiProfile === "d3d9-recreated-textures";
 const setWindowPosRepeatActivationProfile =
   d3d9RecreatedTexturesProfile ||
@@ -91,14 +96,15 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v26";
+const runtimeProtocol = "vine.browser-runtime-worker.v27";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
   "current checkpoint does not identify the built Runtime Worker protocol",
 );
 const bgiPath = path.resolve(
-  process.env.VINE_BGI_EXE ?? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
+  process.env.VINE_BGI_EXE ??
+    "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe",
 );
 const bgiPolicyPath = path.resolve(
   root,
@@ -112,7 +118,12 @@ const sourceManifestPath = path.join(
   "source-snapshots",
   "controlled-source-read-v1.json",
 );
-const sourceObjectPath = path.join(root, "fixtures", "storage", "source-read-v1.dat");
+const sourceObjectPath = path.join(
+  root,
+  "fixtures",
+  "storage",
+  "source-read-v1.dat",
+);
 const bgiOracleReportPath = path.join(
   root,
   ".work",
@@ -133,7 +144,7 @@ const browserPerformanceEnvironmentPolicyPath = path.join(
 
 function optionValue(name) {
   const index = process.argv.indexOf(name);
-  return index < 0 ? null : process.argv[index + 1] ?? null;
+  return index < 0 ? null : (process.argv[index + 1] ?? null);
 }
 
 function wait(milliseconds) {
@@ -144,7 +155,11 @@ function hash(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function run(command, arguments_, { env = process.env, timeoutMs = 30_000 } = {}) {
+function run(
+  command,
+  arguments_,
+  { env = process.env, timeoutMs = 30_000 } = {},
+) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, arguments_, {
       cwd: root,
@@ -156,7 +171,11 @@ function run(command, arguments_, { env = process.env, timeoutMs = 30_000 } = {}
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error(`${path.basename(command)} timed out\n${stdout}${stderr}`.trim()));
+      reject(
+        new Error(
+          `${path.basename(command)} timed out\n${stdout}${stderr}`.trim(),
+        ),
+      );
     }, timeoutMs);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -175,7 +194,11 @@ function run(command, arguments_, { env = process.env, timeoutMs = 30_000 } = {}
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        reject(new Error(`${path.basename(command)} failed (${signal ?? code})\n${stdout}${stderr}`));
+        reject(
+          new Error(
+            `${path.basename(command)} failed (${signal ?? code})\n${stdout}${stderr}`,
+          ),
+        );
       }
     });
   });
@@ -219,7 +242,8 @@ function launchChrome(command, arguments_, timeoutMs = 15_000) {
       }
     };
     const timeout = setTimeout(
-      () => fail(new Error(`Chrome did not expose DevTools\n${stdout}${stderr}`)),
+      () =>
+        fail(new Error(`Chrome did not expose DevTools\n${stdout}${stderr}`)),
       timeoutMs,
     );
     child.stdout.setEncoding("utf8");
@@ -233,13 +257,22 @@ function launchChrome(command, arguments_, timeoutMs = 15_000) {
       if (match !== null && !settled) {
         settled = true;
         clearTimeout(timeout);
-        resolve({ browserWebSocketUrl: match[1], child, exit, logs: () => `${stdout}${stderr}` });
+        resolve({
+          browserWebSocketUrl: match[1],
+          child,
+          exit,
+          logs: () => `${stdout}${stderr}`,
+        });
       }
     });
     child.once("error", fail);
     child.once("close", (code, signal) => {
       resolveExit({ code, signal });
-      fail(new Error(`Chrome exited before DevTools (${signal ?? code})\n${stdout}${stderr}`));
+      fail(
+        new Error(
+          `Chrome exited before DevTools (${signal ?? code})\n${stdout}${stderr}`,
+        ),
+      );
     });
   });
 }
@@ -247,7 +280,10 @@ function launchChrome(command, arguments_, timeoutMs = 15_000) {
 async function connectDevTools(webSocketUrl) {
   const socket = new WebSocket(webSocketUrl);
   await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("DevTools connection timed out")), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error("DevTools connection timed out")),
+      10_000,
+    );
     socket.addEventListener(
       "open",
       () => {
@@ -285,7 +321,9 @@ async function connectDevTools(webSocketUrl) {
     if (message.error === undefined) {
       request.resolve(message.result);
     } else {
-      request.reject(new Error(`DevTools ${request.method}: ${message.error.message}`));
+      request.reject(
+        new Error(`DevTools ${request.method}: ${message.error.message}`),
+      );
     }
   });
   socket.addEventListener("close", () => {
@@ -325,7 +363,12 @@ async function connectDevTools(webSocketUrl) {
       }, timeoutMs);
       pending.set(id, { method, reject, resolve, timeout });
       socket.send(
-        JSON.stringify({ id, method, params, ...(sessionId === null ? {} : { sessionId }) }),
+        JSON.stringify({
+          id,
+          method,
+          params,
+          ...(sessionId === null ? {} : { sessionId }),
+        }),
       );
     });
   }
@@ -333,23 +376,32 @@ async function connectDevTools(webSocketUrl) {
 
 async function createDebugTarget(browserWebSocketUrl, url) {
   const browserEndpoint = new URL(browserWebSocketUrl);
-  const response = await fetch(`http://${browserEndpoint.host}/json/new?${encodeURIComponent(url)}`, {
-    method: "PUT",
-  });
+  const response = await fetch(
+    `http://${browserEndpoint.host}/json/new?${encodeURIComponent(url)}`,
+    {
+      method: "PUT",
+    },
+  );
   assert(response.ok, `Chrome target creation failed with ${response.status}`);
   const target = await response.json();
   assert.equal(typeof target.webSocketDebuggerUrl, "string");
   return target;
 }
 
-async function evaluate(client, expression, { awaitPromise = false, timeoutMs = 10_000 } = {}) {
+async function evaluate(
+  client,
+  expression,
+  { awaitPromise = false, timeoutMs = 10_000 } = {},
+) {
   const result = await client.send(
     "Runtime.evaluate",
     { expression, awaitPromise, returnByValue: true },
     timeoutMs,
   );
   if (result.exceptionDetails !== undefined) {
-    throw new Error(`browser evaluation failed: ${JSON.stringify(result.exceptionDetails)}`);
+    throw new Error(
+      `browser evaluation failed: ${JSON.stringify(result.exceptionDetails)}`,
+    );
   }
   return result.result.value;
 }
@@ -358,7 +410,12 @@ async function waitForRuntime(client) {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     try {
-      if (await evaluate(client, `Boolean(window.__vineRuntime && document.querySelector("#run-button"))`)) {
+      if (
+        await evaluate(
+          client,
+          `Boolean(window.__vineRuntime && document.querySelector("#run-button"))`,
+        )
+      ) {
         return;
       }
     } catch {
@@ -396,7 +453,10 @@ async function waitForCheckpoint(client, timeoutMs = 30_000) {
   let snapshot = null;
   while (Date.now() < deadline) {
     snapshot = await evaluate(client, `window.__vineRuntime.snapshot()`);
-    if (snapshot.checkStatus === "passed" || snapshot.checkStatus === "failed") {
+    if (
+      snapshot.checkStatus === "passed" ||
+      snapshot.checkStatus === "failed"
+    ) {
       return snapshot;
     }
     await wait(100);
@@ -413,12 +473,19 @@ async function captureScreenshot(client, name) {
   const bytes = Buffer.from(result.data, "base64");
   const file = path.join(assetsRoot, name);
   await writeFile(file, bytes);
-  return { file: path.relative(root, file), bytes: bytes.byteLength, sha256: hash(bytes) };
+  return {
+    file: path.relative(root, file),
+    bytes: bytes.byteLength,
+    sha256: hash(bytes),
+  };
 }
 
 function assertExecutionStateMachine(report, scenario) {
   assert.equal(report.executionState, "stopped");
-  assert(report.executionTransitionCount > 0, "execution state machine did not transition");
+  assert(
+    report.executionTransitionCount > 0,
+    "execution state machine did not transition",
+  );
   assert.equal(report.lastExecutionTransition?.to, "stopped");
   assert.equal(report.pendingHostRequestRecords, 0);
   if (scenario === "watchdog") {
@@ -433,9 +500,16 @@ function assertExecutionStateMachine(report, scenario) {
         /^(0|[1-9][0-9]*)$/u.test(report.watchdogContext.requestId),
       "watchdog request identity is invalid",
     );
-    assert(report.watchdogContext.lastTransition !== null, "watchdog transition is missing");
+    assert(
+      report.watchdogContext.lastTransition !== null,
+      "watchdog transition is missing",
+    );
   } else {
-    assert.equal(report.watchdogContext, null, "non-watchdog report retained watchdog context");
+    assert.equal(
+      report.watchdogContext,
+      null,
+      "non-watchdog report retained watchdog context",
+    );
   }
 }
 
@@ -446,8 +520,16 @@ function assertExecutionEngine(report) {
   assert.equal(report.executionEngineLinearMemoryBytes > 0, true);
 }
 
-async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false) {
-  const target = await createDebugTarget(browserWebSocketUrl, `${baseUrl}?scenario=${mode}`);
+async function runProbe(
+  browserWebSocketUrl,
+  baseUrl,
+  mode,
+  screenshots = false,
+) {
+  const target = await createDebugTarget(
+    browserWebSocketUrl,
+    `${baseUrl}?scenario=${mode}`,
+  );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
     await client.send("Runtime.enable");
@@ -469,7 +551,10 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
     assertExecutionEngine(evidence.report);
     if (mode === "watchdog") {
       assert.notEqual(evidence.report.watchdogContext.requestId, null);
-      assert.equal(evidence.report.watchdogContext.lastTransition?.to, "waiting-host");
+      assert.equal(
+        evidence.report.watchdogContext.lastTransition?.to,
+        "waiting-host",
+      );
     }
     assert.equal(evidence.report.mappingDeltas, 7);
     assert.deepEqual(evidence.report.mappingOperations, {
@@ -509,7 +594,10 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
       ]);
       assert.equal(evidence.report.callbackEntries, 2);
       assert.equal(evidence.report.maximumCallbackDepth, 2);
-      assert(evidence.report.budgetYields > 0, "success path did not yield periodically");
+      assert(
+        evidence.report.budgetYields > 0,
+        "success path did not yield periodically",
+      );
       assert(evidence.heartbeatSamples >= 2, "main heartbeat did not advance");
       assert.equal(snapshot.pixelRgba, "255,0,0,255");
       assert.equal(snapshot.toneHz, "880");
@@ -520,11 +608,16 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
       );
       assert.deepEqual(pixel, [255, 0, 0, 255]);
     } else {
-      assert.equal(evidence.report.outcome, mode === "watchdog" ? "watchdog" : "cancelled");
+      assert.equal(
+        evidence.report.outcome,
+        mode === "watchdog" ? "watchdog" : "cancelled",
+      );
     }
     const captures = [];
     if (screenshots) {
-      captures.push(await captureScreenshot(client, "browser-runtime-desktop.png"));
+      captures.push(
+        await captureScreenshot(client, "browser-runtime-desktop.png"),
+      );
       await client.send("Emulation.setDeviceMetricsOverride", {
         width: 390,
         height: 844,
@@ -532,7 +625,9 @@ async function runProbe(browserWebSocketUrl, baseUrl, mode, screenshots = false)
         mobile: true,
       });
       await wait(200);
-      captures.push(await captureScreenshot(client, "browser-runtime-mobile.png"));
+      captures.push(
+        await captureScreenshot(client, "browser-runtime-mobile.png"),
+      );
     }
     return { mode, evidence, screenshots: captures };
   } finally {
@@ -564,11 +659,14 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
     }
     await wait(50);
   }
-  const diagnostics = await evaluate(client, `({
+  const diagnostics = await evaluate(
+    client,
+    `({
     check: window.__vineBgiCheck,
     status: document.querySelector("#status")?.textContent ?? null,
     body: { ...document.body.dataset },
-  })`);
+  })`,
+  );
   throw new Error(
     `BGI browser runtime timed out after ${timeoutMs}ms: ${JSON.stringify(diagnostics)}`,
   );
@@ -585,14 +683,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" &&
-        sleepZeroProfile
+      scenario === "success" && sleepZeroProfile
         ? 300_000
         : scenario === "success" &&
-        (bgiProfile === "shell32-drag-accept-files" ||
-          bgiProfile === "kernel32-archive-source-read")
-        ? 180_000
-        : 30_000,
+            (bgiProfile === "shell32-drag-accept-files" ||
+              bgiProfile === "kernel32-archive-source-read")
+          ? 180_000
+          : 30_000,
     );
     assert.equal(evidence.scenario, scenario);
     assert.equal(evidence.report.pendingHostCalls, 0);
@@ -629,8 +726,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
-      ].includes(bgiProfile) &&
-        scenario === "success"
+        "user32-set-window-pos-frame-change-move",
+      ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
     );
@@ -653,6 +750,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
+        "user32-set-window-pos-frame-change-move",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -676,25 +774,28 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
+        "user32-set-window-pos-frame-change-move",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
           : createDirectoryAProfile
-          ? 1_526
-          : getFileAttributesAProfile
-          ? 1_518
-          : sleepZeroProfile
-          ? 1_512
-          : bgiProfile === "kernel32-archive-source-read"
-          ? 1_032
-          : bgiProfile === "shell32-drag-accept-files"
-          ? 1_030
-          : bgiProfile === "primary-main-loop-progression" ||
-          bgiProfile === "kernel32-leave-critical-section" ||
-          bgiProfile === "kernel32-enter-critical-section-continuation" ||
-          bgiProfile === "kernel32-leave-critical-section-continuation"
-          ? 2
-          : 1
+            ? 1_526
+            : getFileAttributesAProfile
+              ? 1_518
+              : sleepZeroProfile
+                ? 1_512
+                : bgiProfile === "kernel32-archive-source-read"
+                  ? 1_032
+                  : bgiProfile === "shell32-drag-accept-files"
+                    ? 1_030
+                    : bgiProfile === "primary-main-loop-progression" ||
+                        bgiProfile === "kernel32-leave-critical-section" ||
+                        bgiProfile ===
+                          "kernel32-enter-critical-section-continuation" ||
+                        bgiProfile ===
+                          "kernel32-leave-critical-section-continuation"
+                      ? 2
+                      : 1
         : 0,
     );
     assert.deepEqual(evidence.report.initialCurrentDirectory, {
@@ -719,7 +820,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         capabilityCheckpoint ? "checkpoint-complete" : "structured-stop",
       );
       assert(evidence.report.supportedCallCount > 0);
-      assert.equal(evidence.report.evidenceLevel, fullEvidence ? "full" : "summary");
+      assert.equal(
+        evidence.report.evidenceLevel,
+        fullEvidence ? "full" : "summary",
+      );
       assert.equal(
         evidence.report.supportedCalls.length,
         fullEvidence ? evidence.report.supportedCallCount : 0,
@@ -728,7 +832,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         evidence.report.supportedCallSemanticsAlgorithm,
         SEMANTIC_CALL_DIGEST_ALGORITHM,
       );
-      assert.match(evidence.report.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
+      assert.match(
+        evidence.report.supportedCallSemanticsSha256,
+        /^[0-9a-f]{64}$/u,
+      );
       assert.equal(
         evidence.report.firstUnsupported === null,
         capabilityCheckpoint,
@@ -742,30 +849,31 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "shell32-drag-accept-files" ||
         bgiProfile === "kernel32-archive-source-read" ||
         bgiProfile === "kernel32-sleep-zero" ||
-        bgiProfile === "kernel32-global-memory-status"
-        || bgiProfile === "kernel32-get-file-attributes-a"
-        || bgiProfile === "kernel32-create-directory-a"
-        || setWindowPosRepeatActivationProfile
+        bgiProfile === "kernel32-global-memory-status" ||
+        bgiProfile === "kernel32-get-file-attributes-a" ||
+        bgiProfile === "kernel32-create-directory-a" ||
+        setWindowPosRepeatActivationProfile
       ) {
-        const pacingCount =
-          d3d9RecreatedTexturesProfile
-            ? 9_186
-            : createDirectoryAProfile
+        const pacingCount = d3d9RecreatedTexturesProfile
+          ? 9_186
+          : createDirectoryAProfile
             ? 6_974
             : getFileAttributesAProfile
-            ? 6_937
-            : sleepZeroProfile
-            ? 6_910
-            : bgiProfile === "kernel32-archive-source-read"
-            ? 4_716
-            : bgiProfile === "shell32-drag-accept-files"
-            ? 4_706
-            : bgiProfile === "primary-main-loop-progression" ||
-          bgiProfile === "kernel32-leave-critical-section" ||
-          bgiProfile === "kernel32-enter-critical-section-continuation" ||
-          bgiProfile === "kernel32-leave-critical-section-continuation"
-            ? 7
-            : 3;
+              ? 6_937
+              : sleepZeroProfile
+                ? 6_910
+                : bgiProfile === "kernel32-archive-source-read"
+                  ? 4_716
+                  : bgiProfile === "shell32-drag-accept-files"
+                    ? 4_706
+                    : bgiProfile === "primary-main-loop-progression" ||
+                        bgiProfile === "kernel32-leave-critical-section" ||
+                        bgiProfile ===
+                          "kernel32-enter-critical-section-continuation" ||
+                        bgiProfile ===
+                          "kernel32-leave-critical-section-continuation"
+                      ? 7
+                      : 3;
         assert.deepEqual(evidence.report.timerPacing, {
           requests: pacingCount,
           completions: pacingCount,
@@ -781,13 +889,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "shell32-drag-accept-files" ||
         bgiProfile === "kernel32-archive-source-read" ||
         bgiProfile === "kernel32-sleep-zero" ||
-        bgiProfile === "kernel32-global-memory-status"
-        || bgiProfile === "kernel32-get-file-attributes-a"
-        || bgiProfile === "kernel32-create-directory-a"
-        || setWindowPosRepeatActivationProfile
+        bgiProfile === "kernel32-global-memory-status" ||
+        bgiProfile === "kernel32-get-file-attributes-a" ||
+        bgiProfile === "kernel32-create-directory-a" ||
+        setWindowPosRepeatActivationProfile
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
-        assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
+        assert(
+          dragAcceptFiles !== null,
+          "Chrome Worker omitted DragAcceptFiles evidence",
+        );
         assert.equal(dragAcceptFiles.call.sequence, 89_249);
         assert.equal(
           dragAcceptFiles.call.trapInstructionCount,
@@ -818,18 +929,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.dragAcceptFiles, null);
       }
-      if (
-        archiveSourceReadProfile
-      ) {
+      if (archiveSourceReadProfile) {
         const archiveReads = evidence.report.sourceReads
           .filter((read) => read.request.sourceId === 1)
           .map((read) => ({
-              objectId: read.request.objectId,
-              offset: read.request.offset,
-              requestedBytes: read.request.requestedBytes,
-              transferredBytes: read.transferredBytes,
-              succeeded: read.succeeded,
-            }));
+            objectId: read.request.objectId,
+            offset: read.request.offset,
+            requestedBytes: read.request.requestedBytes,
+            transferredBytes: read.transferredBytes,
+            succeeded: read.succeeded,
+          }));
         assert.deepEqual(
           archiveReads,
           [
@@ -883,9 +992,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           "Chrome Worker primary boot-archive reads differ from the frozen slice",
         );
       }
-      if (
-        sleepZeroProfile
-      ) {
+      if (sleepZeroProfile) {
         const sleepZero = evidence.report.sleepZero;
         assert(sleepZero !== null, "Chrome Worker omitted Sleep(0) evidence");
         assert.equal(
@@ -902,12 +1009,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(sleepZero.firstCall.result, { action: "preserve" });
         assert.equal(sleepZero.firstCall.returnAddress, 0x1006_a2f5);
         assert.equal(
-          sleepZero.firstCall.stackPointerAfter - sleepZero.firstCall.stackPointerBefore,
+          sleepZero.firstCall.stackPointerAfter -
+            sleepZero.firstCall.stackPointerBefore,
           8,
         );
         assert.equal(sleepZero.firstCall.lastError, 0);
         assert.deepEqual(sleepZero.firstCall.guestWrites, []);
-        assert.equal(sleepZero.firstCall.executionBoundary, "yield-current-thread");
+        assert.equal(
+          sleepZero.firstCall.executionBoundary,
+          "yield-current-thread",
+        );
         assert.equal(
           sleepZero.lastCall.sequence,
           d3d9RecreatedTexturesProfile ? 126_996 : 107_670,
@@ -926,7 +1037,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           sleepZero.schedulerSelections.selectionCount,
           d3d9RecreatedTexturesProfile ? 480 : 240,
         );
-        assert.equal(sleepZero.schedulerSelections.firstSelection?.sequence, 89_430);
+        assert.equal(
+          sleepZero.schedulerSelections.firstSelection?.sequence,
+          89_430,
+        );
         assert.equal(
           sleepZero.schedulerSelections.lastSelection?.sequence,
           d3d9RecreatedTexturesProfile ? 126_996 : 107_670,
@@ -962,14 +1076,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           {
             address: 0x006f_f674,
             bytes: [
-              0x20, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x00, 0x00,
-              0xff, 0xff, 0xff, 0x7f,
-              0xff, 0xff, 0xff, 0x7f,
-              0xff, 0xff, 0xff, 0xff,
-              0xff, 0xff, 0xff, 0xff,
-              0x00, 0x00, 0xfe, 0x7f,
-              0x00, 0x00, 0x00, 0x60,
+              0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff,
+              0x7f, 0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+              0xff, 0xff, 0x00, 0x00, 0xfe, 0x7f, 0x00, 0x00, 0x00, 0x60,
             ],
           },
         ]);
@@ -999,8 +1108,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           module: "kernel32.dll",
           symbol: "GetFileAttributesA",
           occurrence: 1,
-          trapInstructionCount:
-            16_396_079 + createDirectoryAInstructionOffset,
+          trapInstructionCount: 16_396_079 + createDirectoryAInstructionOffset,
           arguments: [0x006f_f048],
           result: { action: "set", value: 0xffff_ffff },
           implementationId: "kernel32.get-file-attributes-a.runtime-vfs.v1",
@@ -1043,7 +1151,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (createDirectoryAProfile) {
         const directory = evidence.report.createDirectoryA;
-        assert(directory !== null, "Chrome Worker omitted CreateDirectoryA evidence");
+        assert(
+          directory !== null,
+          "Chrome Worker omitted CreateDirectoryA evidence",
+        );
         assert.deepEqual(directory.call, {
           sequence: 108_206,
           module: "kernel32.dll",
@@ -1104,19 +1215,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(repeat.repeatCall.symbol, "SetWindowPos");
         assert.equal(repeat.repeatCall.occurrence, 5);
         assert.equal(repeat.repeatCall.trapInstructionCount, 28_273_977);
-        assert.deepEqual(repeat.repeatCall.arguments, [
-          0x4801_0001,
-          0xffff_fffe,
-          0,
-          0,
-          1_286,
-          749,
-          266,
-        ]);
+        assert.deepEqual(
+          repeat.repeatCall.arguments,
+          [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 266],
+        );
         assert.deepEqual(repeat.repeatCall.result, { action: "set", value: 1 });
         assert.equal(
           repeat.repeatCall.implementationId,
-          "user32.set-window-pos.v4",
+          "user32.set-window-pos.v5",
         );
         assert.equal(repeat.repeatCall.returnAddress, 0x1005_cb4b);
         assert.equal(repeat.repeatCall.stackPointerBefore, 0x006f_f5e0);
@@ -1176,6 +1282,106 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(repeat.browserResourceCreated, false);
       } else {
         assert.equal(evidence.report.setWindowPosRepeatActivation, null);
+      }
+      if (setWindowPosFrameChangeMoveProfile) {
+        const frameChange = evidence.report.setWindowPosFrameChangeMove;
+        assert(
+          frameChange !== null,
+          "Chrome Worker omitted SetWindowPos frame-change move evidence",
+        );
+        assert.equal(frameChange.callCount, 6);
+        assert.equal(frameChange.call.sequence, 127_346);
+        assert.equal(frameChange.call.module.toLowerCase(), "user32.dll");
+        assert.equal(frameChange.call.symbol, "SetWindowPos");
+        assert.equal(frameChange.call.occurrence, 6);
+        assert.equal(frameChange.call.trapInstructionCount, 28_760_801);
+        assert.deepEqual(
+          frameChange.call.arguments,
+          [0x4801_0001, 0, 317, 154, 0, 0, 0x25],
+        );
+        assert.deepEqual(frameChange.call.result, { action: "set", value: 1 });
+        assert.equal(
+          frameChange.call.implementationId,
+          "user32.set-window-pos.v5",
+        );
+        assert.equal(frameChange.call.returnAddress, 0x1009_38c2);
+        assert.equal(frameChange.call.stackPointerBefore, 0x006f_f670);
+        assert.equal(frameChange.call.stackPointerAfter, 0x006f_f690);
+        assert.equal(frameChange.call.lastError, 0);
+        assert.deepEqual(frameChange.call.guestWrites, []);
+        assert.deepEqual(frameChange.call.window.geometry, {
+          x: 317,
+          y: 154,
+          width: 1_286,
+          height: 749,
+          clientX: 320,
+          clientY: 180,
+          clientWidth: 1_280,
+          clientHeight: 720,
+        });
+        assert.deepEqual(
+          frameChange.callbackEvents.map((event) => [
+            event.action,
+            event.sequence,
+            event.frameId,
+            event.instructionCount,
+            event.arguments ?? event.result,
+          ]),
+          [
+            [
+              "enter",
+              127_346,
+              26,
+              28_760_801,
+              [0x4801_0001, 0x0046, 0, 0x0050_1000],
+            ],
+            ["return", 127_346, 26, 28_760_858, 0],
+            [
+              "replace",
+              127_346,
+              27,
+              28_760_858,
+              [0x4801_0001, 0x0083, 1, 0x0050_1000],
+            ],
+            ["return", 127_346, 27, 28_760_911, 0],
+            [
+              "replace",
+              127_346,
+              28,
+              28_760_911,
+              [0x4801_0001, 0x0047, 0, 0x0050_1000],
+            ],
+            ["return", 127_346, 28, 28_761_017, 0],
+          ],
+        );
+        assert.equal(frameChange.nestedMoveCallbackEvents.length, 2);
+        assert.equal(frameChange.nestedMoveCallbackEvents[0].action, "enter");
+        assert.equal(frameChange.nestedMoveCallbackEvents[0].sequence, 127_349);
+        assert.deepEqual(
+          frameChange.nestedMoveCallbackEvents[0].arguments,
+          [0x4801_0001, 0x0003, 0, 0x00b4_0140],
+        );
+        assert.equal(frameChange.nestedMoveCallbackEvents[1].action, "return");
+        assert.equal(frameChange.nestedMoveCallbackEvents[1].sequence, 127_349);
+        assert.equal(frameChange.nestedMoveCallbackEvents[1].result, 0);
+        assert.equal(
+          frameChange.windowAuthority,
+          "rust-runtime-user32-logical-window",
+        );
+        assert.equal(
+          frameChange.relationAuthority,
+          "rust-runtime-user32-thread-and-process-window-relations",
+        );
+        assert.equal(
+          frameChange.geometryCommit,
+          "nccalcsize-completion-targeted-commit",
+        );
+        assert.equal(frameChange.relationMutation, false);
+        assert.equal(frameChange.gdiResourceMutation, false);
+        assert.equal(frameChange.browserResourceCreated, false);
+        assert.equal(frameChange.nonClientPaintAndEraseModeled, false);
+      } else {
+        assert.equal(evidence.report.setWindowPosFrameChangeMove, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -1244,7 +1450,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           recreated.textureAuthority,
           "rust-runtime-graphics-logical-texture",
         );
-        assert.equal(recreated.comAuthority, "rust-runtime-com-object-and-interface");
+        assert.equal(
+          recreated.comAuthority,
+          "rust-runtime-com-object-and-interface",
+        );
         assert.equal(recreated.browserRendererResourceCreated, false);
         assert.equal(
           recreated.mutation,
@@ -1255,7 +1464,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
-      assert(evidence.heartbeatSamples > 0, "main heartbeat did not advance during BGI");
+      assert(
+        evidence.heartbeatSamples > 0,
+        "main heartbeat did not advance during BGI",
+      );
     } else {
       assert.equal(
         evidence.report.outcome,
@@ -1274,14 +1486,18 @@ async function waitForSourceCheckpoint(client, timeoutMs = 30_000) {
   while (Date.now() < deadline) {
     snapshot = await evaluate(client, `window.__vineSourceCheck`);
     if (snapshot?.error !== null && snapshot?.error !== undefined) {
-      throw new Error(`source gateway browser runtime failed: ${snapshot.error}`);
+      throw new Error(
+        `source gateway browser runtime failed: ${snapshot.error}`,
+      );
     }
     if (snapshot?.result !== null && snapshot?.result !== undefined) {
       return snapshot.result;
     }
     await wait(50);
   }
-  throw new Error(`source gateway browser runtime timed out: ${JSON.stringify(snapshot)}`);
+  throw new Error(
+    `source gateway browser runtime timed out: ${JSON.stringify(snapshot)}`,
+  );
 }
 
 async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
@@ -1324,7 +1540,8 @@ async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
           win32Error: 0,
           cursorBefore: 0,
           cursorAfter: 8,
-          contentSha256: "202034b246570abc8e0e549637dbeb3ce7990de1fedeef6bcbf795934a3bb2da",
+          contentSha256:
+            "202034b246570abc8e0e549637dbeb3ce7990de1fedeef6bcbf795934a3bb2da",
         },
         {
           request: {
@@ -1340,7 +1557,8 @@ async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
           win32Error: 0,
           cursorBefore: 50,
           cursorAfter: 61,
-          contentSha256: "71c02fe83d1ee0855a1875c47a53372209e4892b3b8bd7bcdc5d1ea9610d0dc3",
+          contentSha256:
+            "71c02fe83d1ee0855a1875c47a53372209e4892b3b8bd7bcdc5d1ea9610d0dc3",
         },
       ]);
     } else if (scenario === "wrong-origin") {
@@ -1364,7 +1582,10 @@ async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
       assert.deepEqual(evidence.report.sourceReads, []);
       if (scenario === "watchdog") {
         assert.equal(evidence.report.watchdogContext.requestId, "1");
-        assert.equal(evidence.report.watchdogContext.lastTransition?.to, "waiting-host");
+        assert.equal(
+          evidence.report.watchdogContext.lastTransition?.to,
+          "waiting-host",
+        );
       }
     }
     return evidence;
@@ -1413,7 +1634,10 @@ async function runBgiBenchmark(
   const workerHeapSamples = [];
   try {
     client.on("Target.attachedToTarget", ({ sessionId, targetInfo }) => {
-      if (targetInfo.type === "worker" && targetInfo.url.endsWith("/runtime-worker.js")) {
+      if (
+        targetInfo.type === "worker" &&
+        targetInfo.url.endsWith("/runtime-worker.js")
+      ) {
         workerSessionId = sessionId;
       }
     });
@@ -1429,12 +1653,19 @@ async function runBgiBenchmark(
     while (workerSessionId === null && Date.now() < workerDeadline) {
       await wait(100);
     }
-    assert(workerSessionId !== null, "BGI benchmark Worker target was not discoverable");
+    assert(
+      workerSessionId !== null,
+      "BGI benchmark Worker target was not discoverable",
+    );
     if (bgiCpuProfile) {
       await client.sendToSession(workerSessionId, "Profiler.enable");
-      await client.sendToSession(workerSessionId, "Profiler.setSamplingInterval", {
-        interval: 100,
-      });
+      await client.sendToSession(
+        workerSessionId,
+        "Profiler.setSamplingInterval",
+        {
+          interval: 100,
+        },
+      );
       await client.sendToSession(workerSessionId, "Profiler.start");
       workerCpuProfileActive = true;
     }
@@ -1442,14 +1673,14 @@ async function runBgiBenchmark(
     let nextHeapSampleAt = 0;
     let snapshot = null;
     while (Date.now() < deadline) {
-      snapshot = await evaluate(client, `window.__vineBgiBenchmark?.snapshot()`);
+      snapshot = await evaluate(
+        client,
+        `window.__vineBgiBenchmark?.snapshot()`,
+      );
       if (snapshot?.status === "failed") {
         throw new Error(`BGI benchmark failed: ${snapshot.error}`);
       }
-      if (
-        workerCpuProfileActive &&
-        snapshot?.completedSessions >= 1
-      ) {
+      if (workerCpuProfileActive && snapshot?.completedSessions >= 1) {
         const { profile } = await client.sendToSession(
           workerSessionId,
           "Profiler.stop",
@@ -1464,8 +1695,15 @@ async function runBgiBenchmark(
         await client.sendToSession(workerSessionId, "Profiler.disable");
       }
       if (snapshot?.status === "passed") {
-        assert(snapshot.result.completedSessions > 0, "BGI benchmark completed no sessions");
-        assert.equal(snapshot.result.failedSessions, 0, "BGI benchmark contained failures");
+        assert(
+          snapshot.result.completedSessions > 0,
+          "BGI benchmark completed no sessions",
+        );
+        assert.equal(
+          snapshot.result.failedSessions,
+          0,
+          "BGI benchmark contained failures",
+        );
         return { ...snapshot.result, workerHeapSamples };
       }
       if (snapshot?.elapsedMilliseconds >= nextHeapSampleAt) {
@@ -1489,14 +1727,21 @@ async function runBgiBenchmark(
   } finally {
     if (workerSessionId !== null && workerCpuProfileActive) {
       try {
-        await client.sendToSession(workerSessionId, "Profiler.stop", {}, 30_000);
+        await client.sendToSession(
+          workerSessionId,
+          "Profiler.stop",
+          {},
+          30_000,
+        );
       } catch {
         // The benchmark Worker may have terminated before a complete session.
       }
     }
     if (workerSessionId !== null) {
       try {
-        await client.send("Target.detachFromTarget", { sessionId: workerSessionId });
+        await client.send("Target.detachFromTarget", {
+          sessionId: workerSessionId,
+        });
       } catch {
         // The benchmark page terminates its Worker after publishing the result.
       }
@@ -1508,7 +1753,10 @@ async function runBgiBenchmark(
 function percentile(values, percentileValue) {
   assert(values.length > 0, "percentile requires samples");
   const sorted = [...values].sort((left, right) => left - right);
-  const index = Math.min(sorted.length - 1, Math.ceil(percentileValue * sorted.length) - 1);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil(percentileValue * sorted.length) - 1,
+  );
   return sorted[index];
 }
 
@@ -1522,7 +1770,10 @@ function linearSlope(points) {
     (sum, point) => sum + (point.x - meanX) * (point.y - meanY),
     0,
   );
-  const denominator = points.reduce((sum, point) => sum + (point.x - meanX) ** 2, 0);
+  const denominator = points.reduce(
+    (sum, point) => sum + (point.x - meanX) ** 2,
+    0,
+  );
   return denominator === 0 ? 0 : (numerator / denominator) * 60_000;
 }
 
@@ -1541,7 +1792,9 @@ function heapMetrics(samples, field) {
 }
 
 function summarizeBgiBenchmark(result, configuration) {
-  const sessionDurations = result.sessions.map(({ elapsedMilliseconds }) => elapsedMilliseconds);
+  const sessionDurations = result.sessions.map(
+    ({ elapsedMilliseconds }) => elapsedMilliseconds,
+  );
   const sliceDurations = result.sessions.map(
     ({ maximumSliceMilliseconds }) => maximumSliceMilliseconds,
   );
@@ -1553,27 +1806,49 @@ function summarizeBgiBenchmark(result, configuration) {
   const mainHeap = heapMetrics(result.memorySamples, "usedJsHeapBytes");
   const workerHeap = heapMetrics(result.workerHeapSamples, "usedSize");
   const workerHeapCapacity = heapMetrics(result.workerHeapSamples, "totalSize");
-  const workerEmbedderHeap = heapMetrics(result.workerHeapSamples, "embedderHeapUsedSize");
-  const workerBackingStorage = heapMetrics(result.workerHeapSamples, "backingStorageSize");
+  const workerEmbedderHeap = heapMetrics(
+    result.workerHeapSamples,
+    "embedderHeapUsedSize",
+  );
+  const workerBackingStorage = heapMetrics(
+    result.workerHeapSamples,
+    "backingStorageSize",
+  );
   const runtimeCoreSizes = new Set(
-    result.sessions.map(({ runtimeCoreLinearMemoryBytes }) => runtimeCoreLinearMemoryBytes),
+    result.sessions.map(
+      ({ runtimeCoreLinearMemoryBytes }) => runtimeCoreLinearMemoryBytes,
+    ),
   );
   const engineSizes = new Set(
     result.sessions.map(
-      ({ executionEngineLinearMemoryBytes }) => executionEngineLinearMemoryBytes,
+      ({ executionEngineLinearMemoryBytes }) =>
+        executionEngineLinearMemoryBytes,
     ),
   );
   const wasmBridgeCallCounts = new Set(
     result.sessions.map(({ wasmBridgeCalls }) => wasmBridgeCalls),
   );
-  assert.equal(runtimeCoreSizes.size, 1, "Rust runtime linear memory size was unstable");
-  assert.equal(engineSizes.size, 1, "execution engine linear memory size was unstable");
-  assert.equal(wasmBridgeCallCounts.size, 1, "Wasm crossing count was unstable");
+  assert.equal(
+    runtimeCoreSizes.size,
+    1,
+    "Rust runtime linear memory size was unstable",
+  );
+  assert.equal(
+    engineSizes.size,
+    1,
+    "execution engine linear memory size was unstable",
+  );
+  assert.equal(
+    wasmBridgeCallCounts.size,
+    1,
+    "Wasm crossing count was unstable",
+  );
   const metrics = {
     durationMilliseconds: result.durationMilliseconds,
     completedSessions: result.completedSessions,
     failedSessions: result.failedSessions,
-    sessionsPerMinute: (result.completedSessions * 60_000) / result.durationMilliseconds,
+    sessionsPerMinute:
+      (result.completedSessions * 60_000) / result.durationMilliseconds,
     sessionLatencyMilliseconds: {
       p50: percentile(sessionDurations, 0.5),
       p95: percentile(sessionDurations, 0.95),
@@ -1716,7 +1991,13 @@ function summarizeBgiBenchmark(result, configuration) {
     const passed =
       observed !== null &&
       (comparison === ">=" ? observed >= threshold : observed <= threshold);
-    thresholdEvaluations.push({ name, observed, comparison, threshold, passed });
+    thresholdEvaluations.push({
+      name,
+      observed,
+      comparison,
+      threshold,
+      passed,
+    });
     if (!passed) {
       thresholdFailures.push(name);
     }
@@ -1724,7 +2005,10 @@ function summarizeBgiBenchmark(result, configuration) {
 }
 
 function normalizeCurrentDirectorySnapshot(snapshot) {
-  assert(snapshot !== null && snapshot !== undefined, "current-directory snapshot is missing");
+  assert(
+    snapshot !== null && snapshot !== undefined,
+    "current-directory snapshot is missing",
+  );
   assert.equal(typeof snapshot.directory.sourceAuthority, "string");
   assert(snapshot.directory.sourceAuthority.length > 0);
   return {
@@ -1814,8 +2098,12 @@ function normalizeSleepZero(snapshot) {
     schedulerAuthority: snapshot.schedulerAuthority,
     schedulerSelections: {
       selectionCount: snapshot.schedulerSelections.selectionCount,
-      firstSelection: normalizeSelection(snapshot.schedulerSelections.firstSelection),
-      lastSelection: normalizeSelection(snapshot.schedulerSelections.lastSelection),
+      firstSelection: normalizeSelection(
+        snapshot.schedulerSelections.firstSelection,
+      ),
+      lastSelection: normalizeSelection(
+        snapshot.schedulerSelections.lastSelection,
+      ),
     },
     noCompetitorCompletions: snapshot.noCompetitorCompletions,
     hostWaitCreated: snapshot.hostWaitCreated,
@@ -1902,6 +2190,41 @@ function normalizeSetWindowPosRepeatActivation(snapshot) {
   };
 }
 
+function normalizeSetWindowPosFrameChangeMove(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  const call = snapshot.call;
+  return {
+    callCount: snapshot.callCount,
+    call: {
+      sequence: call.sequence,
+      module: call.module.toLowerCase(),
+      symbol: call.symbol,
+      occurrence: call.occurrence,
+      trapInstructionCount: call.trapInstructionCount,
+      arguments: call.arguments,
+      result: call.result,
+      implementationId: call.implementationId,
+      returnAddress: call.returnAddress,
+      stackPointerBefore: call.stackPointerBefore,
+      stackPointerAfter: call.stackPointerAfter,
+      lastError: call.lastError,
+      guestWrites: call.guestWrites,
+      geometry: call.window.geometry,
+    },
+    callbackEvents: snapshot.callbackEvents,
+    nestedMoveCallbackEvents: snapshot.nestedMoveCallbackEvents,
+    windowAuthority: snapshot.windowAuthority,
+    relationAuthority: snapshot.relationAuthority,
+    geometryCommit: snapshot.geometryCommit,
+    relationMutation: snapshot.relationMutation,
+    gdiResourceMutation: snapshot.gdiResourceMutation,
+    browserResourceCreated: snapshot.browserResourceCreated,
+    nonClientPaintAndEraseModeled: snapshot.nonClientPaintAndEraseModeled,
+  };
+}
+
 function normalizeD3d9RecreatedTextures(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -1981,6 +2304,13 @@ function validateBgiEquivalence(browser, oracle) {
     "Chrome Worker SetWindowPos repeat activation differs from the Node oracle",
   );
   assert.deepEqual(
+    normalizeSetWindowPosFrameChangeMove(
+      browser.report.setWindowPosFrameChangeMove,
+    ),
+    normalizeSetWindowPosFrameChangeMove(oracle.setWindowPosFrameChangeMove),
+    "Chrome Worker SetWindowPos frame-change move differs from the Node oracle",
+  );
+  assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),
     normalizeD3d9RecreatedTextures(oracle.d3d9RecreatedTextures),
     "Chrome Worker D3D9 recreated texture evidence differs from the Node oracle",
@@ -2014,7 +2344,9 @@ function validateBgiEquivalence(browser, oracle) {
     }
   }
   assert.deepEqual(
-    (browser.report.heapPageMaterializations ?? []).map(normalizeHeapPageMaterialization),
+    (browser.report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
     (oracle.synchronization.heapPageMaterializations ?? []).map(
       normalizeHeapPageMaterialization,
     ),
@@ -2029,7 +2361,10 @@ function validateBgiEquivalence(browser, oracle) {
   const oracleStop = oracle.firstUnsupported;
   const browserCheckpoint = browser.report.checkpointCompletion;
   const oracleCheckpoint = oracle.checkpointCompletion ?? null;
-  assert.equal(browser.report.initialGeneration, oracle.process.memory.generation);
+  assert.equal(
+    browser.report.initialGeneration,
+    oracle.process.memory.generation,
+  );
   assert(browser.report.finalGeneration >= browser.report.initialGeneration);
   if (oracleCheckpoint !== null) {
     assert.equal(
@@ -2037,14 +2372,23 @@ function validateBgiEquivalence(browser, oracle) {
       oracle.waitableTimerWait.pacingRequests.length,
       "Chrome Worker pacing request count differs from the Node transport oracle",
     );
-    assert.equal(browser.report.timerPacing.completions, browser.report.timerPacing.requests);
+    assert.equal(
+      browser.report.timerPacing.completions,
+      browser.report.timerPacing.requests,
+    );
     assert.equal(browser.report.timerPacing.pending, 0);
     assert.equal(browser.report.timerPacing.cancellations, 0);
     assert.equal(browser.report.timerPacing.staleCallbacks, 0);
     assert.equal(browserStop, null);
-    assert(browserCheckpoint !== null, "Chrome Worker omitted its capability checkpoint");
+    assert(
+      browserCheckpoint !== null,
+      "Chrome Worker omitted its capability checkpoint",
+    );
     assert.equal(browser.report.outcome, "checkpoint-complete");
-    assert.equal(browser.report.instructions, oracleCheckpoint.instructionCount);
+    assert.equal(
+      browser.report.instructions,
+      oracleCheckpoint.instructionCount,
+    );
     assert.deepEqual(
       {
         capability: browserCheckpoint.capability,
@@ -2144,7 +2488,10 @@ function validateBgiEquivalence(browser, oracle) {
       oracle.waitableTimerWait.pacingRequestCount,
       "Chrome Worker pacing request count differs from the long Node oracle",
     );
-    assert.equal(browser.report.timerPacing.completions, browser.report.timerPacing.requests);
+    assert.equal(
+      browser.report.timerPacing.completions,
+      browser.report.timerPacing.requests,
+    );
     assert.equal(browser.report.timerPacing.pending, 0);
     assert.equal(browser.report.timerPacing.cancellations, 0);
     assert.equal(browser.report.timerPacing.staleCallbacks, 0);
@@ -2157,7 +2504,10 @@ function validateBgiEquivalence(browser, oracle) {
   assert.equal(browserStop.capabilityCluster, oracleStop.capabilityCluster);
   if (oracleStop.endpoint === null) {
     assert.equal(browserStop.endpoint, null);
-    assert.equal(browserStop.fault.instructionPointer, oracleStop.fault.instructionPointer);
+    assert.equal(
+      browserStop.fault.instructionPointer,
+      oracleStop.fault.instructionPointer,
+    );
     assert.equal(
       browserStop.fault.previousInstructionPointer,
       oracleStop.fault.previousInstructionPointer,
@@ -2184,8 +2534,14 @@ function validateBgiEquivalence(browser, oracle) {
     );
   } else {
     assert.equal(browserStop.endpoint.id, oracleStop.endpoint.endpoint.id);
-    assert.equal(browserStop.endpoint.address, oracleStop.endpoint.endpoint.address);
-    assert.equal(browserStop.endpoint.module, oracleStop.endpoint.endpoint.module);
+    assert.equal(
+      browserStop.endpoint.address,
+      oracleStop.endpoint.endpoint.address,
+    );
+    assert.equal(
+      browserStop.endpoint.module,
+      oracleStop.endpoint.endpoint.module,
+    );
     const oracleSymbol = oracleStop.endpoint.endpoint.symbol ?? {
       kind: "name",
       name: oracleStop.endpoint.endpoint.name,
@@ -2204,8 +2560,15 @@ async function runStress(client, durationMilliseconds) {
     { awaitPromise: true, timeoutMs: durationMilliseconds + 120_000 },
   );
   assert(result.sessions > 0, "stress run completed no sessions");
-  assert.equal(result.failedSessions, 0, "stress run contained failed sessions");
-  assert(result.samples.length >= 2, "stress run did not record enough memory samples");
+  assert.equal(
+    result.failedSessions,
+    0,
+    "stress run contained failed sessions",
+  );
+  assert(
+    result.samples.length >= 2,
+    "stress run did not record enough memory samples",
+  );
   return result;
 }
 
@@ -2239,7 +2602,7 @@ function createServer(sourceRegistration, writableProfile) {
       }
       if (
         writableProfile !== null &&
-        await handleWritableProfileHttp(request, response, writableProfile)
+        (await handleWritableProfileHttp(request, response, writableProfile))
       ) {
         return;
       }
@@ -2252,7 +2615,10 @@ function createServer(sourceRegistration, writableProfile) {
       } else {
         const name = pathname === "/" ? "index.html" : pathname.slice(1);
         file = path.resolve(assetsRoot, name);
-        assert(file.startsWith(`${path.resolve(assetsRoot)}${path.sep}`), "invalid asset path");
+        assert(
+          file.startsWith(`${path.resolve(assetsRoot)}${path.sep}`),
+          "invalid asset path",
+        );
       }
       const bytes = await readFile(file);
       response.writeHead(200, {
@@ -2278,7 +2644,10 @@ function listen(server, port) {
 }
 
 async function startServer(preferredPort, sourceRegistration, writableProfile) {
-  const ports = preferredPort === 0 ? [0] : Array.from({ length: 20 }, (_, index) => preferredPort + index);
+  const ports =
+    preferredPort === 0
+      ? [0]
+      : Array.from({ length: 20 }, (_, index) => preferredPort + index);
   let lastError = null;
   for (const port of ports) {
     const server = createServer(sourceRegistration, writableProfile);
@@ -2322,8 +2691,14 @@ async function checkSourceApi(baseUrl, registration) {
     rangeResponse.headers.get("x-vine-title-fingerprint"),
     registration.manifest.titleFingerprint,
   );
-  assert.equal(rangeResponse.headers.get("x-vine-snapshot-id"), registration.manifest.snapshotId);
-  assert.equal(rangeResponse.headers.get("x-vine-object-id"), String(file.objectId));
+  assert.equal(
+    rangeResponse.headers.get("x-vine-snapshot-id"),
+    registration.manifest.snapshotId,
+  );
+  assert.equal(
+    rangeResponse.headers.get("x-vine-object-id"),
+    String(file.objectId),
+  );
   assert.equal(rangeResponse.headers.get("x-vine-transferred-bytes"), "7");
   assert.deepEqual(
     Buffer.from(await rangeResponse.arrayBuffer()),
@@ -2331,7 +2706,10 @@ async function checkSourceApi(baseUrl, registration) {
     "source API returned different registered bytes",
   );
   const wrongSnapshot = await fetch(
-    rangeUrl.replace(encodeURIComponent(registration.manifest.snapshotId), "wrong-snapshot"),
+    rangeUrl.replace(
+      encodeURIComponent(registration.manifest.snapshotId),
+      "wrong-snapshot",
+    ),
   );
   assert.equal(wrongSnapshot.status, 404);
   const wrongTitle = await fetch(
@@ -2341,7 +2719,9 @@ async function checkSourceApi(baseUrl, registration) {
     ),
   );
   assert.equal(wrongTitle.status, 404);
-  const wrongObject = await fetch(rangeUrl.replace(`/objects/${file.objectId}`, "/objects/999"));
+  const wrongObject = await fetch(
+    rangeUrl.replace(`/objects/${file.objectId}`, "/objects/999"),
+  );
   assert.equal(wrongObject.status, 404);
   const wrongRange = await fetch(
     rangeUrl.replace("offset=0", `offset=${file.byteLength + 1}`),
@@ -2367,7 +2747,9 @@ async function checkWritableProfileApi(baseUrl, profile) {
     headers: leaseHeaders,
   });
   assert.equal(snapshotResponse.status, 200);
-  const snapshot = JSON.parse(Buffer.from(await snapshotResponse.arrayBuffer()));
+  const snapshot = JSON.parse(
+    Buffer.from(await snapshotResponse.arrayBuffer()),
+  );
   assert.deepEqual(snapshot, snapshotWritableProfile(profile));
   const file = snapshot.files[0];
   if (file.exists) {
@@ -2376,47 +2758,73 @@ async function checkWritableProfileApi(baseUrl, profile) {
       `${baseUrl}api/profile/v3/titles/${encodeURIComponent(snapshot.titleFingerprint)}` +
       `/profiles/${encodeURIComponent(snapshot.profileId)}/objects/${file.objectId}` +
       `?generation=${file.generation}&offset=0&length=${length}`;
-    const rangeResponse = await fetch(rangeUrl, { cache: "no-store", headers: leaseHeaders });
+    const rangeResponse = await fetch(rangeUrl, {
+      cache: "no-store",
+      headers: leaseHeaders,
+    });
     assert.equal(rangeResponse.status, 206);
-    assert.equal(rangeResponse.headers.get("x-vine-profile-id"), snapshot.profileId);
-    assert.equal(rangeResponse.headers.get("x-vine-generation"), String(file.generation));
+    assert.equal(
+      rangeResponse.headers.get("x-vine-profile-id"),
+      snapshot.profileId,
+    );
+    assert.equal(
+      rangeResponse.headers.get("x-vine-generation"),
+      String(file.generation),
+    );
     const expected = readWritableProfile(profile, {
       sourceId: 0,
       objectId: file.objectId,
       offset: 0n,
       requestedBytes: length,
     });
-    assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), expected.bytes);
+    assert.deepEqual(
+      Buffer.from(await rangeResponse.arrayBuffer()),
+      expected.bytes,
+    );
     assert.equal(
       (
-        await fetch(rangeUrl.replace(`generation=${file.generation}`, "generation=999999"), {
-          headers: leaseHeaders,
-        })
+        await fetch(
+          rangeUrl.replace(
+            `generation=${file.generation}`,
+            "generation=999999",
+          ),
+          {
+            headers: leaseHeaders,
+          },
+        )
       ).status,
       409,
     );
     assert.equal(
       (
         await fetch(
-          rangeUrl.replace(encodeURIComponent(snapshot.titleFingerprint), "wrong-title"),
+          rangeUrl.replace(
+            encodeURIComponent(snapshot.titleFingerprint),
+            "wrong-title",
+          ),
           { headers: leaseHeaders },
         )
       ).status,
       404,
     );
   }
-  const revokeResponse = await fetch(`${baseUrl}api/profile/v3/sessions/${sessionEpoch}`, {
-    method: "DELETE",
-    cache: "no-store",
-    headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
-  });
+  const revokeResponse = await fetch(
+    `${baseUrl}api/profile/v3/sessions/${sessionEpoch}`,
+    {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "X-Vine-Session-Key": "browser-runner-preflight" },
+    },
+  );
   assert.equal(revokeResponse.status, 204);
   assert.equal(revokeResponse.headers.get("x-vine-session-revoked"), "true");
 }
 
 function assertWritableProfileLeaseReleased(profile) {
   const lease = profile.database
-    .prepare("SELECT session_key, active FROM profile_lease WHERE singleton = 1")
+    .prepare(
+      "SELECT session_key, active FROM profile_lease WHERE singleton = 1",
+    )
     .get();
   assert.equal(lease?.active, 0);
   assert.equal(lease?.session_key, null);
@@ -2425,10 +2833,30 @@ function assertWritableProfileLeaseReleased(profile) {
 function findChrome() {
   const candidates = [
     process.env.VINE_CHROME,
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "Google", "Chrome", "Application", "chrome.exe"),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe"),
+    process.env.ProgramFiles &&
+      path.join(
+        process.env.ProgramFiles,
+        "Google",
+        "Chrome",
+        "Application",
+        "chrome.exe",
+      ),
+    process.env.LOCALAPPDATA &&
+      path.join(
+        process.env.LOCALAPPDATA,
+        "Google",
+        "Chrome",
+        "Application",
+        "chrome.exe",
+      ),
     process.env["ProgramFiles(x86)"] &&
-      path.join(process.env["ProgramFiles(x86)"], "Google", "Chrome", "Application", "chrome.exe"),
+      path.join(
+        process.env["ProgramFiles(x86)"],
+        "Google",
+        "Chrome",
+        "Application",
+        "chrome.exe",
+      ),
   ].filter(Boolean);
   const chrome = candidates.find((candidate) => fs.existsSync(candidate));
   assert(chrome, "Chrome stable was not found; set VINE_CHROME to chrome.exe");
@@ -2444,8 +2872,16 @@ async function resolveChromeSelection() {
       artifact: null,
     };
   }
-  assert.equal(process.platform, "win32", "canonical BGI performance acceptance is Windows-only");
-  assert.equal(process.arch, "x64", "canonical BGI performance acceptance requires Windows x64");
+  assert.equal(
+    process.platform,
+    "win32",
+    "canonical BGI performance acceptance is Windows-only",
+  );
+  assert.equal(
+    process.arch,
+    "x64",
+    "canonical BGI performance acceptance requires Windows x64",
+  );
   const artifact = await loadChromeForTestingArtifact(root);
   const version = await chromeVersion(artifact.executablePath);
   assert.equal(
@@ -2463,7 +2899,11 @@ async function chromeVersion(chrome) {
   return (
     await run(
       "powershell.exe",
-      ["-NoProfile", "-Command", "(Get-Item -LiteralPath $env:VINE_CHROME_PATH).VersionInfo.ProductVersion"],
+      [
+        "-NoProfile",
+        "-Command",
+        "(Get-Item -LiteralPath $env:VINE_CHROME_PATH).VersionInfo.ProductVersion",
+      ],
       { env: { ...process.env, VINE_CHROME_PATH: chrome } },
     )
   ).stdout.trim();
@@ -2474,7 +2914,12 @@ async function stopChrome(chrome) {
     return;
   }
   terminateProcess(chrome.child);
-  if (!(await Promise.race([chrome.exit.then(() => true), wait(5_000).then(() => false)]))) {
+  if (
+    !(await Promise.race([
+      chrome.exit.then(() => true),
+      wait(5_000).then(() => false),
+    ]))
+  ) {
     terminateProcess(chrome.child, "SIGKILL");
     await chrome.exit;
   }
@@ -2487,19 +2932,40 @@ async function waitForShutdown() {
   });
 }
 
-assert(fs.existsSync(path.join(assetsRoot, "index.html")), "browser runtime is not built");
+assert(
+  fs.existsSync(path.join(assetsRoot, "index.html")),
+  "browser runtime is not built",
+);
 assert(
   fs.existsSync(path.join(assetsRoot, "source-check.html")),
   "source gateway browser check is not built",
 );
-assert(fs.existsSync(sourceManifestPath), `source manifest is missing at ${sourceManifestPath}`);
-assert(fs.existsSync(sourceObjectPath), `source object is missing at ${sourceObjectPath}`);
+assert(
+  fs.existsSync(sourceManifestPath),
+  `source manifest is missing at ${sourceManifestPath}`,
+);
+assert(
+  fs.existsSync(sourceObjectPath),
+  `source object is missing at ${sourceObjectPath}`,
+);
 if (bgiMode) {
-  assert(fs.existsSync(path.join(assetsRoot, "bgi-check.html")), "BGI browser check is not built");
+  assert(
+    fs.existsSync(path.join(assetsRoot, "bgi-check.html")),
+    "BGI browser check is not built",
+  );
   assert(fs.existsSync(bgiPath), `BGI source is missing at ${bgiPath}`);
-  assert(fs.existsSync(bgiPolicyPath), `BGI policy is missing at ${bgiPolicyPath}`);
-  assert(fs.existsSync(bgiOracleReportPath), "Node BGI oracle report is missing");
-  assert(fs.existsSync(bgiBenchmarkConfigurationPath), "BGI benchmark configuration is missing");
+  assert(
+    fs.existsSync(bgiPolicyPath),
+    `BGI policy is missing at ${bgiPolicyPath}`,
+  );
+  assert(
+    fs.existsSync(bgiOracleReportPath),
+    "Node BGI oracle report is missing",
+  );
+  assert(
+    fs.existsSync(bgiBenchmarkConfigurationPath),
+    "BGI benchmark configuration is missing",
+  );
   assert(
     fs.existsSync(path.join(assetsRoot, "bgi-benchmark.html")),
     "BGI browser benchmark is not built",
@@ -2510,7 +2976,10 @@ if (bgiMode) {
     "private BGI source must not be copied into the browser build",
   );
 }
-assert(Number.isFinite(stressMilliseconds) && stressMilliseconds >= 0, "--stress-ms is invalid");
+assert(
+  Number.isFinite(stressMilliseconds) && stressMilliseconds >= 0,
+  "--stress-ms is invalid",
+);
 assert(
   Number.isFinite(bgiBenchmarkMilliseconds) && bgiBenchmarkMilliseconds >= 0,
   "--bgi-benchmark-ms is invalid",
@@ -2536,7 +3005,8 @@ const sourceRegistration = bgiMode
       manifestPath: sourceManifestPath,
       objectFiles: { 1: sourceObjectPath },
     });
-const bgiGdbBefore = bgiMode && fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+const bgiGdbBefore =
+  bgiMode && fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
 const writableProfileBaseDirectory = bgiMode
   ? path.join(
       root,
@@ -2548,16 +3018,23 @@ const writableProfileBaseDirectory = bgiMode
 if (writableProfileBaseDirectory !== null) {
   fs.mkdirSync(writableProfileBaseDirectory, { recursive: true });
 }
-const writableProfileRunDirectory = bgiMode && createDirectoryAProfile
-  ? await mkdtemp(path.join(writableProfileBaseDirectory, "browser-create-directory-run-"))
-  : null;
+const writableProfileRunDirectory =
+  bgiMode && createDirectoryAProfile
+    ? await mkdtemp(
+        path.join(
+          writableProfileBaseDirectory,
+          "browser-create-directory-run-",
+        ),
+      )
+    : null;
 const writableProfile = bgiMode
   ? openWritableProfile({
       databasePath: path.join(
         writableProfileRunDirectory ?? writableProfileBaseDirectory,
         "default.sqlite",
       ),
-      titleFingerprint: checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
+      titleFingerprint:
+        checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
       profileId: "default",
       rootPathA: Buffer.from("C:\\Vine\0", "binary"),
       quotaBytes: 16 * 1024 * 1024,
@@ -2578,7 +3055,11 @@ const writableProfile = bgiMode
         : [],
     })
   : null;
-const { server, port } = await startServer(requestedPort, sourceRegistration, writableProfile);
+const { server, port } = await startServer(
+  requestedPort,
+  sourceRegistration,
+  writableProfile,
+);
 const url = `http://127.0.0.1:${port}/`;
 if (sourceRegistration !== null) {
   await checkSourceApi(url, sourceRegistration);
@@ -2633,7 +3114,9 @@ if (serveOnly) {
     if (bgiMode) {
       const sourceBefore = await readFile(bgiPath);
       if (bgiBenchmarkMilliseconds > 0) {
-        const configurationBytes = await readFile(bgiBenchmarkConfigurationPath);
+        const configurationBytes = await readFile(
+          bgiBenchmarkConfigurationPath,
+        );
         const configuration = JSON.parse(configurationBytes);
         assert.equal(configuration.schema, "vine.bgi-browser-benchmark");
         assert.equal(configuration.schemaVersion, 1);
@@ -2671,12 +3154,13 @@ if (serveOnly) {
         const environmentPolicy = await loadBrowserPerformanceEnvironmentPolicy(
           browserPerformanceEnvironmentPolicyPath,
         );
-        const environmentMonitor = await startBrowserPerformanceEnvironmentMonitor({
-          root,
-          rootProcessId: chrome.child.pid,
-          policy: environmentPolicy.value,
-          durationMilliseconds: bgiBenchmarkMilliseconds,
-        });
+        const environmentMonitor =
+          await startBrowserPerformanceEnvironmentMonitor({
+            root,
+            rootProcessId: chrome.child.pid,
+            policy: environmentPolicy.value,
+            durationMilliseconds: bgiBenchmarkMilliseconds,
+          });
         let result;
         let performanceEnvironment;
         try {
@@ -2703,7 +3187,11 @@ if (serveOnly) {
           performanceEnvironment.decision,
         );
         const sourceAfter = await readFile(bgiPath);
-        assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the benchmark");
+        assert.deepEqual(
+          sourceAfter,
+          sourceBefore,
+          "BGI source changed during the benchmark",
+        );
         const artifactPaths = {
           runtimeWorker: path.join(assetsRoot, "runtime-worker.js"),
           benchmarkMain: path.join(assetsRoot, "bgi-benchmark.js"),
@@ -2751,7 +3239,10 @@ if (serveOnly) {
                     version: chromeSelection.artifact.manifest.version,
                     platform: chromeSelection.artifact.manifest.platform,
                     manifest: {
-                      path: path.relative(root, chromeSelection.artifact.manifestPath),
+                      path: path.relative(
+                        root,
+                        chromeSelection.artifact.manifestPath,
+                      ),
                       ...chromeSelection.artifact.manifestIdentity,
                     },
                     archive: chromeSelection.artifact.archiveIdentity,
@@ -2761,7 +3252,10 @@ if (serveOnly) {
           },
           performanceEnvironment: {
             configuration: {
-              path: path.relative(root, browserPerformanceEnvironmentPolicyPath),
+              path: path.relative(
+                root,
+                browserPerformanceEnvironmentPolicyPath,
+              ),
               bytes: environmentPolicy.bytes.byteLength,
               sha256: hash(environmentPolicy.bytes),
               value: environmentPolicy.value,
@@ -2797,13 +3291,20 @@ if (serveOnly) {
           samples: result,
         };
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-        await writeFile(path.join(assetsRoot, "bgi-browser-benchmark-report.json"), reportBytes);
+        await writeFile(
+          path.join(assetsRoot, "bgi-browser-benchmark-report.json"),
+          reportBytes,
+        );
         if (decision.status === "invalid-environment") {
           throw new Error(
             `BGI benchmark discarded as invalid environment: ${decision.invalidEnvironmentReasonIds.join(",")}`,
           );
         }
-        assert.equal(decision.status, "passed", `BGI benchmark failed (${decision.reason}): ${thresholdFailures}`);
+        assert.equal(
+          decision.status,
+          "passed",
+          `BGI benchmark failed (${decision.reason}): ${thresholdFailures}`,
+        );
         console.log(
           `BGI browser benchmark passed: sessions=${metrics.completedSessions}, ` +
             `p95=${metrics.sessionLatencyMilliseconds.p95.toFixed(2)}ms, ` +
@@ -2815,7 +3316,11 @@ if (serveOnly) {
       } else {
         const oracleBytes = await readFile(bgiOracleReportPath);
         const oracle = JSON.parse(oracleBytes);
-        const success = await runBgiProbe(chrome.browserWebSocketUrl, url, "success");
+        const success = await runBgiProbe(
+          chrome.browserWebSocketUrl,
+          url,
+          "success",
+        );
         assertWritableProfileLeaseReleased(writableProfile);
         const cancellation = await runBgiProbe(
           chrome.browserWebSocketUrl,
@@ -2823,7 +3328,11 @@ if (serveOnly) {
           "cancel-pending",
         );
         assertWritableProfileLeaseReleased(writableProfile);
-        const watchdog = await runBgiProbe(chrome.browserWebSocketUrl, url, "watchdog");
+        const watchdog = await runBgiProbe(
+          chrome.browserWebSocketUrl,
+          url,
+          "watchdog",
+        );
         assertWritableProfileLeaseReleased(writableProfile);
         console.log(
           `BGI browser generations ${success.report.initialGeneration}->${success.report.finalGeneration}; ` +
@@ -2836,14 +3345,21 @@ if (serveOnly) {
         );
         validateBgiEquivalence(success, oracle);
         const sourceAfter = await readFile(bgiPath);
-        assert.deepEqual(sourceAfter, sourceBefore, "BGI source changed during the browser session");
+        assert.deepEqual(
+          sourceAfter,
+          sourceBefore,
+          "BGI source changed during the browser session",
+        );
         const report = {
           schema: BROWSER_BGI_REPORT_SCHEMA,
           schemaVersion: BROWSER_BGI_REPORT_SCHEMA_VERSION,
           runtimeProtocol,
           measuredAt: new Date().toISOString(),
           chromeVersion: version,
-          source: { bytes: sourceBefore.byteLength, sha256: hash(sourceBefore) },
+          source: {
+            bytes: sourceBefore.byteLength,
+            sha256: hash(sourceBefore),
+          },
           nodeOracle: {
             path: path.relative(root, bgiOracleReportPath),
             bytes: oracleBytes.byteLength,
@@ -2854,7 +3370,10 @@ if (serveOnly) {
           watchdog,
         };
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-        await writeFile(path.join(assetsRoot, "bgi-browser-report.json"), reportBytes);
+        await writeFile(
+          path.join(assetsRoot, "bgi-browser-report.json"),
+          reportBytes,
+        );
         console.log(
           `BGI Chrome Worker equivalence passed: calls=${success.report.supportedCallCount}, ` +
             `instructions=${success.report.instructions}, generation=${success.report.finalGeneration}, ` +
@@ -2862,10 +3381,27 @@ if (serveOnly) {
         );
       }
     } else {
-      const success = await runProbe(chrome.browserWebSocketUrl, url, "success", true);
-      const cancellation = await runProbe(chrome.browserWebSocketUrl, url, "cancel-pending");
-      const watchdog = await runProbe(chrome.browserWebSocketUrl, url, "watchdog");
-      const sourceSuccess = await runSourceProbe(chrome.browserWebSocketUrl, url, "success");
+      const success = await runProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "success",
+        true,
+      );
+      const cancellation = await runProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "cancel-pending",
+      );
+      const watchdog = await runProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "watchdog",
+      );
+      const sourceSuccess = await runSourceProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "success",
+      );
       const sourceCancellation = await runSourceProbe(
         chrome.browserWebSocketUrl,
         url,
@@ -2879,7 +3415,10 @@ if (serveOnly) {
       await runSourceProbe(chrome.browserWebSocketUrl, url, "wrong-origin");
       let stress = null;
       if (stressMilliseconds > 0) {
-        const target = await createDebugTarget(chrome.browserWebSocketUrl, `${url}?scenario=success`);
+        const target = await createDebugTarget(
+          chrome.browserWebSocketUrl,
+          `${url}?scenario=success`,
+        );
         const client = await connectDevTools(target.webSocketDebuggerUrl);
         try {
           await client.send("Runtime.enable");
@@ -2909,7 +3448,10 @@ if (serveOnly) {
         stress,
       };
       const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
-      await writeFile(path.join(assetsRoot, "browser-report.json"), reportBytes);
+      await writeFile(
+        path.join(assetsRoot, "browser-report.json"),
+        reportBytes,
+      );
       console.log(
         `browser Worker vertical slice passed: instructions=${success.evidence.report.instructions}, ` +
           `yields=${success.evidence.report.budgetYields}, callbacks=2/depth2, ` +
@@ -2933,7 +3475,9 @@ if (serveOnly) {
           writableProfile?.close();
           await cleanupWritableProfileRunDirectory();
           if (bgiMode) {
-            const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? await readFile(bgiGdbPath) : null;
+            const bgiGdbAfter = fs.existsSync(bgiGdbPath)
+              ? await readFile(bgiGdbPath)
+              : null;
             assert.deepEqual(
               bgiGdbAfter,
               bgiGdbBefore,
@@ -2941,9 +3485,20 @@ if (serveOnly) {
             );
           }
           if (profile !== null) {
-            const safePrefix = path.join(temporaryRoot, "vine-browser-runtime-");
-            assert(profile.startsWith(safePrefix), "refusing to remove unexpected Chrome profile");
-            await rm(profile, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 });
+            const safePrefix = path.join(
+              temporaryRoot,
+              "vine-browser-runtime-",
+            );
+            assert(
+              profile.startsWith(safePrefix),
+              "refusing to remove unexpected Chrome profile",
+            );
+            await rm(profile, {
+              force: true,
+              maxRetries: 5,
+              recursive: true,
+              retryDelay: 100,
+            });
           }
         }
       }

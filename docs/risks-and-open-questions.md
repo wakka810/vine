@@ -90,8 +90,11 @@ success、duplicate／parent／file-conflict oracle、cancel、terminal drainを
 `WM_WINDOWPOSCHANGING`一回だけのvalidate-only leafとして閉じ、geometry、visibility、relation、generation不変を固定した。
 続く旧`MessageBoxA`はD3D9 texture failure branchと判明したため、version 17はnativeで再現した三つの
 `2048x1024` descriptorとsystem-memory surface fill chainだけを追加した。Node／Chromeはrenderer resourceを作らず
-同じRust COM／graphics authorityで完了し、現在は`SetWindowPos(HWND_TOP,317,154,0,0,0x25)`の
-`set-window-pos-insert-after-unsupported` stopで一致する。これは新しいstorage／browser capability blockerではない。
+同じRust COM／graphics authorityで完了した。続く`SetWindowPos(HWND_TOP,317,154,0,0,0x25)`は、
+`WM_WINDOWPOSCHANGING -> WM_NCCALCSIZE -> WM_WINDOWPOSCHANGED -> nested WM_MOVE`のbounded frame-change
+moveとして閉じた。GeometryはNCCALCSIZE completionでのみcommitし、GDI surfaceと三つのwindow relationを保持する。
+現在は`ShowWindow(hwnd,SW_SHOWNORMAL)`の`endpoint-contract-missing` stopでNode／Chromeが一致する。
+これは新しいstorage／browser capability blockerではない。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。

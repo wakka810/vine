@@ -44,6 +44,7 @@ const supportedObservations = new Set([
   "set-window-pos",
   "set-window-pos-size",
   "set-window-pos-resize",
+  "set-window-pos-frame-change-move",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
@@ -411,7 +412,8 @@ const categoryApis = {
   com: new Set(["CoInitialize", "CoInitializeEx", "CoCreateInstance"]),
 };
 
-const compareOrdinal = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const compareOrdinal = (left, right) =>
+  left < right ? -1 : left > right ? 1 : 0;
 
 const exactlyOne = (events, kind) => {
   const matches = events.filter((event) => event.kind === kind);
@@ -423,7 +425,9 @@ const exactlyOne = (events, kind) => {
 
 const sortedCounts = (values) =>
   Object.fromEntries(
-    [...values.entries()].sort(([left], [right]) => compareOrdinal(left, right)),
+    [...values.entries()].sort(([left], [right]) =>
+      compareOrdinal(left, right),
+    ),
   );
 
 const firstSequence = (event) =>
@@ -451,23 +455,31 @@ const validateCaller = (event) => {
     typeof caller.address !== "string" ||
     !/^0x[0-9a-f]+$/iu.test(caller.address)
   ) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller address`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has invalid caller address`,
+    );
   }
   if (caller.module === null) {
     if (caller.rva !== null) {
-      throw new Error(`${event.kind} sequence ${event.sequence} has caller RVA without module`);
+      throw new Error(
+        `${event.kind} sequence ${event.sequence} has caller RVA without module`,
+      );
     }
     return;
   }
   if (typeof caller.module !== "string" || caller.module.length === 0) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller module`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has invalid caller module`,
+    );
   }
   if (
     !Number.isInteger(caller.rva) ||
     caller.rva < 0 ||
     caller.rva > 0xffffffff
   ) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has invalid caller RVA`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has invalid caller RVA`,
+    );
   }
 };
 
@@ -482,12 +494,16 @@ const sameCaller = (left, right) =>
 const validateCallTarget = (event, selectedVtables) => {
   if (event.interface === undefined) {
     if (event.vtableSlot !== undefined || event.object !== undefined) {
-      throw new Error(`${event.kind} sequence ${event.sequence} has partial vtable target`);
+      throw new Error(
+        `${event.kind} sequence ${event.sequence} has partial vtable target`,
+      );
     }
     return;
   }
   if (!selectedVtables.includes("idirect3d9")) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has unselected interface`,
+    );
   }
   const methodNames =
     event.interface === "IDirect3D9"
@@ -498,20 +514,29 @@ const validateCallTarget = (event, selectedVtables) => {
           ? idirect3dtexture9MethodNames
           : event.interface === "IDirect3DVertexBuffer9"
             ? idirect3dvertexbuffer9MethodNames
-          : event.interface === "IDirect3DSurface9"
-            ? idirect3dsurface9MethodNames
-            : null;
+            : event.interface === "IDirect3DSurface9"
+              ? idirect3dsurface9MethodNames
+              : null;
   if (methodNames === null) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has unselected interface`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has unselected interface`,
+    );
   }
   if (
     !Number.isInteger(event.vtableSlot) ||
     methodNames[event.vtableSlot] !== event.api
   ) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has invalid vtable slot`);
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has invalid vtable slot`,
+    );
   }
-  if (typeof event.object !== "string" || !/^0x[0-9a-f]+$/iu.test(event.object)) {
-    throw new Error(`${event.kind} sequence ${event.sequence} has invalid COM object`);
+  if (
+    typeof event.object !== "string" ||
+    !/^0x[0-9a-f]+$/iu.test(event.object)
+  ) {
+    throw new Error(
+      `${event.kind} sequence ${event.sequence} has invalid COM object`,
+    );
   }
 };
 
@@ -528,7 +553,9 @@ const pairApiCalls = (events, requireCallMetadata) => {
       continue;
     }
     if (!Number.isInteger(event.threadId)) {
-      throw new Error(`${event.kind} sequence ${event.sequence} has no threadId`);
+      throw new Error(
+        `${event.kind} sequence ${event.sequence} has no threadId`,
+      );
     }
 
     const stack = stacks.get(event.threadId) ?? [];
@@ -560,7 +587,9 @@ const pairApiCalls = (events, requireCallMetadata) => {
     leaves += 1;
     const frame = stack.pop();
     if (frame === undefined) {
-      throw new Error(`api-leave sequence ${event.sequence} has no matching enter`);
+      throw new Error(
+        `api-leave sequence ${event.sequence} has no matching enter`,
+      );
     }
     if (requireCallMetadata) {
       if (event.callId !== frame.enter.callId) {
@@ -577,7 +606,9 @@ const pairApiCalls = (events, requireCallMetadata) => {
       }
       validateCaller(event);
       if (!sameCaller(frame.enter.caller, event.caller)) {
-        throw new Error(`api-leave call ${event.callId} changed caller attribution`);
+        throw new Error(
+          `api-leave call ${event.callId} changed caller attribution`,
+        );
       }
       if (
         !Number.isInteger(event.lastError) ||
@@ -587,7 +618,9 @@ const pairApiCalls = (events, requireCallMetadata) => {
         throw new Error(`api-leave call ${event.callId} has invalid lastError`);
       }
       if (!Number.isInteger(event.durationMs) || event.durationMs < 0) {
-        throw new Error(`api-leave call ${event.callId} has invalid durationMs`);
+        throw new Error(
+          `api-leave call ${event.callId} has invalid durationMs`,
+        );
       }
     }
     if (
@@ -604,7 +637,9 @@ const pairApiCalls = (events, requireCallMetadata) => {
       (frame.enter.vtableSlot ?? null) !== (event.vtableSlot ?? null) ||
       (frame.enter.object ?? null) !== (event.object ?? null)
     ) {
-      throw new Error(`api-leave call ${event.callId ?? "<legacy>"} changed call target`);
+      throw new Error(
+        `api-leave call ${event.callId ?? "<legacy>"} changed call target`,
+      );
     }
     pairs.push({ enter: frame.enter, leave: event, parent: frame.parent });
   }
@@ -856,7 +891,7 @@ const normalizeD3d9RasterStatusSnapshot = (snapshot, sequence, phase) => {
     !Array.isArray(snapshot.bytes) ||
     snapshot.bytes.length !== 8 ||
     !snapshot.bytes.every(
-      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
     ) ||
     snapshot.fields === null ||
     typeof snapshot.fields !== "object" ||
@@ -868,7 +903,7 @@ const normalizeD3d9RasterStatusSnapshot = (snapshot, sequence, phase) => {
     snapshot.fields.scanLine > 0xffffffff
   ) {
     throw new Error(
-      `api-leave sequence ${sequence} has invalid D3DRASTER_STATUS ${phase} snapshot`
+      `api-leave sequence ${sequence} has invalid D3DRASTER_STATUS ${phase} snapshot`,
     );
   }
   const bytes = Uint8Array.from(snapshot.bytes);
@@ -879,7 +914,7 @@ const normalizeD3d9RasterStatusSnapshot = (snapshot, sequence, phase) => {
   };
   if (JSON.stringify(fields) !== JSON.stringify(snapshot.fields)) {
     throw new Error(
-      `api-leave sequence ${sequence} has inconsistent D3DRASTER_STATUS ${phase} bytes`
+      `api-leave sequence ${sequence} has inconsistent D3DRASTER_STATUS ${phase} bytes`,
     );
   }
   return {
@@ -894,7 +929,7 @@ const validateInstructionWindow = (
   window,
   sequence,
   label,
-  expectedMaximum
+  expectedMaximum,
 ) => {
   const entry = window?.entry;
   if (
@@ -914,11 +949,11 @@ const validateInstructionWindow = (
         typeof instruction.mnemonic === "string" &&
         typeof instruction.opStr === "string" &&
         Number.isInteger(instruction.size) &&
-        instruction.size > 0
+        instruction.size > 0,
     )
   ) {
     throw new Error(
-      `api-leave sequence ${sequence} has invalid ${label} instruction window`
+      `api-leave sequence ${sequence} has invalid ${label} instruction window`,
     );
   }
   return entry;
@@ -1022,7 +1057,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     try {
       event = JSON.parse(line);
     } catch (error) {
-      throw new Error(`trace line ${index + 1} is not valid JSON: ${error.message}`);
+      throw new Error(
+        `trace line ${index + 1} is not valid JSON: ${error.message}`,
+      );
     }
     if (!supportedTraceSchemas.has(event.schema)) {
       throw new Error(
@@ -1080,10 +1117,17 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       new Set(selectedObservations).size !== selectedObservations.length ||
       selectedObservations.some((item) => !supportedObservations.has(item))
     ) {
-      throw new Error("trace v2 has unsupported or duplicate selected observation");
+      throw new Error(
+        "trace v2 has unsupported or duplicate selected observation",
+      );
     }
-    if (JSON.stringify(requestedObservations) !== JSON.stringify(selectedObservations)) {
-      throw new Error("trace-start and agent-ready selected observations differ");
+    if (
+      JSON.stringify(requestedObservations) !==
+      JSON.stringify(selectedObservations)
+    ) {
+      throw new Error(
+        "trace-start and agent-ready selected observations differ",
+      );
     }
     for (const event of events) {
       if (event.kind === "api-enter" || event.kind === "api-leave") {
@@ -1144,21 +1188,19 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       `${event.module.toLowerCase()}\0${event.interface ?? ""}\0` +
       `${event.vtableSlot ?? ""}\0${event.api}`;
     const existing = apisByName.get(key);
-    const api =
-      existing ??
-      {
-        module: event.module,
-        api: event.api,
-        interface: event.interface ?? null,
-        vtableSlot: event.vtableSlot ?? null,
-        calls: 0,
-        firstSequence: event.sequence,
-        lastSequence: event.sequence,
-        callers: new Map(),
-        durationTotalMs: 0,
-        durationMaxMs: 0,
-        lastErrors: new Map(),
-      };
+    const api = existing ?? {
+      module: event.module,
+      api: event.api,
+      interface: event.interface ?? null,
+      vtableSlot: event.vtableSlot ?? null,
+      calls: 0,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+      callers: new Map(),
+      durationTotalMs: 0,
+      durationMaxMs: 0,
+      lastErrors: new Map(),
+    };
     api.calls += 1;
     api.lastSequence = event.sequence;
     if (requireCallMetadata) {
@@ -1221,7 +1263,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       (pair.parent === null || !categoryApis.file.has(pair.parent.api)),
   );
   const filePaths = new Map();
-  const titleRoot = normalizedWindowsPath(path.win32.dirname(traceStart.executable));
+  const titleRoot = normalizedWindowsPath(
+    path.win32.dirname(traceStart.executable),
+  );
   const titleRootKey = windowsPathKey(titleRoot);
   const titlePaths = new Map();
   for (const pair of logicalFileCalls) {
@@ -1310,14 +1354,16 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
                 ? idirect3dtexture9MethodNames
                 : event.interface === "IDirect3DVertexBuffer9"
                   ? idirect3dvertexbuffer9MethodNames
-                : event.interface === "IDirect3DSurface9"
-                  ? idirect3dsurface9MethodNames
-                  : null;
+                  : event.interface === "IDirect3DSurface9"
+                    ? idirect3dsurface9MethodNames
+                    : null;
         if (methodNames === null) {
           throw new Error(`unsupported observed vtable: ${event.interface}`);
         }
         if (!selectedVtables.includes("idirect3d9")) {
-          throw new Error(`${event.interface} vtable was observed without selection`);
+          throw new Error(
+            `${event.interface} vtable was observed without selection`,
+          );
         }
         if (
           typeof event.object !== "string" ||
@@ -1334,7 +1380,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
               /^0x[0-9a-f]+$/iu.test(slot.address),
           )
         ) {
-          throw new Error(`${event.interface} vtable has invalid slot metadata`);
+          throw new Error(
+            `${event.interface} vtable has invalid slot metadata`,
+          );
         }
       }
       return {
@@ -1477,7 +1525,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.enter.api === "CheckDeviceType",
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 5) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 5
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid CheckDeviceType arguments`,
         );
@@ -1490,15 +1541,20 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           `api-leave sequence ${pair.leave.sequence} has invalid CheckDeviceType result`,
         );
       }
-      const [adapter, deviceType, adapterFormat, backBufferFormat, windowedRaw] =
-        pair.enter.arguments.map((argument, index) =>
-          normalizeD3d9U32Argument(
-            argument,
-            pair.enter.sequence,
-            index,
-            "CheckDeviceType",
-          ),
-        );
+      const [
+        adapter,
+        deviceType,
+        adapterFormat,
+        backBufferFormat,
+        windowedRaw,
+      ] = pair.enter.arguments.map((argument, index) =>
+        normalizeD3d9U32Argument(
+          argument,
+          pair.enter.sequence,
+          index,
+          "CheckDeviceType",
+        ),
+      );
       return {
         sequence: pair.enter.sequence,
         callId: pair.enter.callId ?? null,
@@ -1526,7 +1582,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.enter.api === "CheckDeviceFormat",
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 6
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid CheckDeviceFormat arguments`,
         );
@@ -1539,15 +1598,21 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           `api-leave sequence ${pair.leave.sequence} has invalid CheckDeviceFormat result`,
         );
       }
-      const [adapter, deviceType, adapterFormat, usage, resourceType, checkFormat] =
-        pair.enter.arguments.map((argument, index) =>
-          normalizeD3d9U32Argument(
-            argument,
-            pair.enter.sequence,
-            index,
-            "CheckDeviceFormat",
-          ),
-        );
+      const [
+        adapter,
+        deviceType,
+        adapterFormat,
+        usage,
+        resourceType,
+        checkFormat,
+      ] = pair.enter.arguments.map((argument, index) =>
+        normalizeD3d9U32Argument(
+          argument,
+          pair.enter.sequence,
+          index,
+          "CheckDeviceFormat",
+        ),
+      );
       return {
         sequence: pair.enter.sequence,
         callId: pair.enter.callId ?? null,
@@ -1618,7 +1683,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         0,
       );
       const outputOffsetAfterReturn = Number(
-        BigInt(after.pointer) - BigInt(observation.callerStackPointerAfterReturn),
+        BigInt(after.pointer) -
+          BigInt(observation.callerStackPointerAfterReturn),
       );
       if (!Number.isSafeInteger(outputOffsetAfterReturn)) {
         throw new Error(
@@ -1655,21 +1721,25 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.leave.d3d9CreateDevice !== undefined,
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 6
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid CreateDevice arguments`,
         );
       }
-      const [adapter, deviceType, focusWindow, behaviorFlags] = pair.enter.arguments
-        .slice(0, 4)
-        .map((argument, index) =>
-          normalizeD3d9U32Argument(
-            argument,
-            pair.enter.sequence,
-            index,
-            "CreateDevice",
-          ),
-        );
+      const [adapter, deviceType, focusWindow, behaviorFlags] =
+        pair.enter.arguments
+          .slice(0, 4)
+          .map((argument, index) =>
+            normalizeD3d9U32Argument(
+              argument,
+              pair.enter.sequence,
+              index,
+              "CreateDevice",
+            ),
+          );
       normalizeD3d9U32Argument(
         pair.enter.arguments[4],
         pair.enter.sequence,
@@ -1741,17 +1811,22 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           `api-leave sequence ${pair.leave.sequence} changed its CreateDevice output pointer`,
         );
       }
-      const presentationChangedBytes = observation.presentationParameters.before.bytes.reduce(
-        (count, byte, index) =>
-          count +
-          (byte === observation.presentationParameters.after.bytes[index] ? 0 : 1),
-        0,
-      );
-      const deviceOutputChangedBytes = observation.deviceOutput.before.bytes.reduce(
-        (count, byte, index) =>
-          count + (byte === observation.deviceOutput.after.bytes[index] ? 0 : 1),
-        0,
-      );
+      const presentationChangedBytes =
+        observation.presentationParameters.before.bytes.reduce(
+          (count, byte, index) =>
+            count +
+            (byte === observation.presentationParameters.after.bytes[index]
+              ? 0
+              : 1),
+          0,
+        );
+      const deviceOutputChangedBytes =
+        observation.deviceOutput.before.bytes.reduce(
+          (count, byte, index) =>
+            count +
+            (byte === observation.deviceOutput.after.bytes[index] ? 0 : 1),
+          0,
+        );
       return {
         sequence: pair.enter.sequence,
         callId: pair.enter.callId ?? null,
@@ -1790,7 +1865,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.leave.d3d9CreateTexture !== undefined,
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 8) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 8
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid CreateTexture arguments`,
         );
@@ -1857,7 +1935,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.leave.d3d9CreateVertexBuffer !== undefined,
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 6) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 6
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid CreateVertexBuffer arguments`,
         );
@@ -1879,8 +1960,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         "after",
       );
       if (
-        outputBefore.pointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
-        outputAfter.pointer.toLowerCase() !== pair.enter.arguments[4].toLowerCase()
+        outputBefore.pointer.toLowerCase() !==
+          outputAfter.pointer.toLowerCase() ||
+        outputAfter.pointer.toLowerCase() !==
+          pair.enter.arguments[4].toLowerCase()
       ) {
         throw new Error(
           `api-leave sequence ${pair.leave.sequence} changed its CreateVertexBuffer output pointer`,
@@ -1913,7 +1996,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     traceStart.arguments?.stopOnEvent === "d3d9-initial-textures-complete";
   if (
     initialTextureCompletionEvents.length > 1 ||
-    (requiresInitialTextureCompletion && initialTextureCompletionEvents.length !== 1)
+    (requiresInitialTextureCompletion &&
+      initialTextureCompletionEvents.length !== 1)
   ) {
     throw new Error(
       "d3d9-initial-textures observation requires exactly one structured completion",
@@ -1928,85 +2012,95 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   const createVertexBuffersBySequence = new Map(
     createVertexBuffers.map((buffer) => [buffer.sequence, buffer]),
   );
-  const initialTextureSequences = initialTextureCompletionEvents.map((completion) => {
-    const expectedArguments = [
-      [0x400n, 0x400n, 1n, 0n, 0x16n, 2n],
-      [0x400n, 0x400n, 1n, 0n, 0x16n, 0n],
-      [0x400n, 0x400n, 1n, 0x200n, 0x16n, 0n],
-    ];
-    const expectedCallers = [0x5a715, 0x5a7b7, 0x5a7dc];
-    if (
-      completion.profile !== "x86-bgi-initial-textures-v1" ||
-      typeof completion.device !== "string" ||
-      !/^0x[0-9a-f]+$/iu.test(completion.device) ||
-      BigInt(completion.device) === 0n ||
-      !Array.isArray(completion.calls) ||
-      completion.calls.length !== expectedArguments.length ||
-      !Number.isInteger(completion.sequence)
-    ) {
-      throw new Error("d3d9-initial-textures completion has invalid structure");
-    }
-    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
-    const returnedTextures = new Set();
-    let threadId = null;
-    const calls = completion.calls.map((snapshot, index) => {
-      const pair = pairsByCallId.get(snapshot?.callId);
-      const createTexture =
-        pair === undefined ? undefined : createTexturesBySequence.get(pair.enter.sequence);
+  const initialTextureSequences = initialTextureCompletionEvents.map(
+    (completion) => {
+      const expectedArguments = [
+        [0x400n, 0x400n, 1n, 0n, 0x16n, 2n],
+        [0x400n, 0x400n, 1n, 0n, 0x16n, 0n],
+        [0x400n, 0x400n, 1n, 0x200n, 0x16n, 0n],
+      ];
+      const expectedCallers = [0x5a715, 0x5a7b7, 0x5a7dc];
       if (
-        pair === undefined ||
-        createTexture === undefined ||
-        snapshot.api !== "CreateTexture" ||
-        snapshot.interface !== "IDirect3DDevice9" ||
-        snapshot.vtableSlot !== 23 ||
-        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
-        JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
-        snapshot.result !== pair.leave.result ||
-        snapshot.lastError !== pair.leave.lastError ||
-        JSON.stringify(snapshot.d3d9CreateTexture) !==
-          JSON.stringify(pair.leave.d3d9CreateTexture) ||
-        snapshot.caller?.module !== pair.enter.caller?.module ||
-        snapshot.caller?.rva !== pair.enter.caller?.rva ||
-        pair.enter.parentCallId !== null ||
-        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
-        pair.enter.caller?.rva !== expectedCallers[index] ||
-        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
-        pair.enter.arguments.length !== 8 ||
-        expectedArguments[index].some(
-          (expected, argumentIndex) =>
-            BigInt(pair.enter.arguments[argumentIndex]) !== expected,
-        ) ||
-        BigInt(pair.enter.arguments[7]) !== 0n ||
-        BigInt(pair.leave.result) !== 0n ||
-        pair.leave.lastError !== 0 ||
-        BigInt(createTexture.returnedTexture) === 0n ||
-        createTexture.textureOutput.after.pointer.toLowerCase() !==
-          pair.enter.arguments[6].toLowerCase()
+        completion.profile !== "x86-bgi-initial-textures-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Array.isArray(completion.calls) ||
+        completion.calls.length !== expectedArguments.length ||
+        !Number.isInteger(completion.sequence)
       ) {
         throw new Error(
-          `d3d9-initial-textures completion call ${index} violates its caller, tuple, or output contract`,
+          "d3d9-initial-textures completion has invalid structure",
         );
       }
-      threadId ??= pair.enter.threadId;
-      if (
-        pair.enter.threadId !== threadId ||
-        returnedTextures.has(createTexture.returnedTexture.toLowerCase())
-      ) {
-        throw new Error(
-          "d3d9-initial-textures completion does not describe one thread with distinct texture identities",
-        );
-      }
-      returnedTextures.add(createTexture.returnedTexture.toLowerCase());
-      return createTexture;
-    });
-    return {
-      sequence: completion.sequence,
-      profile: completion.profile,
-      threadId,
-      device: completion.device,
-      calls,
-    };
-  });
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const returnedTextures = new Set();
+      let threadId = null;
+      const calls = completion.calls.map((snapshot, index) => {
+        const pair = pairsByCallId.get(snapshot?.callId);
+        const createTexture =
+          pair === undefined
+            ? undefined
+            : createTexturesBySequence.get(pair.enter.sequence);
+        if (
+          pair === undefined ||
+          createTexture === undefined ||
+          snapshot.api !== "CreateTexture" ||
+          snapshot.interface !== "IDirect3DDevice9" ||
+          snapshot.vtableSlot !== 23 ||
+          snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          JSON.stringify(snapshot.arguments) !==
+            JSON.stringify(pair.enter.arguments) ||
+          snapshot.result !== pair.leave.result ||
+          snapshot.lastError !== pair.leave.lastError ||
+          JSON.stringify(snapshot.d3d9CreateTexture) !==
+            JSON.stringify(pair.leave.d3d9CreateTexture) ||
+          snapshot.caller?.module !== pair.enter.caller?.module ||
+          snapshot.caller?.rva !== pair.enter.caller?.rva ||
+          pair.enter.parentCallId !== null ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== expectedCallers[index] ||
+          pair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
+          pair.enter.arguments.length !== 8 ||
+          expectedArguments[index].some(
+            (expected, argumentIndex) =>
+              BigInt(pair.enter.arguments[argumentIndex]) !== expected,
+          ) ||
+          BigInt(pair.enter.arguments[7]) !== 0n ||
+          BigInt(pair.leave.result) !== 0n ||
+          pair.leave.lastError !== 0 ||
+          BigInt(createTexture.returnedTexture) === 0n ||
+          createTexture.textureOutput.after.pointer.toLowerCase() !==
+            pair.enter.arguments[6].toLowerCase()
+        ) {
+          throw new Error(
+            `d3d9-initial-textures completion call ${index} violates its caller, tuple, or output contract`,
+          );
+        }
+        threadId ??= pair.enter.threadId;
+        if (
+          pair.enter.threadId !== threadId ||
+          returnedTextures.has(createTexture.returnedTexture.toLowerCase())
+        ) {
+          throw new Error(
+            "d3d9-initial-textures completion does not describe one thread with distinct texture identities",
+          );
+        }
+        returnedTextures.add(createTexture.returnedTexture.toLowerCase());
+        return createTexture;
+      });
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId,
+        device: completion.device,
+        calls,
+      };
+    },
+  );
 
   const recreatedTextureCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-recreated-textures-complete",
@@ -2041,7 +2135,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         completion.calls.length !== expectedArguments.length ||
         !Number.isInteger(completion.sequence)
       ) {
-        throw new Error("d3d9-recreated-textures completion has invalid structure");
+        throw new Error(
+          "d3d9-recreated-textures completion has invalid structure",
+        );
       }
       const executableModule = path.win32
         .basename(traceStart.executable)
@@ -2072,7 +2168,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           pair.enter.parentCallId !== null ||
           pair.enter.caller?.module?.toLowerCase() !== executableModule ||
           pair.enter.caller?.rva !== expectedCallers[index] ||
-          pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          pair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
           pair.enter.arguments.length !== 8 ||
           expectedArguments[index].some(
             (expected, argumentIndex) =>
@@ -2117,8 +2214,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   const requiresInitialVertexBufferCompletion =
     selectedObservations.length === 1 &&
     selectedObservations[0] === "d3d9-initial-vertex-buffer" &&
-    traceStart.arguments?.stopOnEvent ===
-      "d3d9-initial-vertex-buffer-complete";
+    traceStart.arguments?.stopOnEvent === "d3d9-initial-vertex-buffer-complete";
   if (
     initialVertexBufferCompletionEvents.length > 1 ||
     (requiresInitialVertexBufferCompletion &&
@@ -2178,8 +2274,11 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         return pair;
       });
       if (
-        !pairs.every((pair) => pair.enter.threadId === pairs[0].enter.threadId) ||
-        pairs[0].enter.object.toLowerCase() !== completion.device.toLowerCase() ||
+        !pairs.every(
+          (pair) => pair.enter.threadId === pairs[0].enter.threadId,
+        ) ||
+        pairs[0].enter.object.toLowerCase() !==
+          completion.device.toLowerCase() ||
         pairs[1].enter.object.toLowerCase() !==
           completion.vertexBuffer.toLowerCase() ||
         pairs[2].enter.object.toLowerCase() !==
@@ -2203,9 +2302,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         );
       }
 
-      const create = createVertexBuffersBySequence.get(
-        pairs[0].enter.sequence,
-      );
+      const create = createVertexBuffersBySequence.get(pairs[0].enter.sequence);
       if (
         create === undefined ||
         create.returnedVertexBuffer.toLowerCase() !==
@@ -2278,7 +2375,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         "Unlock data",
       );
       if (
-        dataAtUnlock.pointer.toLowerCase() !== lockOutputAfter.value.toLowerCase()
+        dataAtUnlock.pointer.toLowerCase() !==
+        lockOutputAfter.value.toLowerCase()
       ) {
         throw new Error(
           "d3d9-initial-vertex-buffer completion changed its Lock data pointer",
@@ -2323,8 +2421,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   const requiresInitialRenderStateCompletion =
     selectedObservations.length === 1 &&
     selectedObservations[0] === "d3d9-initial-render-states" &&
-    traceStart.arguments?.stopOnEvent ===
-      "d3d9-initial-render-states-complete";
+    traceStart.arguments?.stopOnEvent === "d3d9-initial-render-states-complete";
   if (
     initialRenderStateCompletionEvents.length > 1 ||
     (requiresInitialRenderStateCompletion &&
@@ -2377,7 +2474,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           pair.enter.api !== "SetRenderState" ||
           pair.enter.interface !== "IDirect3DDevice9" ||
           pair.enter.vtableSlot !== 57 ||
-          pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          pair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
           pair.enter.caller?.module?.toLowerCase() !== executableModule ||
           pair.enter.caller?.rva !== expectedCall.callerRva ||
           !Array.isArray(pair.enter.arguments) ||
@@ -2394,12 +2492,16 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         return pair;
       });
       if (
-        !pairs.every((pair) => pair.enter.threadId === pairs[0].enter.threadId) ||
-        completion.threadId !== pairs[0].enter.threadId ||
-        pairs.slice(1).some(
-          (pair, index) =>
-            pair.enter.sequence !== pairs[index].leave.sequence + 1,
+        !pairs.every(
+          (pair) => pair.enter.threadId === pairs[0].enter.threadId,
         ) ||
+        completion.threadId !== pairs[0].enter.threadId ||
+        pairs
+          .slice(1)
+          .some(
+            (pair, index) =>
+              pair.enter.sequence !== pairs[index].leave.sequence + 1,
+          ) ||
         completion.sequence !== pairs.at(-1).leave.sequence + 1
       ) {
         throw new Error(
@@ -2427,7 +2529,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   );
 
   const rasterStatusCompletionEvents = events.filter(
-    (event) => event.kind === "d3d9-raster-status-complete"
+    (event) => event.kind === "d3d9-raster-status-complete",
   );
   const requiresRasterStatusCompletion =
     selectedObservations.length === 1 &&
@@ -2439,7 +2541,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       rasterStatusCompletionEvents.length !== 1)
   ) {
     throw new Error(
-      "d3d9-raster-status observation requires exactly one structured completion"
+      "d3d9-raster-status observation requires exactly one structured completion",
     );
   }
   const rasterStatusObservations = rasterStatusCompletionEvents.map(
@@ -2491,7 +2593,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         completion.sequence !== pair.leave.sequence + 1
       ) {
         throw new Error(
-          "d3d9-raster-status completion violates its caller, identity, result, or ordering contract"
+          "d3d9-raster-status completion violates its caller, identity, result, or ordering contract",
         );
       }
 
@@ -2502,18 +2604,18 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         observation.swapChain !== 0
       ) {
         throw new Error(
-          "d3d9-raster-status completion has invalid swap-chain observation"
+          "d3d9-raster-status completion has invalid swap-chain observation",
         );
       }
       const before = normalizeD3d9RasterStatusSnapshot(
         observation.before,
         pair.leave.sequence,
-        "before"
+        "before",
       );
       const after = normalizeD3d9RasterStatusSnapshot(
         observation.after,
         pair.leave.sequence,
-        "after"
+        "after",
       );
       if (
         before.pointer.toLowerCase() !== after.pointer.toLowerCase() ||
@@ -2524,7 +2626,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         )
       ) {
         throw new Error(
-          "d3d9-raster-status completion violates its output pointer or scanout result contract"
+          "d3d9-raster-status completion violates its output pointer or scanout result contract",
         );
       }
 
@@ -2532,13 +2634,13 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         observation.immediateConsumer,
         pair.leave.sequence,
         "D3D9 raster-status immediate consumer",
-        256
+        256,
       );
       const outer = validateInstructionWindow(
         observation.outerConsumer,
         pair.leave.sequence,
         "D3D9 raster-status outer consumer",
-        128
+        128,
       );
       const imageBase =
         BigInt(pair.enter.caller.address) - BigInt(pair.enter.caller.rva);
@@ -2558,7 +2660,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           immediateInstructions,
           2,
           "cmp",
-          "dword ptr [ebp - 0xc], eax"
+          "dword ptr [ebp - 0xc], eax",
         ) ||
         !instructionIs(immediateInstructions, 3, "je") ||
         !instructionIs(immediateInstructions, 4, "mov", "eax, 0x81000000") ||
@@ -2566,13 +2668,13 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           immediateInstructions,
           9,
           "call",
-          addressAtRva(0x5aeb0)
+          addressAtRva(0x5aeb0),
         ) ||
         !instructionIs(
           immediateInstructions,
           10,
           "mov",
-          "ecx, dword ptr [ebp - 8]"
+          "ecx, dword ptr [ebp - 8]",
         ) ||
         !instructionIs(immediateInstructions, 11, "cmp", "ecx, eax") ||
         !instructionIs(immediateInstructions, 12, "ja") ||
@@ -2581,18 +2683,18 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           immediateInstructions,
           14,
           "mov",
-          "ecx, dword ptr [ebp + 8]"
+          "ecx, dword ptr [ebp + 8]",
         ) ||
         !instructionIs(
           immediateInstructions,
           15,
           "mov",
-          "dword ptr [ecx], eax"
+          "dword ptr [ecx], eax",
         ) ||
         !instructionIs(immediateInstructions, 16, "xor", "eax, eax")
       ) {
         throw new Error(
-          "d3d9-raster-status completion has an unexpected immediate consumer"
+          "d3d9-raster-status completion has an unexpected immediate consumer",
         );
       }
       if (
@@ -2610,7 +2712,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         !instructionIs(outerInstructions, 49, "call", addressAtRva(0x5aec0))
       ) {
         throw new Error(
-          "d3d9-raster-status completion has an unexpected outer polling consumer"
+          "d3d9-raster-status completion has an unexpected outer polling consumer",
         );
       }
 
@@ -2643,7 +2745,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           },
         },
       };
-    }
+    },
   );
 
   const getSurfaceLevels = apiPairing.pairs
@@ -2655,7 +2757,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.leave.d3d9GetSurfaceLevel !== undefined,
     )
     .map((pair) => {
-      if (!Array.isArray(pair.enter.arguments) || pair.enter.arguments.length !== 2) {
+      if (
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 2
+      ) {
         throw new Error(
           `api-enter sequence ${pair.enter.sequence} has invalid GetSurfaceLevel arguments`,
         );
@@ -2757,7 +2862,10 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           caller:
             pair.enter.caller === undefined
               ? null
-              : { module: pair.enter.caller.module, rva: pair.enter.caller.rva },
+              : {
+                  module: pair.enter.caller.module,
+                  rva: pair.enter.caller.rva,
+                },
           slot: pair.enter.vtableSlot,
           method: pair.enter.api,
           object: pair.enter.object,
@@ -2810,7 +2918,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     }
     const wordsValue = BigInt(snapshot.low) | (BigInt(snapshot.high) << 32n);
     if (bytesValue !== wordsValue || bytesValue !== BigInt(snapshot.value)) {
-      throw new Error(`${label} has inconsistent bytes, words, or decimal value`);
+      throw new Error(
+        `${label} has inconsistent bytes, words, or decimal value`,
+      );
     }
     return { ...snapshot };
   };
@@ -2859,7 +2969,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         completion.mainModuleCalls.length === 0 ||
         completion.sequence <= oracle.sequence
       ) {
-        throw new Error(`${selectedObservation} completion or oracle has invalid structure`);
+        throw new Error(
+          `${selectedObservation} completion or oracle has invalid structure`,
+        );
       }
 
       const oraclePairs = apiPairing.pairs.filter(
@@ -2900,13 +3012,16 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           pair.enter.parentCallId !== null ||
           !Array.isArray(pair.enter.arguments) ||
           pair.enter.arguments.length !== 1 ||
-          pair.enter.arguments[0].toLowerCase() !== outputAfter.pointer.toLowerCase() ||
+          pair.enter.arguments[0].toLowerCase() !==
+            outputAfter.pointer.toLowerCase() ||
           pair.enter.lastErrorBefore !== sentinel ||
           pair.leave.lastError !== sentinel ||
           BigInt(pair.leave.result) !== 1n ||
-          pair.leave[api === "QueryPerformanceFrequency"
-            ? "queryPerformanceFrequency"
-            : "queryPerformanceCounter"]?.result !== 1
+          pair.leave[
+            api === "QueryPerformanceFrequency"
+              ? "queryPerformanceFrequency"
+              : "queryPerformanceCounter"
+          ]?.result !== 1
         ) {
           throw new Error(
             `${selectedObservation} oracle call ${index} violates its output or LastError contract`,
@@ -2923,63 +3038,67 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       const executableModule = path.win32
         .basename(traceStart.executable)
         .toLowerCase();
-      const mainModuleCalls = completion.mainModuleCalls.map((snapshot, index) => {
-        const pair = apiPairing.pairs.find(
-          (candidate) => candidate.enter.callId === snapshot.callId,
-        );
-        const field =
-          api === "QueryPerformanceFrequency"
-            ? "queryPerformanceFrequency"
-            : "queryPerformanceCounter";
-        const outputAfter = normalizeUnsignedLargeInteger(
-          snapshot.outputAfter,
-          `${selectedObservation} main output ${index}`,
-        );
-        if (
-          pair === undefined ||
-          pair.enter.api !== api ||
-          pair.enter.module.toLowerCase() !== "kernel32.dll" ||
-          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
-          pair.enter.parentCallId !== null ||
-          !Array.isArray(pair.enter.arguments) ||
-          pair.enter.arguments.length !== 1 ||
-          typeof snapshot.outputPointer !== "string" ||
-          snapshot.outputPointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
-          pair.enter.arguments[0].toLowerCase() !== outputAfter.pointer.toLowerCase() ||
-          snapshot.returnAddress.toLowerCase() !==
-            pair.enter.caller.address.toLowerCase() ||
-          snapshot.callerRva !== undefined &&
-            snapshot.callerRva !== pair.enter.caller.rva ||
-          snapshot.result !== 1 ||
-          BigInt(pair.leave.result) !== 1n ||
-          pair.leave[field]?.result !== 1 ||
-          JSON.stringify(pair.leave[field]?.outputAfter) !==
-            JSON.stringify(snapshot.outputAfter) ||
-          snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
-          snapshot.lastError !== pair.leave.lastError ||
-          snapshot.lastErrorBefore !== snapshot.lastError ||
-          JSON.stringify(snapshot.immediateConsumer) !==
-            JSON.stringify(pair.enter[field]?.immediateConsumer)
-        ) {
-          throw new Error(
-            `${selectedObservation} main call ${index} does not match its paired trace`,
+      const mainModuleCalls = completion.mainModuleCalls.map(
+        (snapshot, index) => {
+          const pair = apiPairing.pairs.find(
+            (candidate) => candidate.enter.callId === snapshot.callId,
           );
-        }
-        return {
-          sequence: pair.enter.sequence,
-          callId: pair.enter.callId,
-          threadId: pair.enter.threadId,
-          caller: {
-            module: pair.enter.caller.module,
-            rva: pair.enter.caller.rva,
-          },
-          outputPointer: snapshot.outputPointer,
-          output: outputAfter,
-          result: snapshot.result,
-          lastErrorBefore: snapshot.lastErrorBefore,
-          lastError: snapshot.lastError,
-        };
-      });
+          const field =
+            api === "QueryPerformanceFrequency"
+              ? "queryPerformanceFrequency"
+              : "queryPerformanceCounter";
+          const outputAfter = normalizeUnsignedLargeInteger(
+            snapshot.outputAfter,
+            `${selectedObservation} main output ${index}`,
+          );
+          if (
+            pair === undefined ||
+            pair.enter.api !== api ||
+            pair.enter.module.toLowerCase() !== "kernel32.dll" ||
+            pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+            pair.enter.parentCallId !== null ||
+            !Array.isArray(pair.enter.arguments) ||
+            pair.enter.arguments.length !== 1 ||
+            typeof snapshot.outputPointer !== "string" ||
+            snapshot.outputPointer.toLowerCase() !==
+              outputAfter.pointer.toLowerCase() ||
+            pair.enter.arguments[0].toLowerCase() !==
+              outputAfter.pointer.toLowerCase() ||
+            snapshot.returnAddress.toLowerCase() !==
+              pair.enter.caller.address.toLowerCase() ||
+            (snapshot.callerRva !== undefined &&
+              snapshot.callerRva !== pair.enter.caller.rva) ||
+            snapshot.result !== 1 ||
+            BigInt(pair.leave.result) !== 1n ||
+            pair.leave[field]?.result !== 1 ||
+            JSON.stringify(pair.leave[field]?.outputAfter) !==
+              JSON.stringify(snapshot.outputAfter) ||
+            snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
+            snapshot.lastError !== pair.leave.lastError ||
+            snapshot.lastErrorBefore !== snapshot.lastError ||
+            JSON.stringify(snapshot.immediateConsumer) !==
+              JSON.stringify(pair.enter[field]?.immediateConsumer)
+          ) {
+            throw new Error(
+              `${selectedObservation} main call ${index} does not match its paired trace`,
+            );
+          }
+          return {
+            sequence: pair.enter.sequence,
+            callId: pair.enter.callId,
+            threadId: pair.enter.threadId,
+            caller: {
+              module: pair.enter.caller.module,
+              rva: pair.enter.caller.rva,
+            },
+            outputPointer: snapshot.outputPointer,
+            output: outputAfter,
+            result: snapshot.result,
+            lastErrorBefore: snapshot.lastErrorBefore,
+            lastError: snapshot.lastError,
+          };
+        },
+      );
       const targetCallCount = mainModuleCalls.filter(
         (call) => call.caller.rva === targetRva,
       ).length;
@@ -3165,7 +3284,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         JSON.stringify(snapshot.fields.work.raw.bytes) ||
       snapshot.fields.flags !== flags
     ) {
-      throw new Error(`${label} fields are inconsistent with its structure bytes`);
+      throw new Error(
+        `${label} fields are inconsistent with its structure bytes`,
+      );
     }
     normalized.monitor = monitor;
     normalized.work = work;
@@ -3190,7 +3311,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       if (
         JSON.stringify(raw.bytes.slice(40, 72)) !==
           JSON.stringify(snapshot.fields.deviceBytes) ||
-        snapshot.fields.deviceTerminated !== (terminator >= 0) ||
+        snapshot.fields.deviceTerminated !== terminator >= 0 ||
         JSON.stringify(snapshot.fields.deviceBytesWithoutNul) !==
           JSON.stringify(withoutNul)
       ) {
@@ -3249,7 +3370,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       oracle.allLastErrorsMatchHooks !== true ||
       completion.sequence <= oracle.sequence ||
       completion.oracle?.profile !== oracle.profile ||
-      JSON.stringify(completion.oracle?.calls) !== JSON.stringify(oracle.calls) ||
+      JSON.stringify(completion.oracle?.calls) !==
+        JSON.stringify(oracle.calls) ||
       completion.oracle?.allResultsMatchHooks !== true ||
       completion.oracle?.allLastErrorsMatchHooks !== true
     ) {
@@ -3341,7 +3463,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         call.hookResultMatches !== true ||
         call.hookAndSystemLastErrorMatch !== true ||
         failedBytesUnchanged !==
-          (JSON.stringify(rawBefore.bytes) === JSON.stringify(rawAfter.bytes)) ||
+          (JSON.stringify(rawBefore.bytes) ===
+            JSON.stringify(rawAfter.bytes)) ||
         pair.enter.module.toLowerCase() !== "user32.dll" ||
         pair.enter.parentCallId !== null ||
         !Array.isArray(pair.enter.arguments) ||
@@ -3433,7 +3556,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       snapshot.outputPointer !== mainBefore.pointer ||
       mainBefore.pointer !== mainAfter.pointer ||
       pair.enter.arguments[0].toLowerCase() !== liveMonitor.toLowerCase() ||
-      pair.enter.arguments[1].toLowerCase() !== mainBefore.pointer.toLowerCase() ||
+      pair.enter.arguments[1].toLowerCase() !==
+        mainBefore.pointer.toLowerCase() ||
       mainBefore.cbSize !== 40 ||
       mainAfter.cbSize !== 40 ||
       JSON.stringify(mainAfter.monitor) !==
@@ -3531,7 +3655,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       completion.mainModuleCalls.length !== 1 ||
       completion.sequence <= oracle.sequence
     ) {
-      throw new Error("time-get-time completion or oracle has invalid structure");
+      throw new Error(
+        "time-get-time completion or oracle has invalid structure",
+      );
     }
 
     const oraclePairs = apiPairing.pairs.filter(
@@ -3540,7 +3666,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll",
     );
     if (oraclePairs.length !== sentinels.length) {
-      throw new Error("time-get-time oracle calls do not match their paired traces");
+      throw new Error(
+        "time-get-time oracle calls do not match their paired traces",
+      );
     }
     const oracleCalls = oracle.calls.map((call, index) => {
       const pair = oraclePairs[index];
@@ -3559,8 +3687,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           call.systemLastError,
         ].every(isU32) ||
         call.tickCountSpan !==
-          ((call.tickCountAfter - call.tickCountBefore) >>> 0) ||
-        call.resultOffset !== ((call.systemResult - call.tickCountBefore) >>> 0) ||
+          (call.tickCountAfter - call.tickCountBefore) >>> 0 ||
+        call.resultOffset !==
+          (call.systemResult - call.tickCountBefore) >>> 0 ||
         call.resultOffset > call.tickCountSpan ||
         call.hookResult !== call.systemResult ||
         call.hookLastErrorAfter !== sentinel ||
@@ -3582,14 +3711,20 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
           `time-get-time oracle call ${index} violates its tick or LastError contract`,
         );
       }
-      return { ...call, callId: pair.enter.callId, sequence: pair.enter.sequence };
+      return {
+        ...call,
+        callId: pair.enter.callId,
+        sequence: pair.enter.sequence,
+      };
     });
 
     const snapshot = completion.mainModuleCalls[0];
     const pair = apiPairing.pairs.find(
       (candidate) => candidate.enter.callId === snapshot.callId,
     );
-    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
     if (
       pair === undefined ||
       pair.enter.api !== "timeGetTime" ||
@@ -3645,7 +3780,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       typeof consumer !== "object" ||
       entry?.address?.toLowerCase() !== snapshot.returnAddress.toLowerCase() ||
       entry?.instructions?.[0]?.mnemonic !== "jmp" ||
-      entry.instructions[0].opStr?.toLowerCase() !== target?.address?.toLowerCase() ||
+      entry.instructions[0].opStr?.toLowerCase() !==
+        target?.address?.toLowerCase() ||
       target?.address?.toLowerCase() !== "0x121ec7" ||
       !Array.isArray(target.instructions) ||
       target.instructions.length < expectedConsumer.length ||
@@ -3722,11 +3858,31 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   );
   const surfaceDcFlows = surfaceDcCompletionEvents.map((completion) => {
     const expectedCalls = [
-      { api: "GetDC", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 15 },
-      { api: "GetStockObject", module: "gdi32.dll", interface: null, slot: null },
+      {
+        api: "GetDC",
+        module: "d3d9.dll",
+        interface: "IDirect3DSurface9",
+        slot: 15,
+      },
+      {
+        api: "GetStockObject",
+        module: "gdi32.dll",
+        interface: null,
+        slot: null,
+      },
       { api: "FillRect", module: "user32.dll", interface: null, slot: null },
-      { api: "ReleaseDC", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 16 },
-      { api: "Release", module: "d3d9.dll", interface: "IDirect3DSurface9", slot: 2 },
+      {
+        api: "ReleaseDC",
+        module: "d3d9.dll",
+        interface: "IDirect3DSurface9",
+        slot: 16,
+      },
+      {
+        api: "Release",
+        module: "d3d9.dll",
+        interface: "IDirect3DSurface9",
+        slot: 2,
+      },
     ];
     if (
       completion.profile !== "x86-bgi-system-memory-surface-dc-fill-v1" ||
@@ -3756,7 +3912,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         snapshot === null ||
         typeof snapshot !== "object" ||
         snapshot.api !== pair.enter.api ||
-        JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+        JSON.stringify(snapshot.arguments) !==
+          JSON.stringify(pair.enter.arguments) ||
         snapshot.result !== pair.leave.result ||
         snapshot.lastError !== pair.leave.lastError ||
         snapshot.caller?.module !== pair.enter.caller?.module ||
@@ -3775,10 +3932,14 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       return pair;
     });
     if (pairs.at(-1).leave.sequence + 1 !== completion.sequence) {
-      throw new Error("d3d9-surface-get-dc completion is not adjacent to its call chain");
+      throw new Error(
+        "d3d9-surface-get-dc completion is not adjacent to its call chain",
+      );
     }
     const threadId = pairs[0].enter.threadId;
-    const executableModule = path.win32.basename(traceStart.executable).toLowerCase();
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
     if (
       pairs.some(
         (pair) =>
@@ -3809,11 +3970,14 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     if (
       JSON.stringify(completion.calls[0].d3d9SurfaceGetDc) !==
         JSON.stringify(getDcObservation) ||
-      outputBefore.pointer.toLowerCase() !== outputAfter.pointer.toLowerCase() ||
-      outputAfter.pointer.toLowerCase() !== getDc.enter.arguments[0].toLowerCase() ||
+      outputBefore.pointer.toLowerCase() !==
+        outputAfter.pointer.toLowerCase() ||
+      outputAfter.pointer.toLowerCase() !==
+        getDc.enter.arguments[0].toLowerCase() ||
       BigInt(outputAfter.value) === 0n ||
       getDc.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
-      releaseDc.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
+      releaseDc.enter.object.toLowerCase() !==
+        completion.surface.toLowerCase() ||
       release.enter.object.toLowerCase() !== completion.surface.toLowerCase() ||
       BigInt(getDc.leave.result) !== 0n ||
       getStockObject.enter.arguments.length !== 1 ||
@@ -3821,10 +3985,12 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       BigInt(getStockObject.leave.result) === 0n ||
       fillRect.enter.arguments.length !== 3 ||
       BigInt(fillRect.enter.arguments[0]) !== BigInt(outputAfter.value) ||
-      BigInt(fillRect.enter.arguments[2]) !== BigInt(getStockObject.leave.result) ||
+      BigInt(fillRect.enter.arguments[2]) !==
+        BigInt(getStockObject.leave.result) ||
       BigInt(fillRect.leave.result) !== 1n ||
       rect?.profile !== "x86-rect-v1" ||
-      rect.raw?.pointer?.toLowerCase() !== fillRect.enter.arguments[1].toLowerCase() ||
+      rect.raw?.pointer?.toLowerCase() !==
+        fillRect.enter.arguments[1].toLowerCase() ||
       JSON.stringify(rect.fields) !== JSON.stringify(expectedRect) ||
       JSON.stringify(completion.calls[1].rect) !==
         JSON.stringify(getStockObject.leave.d3d9SurfaceDcGdi?.rect ?? null) ||
@@ -3904,7 +4070,9 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         contiguous: true,
       },
       apiPairing: {
-        contract: apiPairing.callMetadata ? "call-id-v1" : "legacy-thread-stack",
+        contract: apiPairing.callMetadata
+          ? "call-id-v1"
+          : "legacy-thread-stack",
         enters: apiPairing.enters,
         leaves: apiPairing.leaves,
         pairs: apiPairing.pairs.length,

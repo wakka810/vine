@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 26 as const;
+export const protocolVersion = 27 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -19,16 +19,15 @@ export type BgiCapabilityProfile =
   | "kernel32-get-file-attributes-a"
   | "kernel32-create-directory-a"
   | "user32-set-window-pos-repeat-activation"
-  | "d3d9-recreated-textures";
+  | "d3d9-recreated-textures"
+  | "user32-set-window-pos-frame-change-move";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
   instructionCount: number;
   previousThreadId: number;
   threadId: number;
-  state:
-    | { state: "runnable" }
-    | { state: "in-callback"; depth: number };
+  state: { state: "runnable" } | { state: "in-callback"; depth: number };
   executionBoundary?: "yield-current-thread";
 }
 
@@ -106,7 +105,7 @@ export interface RuntimeSetWindowPosRepeatActivationCallSnapshot {
   trapInstructionCount: number;
   arguments: [number, number, number, number, number, number, number];
   result: { action: "set"; value: 1 };
-  implementationId: "user32.set-window-pos.v4";
+  implementationId: "user32.set-window-pos.v5";
   returnAddress: number;
   stackPointerBefore: number;
   stackPointerAfter: number;
@@ -138,11 +137,40 @@ export interface RuntimeSetWindowPosRepeatActivationCallbackEvent {
   result?: number;
 }
 
+export interface RuntimeSetWindowPosFrameChangeMoveCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: "SetWindowPos";
+  occurrence: 6;
+  trapInstructionCount: number;
+  arguments: [number, 0, 317, 154, 0, 0, 0x25];
+  result: { action: "set"; value: 1 };
+  implementationId: "user32.set-window-pos.v5";
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError: number;
+  guestWrites: [];
+  window: RuntimeWindowSnapshot;
+}
+
+export interface RuntimeSetWindowPosFrameChangeMoveCallbackEvent {
+  action: "enter" | "replace" | "return";
+  sequence: number;
+  frameId: number;
+  instructionCount: number;
+  target?: number;
+  stackPointer?: number;
+  arguments?: [number, number, number, number];
+  result?: number;
+}
+
 export interface PageLifecycleSnapshot {
   state: PageLifecycleState;
   generation: number;
 }
-export type SessionWorkload = "controlled-fixture" | "controlled-source-read" | "private-bgi";
+export type SessionWorkload =
+  "controlled-fixture" | "controlled-source-read" | "private-bgi";
 
 export interface RuntimeCurrentDirectoryA {
   sourceAuthority: string;
@@ -203,7 +231,8 @@ export interface RuntimeWaitableTimerSnapshot {
     kind: "waitable-timer";
     namespace: string;
     closePolicy: "close-handle";
-    waitState: { state: "nonsignaled" } | { state: "signaled"; exit_code: number };
+    waitState:
+      { state: "nonsignaled" } | { state: "signaled"; exit_code: number };
     openHandles: number;
   };
   timerClock?: {
@@ -303,7 +332,15 @@ export interface RuntimeWindowSnapshot {
   createParameter: number;
   entryLastError: number;
   lifecycle:
-    | { state: "creating"; message: "non-client-create" | "non-client-calculate" | "create" | "size" | "move" }
+    | {
+        state: "creating";
+        message:
+          | "non-client-create"
+          | "non-client-calculate"
+          | "create"
+          | "size"
+          | "move";
+      }
     | { state: "created" };
   visible: boolean;
   topmost: boolean;
@@ -619,13 +656,24 @@ export interface SessionReport {
     mutation: false;
     browserResourceCreated: false;
   } | null;
+  setWindowPosFrameChangeMove: {
+    callCount: 6;
+    call: RuntimeSetWindowPosFrameChangeMoveCallSnapshot;
+    callbackEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[];
+    nestedMoveCallbackEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[];
+    windowAuthority: "rust-runtime-user32-logical-window";
+    relationAuthority: "rust-runtime-user32-thread-and-process-window-relations";
+    geometryCommit: "nccalcsize-completion-targeted-commit";
+    relationMutation: false;
+    gdiResourceMutation: false;
+    browserResourceCreated: false;
+    nonClientPaintAndEraseModeled: false;
+  } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
     compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17";
-    createTextureProfileId:
-      "primary-initial-and-recreated-x8r8g8b8-textures-v2";
-    getSurfaceLevelProfileId:
-      "primary-system-memory-texture-level-zero-surfaces-v2";
+    createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
+    getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
     comAuthority: "rust-runtime-com-object-and-interface";
     browserRendererResourceCreated: false;
@@ -651,7 +699,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -682,7 +732,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -699,7 +751,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -718,7 +772,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -737,7 +793,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -756,7 +814,9 @@ export interface SessionReport {
           id: number;
           address: number;
           module?: string;
-          symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
         };
         memoryContentSha256: string;
       }
@@ -1204,11 +1264,11 @@ export interface SessionFinishedMessage {
 }
 
 export type WorkerToMainMessage =
-  | SessionStatusMessage
-  | HostRequestMessage
-  | SessionFinishedMessage;
+  SessionStatusMessage | HostRequestMessage | SessionFinishedMessage;
 
-export function assertProtocolVersion(version: number): asserts version is typeof protocolVersion {
+export function assertProtocolVersion(
+  version: number,
+): asserts version is typeof protocolVersion {
   if (version !== protocolVersion) {
     throw new Error(`unsupported browser runtime protocol version ${version}`);
   }

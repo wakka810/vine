@@ -25,6 +25,8 @@ import {
   type RuntimeGdiplusSnapshot,
   type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
+  type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
+  type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
   type RuntimeSupportedCallSnapshot,
   type RuntimeImm32Snapshot,
@@ -65,10 +67,7 @@ import {
   writableCommitFailureControl,
   writableDirectoryCreateFailureControl,
 } from "./profile-storage.js";
-import {
-  TaskTimerPacingDriver,
-  TimerPacingService,
-} from "./timer-pacing.js";
+import { TaskTimerPacingDriver, TimerPacingService } from "./timer-pacing.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
@@ -80,13 +79,31 @@ function includesSetWindowPosRepeatActivation(
 ): boolean {
   return (
     profile === "user32-set-window-pos-repeat-activation" ||
-    profile === "d3d9-recreated-textures"
+    includesD3d9RecreatedTextures(profile)
   );
+}
+
+function includesD3d9RecreatedTextures(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "d3d9-recreated-textures" ||
+    profile === "user32-set-window-pos-frame-change-move"
+  );
+}
+
+function isSetWindowPosFrameChangeMove(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-set-window-pos-frame-change-move";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
   const resolve = yieldResolvers.shift();
-  invariant(resolve !== undefined, "Worker yield channel received an unowned task");
+  invariant(
+    resolve !== undefined,
+    "Worker yield channel received an unowned task",
+  );
   resolve();
 });
 yieldChannel.port1.start();
@@ -118,8 +135,7 @@ interface WritableCommitPayloadMetadata {
 }
 
 type ExecutableSchedulerMetadata =
-  | { state: "runnable" }
-  | { state: "in-callback"; depth: number };
+  { state: "runnable" } | { state: "in-callback"; depth: number };
 
 interface ThreadScheduledMetadata {
   kind: "thread-scheduled";
@@ -149,8 +165,7 @@ interface ThreadExitMetadata {
 }
 
 type CreatedThreadSchedulerState =
-  | { state: "suspended"; count: number }
-  | { state: "runnable" };
+  { state: "suspended"; count: number } | { state: "runnable" };
 
 interface CreatedThreadMetadata {
   handle: number;
@@ -207,7 +222,8 @@ interface CompletionMetadata {
     id: number;
     address: number;
     module: string;
-    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+    symbol:
+      { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
   };
   memory?: { generation: number; acknowledgedGeneration: number };
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
@@ -236,7 +252,8 @@ interface ApiFaultMetadata {
     id: number;
     address: number;
     module: string;
-    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+    symbol:
+      { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
   };
   capabilityCluster: string;
   fault: unknown;
@@ -370,7 +387,8 @@ interface CallbackCompletionMetadata {
     id: number;
     address: number;
     module: string;
-    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+    symbol:
+      { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
   };
   completion: ApiCompletion;
   memory: { generation: number; acknowledgedGeneration: number };
@@ -458,7 +476,9 @@ interface MappingFixtureMetadata {
   stage: string;
   fromGeneration: number;
   generation: number;
-  mappingOperations: Array<"reserve" | "commit" | "protect" | "decommit" | "release">;
+  mappingOperations: Array<
+    "reserve" | "commit" | "protect" | "decommit" | "release"
+  >;
   dirtyPages: number;
   cacheEffects: {
     flushTlb: boolean;
@@ -522,7 +542,9 @@ function validByteArray(bytes: number[], trailingNul: boolean): boolean {
     Array.isArray(bytes) &&
     bytes.length > 0 &&
     bytes.length <= 32_768 &&
-    bytes.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff) &&
+    bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+    ) &&
     (trailingNul
       ? bytes.at(-1) === 0 && !bytes.slice(0, -1).includes(0)
       : !bytes.includes(0))
@@ -530,7 +552,10 @@ function validByteArray(bytes: number[], trailingNul: boolean): boolean {
 }
 
 function byteArraysEqual(left: number[], right: number[]): boolean {
-  return left.length === right.length && left.every((byte, index) => byte === right[index]);
+  return (
+    left.length === right.length &&
+    left.every((byte, index) => byte === right[index])
+  );
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -574,20 +599,21 @@ class BrowserRuntimeSession {
   #liveThreadId: number | null = null;
   readonly #threadContexts = new Map<number, ExecutionCpuContext>();
   readonly #threadResumeStates = new Map<number, "ready" | "guest-callback">();
-  readonly #threadExecutionStates = new Map<number, "ready" | "guest-callback">();
+  readonly #threadExecutionStates = new Map<
+    number,
+    "ready" | "guest-callback"
+  >();
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
   readonly #deferredHostCompletions = new Map<string, () => void>();
   readonly #timerPacing: TimerPacingService;
   #hostBarrierRequestId: string | null = null;
-  #hostBarrierResume:
-    | {
-        requestId: string;
-        threadId: number;
-        scheduler: ExecutableSchedulerMetadata;
-      }
-    | null = null;
+  #hostBarrierResume: {
+    requestId: string;
+    threadId: number;
+    scheduler: ExecutableSchedulerMetadata;
+  } | null = null;
   readonly #sourceReadControllers = new Map<string, AbortController>();
   readonly #profileTransportControllers = new Set<AbortController>();
   readonly #profileTransportTasks = new Set<Promise<unknown>>();
@@ -614,6 +640,10 @@ class BrowserRuntimeSession {
     returnSentinel: number;
     arguments: [number, number, number, number];
   } | null = null;
+  readonly #setWindowPosFrameChangeMoveCallbackEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[] =
+    [];
+  readonly #setWindowPosFrameChangeMoveNestedMoveEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[] =
+    [];
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #enterCriticalSectionCompletions = 0;
@@ -669,7 +699,8 @@ class BrowserRuntimeSession {
     writebackBatches: 0,
     writebackPages: 0,
     stackGrowths: [] as SessionReport["stackGrowths"],
-    heapPageMaterializations: undefined as SessionReport["heapPageMaterializations"],
+    heapPageMaterializations:
+      undefined as SessionReport["heapPageMaterializations"],
     mappingDeltas: 0,
     mappingOperations: {
       reserve: 0,
@@ -704,6 +735,8 @@ class BrowserRuntimeSession {
     createDirectoryA: null as SessionReport["createDirectoryA"],
     setWindowPosRepeatActivation:
       null as SessionReport["setWindowPosRepeatActivation"],
+    setWindowPosFrameChangeMove:
+      null as SessionReport["setWindowPosFrameChangeMove"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
@@ -727,13 +760,15 @@ class BrowserRuntimeSession {
         "runtime evidence level is invalid",
       );
       invariant(
-        this.#configuration.evidenceLevel === "full" || workload === "private-bgi",
+        this.#configuration.evidenceLevel === "full" ||
+          workload === "private-bgi",
         "summary runtime evidence is only supported for the private BGI workload",
       );
       const sourceBackedWorkload =
         workload === "controlled-source-read" ||
         (workload === "private-bgi" &&
-          (this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
+          (this.#configuration.capabilityProfile ===
+            "kernel32-archive-source-read" ||
             this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
             this.#configuration.capabilityProfile ===
               "kernel32-global-memory-status" ||
@@ -746,16 +781,20 @@ class BrowserRuntimeSession {
             )));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
-        this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
+        this.#configuration.capabilityProfile === undefined ||
+          profileBackedWorkload,
         "capability profiles are only supported for the private BGI workload",
       );
-      this.#status("loading", `Loading Rust runtime, execution engine, and ${workload}`);
+      this.#status(
+        "loading",
+        `Loading Rust runtime, execution engine, and ${workload}`,
+      );
       const coreUrl = new URL("./runtime-core.wasm", import.meta.url);
       const executableUrl = new URL(
         workload === "private-bgi"
-          ? this.#configuration.executableUrl ?? "./private/BGI.exe"
+          ? (this.#configuration.executableUrl ?? "./private/BGI.exe")
           : workload === "controlled-source-read"
-            ? this.#configuration.executableUrl ?? "./source-read.exe"
+            ? (this.#configuration.executableUrl ?? "./source-read.exe")
             : "./browser-vertical.exe",
         import.meta.url,
       );
@@ -788,23 +827,23 @@ class BrowserRuntimeSession {
         }
         this.#requireStorageSetupActive();
       }
-      const sourceManifestBytes =
-        sourceBackedWorkload
-          ? await this.#fetchBytes(
-              this.#sameOriginStorageUrl(
-                this.#configuration.sourceManifestUrl,
-                "/api/source/v1/manifest",
-                "source manifest URL",
-              ),
-              "source manifest",
-            )
-          : null;
-      const writableProfileBytes =
-        profileBackedWorkload
-          ? await this.#fetchWritableProfileSnapshot()
-          : null;
+      const sourceManifestBytes = sourceBackedWorkload
+        ? await this.#fetchBytes(
+            this.#sameOriginStorageUrl(
+              this.#configuration.sourceManifestUrl,
+              "/api/source/v1/manifest",
+              "source manifest URL",
+            ),
+            "source manifest",
+          )
+        : null;
+      const writableProfileBytes = profileBackedWorkload
+        ? await this.#fetchWritableProfileSnapshot()
+        : null;
       this.#sourceManifest =
-        sourceManifestBytes === null ? null : this.#parseSourceManifest(sourceManifestBytes);
+        sourceManifestBytes === null
+          ? null
+          : this.#parseSourceManifest(sourceManifestBytes);
       this.#writableProfile =
         writableProfileBytes === null
           ? null
@@ -813,14 +852,16 @@ class BrowserRuntimeSession {
         workload === "private-bgi"
           ? await this.#fetchPolicy(
               new URL(
-                this.#configuration.policyUrl ?? "./private/kernel32-policy.json",
+                this.#configuration.policyUrl ??
+                  "./private/kernel32-policy.json",
                 import.meta.url,
               ),
             )
           : workload === "controlled-source-read"
             ? await this.#fetchPolicy(
                 new URL(
-                  this.#configuration.policyUrl ?? "./kernel32-source-file-read-v1.json",
+                  this.#configuration.policyUrl ??
+                    "./kernel32-source-file-read-v1.json",
                   import.meta.url,
                 ),
               )
@@ -834,16 +875,21 @@ class BrowserRuntimeSession {
               executable,
               policy ?? failInvariant("BGI runtime policy is missing"),
               sourceManifestBytes,
-              writableProfileBytes ?? failInvariant("BGI writable profile is missing"),
+              writableProfileBytes ??
+                failInvariant("BGI writable profile is missing"),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
                 executable,
                 policy ?? failInvariant("source runtime policy is missing"),
-                sourceManifestBytes ?? failInvariant("source fixture manifest is missing"),
+                sourceManifestBytes ??
+                  failInvariant("source fixture manifest is missing"),
               )
             : bridge.prepare(executable);
-      invariant(preparedOutput.metadata.schemaVersion === 2, "prepared metadata schema mismatch");
+      invariant(
+        preparedOutput.metadata.schemaVersion === 2,
+        "prepared metadata schema mismatch",
+      );
       const engine = engineFactory({
         maximumPhysicalPages: preparedOutput.metadata.maximumPhysicalPages,
       });
@@ -866,14 +912,17 @@ class BrowserRuntimeSession {
       );
       this.#initialThreadId = preparedOutput.metadata.runtime.threadId;
       this.#currentThreadId = this.#initialThreadId;
-      const initialCurrentDirectory = preparedOutput.metadata.runtime.currentDirectoryA;
+      const initialCurrentDirectory =
+        preparedOutput.metadata.runtime.currentDirectoryA;
       invariant(
         initialCurrentDirectory.sourceAuthority.length > 0 &&
           initialCurrentDirectory.encoding === "windows-932-v1" &&
           initialCurrentDirectory.bytesWithNul.length >= 4 &&
           initialCurrentDirectory.bytesWithNul.at(-1) === 0 &&
           !initialCurrentDirectory.bytesWithNul.slice(0, -1).includes(0) &&
-          Number.isSafeInteger(preparedOutput.metadata.runtime.currentDirectoryGeneration) &&
+          Number.isSafeInteger(
+            preparedOutput.metadata.runtime.currentDirectoryGeneration,
+          ) &&
           preparedOutput.metadata.runtime.currentDirectoryGeneration >= 0,
         "prepared runtime current-directory metadata is invalid",
       );
@@ -893,12 +942,25 @@ class BrowserRuntimeSession {
       }
       if (workload === "private-bgi") {
         const stack = preparedOutput.metadata.initialThreadStack;
-        const allocation = preparedOutput.metadata.initialStackAddressAllocation;
-        invariant(stack !== undefined, "BGI initial thread stack metadata is missing");
-        invariant(allocation !== undefined, "BGI stack allocation metadata is missing");
+        const allocation =
+          preparedOutput.metadata.initialStackAddressAllocation;
+        invariant(
+          stack !== undefined,
+          "BGI initial thread stack metadata is missing",
+        );
+        invariant(
+          allocation !== undefined,
+          "BGI stack allocation metadata is missing",
+        );
         const guardPage = stack.guardPage;
-        invariant(guardPage !== undefined, "BGI initial stack guard metadata is missing");
-        invariant(stack.threadId === this.#currentThreadId, "BGI stack belongs to another thread");
+        invariant(
+          guardPage !== undefined,
+          "BGI initial stack guard metadata is missing",
+        );
+        invariant(
+          stack.threadId === this.#currentThreadId,
+          "BGI stack belongs to another thread",
+        );
         invariant(
           stack.addressAllocationId === allocation.id &&
             stack.memoryOwner > 0 &&
@@ -907,9 +969,12 @@ class BrowserRuntimeSession {
           "BGI stack allocation identity mismatch",
         );
         invariant(
-          stack.committedRange.start + stack.committedRange.byteLength === stack.stackTop &&
-            stack.reservedRange.start + stack.reservedRange.byteLength === stack.stackTop &&
-            guardPage.start + guardPage.byteLength === stack.committedRange.start,
+          stack.committedRange.start + stack.committedRange.byteLength ===
+            stack.stackTop &&
+            stack.reservedRange.start + stack.reservedRange.byteLength ===
+              stack.stackTop &&
+            guardPage.start + guardPage.byteLength ===
+              stack.committedRange.start,
           "BGI initial stack reserve, commit, and guard are not contiguous",
         );
         invariant(
@@ -922,7 +987,10 @@ class BrowserRuntimeSession {
           "BGI process stack allocation policy mismatch",
         );
       }
-      const reflection = decodeReflection(preparedOutput.control, preparedOutput.payload);
+      const reflection = decodeReflection(
+        preparedOutput.control,
+        preparedOutput.payload,
+      );
       invariant(
         reflection.generation === BigInt(preparedOutput.metadata.generation),
         "Rust reflection generation metadata mismatch",
@@ -965,10 +1033,16 @@ class BrowserRuntimeSession {
       if (workload === "controlled-fixture") {
         this.#runMappingContract();
       }
-      this.#status("running", "Guest entry is running in bounded Worker slices");
+      this.#status(
+        "running",
+        "Guest entry is running in bounded Worker slices",
+      );
       await this.#runGuest();
     } catch (error) {
-      if (error instanceof SessionStopped && (this.#terminal || this.#stopping)) {
+      if (
+        error instanceof SessionStopped &&
+        (this.#terminal || this.#stopping)
+      ) {
         return;
       }
       this.#fail(error instanceof Error ? error : new Error(String(error)));
@@ -984,7 +1058,10 @@ class BrowserRuntimeSession {
   }
 
   async #acquireWritableProfileLease(): Promise<void> {
-    invariant(this.#profileLease === null, "writable profile lease is already active");
+    invariant(
+      this.#profileLease === null,
+      "writable profile lease is already active",
+    );
     const url = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
       "/api/profile/v3/",
@@ -996,7 +1073,10 @@ class BrowserRuntimeSession {
       cache: "no-store",
       headers: { "X-Vine-Session-Key": this.#profileSessionKey },
     });
-    invariant(response.status === 201, `writable profile lease failed with ${response.status}`);
+    invariant(
+      response.status === 201,
+      `writable profile lease failed with ${response.status}`,
+    );
     const epochText = response.headers.get("x-vine-session-epoch");
     const epoch = epochText === null ? Number.NaN : Number(epochText);
     const titleFingerprint = response.headers.get("x-vine-title-fingerprint");
@@ -1004,7 +1084,8 @@ class BrowserRuntimeSession {
     invariant(
       Number.isSafeInteger(epoch) &&
         epoch > 0 &&
-        response.headers.get("x-vine-session-key") === this.#profileSessionKey &&
+        response.headers.get("x-vine-session-key") ===
+          this.#profileSessionKey &&
         titleFingerprint !== null &&
         /^[a-zA-Z0-9:._-]{1,128}$/u.test(titleFingerprint) &&
         profileId !== null &&
@@ -1032,9 +1113,13 @@ class BrowserRuntimeSession {
         headers: this.#profileLeaseHeaders(),
         signal,
       });
-      invariant(response.status === 200, `writable profile fetch failed with ${response.status}`);
       invariant(
-        response.headers.get("x-vine-title-fingerprint") === lease.titleFingerprint &&
+        response.status === 200,
+        `writable profile fetch failed with ${response.status}`,
+      );
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") ===
+          lease.titleFingerprint &&
           response.headers.get("x-vine-profile-id") === lease.profileId &&
           response.headers.get("x-vine-session-epoch") === String(lease.epoch),
         "writable profile snapshot lease identity mismatch",
@@ -1047,7 +1132,8 @@ class BrowserRuntimeSession {
 
   async #hydrateWritableProfileObjects(): Promise<void> {
     const profile =
-      this.#writableProfile ?? failInvariant("writable profile hydration has no manifest");
+      this.#writableProfile ??
+      failInvariant("writable profile hydration has no manifest");
     const bridge = this.#requireBridge();
     for (const file of profile.files) {
       this.#requireStorageSetupActive();
@@ -1074,13 +1160,18 @@ class BrowserRuntimeSession {
             `writable profile hydration failed with ${response.status}`,
           );
           invariant(
-            response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+            response.headers.get("x-vine-title-fingerprint") ===
+              profile.titleFingerprint &&
               response.headers.get("x-vine-profile-id") === profile.profileId &&
-              response.headers.get("x-vine-object-id") === String(file.objectId) &&
-              response.headers.get("x-vine-generation") === String(file.generation) &&
+              response.headers.get("x-vine-object-id") ===
+                String(file.objectId) &&
+              response.headers.get("x-vine-generation") ===
+                String(file.generation) &&
               response.headers.get("x-vine-offset") === String(offset) &&
-              response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
-              response.headers.get("x-vine-transferred-bytes") === String(requestedBytes) &&
+              response.headers.get("x-vine-requested-bytes") ===
+                String(requestedBytes) &&
+              response.headers.get("x-vine-transferred-bytes") ===
+                String(requestedBytes) &&
               response.headers.get("x-vine-session-epoch") ===
                 String(this.#requireProfileLease().epoch),
             "writable profile hydration response identity mismatch",
@@ -1099,12 +1190,16 @@ class BrowserRuntimeSession {
       this.#requireStorageSetupActive();
       const digest = await sha256Hex(bytes);
       this.#requireStorageSetupActive();
-      invariant(digest === file.sha256, "writable profile hydration hash mismatch");
-      const output = bridge.hydrateWritableProfileObject<WritableProfileHydratedMetadata>(
-        file.objectId,
-        BigInt(file.generation),
-        bytes,
+      invariant(
+        digest === file.sha256,
+        "writable profile hydration hash mismatch",
       );
+      const output =
+        bridge.hydrateWritableProfileObject<WritableProfileHydratedMetadata>(
+          file.objectId,
+          BigInt(file.generation),
+          bytes,
+        );
       invariant(
         output.metadata.kind === "writable-profile-hydrated" &&
           output.metadata.objectId === file.objectId &&
@@ -1120,7 +1215,8 @@ class BrowserRuntimeSession {
 
   #profileObjectUrl(objectId: number): URL {
     const profile =
-      this.#writableProfile ?? failInvariant("writable profile object URL has no manifest");
+      this.#writableProfile ??
+      failInvariant("writable profile object URL has no manifest");
     const base = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
       "/api/profile/v3/",
@@ -1138,7 +1234,8 @@ class BrowserRuntimeSession {
 
   #profileDirectoryCommitUrl(directoryId: number): URL {
     const profile =
-      this.#writableProfile ?? failInvariant("writable profile directory URL has no manifest");
+      this.#writableProfile ??
+      failInvariant("writable profile directory URL has no manifest");
     const base = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileApiUrl,
       "/api/profile/v3/",
@@ -1164,16 +1261,23 @@ class BrowserRuntimeSession {
   }
 
   #requireProfileLease(): WritableProfileLease {
-    return this.#profileLease ?? failInvariant("writable profile session lease is unavailable");
+    return (
+      this.#profileLease ??
+      failInvariant("writable profile session lease is unavailable")
+    );
   }
 
   #requireStorageSetupActive(): void {
     if (this.#terminal || this.#stopping) {
-      throw new SessionStopped("writable profile setup stopped with the runtime session");
+      throw new SessionStopped(
+        "writable profile setup stopped with the runtime session",
+      );
     }
   }
 
-  #runProfileTransport<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  #runProfileTransport<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     this.#profileTransportControllers.add(controller);
     const task = (async () => {
@@ -1191,10 +1295,17 @@ class BrowserRuntimeSession {
     return task;
   }
 
-  #sameOriginStorageUrl(configured: string | undefined, fallback: string, label: string): URL {
+  #sameOriginStorageUrl(
+    configured: string | undefined,
+    fallback: string,
+    label: string,
+  ): URL {
     const runtimeUrl = new URL(import.meta.url);
     const url = new URL(configured ?? fallback, runtimeUrl);
-    invariant(url.origin === runtimeUrl.origin, `${label} must use the Runtime Worker origin`);
+    invariant(
+      url.origin === runtimeUrl.origin,
+      `${label} must use the Runtime Worker origin`,
+    );
     return url;
   }
 
@@ -1205,8 +1316,13 @@ class BrowserRuntimeSession {
   }
 
   #parseSourceManifest(bytes: Uint8Array): SourceManifest {
-    const manifest = JSON.parse(new TextDecoder().decode(bytes)) as SourceManifest;
-    invariant(manifest.schema === "vine.source-snapshot-manifest", "source manifest schema mismatch");
+    const manifest = JSON.parse(
+      new TextDecoder().decode(bytes),
+    ) as SourceManifest;
+    invariant(
+      manifest.schema === "vine.source-snapshot-manifest",
+      "source manifest schema mismatch",
+    );
     invariant(manifest.schemaVersion === 1, "source manifest version mismatch");
     invariant(
       /^[a-zA-Z0-9:._-]{1,128}$/u.test(manifest.titleFingerprint) &&
@@ -1219,7 +1335,10 @@ class BrowserRuntimeSession {
         validByteArray(manifest.mount.rootPathA, true),
       "source manifest mount is invalid",
     );
-    invariant(manifest.files.length > 0 && manifest.files.length <= 4096, "source file count is invalid");
+    invariant(
+      manifest.files.length > 0 && manifest.files.length <= 4096,
+      "source file count is invalid",
+    );
     const objectIds = new Set<number>();
     for (const file of manifest.files) {
       invariant(
@@ -1239,8 +1358,12 @@ class BrowserRuntimeSession {
   }
 
   #validatePreparedSourceSnapshot(prepared: PreparedMetadata): void {
-    const manifest = this.#sourceManifest ?? failInvariant("source manifest was not registered");
-    const snapshot = prepared.sourceSnapshot ?? failInvariant("Rust source snapshot metadata is missing");
+    const manifest =
+      this.#sourceManifest ??
+      failInvariant("source manifest was not registered");
+    const snapshot =
+      prepared.sourceSnapshot ??
+      failInvariant("Rust source snapshot metadata is missing");
     invariant(
       snapshot.titleFingerprint === manifest.titleFingerprint &&
         snapshot.snapshotId === manifest.snapshotId &&
@@ -1266,15 +1389,19 @@ class BrowserRuntimeSession {
   }
 
   #parseWritableProfile(bytes: Uint8Array): WritableProfileManifest {
-    const profile = JSON.parse(new TextDecoder().decode(bytes)) as WritableProfileManifest;
+    const profile = JSON.parse(
+      new TextDecoder().decode(bytes),
+    ) as WritableProfileManifest;
     invariant(
-      profile.schema === "vine.writable-profile-snapshot" && profile.schemaVersion === 3,
+      profile.schema === "vine.writable-profile-snapshot" &&
+        profile.schemaVersion === 3,
       "writable profile schema mismatch",
     );
     invariant(
       /^[a-zA-Z0-9:._-]{1,128}$/u.test(profile.titleFingerprint) &&
         /^[a-zA-Z0-9._-]{1,128}$/u.test(profile.profileId) &&
-        profile.titleFingerprint === this.#requireProfileLease().titleFingerprint &&
+        profile.titleFingerprint ===
+          this.#requireProfileLease().titleFingerprint &&
         profile.profileId === this.#requireProfileLease().profileId &&
         validByteArray(profile.rootPathA, true) &&
         Number.isSafeInteger(profile.quotaBytes) &&
@@ -1283,7 +1410,9 @@ class BrowserRuntimeSession {
       "writable profile identity or quota is invalid",
     );
     invariant(
-      Array.isArray(profile.files) && profile.files.length > 0 && profile.files.length <= 64,
+      Array.isArray(profile.files) &&
+        profile.files.length > 0 &&
+        profile.files.length <= 64,
       "writable profile file count is invalid",
     );
     const objectIds = new Set<number>();
@@ -1309,7 +1438,9 @@ class BrowserRuntimeSession {
           !Object.hasOwn(file, "bytes") &&
           (file.exists
             ? file.generation > 0 && file.sha256 !== null
-            : file.generation === 0 && file.byteLength === 0 && file.sha256 === null),
+            : file.generation === 0 &&
+              file.byteLength === 0 &&
+              file.sha256 === null),
         "writable profile file descriptor is invalid or duplicated",
       );
       objectIds.add(file.objectId);
@@ -1333,20 +1464,28 @@ class BrowserRuntimeSession {
           !paths.has(pathIdentity) &&
           typeof directory.exists === "boolean" &&
           Number.isSafeInteger(directory.generation) &&
-          (directory.exists ? directory.generation > 0 : directory.generation === 0),
+          (directory.exists
+            ? directory.generation > 0
+            : directory.generation === 0),
         "writable profile directory descriptor is invalid or duplicated",
       );
       directoryIds.add(directory.directoryId);
       paths.add(pathIdentity);
     }
-    invariant(totalBytes <= profile.quotaBytes, "writable profile content exceeds its quota");
+    invariant(
+      totalBytes <= profile.quotaBytes,
+      "writable profile content exceeds its quota",
+    );
     return profile;
   }
 
   #validatePreparedWritableProfile(prepared: PreparedMetadata): void {
-    const profile = this.#writableProfile ?? failInvariant("writable profile was not registered");
+    const profile =
+      this.#writableProfile ??
+      failInvariant("writable profile was not registered");
     const runtime =
-      prepared.writableProfile ?? failInvariant("Rust writable profile metadata is missing");
+      prepared.writableProfile ??
+      failInvariant("Rust writable profile metadata is missing");
     invariant(
       runtime.titleFingerprint === profile.titleFingerprint &&
         runtime.profileId === profile.profileId &&
@@ -1377,11 +1516,15 @@ class BrowserRuntimeSession {
       "Rust and browser writable profile directory counts differ",
     );
     for (const directory of profile.directories) {
-      const preparedDirectory = runtime.directories[String(directory.directoryId)];
+      const preparedDirectory =
+        runtime.directories[String(directory.directoryId)];
       invariant(
         preparedDirectory !== undefined &&
           preparedDirectory.directoryId === directory.directoryId &&
-          byteArraysEqual(preparedDirectory.relativePathA, directory.relativePathA) &&
+          byteArraysEqual(
+            preparedDirectory.relativePathA,
+            directory.relativePathA,
+          ) &&
           preparedDirectory.exists === directory.exists &&
           preparedDirectory.generation === directory.generation,
         `Rust and browser writable directory ${directory.directoryId} differ`,
@@ -1394,7 +1537,9 @@ class BrowserRuntimeSession {
       return;
     }
     if (this.#terminal) {
-      throw new Error("host completion arrived after the runtime session stopped");
+      throw new Error(
+        "host completion arrived after the runtime session stopped",
+      );
     }
     try {
       this.#deliverInIssueOrder(message.requestId, () =>
@@ -1449,16 +1594,27 @@ class BrowserRuntimeSession {
         message.threadId,
         message.result,
       );
-      const completion = this.#requireBridge().completeHost<HostCompletionMetadata>(
-        BigInt(pending.requestId),
-        message.result,
-      ).metadata;
-      invariant(completion.kind === "host-complete", "invalid host completion metadata");
-      invariant(completion.threadId === pending.threadId, "Rust resumed a different guest thread");
+      const completion =
+        this.#requireBridge().completeHost<HostCompletionMetadata>(
+          BigInt(pending.requestId),
+          message.result,
+        ).metadata;
+      invariant(
+        completion.kind === "host-complete",
+        "invalid host completion metadata",
+      );
+      invariant(
+        completion.threadId === pending.threadId,
+        "Rust resumed a different guest thread",
+      );
       const resumeState =
-        completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+        completion.scheduler.state === "in-callback"
+          ? "guest-callback"
+          : "ready";
       const expectedResumeState =
-        pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+        pending.completionPolicy === "resume-callback"
+          ? "guest-callback"
+          : "ready";
       invariant(
         resumeState === expectedResumeState,
         "Rust host completion disagrees with the recorded completion policy",
@@ -1500,7 +1656,11 @@ class BrowserRuntimeSession {
   }
 
   updatePageLifecycle(message: PageLifecycleMessage): void {
-    if (message.sessionId !== this.#sessionId || this.#terminal || this.#stopping) {
+    if (
+      message.sessionId !== this.#sessionId ||
+      this.#terminal ||
+      this.#stopping
+    ) {
       return;
     }
     try {
@@ -1511,24 +1671,46 @@ class BrowserRuntimeSession {
   }
 
   async #serviceSourceRead(metadata: HostRequestMetadata): Promise<void> {
-    const manifest = this.#sourceManifest ?? failInvariant("source read has no registered manifest");
-    invariant(metadata.service === "storage.source-read.v1", "unexpected source read service");
-    invariant(metadata.arguments.length === 6, "source read request must contain six words");
+    const manifest =
+      this.#sourceManifest ??
+      failInvariant("source read has no registered manifest");
+    invariant(
+      metadata.service === "storage.source-read.v1",
+      "unexpected source read service",
+    );
+    invariant(
+      metadata.arguments.length === 6,
+      "source read request must contain six words",
+    );
     const [version, sourceId, objectId, offsetLow, offsetHigh, requestedBytes] =
       metadata.arguments;
     invariant(version === 1, "source read request version mismatch");
-    invariant(sourceId === manifest.mount.sourceId, "source read mount identity mismatch");
-    const file = manifest.files.find((candidate) => candidate.objectId === objectId);
-    invariant(file !== undefined, "source read object identity is not registered");
+    invariant(
+      sourceId === manifest.mount.sourceId,
+      "source read mount identity mismatch",
+    );
+    const file = manifest.files.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    invariant(
+      file !== undefined,
+      "source read object identity is not registered",
+    );
     const offset = BigInt(offsetLow ?? 0) | (BigInt(offsetHigh ?? 0) << 32n);
-    invariant(offset <= BigInt(file.byteLength), "source read offset is outside the object");
+    invariant(
+      offset <= BigInt(file.byteLength),
+      "source read offset is outside the object",
+    );
     invariant(
       Number.isInteger(requestedBytes) &&
         (requestedBytes ?? 0) > 0 &&
         (requestedBytes ?? 0) <= 1024 * 1024,
       "source read length is outside the transport bound",
     );
-    const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
+    const expectedBytes = Math.min(
+      requestedBytes ?? 0,
+      file.byteLength - Number(offset),
+    );
     const base = this.#sameOriginStorageUrl(
       this.#configuration.sourceApiUrl,
       "/api/source/v1/",
@@ -1557,21 +1739,32 @@ class BrowserRuntimeSession {
         cache: "no-store",
         signal: controller.signal,
       });
-      invariant(response.status === 206, `source read failed with ${response.status}`);
       invariant(
-        response.headers.get("x-vine-title-fingerprint") === manifest.titleFingerprint &&
+        response.status === 206,
+        `source read failed with ${response.status}`,
+      );
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") ===
+          manifest.titleFingerprint &&
           response.headers.get("x-vine-snapshot-id") === manifest.snapshotId &&
           response.headers.get("x-vine-source-id") === String(sourceId) &&
           response.headers.get("x-vine-object-id") === String(objectId) &&
           response.headers.get("x-vine-offset") === offset.toString() &&
-          response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
-          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes),
+          response.headers.get("x-vine-requested-bytes") ===
+            String(requestedBytes) &&
+          response.headers.get("x-vine-transferred-bytes") ===
+            String(expectedBytes),
         "source read response identity mismatch",
       );
       const payload = new Uint8Array(await response.arrayBuffer());
-      invariant(payload.byteLength === expectedBytes, "source read response length mismatch");
+      invariant(
+        payload.byteLength === expectedBytes,
+        "source read response length mismatch",
+      );
       if (this.#stopping) {
-        throw new SessionStopped("source read stopped with the runtime session");
+        throw new SessionStopped(
+          "source read stopped with the runtime session",
+        );
       }
       const control = new Uint8Array(32);
       const view = new DataView(control.buffer);
@@ -1595,23 +1788,44 @@ class BrowserRuntimeSession {
 
   async #serviceProfileRead(metadata: HostRequestMetadata): Promise<void> {
     const profile =
-      this.#writableProfile ?? failInvariant("profile read has no registered profile");
-    invariant(metadata.service === "storage.profile-read.v1", "unexpected profile read service");
-    invariant(metadata.arguments.length === 6, "profile read request must contain six words");
+      this.#writableProfile ??
+      failInvariant("profile read has no registered profile");
+    invariant(
+      metadata.service === "storage.profile-read.v1",
+      "unexpected profile read service",
+    );
+    invariant(
+      metadata.arguments.length === 6,
+      "profile read request must contain six words",
+    );
     const [version, sourceId, objectId, offsetLow, offsetHigh, requestedBytes] =
       metadata.arguments;
-    invariant(version === 1 && sourceId === 0, "profile read transport identity mismatch");
-    const file = profile.files.find((candidate) => candidate.objectId === objectId);
-    invariant(file !== undefined && file.exists, "profile read object is not committed");
+    invariant(
+      version === 1 && sourceId === 0,
+      "profile read transport identity mismatch",
+    );
+    const file = profile.files.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    invariant(
+      file !== undefined && file.exists,
+      "profile read object is not committed",
+    );
     const offset = BigInt(offsetLow ?? 0) | (BigInt(offsetHigh ?? 0) << 32n);
-    invariant(offset <= BigInt(file.byteLength), "profile read offset is outside the object");
+    invariant(
+      offset <= BigInt(file.byteLength),
+      "profile read offset is outside the object",
+    );
     invariant(
       Number.isInteger(requestedBytes) &&
         (requestedBytes ?? 0) > 0 &&
         (requestedBytes ?? 0) <= 1024 * 1024,
       "profile read length is outside the transport bound",
     );
-    const expectedBytes = Math.min(requestedBytes ?? 0, file.byteLength - Number(offset));
+    const expectedBytes = Math.min(
+      requestedBytes ?? 0,
+      file.byteLength - Number(offset),
+    );
     const url = this.#profileObjectUrl(objectId ?? 0);
     url.searchParams.set("generation", String(file.generation));
     url.searchParams.set("offset", offset.toString());
@@ -1629,23 +1843,35 @@ class BrowserRuntimeSession {
         headers: this.#profileLeaseHeaders(),
         signal: controller.signal,
       });
-      invariant(response.status === 206, `profile read failed with ${response.status}`);
       invariant(
-        response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+        response.status === 206,
+        `profile read failed with ${response.status}`,
+      );
+      invariant(
+        response.headers.get("x-vine-title-fingerprint") ===
+          profile.titleFingerprint &&
           response.headers.get("x-vine-profile-id") === profile.profileId &&
           response.headers.get("x-vine-object-id") === String(objectId) &&
-          response.headers.get("x-vine-generation") === String(file.generation) &&
+          response.headers.get("x-vine-generation") ===
+            String(file.generation) &&
           response.headers.get("x-vine-offset") === offset.toString() &&
-          response.headers.get("x-vine-requested-bytes") === String(requestedBytes) &&
-          response.headers.get("x-vine-transferred-bytes") === String(expectedBytes) &&
+          response.headers.get("x-vine-requested-bytes") ===
+            String(requestedBytes) &&
+          response.headers.get("x-vine-transferred-bytes") ===
+            String(expectedBytes) &&
           response.headers.get("x-vine-session-epoch") ===
             String(this.#requireProfileLease().epoch),
         "profile read response identity mismatch",
       );
       const payload = new Uint8Array(await response.arrayBuffer());
-      invariant(payload.byteLength === expectedBytes, "profile read response length mismatch");
+      invariant(
+        payload.byteLength === expectedBytes,
+        "profile read response length mismatch",
+      );
       if (this.#stopping) {
-        throw new SessionStopped("profile read stopped with the runtime session");
+        throw new SessionStopped(
+          "profile read stopped with the runtime session",
+        );
       }
       const control = new Uint8Array(32);
       const view = new DataView(control.buffer);
@@ -1669,12 +1895,16 @@ class BrowserRuntimeSession {
 
   async #serviceWritableCommit(metadata: HostRequestMetadata): Promise<void> {
     const profile =
-      this.#writableProfile ?? failInvariant("writable commit has no registered profile");
+      this.#writableProfile ??
+      failInvariant("writable commit has no registered profile");
     invariant(
       metadata.service === "storage.profile-commit.v1",
       "unexpected writable commit service",
     );
-    invariant(metadata.arguments.length === 7, "writable commit request must contain seven words");
+    invariant(
+      metadata.arguments.length === 7,
+      "writable commit request must contain seven words",
+    );
     const [
       version,
       objectId,
@@ -1685,23 +1915,28 @@ class BrowserRuntimeSession {
       closeAfterCommit,
     ] = metadata.arguments;
     invariant(version === 1, "writable commit request version mismatch");
-    const baseGeneration = BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
-    const byteLength = BigInt(byteLengthLow ?? 0) | (BigInt(byteLengthHigh ?? 0) << 32n);
+    const baseGeneration =
+      BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
+    const byteLength =
+      BigInt(byteLengthLow ?? 0) | (BigInt(byteLengthHigh ?? 0) << 32n);
     invariant(
       baseGeneration <= BigInt(Number.MAX_SAFE_INTEGER) &&
         byteLength <= BigInt(profile.quotaBytes) &&
         (closeAfterCommit === 0 || closeAfterCommit === 1),
       "writable commit request exceeds the profile bounds",
     );
-    const file = profile.files.find((candidate) => candidate.objectId === objectId);
+    const file = profile.files.find(
+      (candidate) => candidate.objectId === objectId,
+    );
     invariant(file !== undefined, "writable commit object is not allowlisted");
     invariant(
       BigInt(file.generation) === baseGeneration,
       "writable commit base generation differs from the browser snapshot",
     );
-    const payloadOutput = this.#requireBridge().writableCommitPayload<WritableCommitPayloadMetadata>(
-      BigInt(metadata.requestId),
-    );
+    const payloadOutput =
+      this.#requireBridge().writableCommitPayload<WritableCommitPayloadMetadata>(
+        BigInt(metadata.requestId),
+      );
     invariant(
       payloadOutput.metadata.kind === "writable-commit-payload" &&
         payloadOutput.metadata.requestId === metadata.requestId &&
@@ -1719,7 +1954,10 @@ class BrowserRuntimeSession {
       "writable commit Rust metadata disagrees with the transport words",
     );
     const contentSha256 = await sha256Hex(payloadOutput.payload);
-    invariant(contentSha256 === request.contentSha256, "writable commit payload hash mismatch");
+    invariant(
+      contentSha256 === request.contentSha256,
+      "writable commit payload hash mismatch",
+    );
     const url = this.#profileObjectUrl(objectId ?? 0);
     url.pathname += "/commits";
     const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
@@ -1746,14 +1984,19 @@ class BrowserRuntimeSession {
       } catch {}
     }
     if (response === null) {
-      throw new Error("writable commit transport ended with an unknown publication outcome");
+      throw new Error(
+        "writable commit transport ended with an unknown publication outcome",
+      );
     }
     if (response.status !== 200) {
       const win32Error = recoverableCommitHttpError(
         response.status,
         response.headers.get("x-vine-error-code"),
       );
-      invariant(win32Error !== null, `writable commit failed with ${response.status}`);
+      invariant(
+        win32Error !== null,
+        `writable commit failed with ${response.status}`,
+      );
       this.#completeWritableCommit(
         metadata,
         writableCommitFailureControl(objectId ?? 0, baseGeneration, win32Error),
@@ -1761,17 +2004,22 @@ class BrowserRuntimeSession {
       return;
     }
     invariant(
-      response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+      response.headers.get("x-vine-title-fingerprint") ===
+        profile.titleFingerprint &&
         response.headers.get("x-vine-profile-id") === profile.profileId &&
         response.headers.get("x-vine-object-id") === String(objectId) &&
-        response.headers.get("x-vine-base-generation") === baseGeneration.toString() &&
+        response.headers.get("x-vine-base-generation") ===
+          baseGeneration.toString() &&
         response.headers.get("x-vine-content-sha256") === contentSha256 &&
         response.headers.get("x-vine-session-epoch") ===
           String(this.#requireProfileLease().epoch),
       "writable commit response identity mismatch",
     );
     const control = new Uint8Array(await response.arrayBuffer());
-    invariant(control.byteLength === 32, "writable commit response size mismatch");
+    invariant(
+      control.byteLength === 32,
+      "writable commit response size mismatch",
+    );
     this.#deliverInIssueOrder(metadata.requestId, () => {
       const completion = this.#completeWritableCommit(metadata, control);
       if (completion.succeeded) {
@@ -1783,9 +2031,12 @@ class BrowserRuntimeSession {
     });
   }
 
-  async #serviceWritableDirectoryCreate(metadata: HostRequestMetadata): Promise<void> {
+  async #serviceWritableDirectoryCreate(
+    metadata: HostRequestMetadata,
+  ): Promise<void> {
     const profile =
-      this.#writableProfile ?? failInvariant("directory create has no registered profile");
+      this.#writableProfile ??
+      failInvariant("directory create has no registered profile");
     invariant(
       metadata.service === "storage.profile-directory-create.v1",
       "unexpected writable directory create service",
@@ -1795,8 +2046,12 @@ class BrowserRuntimeSession {
       "writable directory create request must contain four words",
     );
     const [version, directoryId, baseLow, baseHigh] = metadata.arguments;
-    invariant(version === 1, "writable directory create request version mismatch");
-    const baseGeneration = BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
+    invariant(
+      version === 1,
+      "writable directory create request version mismatch",
+    );
+    const baseGeneration =
+      BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
     invariant(
       baseGeneration <= BigInt(Number.MAX_SAFE_INTEGER),
       "writable directory create generation exceeds the profile bound",
@@ -1804,7 +2059,10 @@ class BrowserRuntimeSession {
     const directory = profile.directories.find(
       (candidate) => candidate.directoryId === directoryId,
     );
-    invariant(directory !== undefined, "writable directory create identity is not allowlisted");
+    invariant(
+      directory !== undefined,
+      "writable directory create identity is not allowlisted",
+    );
     invariant(
       !directory.exists && BigInt(directory.generation) === baseGeneration,
       "writable directory create base state differs from the browser snapshot",
@@ -1839,7 +2097,10 @@ class BrowserRuntimeSession {
         response.status,
         response.headers.get("x-vine-error-code"),
       );
-      invariant(win32Error !== null, `writable directory create failed with ${response.status}`);
+      invariant(
+        win32Error !== null,
+        `writable directory create failed with ${response.status}`,
+      );
       this.#completeWritableDirectoryCreate(
         metadata,
         writableDirectoryCreateFailureControl(
@@ -1851,18 +2112,26 @@ class BrowserRuntimeSession {
       return;
     }
     invariant(
-      response.headers.get("x-vine-title-fingerprint") === profile.titleFingerprint &&
+      response.headers.get("x-vine-title-fingerprint") ===
+        profile.titleFingerprint &&
         response.headers.get("x-vine-profile-id") === profile.profileId &&
         response.headers.get("x-vine-directory-id") === String(directoryId) &&
-        response.headers.get("x-vine-base-generation") === baseGeneration.toString() &&
+        response.headers.get("x-vine-base-generation") ===
+          baseGeneration.toString() &&
         response.headers.get("x-vine-session-epoch") ===
           String(this.#requireProfileLease().epoch),
       "writable directory create response identity mismatch",
     );
     const control = new Uint8Array(await response.arrayBuffer());
-    invariant(control.byteLength === 32, "writable directory create response size mismatch");
+    invariant(
+      control.byteLength === 32,
+      "writable directory create response size mismatch",
+    );
     this.#deliverInIssueOrder(metadata.requestId, () => {
-      const completion = this.#completeWritableDirectoryCreate(metadata, control);
+      const completion = this.#completeWritableDirectoryCreate(
+        metadata,
+        control,
+      );
       if (completion.succeeded) {
         directory.exists = true;
         directory.generation = completion.committedGeneration;
@@ -1878,21 +2147,41 @@ class BrowserRuntimeSession {
     if (this.#terminal) {
       return;
     }
-    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
-    const output = this.#requireBridge().completeSourceRead<HostCompletionMetadata>(
-      BigInt(pending.requestId),
-      control,
-      payload,
+    const pending = this.#pendingHostRequests.complete(
+      request.requestId,
+      request.threadId,
+      1,
     );
+    const output =
+      this.#requireBridge().completeSourceRead<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        control,
+        payload,
+      );
     const completion = output.metadata;
-    invariant(completion.kind === "host-complete", "invalid source completion metadata");
-    invariant(completion.threadId === pending.threadId, "Rust resumed a different source thread");
-    invariant(completion.sourceRead !== undefined, "Rust omitted source completion evidence");
+    invariant(
+      completion.kind === "host-complete",
+      "invalid source completion metadata",
+    );
+    invariant(
+      completion.threadId === pending.threadId,
+      "Rust resumed a different source thread",
+    );
+    invariant(
+      completion.sourceRead !== undefined,
+      "Rust omitted source completion evidence",
+    );
     this.#applyRequiredDelta(output);
-    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const resumeState =
+      completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
     const expectedResumeState =
-      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
-    invariant(resumeState === expectedResumeState, "source completion resume policy mismatch");
+      pending.completionPolicy === "resume-callback"
+        ? "guest-callback"
+        : "ready";
+    invariant(
+      resumeState === expectedResumeState,
+      "source completion resume policy mismatch",
+    );
     if (this.#requirePrepared().workload === "private-bgi") {
       this.#recordBgiCompletion(completion);
     }
@@ -1928,13 +2217,20 @@ class BrowserRuntimeSession {
     control: Uint8Array,
   ): RuntimeWritableCommitSnapshot {
     if (this.#terminal) {
-      throw new SessionStopped("writable commit completed after the session stopped");
+      throw new SessionStopped(
+        "writable commit completed after the session stopped",
+      );
     }
-    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
-    const output = this.#requireBridge().completeWritableCommit<HostCompletionMetadata>(
-      BigInt(pending.requestId),
-      control,
+    const pending = this.#pendingHostRequests.complete(
+      request.requestId,
+      request.threadId,
+      1,
     );
+    const output =
+      this.#requireBridge().completeWritableCommit<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        control,
+      );
     const completion = output.metadata;
     invariant(
       completion.kind === "host-complete" &&
@@ -1944,10 +2240,16 @@ class BrowserRuntimeSession {
         output.payload.byteLength === 0,
       "invalid writable commit completion metadata",
     );
-    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const resumeState =
+      completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
     const expectedResumeState =
-      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
-    invariant(resumeState === expectedResumeState, "writable commit resume policy mismatch");
+      pending.completionPolicy === "resume-callback"
+        ? "guest-callback"
+        : "ready";
+    invariant(
+      resumeState === expectedResumeState,
+      "writable commit resume policy mismatch",
+    );
     if (this.#requirePrepared().workload === "private-bgi") {
       this.#recordBgiCompletion(completion);
     }
@@ -1987,13 +2289,20 @@ class BrowserRuntimeSession {
     control: Uint8Array,
   ): RuntimeWritableDirectoryCreateSnapshot {
     if (this.#terminal) {
-      throw new SessionStopped("writable directory create completed after the session stopped");
+      throw new SessionStopped(
+        "writable directory create completed after the session stopped",
+      );
     }
-    const pending = this.#pendingHostRequests.complete(request.requestId, request.threadId, 1);
-    const output = this.#requireBridge().completeWritableDirectoryCreate<HostCompletionMetadata>(
-      BigInt(pending.requestId),
-      control,
+    const pending = this.#pendingHostRequests.complete(
+      request.requestId,
+      request.threadId,
+      1,
     );
+    const output =
+      this.#requireBridge().completeWritableDirectoryCreate<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        control,
+      );
     const completion = output.metadata;
     invariant(
       completion.kind === "host-complete" &&
@@ -2003,9 +2312,12 @@ class BrowserRuntimeSession {
         output.payload.byteLength === 0,
       "invalid writable directory create completion metadata",
     );
-    const resumeState = completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const resumeState =
+      completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
     const expectedResumeState =
-      pending.completionPolicy === "resume-callback" ? "guest-callback" : "ready";
+      pending.completionPolicy === "resume-callback"
+        ? "guest-callback"
+        : "ready";
     invariant(
       resumeState === expectedResumeState,
       "writable directory create resume policy mismatch",
@@ -2013,7 +2325,9 @@ class BrowserRuntimeSession {
     if (this.#requirePrepared().workload === "private-bgi") {
       this.#recordBgiCompletion(completion);
     }
-    this.#report.writableDirectoryCreates.push(completion.writableDirectoryCreate);
+    this.#report.writableDirectoryCreates.push(
+      completion.writableDirectoryCreate,
+    );
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
     this.#threadExecutionStates.set(completion.threadId, resumeState);
     if (this.#hostBarrierRequestId === pending.requestId) {
@@ -2051,7 +2365,9 @@ class BrowserRuntimeSession {
   async #runGuest(): Promise<void> {
     const engine = this.#requireEngine();
     const prepared = this.#requirePrepared();
-    const endpointAddresses = new Set(prepared.endpoints.map(({ address }) => address));
+    const endpointAddresses = new Set(
+      prepared.endpoints.map(({ address }) => address),
+    );
     while (!this.#terminal && !this.#stopping) {
       this.#checkWatchdog();
       invariant(
@@ -2085,7 +2401,8 @@ class BrowserRuntimeSession {
       this.#checkWatchdog();
 
       if (slice.stop.kind === "budget-yield") {
-        const resumeState = sliceState === "running" ? "ready" : "guest-callback";
+        const resumeState =
+          sliceState === "running" ? "ready" : "guest-callback";
         this.#execution.transition("budget-yield", {
           cause: "instruction-budget",
           threadId: this.#currentThreadId,
@@ -2111,7 +2428,8 @@ class BrowserRuntimeSession {
 
       if (
         slice.stop.kind === "fault" &&
-        (slice.stop.fault === "page-fault" || slice.stop.fault === "execute-protection") &&
+        (slice.stop.fault === "page-fault" ||
+          slice.stop.fault === "execute-protection") &&
         prepared.workload === "private-bgi"
       ) {
         this.#execution.transition("memory-fault", {
@@ -2124,10 +2442,13 @@ class BrowserRuntimeSession {
         if (slice.stop.fault === "page-fault") {
           const pageFaultResolution = this.#servicePageFault(slice.stop);
           if (pageFaultResolution !== null) {
-            this.#execution.transition(sliceState === "running" ? "ready" : "guest-callback", {
-              cause: `${pageFaultResolution}-complete`,
-              threadId: this.#currentThreadId,
-            });
+            this.#execution.transition(
+              sliceState === "running" ? "ready" : "guest-callback",
+              {
+                cause: `${pageFaultResolution}-complete`,
+                threadId: this.#currentThreadId,
+              },
+            );
             continue;
           }
         }
@@ -2142,7 +2463,8 @@ class BrowserRuntimeSession {
         `guest stopped unexpectedly: ${JSON.stringify(slice.stop)}`,
       );
       invariant(
-        slice.context.instructionPointer === slice.context.previousInstructionPointer,
+        slice.context.instructionPointer ===
+          slice.context.previousInstructionPointer,
         "trap instruction pointer provenance mismatch",
       );
       const address = slice.context.instructionPointer;
@@ -2157,25 +2479,33 @@ class BrowserRuntimeSession {
         });
         await this.#dispatchApi(address, slice.context.esp);
       } else if (address === prepared.callbackSentinel) {
-        invariant(sliceState === "guest-callback", "callback return escaped callback execution");
+        invariant(
+          sliceState === "guest-callback",
+          "callback return escaped callback execution",
+        );
         this.#execution.transition("callback-return", {
           cause: "callback-return-sentinel",
           threadId: this.#currentThreadId,
         });
         this.#completeCallback(slice.context.eax);
       } else if (address === prepared.entrySentinel) {
-        invariant(sliceState === "running", "thread entry returned from a callback");
+        invariant(
+          sliceState === "running",
+          "thread entry returned from a callback",
+        );
         if (this.#currentThreadId === this.#initialThreadId) {
           this.#completeProcess(slice.context.eax);
         } else {
           await this.#completeThread(slice.context.eax);
         }
       } else {
-        const resolution = this.#requireBridge().resolveComEndpoint<ComEndpointResolutionMetadata>(
-          address,
-        );
+        const resolution =
+          this.#requireBridge().resolveComEndpoint<ComEndpointResolutionMetadata>(
+            address,
+          );
         invariant(
-          resolution.control.byteLength === 0 && resolution.payload.byteLength === 0,
+          resolution.control.byteLength === 0 &&
+            resolution.payload.byteLength === 0,
           "COM endpoint resolution returned a memory delta",
         );
         invariant(
@@ -2185,11 +2515,14 @@ class BrowserRuntimeSession {
         );
         invariant(
           resolution.metadata.memory.generation === Number(this.#generation) &&
-            resolution.metadata.memory.acknowledgedGeneration === Number(this.#generation),
+            resolution.metadata.memory.acknowledgedGeneration ===
+              Number(this.#generation),
           "COM endpoint resolution observed unacknowledged memory",
         );
         if (!resolution.metadata.live) {
-          throw new Error(`guest reached unowned #UD at 0x${address.toString(16)}`);
+          throw new Error(
+            `guest reached unowned #UD at 0x${address.toString(16)}`,
+          );
         }
         this.#threadResumeStates.set(
           this.#currentThreadId,
@@ -2225,6 +2558,73 @@ class BrowserRuntimeSession {
     return true;
   }
 
+  #setWindowPosFrameChangeEventTarget(
+    sequence: number,
+  ): RuntimeSetWindowPosFrameChangeMoveCallbackEvent[] | null {
+    if (!isSetWindowPosFrameChangeMove(this.#configuration.capabilityProfile)) {
+      return null;
+    }
+    if (sequence === 127_346) {
+      return this.#setWindowPosFrameChangeMoveCallbackEvents;
+    }
+    if (sequence === 127_349) {
+      return this.#setWindowPosFrameChangeMoveNestedMoveEvents;
+    }
+    return null;
+  }
+
+  #recordSetWindowPosFrameChangeCallbackEntry(
+    action: "enter" | "replace",
+    sequence: number,
+    metadata: GuestCallbackMetadata,
+  ): void {
+    const events = this.#setWindowPosFrameChangeEventTarget(sequence);
+    if (events === null) {
+      return;
+    }
+    const engine = this.#requireEngine();
+    const callbackEvent: RuntimeSetWindowPosFrameChangeMoveCallbackEvent = {
+      action,
+      sequence,
+      frameId: metadata.frameId,
+      instructionCount: this.#report.instructions,
+      target: metadata.target,
+      stackPointer: metadata.stackPointer,
+      arguments: [
+        engine.readGuestU32(metadata.stackPointer + 4),
+        engine.readGuestU32(metadata.stackPointer + 8),
+        engine.readGuestU32(metadata.stackPointer + 12),
+        engine.readGuestU32(metadata.stackPointer + 16),
+      ],
+    };
+    events.push(callbackEvent);
+  }
+
+  #recordSetWindowPosFrameChangeCallbackReturn(
+    sequence: number,
+    frameId: number,
+    result: number,
+  ): void {
+    const events = this.#setWindowPosFrameChangeEventTarget(sequence);
+    if (events === null) {
+      return;
+    }
+    const entry = events.at(-1);
+    invariant(
+      entry !== undefined &&
+        entry.action !== "return" &&
+        entry.frameId === frameId,
+      "SetWindowPos frame-change callback return does not match its live entry",
+    );
+    events.push({
+      action: "return",
+      sequence,
+      frameId,
+      instructionCount: this.#report.instructions,
+      result,
+    });
+  }
+
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
@@ -2233,7 +2633,10 @@ class BrowserRuntimeSession {
     const engine = this.#requireEngine();
     const returnAddress = engine.readGuestU32(stackPointer);
     const output = this.#requireBridge().dispatch<
-      HostRequestMetadata | GuestCallbackMetadata | CompletionMetadata | ApiFaultMetadata
+      | HostRequestMetadata
+      | GuestCallbackMetadata
+      | CompletionMetadata
+      | ApiFaultMetadata
     >(endpoint, stackPointer, returnAddress);
     const metadata = output.metadata;
     switch (metadata.kind) {
@@ -2269,7 +2672,8 @@ class BrowserRuntimeSession {
           if (
             includesSetWindowPosRepeatActivation(
               this.#configuration.capabilityProfile,
-            ) && sequence === 108_718
+            ) &&
+            sequence === 108_718
           ) {
             invariant(
               this.#setWindowPosRepeatActivationCallbackEntry === null,
@@ -2295,6 +2699,11 @@ class BrowserRuntimeSession {
               ],
             };
           }
+          this.#recordSetWindowPosFrameChangeCallbackEntry(
+            "enter",
+            sequence,
+            metadata,
+          );
           this.#nextBgiCallSequence = sequence;
           this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
         }
@@ -2304,7 +2713,10 @@ class BrowserRuntimeSession {
           metadata.depth,
         );
         engine.enterGuestCallback(metadata.target, metadata.stackPointer);
-        this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
+        this.#threadExecutionStates.set(
+          this.#currentThreadId,
+          "guest-callback",
+        );
         this.#execution.transition("guest-callback", {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
@@ -2355,11 +2767,9 @@ class BrowserRuntimeSession {
   #dispatchCom(endpoint: number, stackPointer: number): void {
     const engine = this.#requireEngine();
     const returnAddress = engine.readGuestU32(stackPointer);
-    const output = this.#requireBridge().dispatchCom<ComCompletionMetadata | ComFaultMetadata>(
-      endpoint,
-      stackPointer,
-      returnAddress,
-    );
+    const output = this.#requireBridge().dispatchCom<
+      ComCompletionMetadata | ComFaultMetadata
+    >(endpoint, stackPointer, returnAddress);
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "com-complete": {
@@ -2369,7 +2779,8 @@ class BrowserRuntimeSession {
             metadata.call.frame.callSite === returnAddress &&
             metadata.call.frame.stackPointer === stackPointer &&
             metadata.call.frame.returnAddress === returnAddress &&
-            metadata.call.frame.returnStackPointer === metadata.completion.stackPointer,
+            metadata.call.frame.returnStackPointer ===
+              metadata.completion.stackPointer,
           "COM completion frame identity mismatch",
         );
         this.#applyOptionalDelta(output);
@@ -2389,7 +2800,9 @@ class BrowserRuntimeSession {
         this.#completeStructuredStop(metadata, output);
         break;
       default:
-        throw new Error("runtime bridge returned an unknown COM dispatch outcome");
+        throw new Error(
+          "runtime bridge returned an unknown COM dispatch outcome",
+        );
     }
   }
 
@@ -2423,7 +2836,10 @@ class BrowserRuntimeSession {
     }
   }
 
-  #completeBgiCapabilityCheckpoint(endpointAddress: number, stackPointer: number): void {
+  #completeBgiCapabilityCheckpoint(
+    endpointAddress: number,
+    stackPointer: number,
+  ): void {
     const checkpoint = this.#report.checkpointCompletion;
     invariant(
       checkpoint !== null &&
@@ -2435,14 +2851,18 @@ class BrowserRuntimeSession {
     const endpoint = this.#requirePrepared().endpoints.find(
       (candidate) => candidate.address === endpointAddress,
     );
-    invariant(endpoint !== undefined, "BGI capability checkpoint endpoint is not owned");
+    invariant(
+      endpoint !== undefined,
+      "BGI capability checkpoint endpoint is not owned",
+    );
     const returnAddress = this.#requireEngine().readGuestU32(stackPointer);
     invariant(
       returnAddress > 0 && returnAddress <= 0xffff_ffff,
       "BGI capability checkpoint return address is invalid",
     );
     const reflection =
-      this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>().metadata;
+      this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+        .metadata;
     invariant(
       reflection.kind === "current-memory-summary",
       "invalid checkpoint memory summary",
@@ -2466,24 +2886,29 @@ class BrowserRuntimeSession {
         : checkpoint.capability ===
             "kernel32-leave-critical-section-continuation"
           ? "LeaveCriticalSection continuation checkpoint completed"
-        : checkpoint.capability === "kernel32-enter-critical-section-continuation"
-          ? "EnterCriticalSection continuation checkpoint completed"
-        : checkpoint.capability === "primary-main-loop-progression"
-          ? "API-boundary scheduler roundtrip checkpoint completed"
-          : checkpoint.capability === "kernel32-enter-critical-section"
-            ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
-            : "WaitForSingleObjectEx recurring-wait checkpoint completed",
+          : checkpoint.capability ===
+              "kernel32-enter-critical-section-continuation"
+            ? "EnterCriticalSection continuation checkpoint completed"
+            : checkpoint.capability === "primary-main-loop-progression"
+              ? "API-boundary scheduler roundtrip checkpoint completed"
+              : checkpoint.capability === "kernel32-enter-critical-section"
+                ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
+                : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
   }
 
   #recordBgiCompletion(
-    metadata: CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
+    metadata:
+      CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
     reservedSequence?: number,
     callbackResult?: number,
   ): void {
     const endpoint = metadata.endpoint;
-    invariant(endpoint !== undefined, "BGI completion omitted its endpoint identity");
+    invariant(
+      endpoint !== undefined,
+      "BGI completion omitted its endpoint identity",
+    );
     invariant(
       metadata.memory?.generation === Number(this.#generation) &&
         metadata.memory.acknowledgedGeneration <= Number(this.#generation),
@@ -2492,28 +2917,38 @@ class BrowserRuntimeSession {
     const completion = metadata.completion;
     const frame = completion.frame;
     const guestWrites = completion.guestWrites;
-    invariant(frame !== undefined, "BGI completion omitted its decoded ABI frame");
-    invariant(guestWrites !== undefined, "BGI completion omitted its guest writes");
+    invariant(
+      frame !== undefined,
+      "BGI completion omitted its decoded ABI frame",
+    );
+    invariant(
+      guestWrites !== undefined,
+      "BGI completion omitted its guest writes",
+    );
     const isSetCurrentDirectory =
       completion.implementationId === "kernel32.set-current-directory-a.v1";
     invariant(
       isSetCurrentDirectory === (metadata.currentDirectory !== undefined),
       "BGI current-directory completion metadata mismatch",
     );
-    const isCreateMutex = completion.implementationId === "kernel32.create-mutex-a.v1";
+    const isCreateMutex =
+      completion.implementationId === "kernel32.create-mutex-a.v1";
     invariant(
       isCreateMutex === (metadata.mutex !== undefined),
       "BGI mutex completion metadata mismatch",
     );
     const isWritableDirectoryCreate =
-      completion.implementationId === "kernel32.create-directory-a.runtime-vfs.v1";
+      completion.implementationId ===
+      "kernel32.create-directory-a.runtime-vfs.v1";
     invariant(
-      isWritableDirectoryCreate === (metadata.writableDirectoryCreate !== undefined),
+      isWritableDirectoryCreate ===
+        (metadata.writableDirectoryCreate !== undefined),
       "BGI writable directory completion metadata mismatch",
     );
     const isWaitableTimerMutation =
       completion.implementationId === "kernel32.create-waitable-timer-a.v1" ||
-      completion.implementationId === "kernel32.set-waitable-timer.relative-one-shot.v1" ||
+      completion.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1" ||
       completion.implementationId ===
         "kernel32.wait-for-single-object-ex.waitable-timer.v1";
     const isWaitForSingleObjectEx =
@@ -2537,12 +2972,14 @@ class BrowserRuntimeSession {
         "BGI waitable timer clock metadata mismatch",
       );
     }
-    const isCreateThread = completion.implementationId === "kernel32.create-thread.v1";
+    const isCreateThread =
+      completion.implementationId === "kernel32.create-thread.v1";
     invariant(
       isCreateThread === (metadata.createdThread !== undefined),
       "BGI CreateThread completion metadata mismatch",
     );
-    const isResumeThread = completion.implementationId === "kernel32.resume-thread.v1";
+    const isResumeThread =
+      completion.implementationId === "kernel32.resume-thread.v1";
     invariant(
       isResumeThread === (metadata.resumedThread !== undefined),
       "BGI ResumeThread completion metadata mismatch",
@@ -2554,7 +2991,8 @@ class BrowserRuntimeSession {
       isIconLoad === (metadata.icon !== undefined),
       "BGI icon completion metadata mismatch",
     );
-    const isLoadCursor = completion.implementationId === "user32.load-cursor-a.v1";
+    const isLoadCursor =
+      completion.implementationId === "user32.load-cursor-a.v1";
     invariant(
       isLoadCursor === (metadata.cursor !== undefined),
       "BGI cursor completion metadata mismatch",
@@ -2570,7 +3008,7 @@ class BrowserRuntimeSession {
       completion.implementationId === "user32.set-window-pos.v1" ||
       completion.implementationId === "user32.set-window-pos.v2" ||
       completion.implementationId === "user32.set-window-pos.v3" ||
-      completion.implementationId === "user32.set-window-pos.v4" ||
+      completion.implementationId === "user32.set-window-pos.v5" ||
       completion.implementationId === "user32.set-window-long-a.gwl-style.v1" ||
       completion.implementationId ===
         "shell32.drag-accept-files.logical-window-style-v1";
@@ -2578,7 +3016,8 @@ class BrowserRuntimeSession {
       isLogicalWindowCompletion === (metadata.window !== undefined),
       "BGI logical window completion metadata mismatch",
     );
-    const isCoInitialize = completion.implementationId === "ole32.co-initialize.v1";
+    const isCoInitialize =
+      completion.implementationId === "ole32.co-initialize.v1";
     invariant(
       isCoInitialize === (metadata.comApartment !== undefined),
       "BGI COM apartment completion metadata mismatch",
@@ -2614,7 +3053,8 @@ class BrowserRuntimeSession {
     const isImm32Completion =
       completion.implementationId ===
         "imm32.get-default-ime-window.thread-logical-v1" ||
-      completion.implementationId === "imm32.associate-context.logical-window-v1" ||
+      completion.implementationId ===
+        "imm32.associate-context.logical-window-v1" ||
       (completion.implementationId === "user32.send-message-a.v1" &&
         frame.arguments[1]?.words[0] === 0x0283);
     invariant(
@@ -2622,7 +3062,8 @@ class BrowserRuntimeSession {
       "BGI IMM32 completion metadata mismatch",
     );
     const isVirtualAllocCompletion =
-      completion.implementationId === "kernel32.virtual-alloc.reserve-top-down.v1";
+      completion.implementationId ===
+      "kernel32.virtual-alloc.reserve-top-down.v1";
     invariant(
       isVirtualAllocCompletion === (metadata.virtualMemory !== undefined),
       "BGI virtual-memory completion metadata mismatch",
@@ -2671,7 +3112,9 @@ class BrowserRuntimeSession {
       ...(metadata.comApartment === undefined
         ? {}
         : { comApartment: metadata.comApartment }),
-      ...(metadata.sourceRead === undefined ? {} : { sourceRead: metadata.sourceRead }),
+      ...(metadata.sourceRead === undefined
+        ? {}
+        : { sourceRead: metadata.sourceRead }),
       ...(metadata.writableCommit === undefined
         ? {}
         : { writableCommit: metadata.writableCommit }),
@@ -2687,7 +3130,7 @@ class BrowserRuntimeSession {
     };
     this.#recordD3d9RecreatedTextureCall(call);
     if (
-      completion.implementationId === "user32.set-window-pos.v4" &&
+      completion.implementationId === "user32.set-window-pos.v5" &&
       includesSetWindowPosRepeatActivation(
         this.#configuration.capabilityProfile,
       )
@@ -2696,15 +3139,8 @@ class BrowserRuntimeSession {
       if (this.#setWindowPosCompletionCount === 5) {
         const entry = this.#setWindowPosRepeatActivationCallbackEntry;
         const window = metadata.window;
-        const [
-          windowHandle,
-          insertAfter,
-          x,
-          y,
-          width,
-          height,
-          flags,
-        ] = call.arguments;
+        const [windowHandle, insertAfter, x, y, width, height, flags] =
+          call.arguments;
         invariant(
           metadata.kind === "callback-complete" &&
             metadata.remainingDepth === 0 &&
@@ -2760,17 +3196,9 @@ class BrowserRuntimeSession {
           symbol: "SetWindowPos",
           occurrence: 5,
           trapInstructionCount: entry.instructionCount,
-          arguments: [
-            windowHandle,
-            insertAfter,
-            x,
-            y,
-            width,
-            height,
-            flags,
-          ],
+          arguments: [windowHandle, insertAfter, x, y, width, height, flags],
           result: { action: "set", value: 1 },
-          implementationId: "user32.set-window-pos.v4",
+          implementationId: "user32.set-window-pos.v5",
           returnAddress: completion.instructionPointer,
           stackPointerBefore: frame.stackPointer,
           stackPointerAfter: completion.stackPointer,
@@ -2817,6 +3245,110 @@ class BrowserRuntimeSession {
           callbackDisposition: "validate-only",
           mutation: false,
           browserResourceCreated: false,
+        };
+      } else if (
+        this.#setWindowPosCompletionCount === 6 &&
+        isSetWindowPosFrameChangeMove(this.#configuration.capabilityProfile)
+      ) {
+        const callbackEvents = this.#setWindowPosFrameChangeMoveCallbackEvents;
+        const nestedMoveCallbackEvents =
+          this.#setWindowPosFrameChangeMoveNestedMoveEvents;
+        const window = metadata.window;
+        const [windowHandle, insertAfter, x, y, width, height, flags] =
+          call.arguments;
+        invariant(
+          metadata.kind === "callback-complete" &&
+            metadata.remainingDepth === 0 &&
+            reservedSequence === 127_346 &&
+            callbackResult === 0 &&
+            callbackEvents.length === 6 &&
+            callbackEvents[0]?.action === "enter" &&
+            callbackEvents[0].sequence === reservedSequence &&
+            callbackEvents[0].instructionCount === 28_760_801 &&
+            callbackEvents[0].target === 0x1009_2550 &&
+            callbackEvents[0].stackPointer === 0x006f_f65c &&
+            callbackEvents[0].arguments?.[0] === 0x4801_0001 &&
+            callbackEvents[0].arguments[1] === 0x0046 &&
+            callbackEvents[0].arguments[2] === 0 &&
+            callbackEvents[0].arguments[3] === 0x0050_1000 &&
+            callbackEvents[1]?.action === "return" &&
+            callbackEvents[1].result === 0 &&
+            callbackEvents[2]?.action === "replace" &&
+            callbackEvents[2].arguments?.[1] === 0x0083 &&
+            callbackEvents[2].arguments[2] === 1 &&
+            callbackEvents[3]?.action === "return" &&
+            callbackEvents[3].result === 0 &&
+            callbackEvents[4]?.action === "replace" &&
+            callbackEvents[4].arguments?.[1] === 0x0047 &&
+            callbackEvents[4].arguments[2] === 0 &&
+            callbackEvents[5]?.action === "return" &&
+            callbackEvents[5].result === 0 &&
+            nestedMoveCallbackEvents.length === 2 &&
+            nestedMoveCallbackEvents[0]?.action === "enter" &&
+            nestedMoveCallbackEvents[0].sequence === reservedSequence + 3 &&
+            nestedMoveCallbackEvents[0].arguments?.[0] === 0x4801_0001 &&
+            nestedMoveCallbackEvents[0].arguments[1] === 0x0003 &&
+            nestedMoveCallbackEvents[0].arguments[2] === 0 &&
+            nestedMoveCallbackEvents[0].arguments[3] === 0x00b4_0140 &&
+            nestedMoveCallbackEvents[1]?.action === "return" &&
+            nestedMoveCallbackEvents[1].result === 0 &&
+            call.arguments.length === 7 &&
+            windowHandle === 0x4801_0001 &&
+            insertAfter === 0 &&
+            x === 317 &&
+            y === 154 &&
+            width === 0 &&
+            height === 0 &&
+            flags === 0x25 &&
+            completion.eax.action === "set" &&
+            completion.eax.value === 1 &&
+            completion.instructionPointer === 0x1009_38c2 &&
+            frame.stackPointer === 0x006f_f670 &&
+            completion.stackPointer === 0x006f_f690 &&
+            completion.lastError === 0 &&
+            guestWrites.length === 0 &&
+            window !== undefined &&
+            window.handle === windowHandle &&
+            window.geometry.x === 317 &&
+            window.geometry.y === 154 &&
+            window.geometry.width === 1_286 &&
+            window.geometry.height === 749 &&
+            window.geometry.clientX === 320 &&
+            window.geometry.clientY === 180 &&
+            window.geometry.clientWidth === 1_280 &&
+            window.geometry.clientHeight === 720,
+          "SetWindowPos frame-change move ABI, callback, or authority state changed",
+        );
+        const frameChangeCall: RuntimeSetWindowPosFrameChangeMoveCallSnapshot =
+          {
+            sequence: reservedSequence,
+            module: endpoint.module,
+            symbol: "SetWindowPos",
+            occurrence: 6,
+            trapInstructionCount: callbackEvents[0].instructionCount,
+            arguments: [windowHandle, 0, 317, 154, 0, 0, 0x25],
+            result: { action: "set", value: 1 },
+            implementationId: "user32.set-window-pos.v5",
+            returnAddress: completion.instructionPointer,
+            stackPointerBefore: frame.stackPointer,
+            stackPointerAfter: completion.stackPointer,
+            lastError: completion.lastError,
+            guestWrites: [],
+            window: structuredClone(window),
+          };
+        this.#report.setWindowPosFrameChangeMove = {
+          callCount: 6,
+          call: frameChangeCall,
+          callbackEvents: structuredClone(callbackEvents),
+          nestedMoveCallbackEvents: structuredClone(nestedMoveCallbackEvents),
+          windowAuthority: "rust-runtime-user32-logical-window",
+          relationAuthority:
+            "rust-runtime-user32-thread-and-process-window-relations",
+          geometryCommit: "nccalcsize-completion-targeted-commit",
+          relationMutation: false,
+          gdiResourceMutation: false,
+          browserResourceCreated: false,
+          nonClientPaintAndEraseModeled: false,
         };
       }
     }
@@ -2870,8 +3402,7 @@ class BrowserRuntimeSession {
           trapInstructionCount: this.#report.instructions,
           arguments: [windowHandle, rawAccept],
           result: { action: "preserve" },
-          implementationId:
-            "shell32.drag-accept-files.logical-window-style-v1",
+          implementationId: "shell32.drag-accept-files.logical-window-style-v1",
           returnAddress: completion.instructionPointer,
           stackPointerBefore: frame.stackPointer,
           stackPointerAfter: completion.stackPointer,
@@ -2974,14 +3505,9 @@ class BrowserRuntimeSession {
       );
       const [output] = call.arguments;
       const expectedBytes = [
-        0x20, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0xff, 0xff, 0xff, 0x7f,
-        0xff, 0xff, 0xff, 0x7f,
-        0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff,
-        0x00, 0x00, 0xfe, 0x7f,
-        0x00, 0x00, 0x00, 0x60,
+        0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x7f,
+        0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0x00, 0x00, 0xfe, 0x7f, 0x00, 0x00, 0x00, 0x60,
       ];
       invariant(
         call.arguments.length === 1 &&
@@ -3055,7 +3581,8 @@ class BrowserRuntimeSession {
           directoryCreate.request.baseGeneration === 0 &&
           directoryCreate.request.relativePathA.length === 8 &&
           directoryCreate.request.relativePathA.every(
-            (byte, index) => byte === [85, 115, 101, 114, 68, 97, 116, 97][index],
+            (byte, index) =>
+              byte === [85, 115, 101, 114, 68, 97, 116, 97][index],
           ) &&
           directoryCreate.succeeded &&
           directoryCreate.committedGeneration === 1 &&
@@ -3182,8 +3709,13 @@ class BrowserRuntimeSession {
         this.#bgiCheckpointPending = true;
       }
     }
-    if (this.#configuration.capabilityProfile === "kernel32-enter-critical-section") {
-      if (completion.implementationId === "kernel32.enter-critical-section.v1") {
+    if (
+      this.#configuration.capabilityProfile ===
+      "kernel32-enter-critical-section"
+    ) {
+      if (
+        completion.implementationId === "kernel32.enter-critical-section.v1"
+      ) {
         this.#enterCriticalSectionCompletions += 1;
         if (
           this.#enterCriticalSectionCompletions >= 32 &&
@@ -3207,7 +3739,9 @@ class BrowserRuntimeSession {
             criticalSectionAddress,
           };
         }
-      } else if (completion.implementationId === "kernel32.leave-critical-section.v1") {
+      } else if (
+        completion.implementationId === "kernel32.leave-critical-section.v1"
+      ) {
         this.#leaveCriticalSectionCompletions += 1;
         const acquisition = this.#enterCriticalSectionAcquisition;
         if (
@@ -3236,7 +3770,10 @@ class BrowserRuntimeSession {
           this.#enterCriticalSectionAcquisition = null;
           if (this.#enterCriticalSectionRoundtrips.length === 3) {
             const lastRoundtrip = this.#enterCriticalSectionRoundtrips.at(-1);
-            invariant(lastRoundtrip !== undefined, "critical-section cycle is empty");
+            invariant(
+              lastRoundtrip !== undefined,
+              "critical-section cycle is empty",
+            );
             this.#report.checkpointCompletion = {
               capability: "kernel32-enter-critical-section",
               implementationId: "kernel32.enter-critical-section.v1",
@@ -3256,7 +3793,8 @@ class BrowserRuntimeSession {
       }
     }
     if (
-      this.#configuration.capabilityProfile === "kernel32-leave-critical-section" &&
+      this.#configuration.capabilityProfile ===
+        "kernel32-leave-critical-section" &&
       completion.implementationId === "kernel32.leave-critical-section.v1" &&
       this.#mainLoopThreadSelections.length === 2 &&
       this.#currentThreadId === this.#initialThreadId &&
@@ -3293,8 +3831,7 @@ class BrowserRuntimeSession {
       completion.implementationId === "kernel32.leave-critical-section.v1" &&
       this.#mainLoopThreadSelections.length === 2 &&
       this.#currentThreadId === this.#initialThreadId &&
-      sequence ===
-        (this.#mainLoopThreadSelections.at(-1)?.sequence ?? -1) + 1
+      sequence === (this.#mainLoopThreadSelections.at(-1)?.sequence ?? -1) + 1
     ) {
       const criticalSectionAddress = call.arguments[0];
       invariant(
@@ -3405,7 +3942,7 @@ class BrowserRuntimeSession {
 
   #recordD3d9RecreatedTextureCall(call: RuntimeSupportedCallSnapshot): void {
     if (
-      this.#configuration.capabilityProfile !== "d3d9-recreated-textures" ||
+      !includesD3d9RecreatedTextures(this.#configuration.capabilityProfile) ||
       call.sequence < 108_735 ||
       call.sequence > 108_743
     ) {
@@ -3430,7 +3967,8 @@ class BrowserRuntimeSession {
       };
     }
     invariant(
-      call.sequence === 108_735 + this.#report.d3d9RecreatedTextures.calls.length,
+      call.sequence ===
+        108_735 + this.#report.d3d9RecreatedTextures.calls.length,
       "D3D9 recreated texture evidence sequence is not contiguous",
     );
     this.#report.d3d9RecreatedTextures.calls.push(structuredClone(call));
@@ -3440,7 +3978,10 @@ class BrowserRuntimeSession {
     metadata: ApiFaultMetadata | ComFaultMetadata,
     output: Pick<BridgeOutput<unknown>, "control" | "payload">,
   ): void {
-    invariant(this.#requirePrepared().workload === "private-bgi", "fixture returned a structured stop");
+    invariant(
+      this.#requirePrepared().workload === "private-bgi",
+      "fixture returned a structured stop",
+    );
     invariant(
       output.control.byteLength === 0 && output.payload.byteLength === 0,
       "unsupported BGI call returned a memory delta",
@@ -3467,8 +4008,14 @@ class BrowserRuntimeSession {
   #servicePageFault(
     stop: Extract<ExecutionStop, { kind: "fault" }>,
   ): "initial-stack-growth" | "private-heap-page-materialization" | null {
-    invariant(stop.fault === "page-fault", "page-fault service requires a page fault");
-    invariant(stop.faultAddress !== undefined, "page fault omitted its address");
+    invariant(
+      stop.fault === "page-fault",
+      "page-fault service requires a page fault",
+    );
+    invariant(
+      stop.faultAddress !== undefined,
+      "page fault omitted its address",
+    );
     const output = this.#requireBridge().servicePageFault<
       PageFaultResolvedMetadata | PageFaultRejectedMetadata
     >(stop.faultAddress, stop.errorCode);
@@ -3478,7 +4025,10 @@ class BrowserRuntimeSession {
         output.control.byteLength === 0 && output.payload.byteLength === 0,
         "rejected page fault returned a memory delta",
       );
-      invariant(metadata.faultAddress === stop.faultAddress, "rejected fault address changed");
+      invariant(
+        metadata.faultAddress === stop.faultAddress,
+        "rejected fault address changed",
+      );
       invariant(
         metadata.pageFaultErrorCode === stop.errorCode,
         "rejected page-fault code changed",
@@ -3496,14 +4046,23 @@ class BrowserRuntimeSession {
       resolution.kind === "initial-thread-stack-growth"
         ? resolution.growth
         : resolution.materialization;
-    invariant(resolvedFault.faultAddress === stop.faultAddress, "resolved fault address changed");
+    invariant(
+      resolvedFault.faultAddress === stop.faultAddress,
+      "resolved fault address changed",
+    );
     invariant(
       resolvedFault.pageFaultErrorCode === stop.errorCode,
       "resolved page-fault code changed",
     );
-    invariant(metadata.fromGeneration === Number(this.#generation), "fault delta base changed");
+    invariant(
+      metadata.fromGeneration === Number(this.#generation),
+      "fault delta base changed",
+    );
     const delta = decodeHostDelta(output.control, output.payload);
-    invariant(delta.fromGeneration === this.#generation, "fault delta base generation mismatch");
+    invariant(
+      delta.fromGeneration === this.#generation,
+      "fault delta base generation mismatch",
+    );
     invariant(
       delta.generation === BigInt(metadata.generation),
       "fault delta generation metadata mismatch",
@@ -3514,7 +4073,10 @@ class BrowserRuntimeSession {
       "page-fault resolution did not contain exactly one commit operation",
     );
     const operation = delta.mappingOperations[0];
-    invariant(operation.operation === "commit", "page-fault mapping is not a commit");
+    invariant(
+      operation.operation === "commit",
+      "page-fault mapping is not a commit",
+    );
     invariant(
       operation.owner === resolvedFault.memoryOwner &&
         operation.range.base === resolvedFault.committedPage.start &&
@@ -3522,12 +4084,20 @@ class BrowserRuntimeSession {
       "page-fault commit identity mismatch",
     );
     invariant(
-      operation.protection.read && operation.protection.write && !operation.protection.execute,
+      operation.protection.read &&
+        operation.protection.write &&
+        !operation.protection.execute,
       "page-fault commit protection mismatch",
     );
-    invariant(delta.pages.length === 1, "page-fault resolution did not return one page");
+    invariant(
+      delta.pages.length === 1,
+      "page-fault resolution did not return one page",
+    );
     const page = delta.pages[0];
-    invariant(page !== undefined, "page-fault page disappeared after validation");
+    invariant(
+      page !== undefined,
+      "page-fault page disappeared after validation",
+    );
     invariant(
       page.address === operation.range.base &&
         page.owner === operation.owner &&
@@ -3539,9 +4109,15 @@ class BrowserRuntimeSession {
 
     if (resolution.kind === "initial-thread-stack-growth") {
       const growth = resolution.growth;
-      invariant(growth.threadId === this.#currentThreadId, "stack growth belongs to the wrong thread");
+      invariant(
+        growth.threadId === this.#currentThreadId,
+        "stack growth belongs to the wrong thread",
+      );
       const preparedStack = this.#requirePrepared().initialThreadStack;
-      invariant(preparedStack !== undefined, "prepared stack identity is unavailable");
+      invariant(
+        preparedStack !== undefined,
+        "prepared stack identity is unavailable",
+      );
       invariant(
         growth.addressAllocationId === preparedStack.addressAllocationId &&
           growth.memoryOwner === preparedStack.memoryOwner,
@@ -3559,7 +4135,9 @@ class BrowserRuntimeSession {
         memoryOwner: growth.memoryOwner,
         committedPage: growth.committedPage,
         previousGuardPage: growth.previousGuardPage,
-        ...(growth.nextGuardPage === undefined ? {} : { nextGuardPage: growth.nextGuardPage }),
+        ...(growth.nextGuardPage === undefined
+          ? {}
+          : { nextGuardPage: growth.nextGuardPage }),
         committedPages: growth.committedPages,
         fromGeneration: metadata.fromGeneration,
         generation: metadata.generation,
@@ -3569,7 +4147,8 @@ class BrowserRuntimeSession {
       invariant(
         materialization.allocation.address <= materialization.faultAddress &&
           materialization.faultAddress <
-            materialization.allocation.address + materialization.allocation.byteLength,
+            materialization.allocation.address +
+              materialization.allocation.byteLength,
         "heap materialization fault escaped its allocation",
       );
       const expectedFill =
@@ -3599,12 +4178,18 @@ class BrowserRuntimeSession {
     context: ExecutionCpuContext,
   ): void {
     const prepared = this.#requirePrepared();
-    invariant(prepared.workload === "private-bgi", "fixture returned an execution stop");
+    invariant(
+      prepared.workload === "private-bgi",
+      "fixture returned an execution stop",
+    );
     invariant(
       stop.fault === "page-fault" || stop.fault === "execute-protection",
       "unsupported execution fault kind",
     );
-    invariant(stop.faultAddress !== undefined, "execution fault omitted its guest address");
+    invariant(
+      stop.faultAddress !== undefined,
+      "execution fault omitted its guest address",
+    );
     const stackRegion =
       stop.fault === "page-fault"
         ? prepared.regions.find(
@@ -3612,7 +4197,8 @@ class BrowserRuntimeSession {
               kind === "stack" &&
               ((stop.faultAddress! >= range.start &&
                 stop.faultAddress! < range.start + range.byteLength) ||
-                (range.start >= 0x1000 && stop.faultAddress === range.start - 0x1000)),
+                (range.start >= 0x1000 &&
+                  stop.faultAddress === range.start - 0x1000)),
           )
         : undefined;
     const capabilityCluster =
@@ -3621,14 +4207,22 @@ class BrowserRuntimeSession {
         : stackRegion === undefined
           ? "guest-memory-page-fault"
           : "initial-thread-stack-growth";
-    const reflection = this.#requireBridge().currentReflection<CurrentReflectionMetadata>().metadata;
-    invariant(reflection.kind === "current-reflection", "invalid execution-stop reflection");
+    const reflection =
+      this.#requireBridge().currentReflection<CurrentReflectionMetadata>()
+        .metadata;
+    invariant(
+      reflection.kind === "current-reflection",
+      "invalid execution-stop reflection",
+    );
     invariant(
       reflection.generation === Number(this.#generation) &&
         reflection.acknowledgedGeneration === Number(this.#generation),
       "execution stop memory is not fully acknowledged",
     );
-    invariant(/^[0-9a-f]{64}$/.test(reflection.contentSha256), "invalid memory digest");
+    invariant(
+      /^[0-9a-f]{64}$/.test(reflection.contentSha256),
+      "invalid memory digest",
+    );
     this.#report.firstUnsupported = {
       capabilityCluster,
       endpoint: null,
@@ -3672,44 +4266,80 @@ class BrowserRuntimeSession {
             metadata.replacedFrameId,
           "SetWindowPos repeat activation unexpectedly replaced its window callback",
         );
-        const sequence = this.#bgiCallbackCallSequences.get(metadata.replacedFrameId);
-        invariant(sequence !== undefined, "BGI replacement callback has no reserved call sequence");
+        const sequence = this.#bgiCallbackCallSequences.get(
+          metadata.replacedFrameId,
+        );
+        invariant(
+          sequence !== undefined,
+          "BGI replacement callback has no reserved call sequence",
+        );
+        this.#recordSetWindowPosFrameChangeCallbackReturn(
+          sequence,
+          metadata.replacedFrameId,
+          result,
+        );
         this.#bgiCallbackCallSequences.delete(metadata.replacedFrameId);
         invariant(
           !this.#bgiCallbackCallSequences.has(metadata.frameId),
           "BGI replacement callback reused a live frame identity",
         );
         this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
+        this.#recordSetWindowPosFrameChangeCallbackEntry(
+          "replace",
+          sequence,
+          metadata,
+        );
       }
       this.#report.callbackEntries += 1;
       this.#report.maximumCallbackDepth = Math.max(
         this.#report.maximumCallbackDepth,
         metadata.depth,
       );
-      this.#requireEngine().enterGuestCallback(metadata.target, metadata.stackPointer);
+      this.#requireEngine().enterGuestCallback(
+        metadata.target,
+        metadata.stackPointer,
+      );
       this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
       this.#execution.transition("guest-callback", {
         cause: "guest-callback-replacement",
         threadId: this.#currentThreadId,
       });
-      this.#status("callback", `Guest callback replaced at depth ${metadata.depth}`);
+      this.#status(
+        "callback",
+        `Guest callback replaced at depth ${metadata.depth}`,
+      );
       return;
     }
     this.#applyOptionalDelta(output);
     if (prepared.workload === "private-bgi") {
       const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
-      invariant(sequence !== undefined, "BGI callback completion has no reserved call sequence");
+      invariant(
+        sequence !== undefined,
+        "BGI callback completion has no reserved call sequence",
+      );
+      this.#recordSetWindowPosFrameChangeCallbackReturn(
+        sequence,
+        metadata.frameId,
+        result,
+      );
       this.#bgiCallbackCallSequences.delete(metadata.frameId);
       this.#recordBgiCompletion(metadata, sequence, result);
     }
     this.#requireEngine().applyCpuResume(metadata.completion);
-    const resumeState = metadata.remainingDepth > 0 ? "guest-callback" : "ready";
+    const resumeState =
+      metadata.remainingDepth > 0 ? "guest-callback" : "ready";
     this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
     this.#execution.transition(resumeState, {
-      cause: metadata.remainingDepth > 0 ? "nested-callback-resume" : "callback-stack-empty",
+      cause:
+        metadata.remainingDepth > 0
+          ? "nested-callback-resume"
+          : "callback-stack-empty",
       threadId: this.#currentThreadId,
     });
-    this.#status("running", `Callback returned; depth ${metadata.remainingDepth}`);
+    this.#status(
+      "running",
+      `Callback returned; depth ${metadata.remainingDepth}`,
+    );
   }
 
   #registerCreatedThread(created: CreatedThreadMetadata): void {
@@ -3799,21 +4429,27 @@ class BrowserRuntimeSession {
     invariant(
       selection.previousThreadId === this.#currentThreadId &&
         selection.threadId !== this.#currentThreadId &&
-        (selection.state.state === "runnable" || selection.state.state === "in-callback"),
+        (selection.state.state === "runnable" ||
+          selection.state.state === "in-callback"),
       "Rust API boundary returned an invalid thread selection",
     );
     if (
-      this.#configuration.capabilityProfile === "primary-main-loop-progression" ||
-      this.#configuration.capabilityProfile === "kernel32-leave-critical-section" ||
+      this.#configuration.capabilityProfile ===
+        "primary-main-loop-progression" ||
+      this.#configuration.capabilityProfile ===
+        "kernel32-leave-critical-section" ||
       this.#configuration.capabilityProfile ===
         "kernel32-enter-critical-section-continuation" ||
       this.#configuration.capabilityProfile ===
         "kernel32-leave-critical-section-continuation" ||
       this.#configuration.capabilityProfile === "shell32-drag-accept-files" ||
-      this.#configuration.capabilityProfile === "kernel32-archive-source-read" ||
+      this.#configuration.capabilityProfile ===
+        "kernel32-archive-source-read" ||
       this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
-      this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
-      this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a" ||
+      this.#configuration.capabilityProfile ===
+        "kernel32-global-memory-status" ||
+      this.#configuration.capabilityProfile ===
+        "kernel32-get-file-attributes-a" ||
       this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
       includesSetWindowPosRepeatActivation(
         this.#configuration.capabilityProfile,
@@ -3829,7 +4465,8 @@ class BrowserRuntimeSession {
       };
       this.#mainLoopThreadSelections.push(selectionSnapshot);
       if (executionBoundary === "yield-current-thread") {
-        const sleepZero = this.#report.sleepZero ??
+        const sleepZero =
+          this.#report.sleepZero ??
           failInvariant("Sleep(0) scheduler evidence is missing");
         sleepZero.schedulerSelections.selectionCount += 1;
         sleepZero.schedulerSelections.firstSelection ??=
@@ -3838,7 +4475,8 @@ class BrowserRuntimeSession {
           structuredClone(selectionSnapshot);
       }
       if (
-        this.#configuration.capabilityProfile === "primary-main-loop-progression" &&
+        this.#configuration.capabilityProfile ===
+          "primary-main-loop-progression" &&
         this.#mainLoopThreadSelections.length === 2 &&
         selection.threadId === this.#initialThreadId
       ) {
@@ -3884,10 +4522,17 @@ class BrowserRuntimeSession {
       cause: "guest-thread-entry-return",
       threadId,
     });
-    const output = this.#requireBridge().finishThread<ThreadExitMetadata>(exitCode);
+    const output =
+      this.#requireBridge().finishThread<ThreadExitMetadata>(exitCode);
     const metadata = output.metadata;
-    invariant(metadata.kind === "thread-exit", "invalid guest thread exit metadata");
-    invariant(metadata.threadId === threadId, "Rust exited a different guest thread");
+    invariant(
+      metadata.kind === "thread-exit",
+      "invalid guest thread exit metadata",
+    );
+    invariant(
+      metadata.threadId === threadId,
+      "Rust exited a different guest thread",
+    );
     invariant(
       metadata.scheduler.state === "terminated" &&
         metadata.scheduler.exitCode === metadata.exitCode,
@@ -3902,7 +4547,8 @@ class BrowserRuntimeSession {
       );
     } else {
       invariant(
-        metadata.markerAddress === undefined && metadata.markerValue === undefined,
+        metadata.markerAddress === undefined &&
+          metadata.markerValue === undefined,
         "dynamic guest thread exit unexpectedly returned controlled marker evidence",
       );
     }
@@ -3912,7 +4558,10 @@ class BrowserRuntimeSession {
       exitCode: metadata.exitCode,
       ...(metadata.markerAddress === undefined
         ? {}
-        : { markerAddress: metadata.markerAddress, markerValue: metadata.markerValue }),
+        : {
+            markerAddress: metadata.markerAddress,
+            markerValue: metadata.markerValue,
+          }),
     });
     this.#threadContexts.delete(threadId);
     this.#threadResumeStates.delete(threadId);
@@ -3922,10 +4571,20 @@ class BrowserRuntimeSession {
   }
 
   #completeProcess(exitCode: number): void {
-    const metadata = this.#requireBridge().finish<ProcessExitMetadata>(exitCode).metadata;
-    invariant(metadata.kind === "process-exit", "invalid process exit metadata");
-    invariant(metadata.pendingHostCalls === 0, "clean exit retained a host request");
-    invariant(metadata.pendingCallbacks === 0, "clean exit retained a callback");
+    const metadata =
+      this.#requireBridge().finish<ProcessExitMetadata>(exitCode).metadata;
+    invariant(
+      metadata.kind === "process-exit",
+      "invalid process exit metadata",
+    );
+    invariant(
+      metadata.pendingHostCalls === 0,
+      "clean exit retained a host request",
+    );
+    invariant(
+      metadata.pendingCallbacks === 0,
+      "clean exit retained a callback",
+    );
     this.#finish({
       outcome: "completed",
       exitCode: metadata.exitCode,
@@ -3940,21 +4599,35 @@ class BrowserRuntimeSession {
     const engine = this.#requireEngine();
     const capacityBefore = engine.memoryCapacity();
     for (let stageIndex = 0; stageIndex < 7; stageIndex += 1) {
-      const output = bridge.advanceMappingFixture<MappingFixtureMetadata>(stageIndex);
+      const output =
+        bridge.advanceMappingFixture<MappingFixtureMetadata>(stageIndex);
       const metadata = output.metadata;
-      invariant(metadata.kind === "mapping-fixture-delta", "invalid mapping fixture metadata");
-      invariant(metadata.stageIndex === stageIndex, "mapping fixture stage identity mismatch");
+      invariant(
+        metadata.kind === "mapping-fixture-delta",
+        "invalid mapping fixture metadata",
+      );
+      invariant(
+        metadata.stageIndex === stageIndex,
+        "mapping fixture stage identity mismatch",
+      );
       const delta = decodeHostDelta(output.control, output.payload);
-      invariant(delta.fromGeneration === this.#generation, "mapping delta base generation mismatch");
+      invariant(
+        delta.fromGeneration === this.#generation,
+        "mapping delta base generation mismatch",
+      );
       invariant(
         delta.fromGeneration === BigInt(metadata.fromGeneration) &&
           delta.generation === BigInt(metadata.generation),
         "mapping delta generation metadata mismatch",
       );
-      invariant(delta.pages.length === metadata.dirtyPages, "mapping dirty page count mismatch");
       invariant(
-        delta.mappingOperations.map((operation) => operation.operation).join(",") ===
-          metadata.mappingOperations.join(","),
+        delta.pages.length === metadata.dirtyPages,
+        "mapping dirty page count mismatch",
+      );
+      invariant(
+        delta.mappingOperations
+          .map((operation) => operation.operation)
+          .join(",") === metadata.mappingOperations.join(","),
         "mapping operation metadata mismatch",
       );
 
@@ -3984,7 +4657,8 @@ class BrowserRuntimeSession {
       this.#applyAuthoritativeDelta(delta);
       const capacityAfter = engine.memoryCapacity();
       invariant(
-        capacityAfter.physicalPoolBytes <= capacityAfter.maximumPhysicalPoolBytes &&
+        capacityAfter.physicalPoolBytes <=
+          capacityAfter.maximumPhysicalPoolBytes &&
           capacityAfter.mappedGuestPages <= capacityAfter.maximumPhysicalPages,
         "execution mirror exceeded its bounded physical capacity",
       );
@@ -4012,7 +4686,8 @@ class BrowserRuntimeSession {
         effectsAfter.instructionFetchInvalidations -
         effectsBefore.instructionFetchInvalidations;
       this.#report.mappingCacheEffects.generatedCodeInvalidations +=
-        effectsAfter.generatedCodeInvalidations - effectsBefore.generatedCodeInvalidations;
+        effectsAfter.generatedCodeInvalidations -
+        effectsBefore.generatedCodeInvalidations;
 
       if (stageIndex === 4 || stageIndex === 6) {
         let fault: unknown = null;
@@ -4034,13 +4709,34 @@ class BrowserRuntimeSession {
       }
     }
 
-    invariant(this.#report.mappingOperations.reserve === 1, "reserve mapping count mismatch");
-    invariant(this.#report.mappingOperations.commit === 2, "commit mapping count mismatch");
-    invariant(this.#report.mappingOperations.protect === 2, "protect mapping count mismatch");
-    invariant(this.#report.mappingOperations.decommit === 1, "decommit mapping count mismatch");
-    invariant(this.#report.mappingOperations.release === 1, "release mapping count mismatch");
-    invariant(this.#report.mappingAtomicRejections === 1, "mapping atomic rejection was not tested");
-    invariant(this.#report.mappingStaleAccessStops === 2, "stale mapping stops are incomplete");
+    invariant(
+      this.#report.mappingOperations.reserve === 1,
+      "reserve mapping count mismatch",
+    );
+    invariant(
+      this.#report.mappingOperations.commit === 2,
+      "commit mapping count mismatch",
+    );
+    invariant(
+      this.#report.mappingOperations.protect === 2,
+      "protect mapping count mismatch",
+    );
+    invariant(
+      this.#report.mappingOperations.decommit === 1,
+      "decommit mapping count mismatch",
+    );
+    invariant(
+      this.#report.mappingOperations.release === 1,
+      "release mapping count mismatch",
+    );
+    invariant(
+      this.#report.mappingAtomicRejections === 1,
+      "mapping atomic rejection was not tested",
+    );
+    invariant(
+      this.#report.mappingStaleAccessStops === 2,
+      "stale mapping stops are incomplete",
+    );
     this.#status("mapping", "Execution-engine mapping contract passed");
   }
 
@@ -4058,18 +4754,31 @@ class BrowserRuntimeSession {
     this.#report.writebackPages += pages.length;
   }
 
-  #applyRequiredDelta(output: Pick<BridgeOutput<unknown>, "control" | "payload">): void {
-    invariant(output.control.byteLength > 0, "guest callback did not return its stack delta");
+  #applyRequiredDelta(
+    output: Pick<BridgeOutput<unknown>, "control" | "payload">,
+  ): void {
+    invariant(
+      output.control.byteLength > 0,
+      "guest callback did not return its stack delta",
+    );
     this.#applyOptionalDelta(output);
   }
 
-  #applyOptionalDelta(output: Pick<BridgeOutput<unknown>, "control" | "payload">): void {
+  #applyOptionalDelta(
+    output: Pick<BridgeOutput<unknown>, "control" | "payload">,
+  ): void {
     if (output.control.byteLength === 0) {
-      invariant(output.payload.byteLength === 0, "host delta payload has no control descriptor");
+      invariant(
+        output.payload.byteLength === 0,
+        "host delta payload has no control descriptor",
+      );
       return;
     }
     const delta = decodeHostDelta(output.control, output.payload);
-    invariant(delta.fromGeneration === this.#generation, "host delta base generation mismatch");
+    invariant(
+      delta.fromGeneration === this.#generation,
+      "host delta base generation mismatch",
+    );
     if (this.#requirePrepared().workload === "private-bgi") {
       this.#report.mappingDeltas += 1;
       this.#report.mappingDirtyPages += delta.pages.length;
@@ -4091,15 +4800,22 @@ class BrowserRuntimeSession {
   }
 
   #rebuildMirrorFromAuthority(): void {
-    const output = this.#requireBridge().currentReflection<CurrentReflectionMetadata>();
+    const output =
+      this.#requireBridge().currentReflection<CurrentReflectionMetadata>();
     const metadata = output.metadata;
-    invariant(metadata.kind === "current-reflection", "invalid current reflection metadata");
+    invariant(
+      metadata.kind === "current-reflection",
+      "invalid current reflection metadata",
+    );
     const reflection = decodeReflection(output.control, output.payload);
     invariant(
       reflection.generation === BigInt(metadata.generation),
       "current reflection generation mismatch",
     );
-    invariant(reflection.pages.length === metadata.pageCount, "current reflection page count mismatch");
+    invariant(
+      reflection.pages.length === metadata.pageCount,
+      "current reflection page count mismatch",
+    );
     invariant(
       metadata.acknowledgedGeneration <= metadata.generation,
       "current reflection acknowledgement is ahead of authority",
@@ -4110,14 +4826,20 @@ class BrowserRuntimeSession {
         kind: "acknowledged";
         generation: number;
       }>(reflection.generation).metadata;
-      invariant(receipt.kind === "acknowledged", "rebuild acknowledgement receipt is invalid");
+      invariant(
+        receipt.kind === "acknowledged",
+        "rebuild acknowledgement receipt is invalid",
+      );
     }
     this.#generation = reflection.generation;
     this.#report.mirrorRebuilds += 1;
   }
 
   #postHost(metadata: HostRequestMetadata): void {
-    invariant(this.#execution.state() === "api-trap", "host request escaped API trap state");
+    invariant(
+      this.#execution.state() === "api-trap",
+      "host request escaped API trap state",
+    );
     invariant(
       /^(0|[1-9][0-9]*)$/.test(metadata.requestId) &&
         BigInt(metadata.requestId) <= 0xffff_ffff_ffff_ffffn,
@@ -4129,7 +4851,10 @@ class BrowserRuntimeSession {
         metadata.threadId <= 0xffff_ffff,
       "Rust host request thread ID is invalid",
     );
-    invariant(metadata.threadId === this.#currentThreadId, "host request belongs to another thread");
+    invariant(
+      metadata.threadId === this.#currentThreadId,
+      "host request belongs to another thread",
+    );
     invariant(
       metadata.scheduler.state === "waiting-host" &&
         metadata.scheduler.requestId === metadata.requestId,
@@ -4142,7 +4867,10 @@ class BrowserRuntimeSession {
     invariant(
       metadata.arguments.length <= 64 &&
         metadata.arguments.every(
-          (argument) => Number.isInteger(argument) && argument >= 0 && argument <= 0xffff_ffff,
+          (argument) =>
+            Number.isInteger(argument) &&
+            argument >= 0 &&
+            argument <= 0xffff_ffff,
         ),
       "host request payload exceeds the bounded u32 transport",
     );
@@ -4167,11 +4895,17 @@ class BrowserRuntimeSession {
       resolve: () => {},
       reject: () => {},
     });
-    if (this.#configuration.mode === "watchdog" && this.#watchdogArmedAt === null) {
+    if (
+      this.#configuration.mode === "watchdog" &&
+      this.#watchdogArmedAt === null
+    ) {
       this.#armWatchdog();
     }
     if (metadata.service === "runtime.timer-delay.v1") {
-      invariant(metadata.arguments.length === 13, "timer pacing request must contain thirteen words");
+      invariant(
+        metadata.arguments.length === 13,
+        "timer pacing request must contain thirteen words",
+      );
       const [
         version,
         delayMilliseconds,
@@ -4202,11 +4936,15 @@ class BrowserRuntimeSession {
         "timer pacing wait registration identity is zero",
       );
       invariant(
-        timerLow !== undefined && timerHigh !== undefined && (timerLow !== 0 || timerHigh !== 0),
+        timerLow !== undefined &&
+          timerHigh !== undefined &&
+          (timerLow !== 0 || timerHigh !== 0),
         "timer pacing timer identity is zero",
       );
       invariant(
-        targetLow !== undefined && targetHigh !== undefined && (targetLow !== 0 || targetHigh !== 0),
+        targetLow !== undefined &&
+          targetHigh !== undefined &&
+          (targetLow !== 0 || targetHigh !== 0),
         "timer pacing logical target is zero",
       );
       invariant(
@@ -4219,7 +4957,10 @@ class BrowserRuntimeSession {
           (outcome !== 0 || armGenerationLow !== 0 || armGenerationHigh !== 0),
         "timer pacing arm generation does not match its outcome",
       );
-      invariant(outcome === 0 || outcome === 1, "timer pacing outcome is invalid");
+      invariant(
+        outcome === 0 || outcome === 1,
+        "timer pacing outcome is invalid",
+      );
       if (this.#configuration.mode === "success") {
         this.#timerPacing.schedule({
           requestId: metadata.requestId,
@@ -4241,7 +4982,9 @@ class BrowserRuntimeSession {
       if (this.#configuration.mode === "success") {
         void this.#serviceSourceRead(metadata).catch((error: unknown) => {
           if (!this.#terminal && !this.#stopping) {
-            this.#fail(error instanceof Error ? error : new Error(String(error)));
+            this.#fail(
+              error instanceof Error ? error : new Error(String(error)),
+            );
           }
         });
       }
@@ -4249,7 +4992,9 @@ class BrowserRuntimeSession {
       if (this.#configuration.mode === "success") {
         void this.#serviceProfileRead(metadata).catch((error: unknown) => {
           if (!this.#terminal && !this.#stopping) {
-            this.#fail(error instanceof Error ? error : new Error(String(error)));
+            this.#fail(
+              error instanceof Error ? error : new Error(String(error)),
+            );
           }
         });
       }
@@ -4264,7 +5009,9 @@ class BrowserRuntimeSession {
           (error: unknown) => {
             this.#writableMutationTasks.delete(task);
             if (!this.#terminal && !this.#stopping) {
-              this.#fail(error instanceof Error ? error : new Error(String(error)));
+              this.#fail(
+                error instanceof Error ? error : new Error(String(error)),
+              );
             }
           },
         );
@@ -4280,7 +5027,9 @@ class BrowserRuntimeSession {
           (error: unknown) => {
             this.#writableMutationTasks.delete(task);
             if (!this.#terminal && !this.#stopping) {
-              this.#fail(error instanceof Error ? error : new Error(String(error)));
+              this.#fail(
+                error instanceof Error ? error : new Error(String(error)),
+              );
             }
           },
         );
@@ -4290,9 +5039,14 @@ class BrowserRuntimeSession {
     }
   }
 
-  #takeApiResumeState(threadId = this.#currentThreadId): "ready" | "guest-callback" {
+  #takeApiResumeState(
+    threadId = this.#currentThreadId,
+  ): "ready" | "guest-callback" {
     const resumeState = this.#threadResumeStates.get(threadId);
-    invariant(resumeState !== undefined, "API trap omitted its thread resume state");
+    invariant(
+      resumeState !== undefined,
+      "API trap omitted its thread resume state",
+    );
     this.#threadResumeStates.delete(threadId);
     return resumeState;
   }
@@ -4306,7 +5060,9 @@ class BrowserRuntimeSession {
     if (waitForHostBeforeScheduling) {
       this.#liveThreadId = null;
       const pending =
-        requestId === null ? null : this.#pendingHostRequests.pending(requestId);
+        requestId === null
+          ? null
+          : this.#pendingHostRequests.pending(requestId);
       invariant(
         pending !== null && pending.threadId === blockedThreadId,
         "synchronous host wait has no matching delivery record",
@@ -4331,7 +5087,9 @@ class BrowserRuntimeSession {
         this.#hostBarrierRequestId = null;
       }
       if (this.#terminal || this.#stopping) {
-        throw new SessionStopped("session ended during a synchronous host wait");
+        throw new SessionStopped(
+          "session ended during a synchronous host wait",
+        );
       }
       invariant(
         this.#execution.state() === "host-completion",
@@ -4383,7 +5141,9 @@ class BrowserRuntimeSession {
           });
         }
         const executionState =
-          metadata.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+          metadata.scheduler.state === "in-callback"
+            ? "guest-callback"
+            : "ready";
         this.#execution.transition(executionState, {
           cause: "thread-context-restored",
           threadId: metadata.threadId,
@@ -4391,14 +5151,20 @@ class BrowserRuntimeSession {
         });
         return;
       }
-      invariant(metadata.kind === "scheduler-idle", "Rust returned an unknown scheduler outcome");
+      invariant(
+        metadata.kind === "scheduler-idle",
+        "Rust returned an unknown scheduler outcome",
+      );
       invariant(
         this.#pendingHostRequests.size() > 0,
         "scheduler became idle without a pending host request",
       );
       this.#liveThreadId = null;
       const pending = this.#pendingHostRequests.first();
-      invariant(pending !== null, "pending host request disappeared before scheduler idle");
+      invariant(
+        pending !== null,
+        "pending host request disappeared before scheduler idle",
+      );
       if (this.#execution.state() !== "waiting-host") {
         this.#execution.transition("waiting-host", {
           cause: "scheduler-no-executable-thread",
@@ -4425,13 +5191,23 @@ class BrowserRuntimeSession {
       this.#threadContexts.has(this.#liveThreadId),
       "live guest thread has no CPU context record",
     );
-    this.#threadContexts.set(this.#liveThreadId, this.#requireEngine().saveCpuContext());
+    this.#threadContexts.set(
+      this.#liveThreadId,
+      this.#requireEngine().saveCpuContext(),
+    );
   }
 
-  #activateThread(threadId: number, scheduler: ExecutableSchedulerMetadata): void {
+  #activateThread(
+    threadId: number,
+    scheduler: ExecutableSchedulerMetadata,
+  ): void {
     const context = this.#threadContexts.get(threadId);
-    invariant(context !== undefined, `scheduled guest thread ${threadId} has no CPU context`);
-    const executionState = scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    invariant(
+      context !== undefined,
+      `scheduled guest thread ${threadId} has no CPU context`,
+    );
+    const executionState =
+      scheduler.state === "in-callback" ? "guest-callback" : "ready";
     invariant(
       this.#threadExecutionStates.get(threadId) === executionState,
       `Rust scheduler state for thread ${threadId} disagrees with its suspended execution state`,
@@ -4447,7 +5223,10 @@ class BrowserRuntimeSession {
 
   #applyCpuResumeToThread(threadId: number, completion: ApiCompletion): void {
     const target = this.#threadContexts.get(threadId);
-    invariant(target !== undefined, `host completion thread ${threadId} has no CPU context`);
+    invariant(
+      target !== undefined,
+      `host completion thread ${threadId} has no CPU context`,
+    );
     const engine = this.#requireEngine();
     const liveThreadId = this.#liveThreadId;
     if (liveThreadId !== null) {
@@ -4458,7 +5237,10 @@ class BrowserRuntimeSession {
     this.#threadContexts.set(threadId, engine.saveCpuContext());
     if (liveThreadId !== null) {
       const live = this.#threadContexts.get(liveThreadId);
-      invariant(live !== undefined, "live guest thread context disappeared during host completion");
+      invariant(
+        live !== undefined,
+        "live guest thread context disappeared during host completion",
+      );
       engine.restoreCpuContext(live);
     }
   }
@@ -4471,18 +5253,24 @@ class BrowserRuntimeSession {
 
   #signalRunnable(): void {
     const resolve = this.#runnableResolvers.shift();
-    invariant(resolve !== undefined, "host completion has no scheduler-idle waiter");
+    invariant(
+      resolve !== undefined,
+      "host completion has no scheduler-idle waiter",
+    );
     resolve();
   }
 
   #checkWatchdog(): void {
-    if (this.#report.instructions > this.#configuration.watchdogInstructionLimit) {
+    if (
+      this.#report.instructions > this.#configuration.watchdogInstructionLimit
+    ) {
       this.#triggerWatchdog("instruction limit");
       throw new SessionStopped("watchdog terminated the guest");
     }
     if (
       this.#watchdogArmedAt !== null &&
-      performance.now() - this.#watchdogArmedAt > this.#configuration.watchdogWallMilliseconds
+      performance.now() - this.#watchdogArmedAt >
+        this.#configuration.watchdogWallMilliseconds
     ) {
       this.#triggerWatchdog("wall-clock limit");
       throw new SessionStopped("watchdog terminated the guest");
@@ -4491,7 +5279,10 @@ class BrowserRuntimeSession {
 
   #armWatchdog(): void {
     invariant(this.#watchdogTimer === null, "watchdog timer is already armed");
-    invariant(this.#watchdogArmedAt === null, "watchdog clock is already armed");
+    invariant(
+      this.#watchdogArmedAt === null,
+      "watchdog clock is already armed",
+    );
     this.#watchdogArmedAt = performance.now();
     this.#watchdogTimer = worker.setTimeout(() => {
       this.#watchdogTimer = null;
@@ -4505,7 +5296,8 @@ class BrowserRuntimeSession {
     }
     const execution = this.#execution.snapshot();
     const pending = this.#pendingHostRequests.first();
-    const stoppedThreadId = this.#liveThreadId ?? pending?.threadId ?? this.#currentThreadId;
+    const stoppedThreadId =
+      this.#liveThreadId ?? pending?.threadId ?? this.#currentThreadId;
     this.#watchdogContext = {
       threadId: stoppedThreadId,
       requestId: pending?.requestId ?? null,
@@ -4555,7 +5347,9 @@ class BrowserRuntimeSession {
       try {
         await this.#settleProfileLeaseAcquisition();
       } catch (cleanupError) {
-        cleanupErrors.push(`profile lease acquisition: ${String(cleanupError)}`);
+        cleanupErrors.push(
+          `profile lease acquisition: ${String(cleanupError)}`,
+        );
       }
       try {
         await this.#drainProfileTransports();
@@ -4565,7 +5359,9 @@ class BrowserRuntimeSession {
       try {
         await this.#drainWritableMutations();
       } catch (cleanupError) {
-        cleanupErrors.push(`writable commit transport: ${String(cleanupError)}`);
+        cleanupErrors.push(
+          `writable commit transport: ${String(cleanupError)}`,
+        );
       }
       try {
         await this.#revokeWritableProfileLease();
@@ -4575,13 +5371,22 @@ class BrowserRuntimeSession {
       if (this.#runtimePrepared && this.#bridge !== null) {
         try {
           const metadata = this.#bridge.cancel<CancellationMetadata>().metadata;
-          invariant(metadata.kind === "cancelled", "invalid cancellation metadata");
+          invariant(
+            metadata.kind === "cancelled",
+            "invalid cancellation metadata",
+          );
           pendingHostCalls = metadata.pendingHostCalls;
           pendingCallbacks = metadata.pendingCallbacks;
-          invariant(pendingHostCalls === 0, "cancellation retained a host request");
+          invariant(
+            pendingHostCalls === 0,
+            "cancellation retained a host request",
+          );
           invariant(pendingCallbacks === 0, "cancellation retained a callback");
           if (this.#prepared?.workload === "private-bgi") {
-            invariant(metadata.processLifecycle.state === "exited", "BGI cancellation did not exit");
+            invariant(
+              metadata.processLifecycle.state === "exited",
+              "BGI cancellation did not exit",
+            );
             invariant(
               metadata.dllLifecycle === "process-detached",
               "BGI cancellation did not detach",
@@ -4689,9 +5494,13 @@ class BrowserRuntimeSession {
       cache: "no-store",
       headers: { "X-Vine-Session-Key": lease.sessionKey },
     });
-    invariant(response.status === 204, `writable profile revoke failed with ${response.status}`);
     invariant(
-      response.headers.get("x-vine-title-fingerprint") === lease.titleFingerprint &&
+      response.status === 204,
+      `writable profile revoke failed with ${response.status}`,
+    );
+    invariant(
+      response.headers.get("x-vine-title-fingerprint") ===
+        lease.titleFingerprint &&
         response.headers.get("x-vine-profile-id") === lease.profileId &&
         response.headers.get("x-vine-session-key") === lease.sessionKey &&
         response.headers.get("x-vine-session-epoch") === String(lease.epoch),
@@ -4723,7 +5532,8 @@ class BrowserRuntimeSession {
       this.#report.supportedCallCount === this.#semanticCallDigest.count(),
       "BGI semantic call digest count diverged from completed sequence identity",
     );
-    this.#report.supportedCallSemanticsSha256 = this.#semanticCallDigest.digestHex();
+    this.#report.supportedCallSemanticsSha256 =
+      this.#semanticCallDigest.digestHex();
     if (
       (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
         this.#configuration.capabilityProfile ===
@@ -4748,7 +5558,8 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      (this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
+      (this.#configuration.capabilityProfile ===
+        "kernel32-global-memory-status" ||
         this.#configuration.capabilityProfile ===
           "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
@@ -4779,14 +5590,16 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      (this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
+      (this.#configuration.capabilityProfile ===
+        "kernel32-create-directory-a" ||
         includesSetWindowPosRepeatActivation(
           this.#configuration.capabilityProfile,
         )) &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
-        this.#report.createDirectoryA?.call.writableDirectoryCreate.succeeded === true &&
+        this.#report.createDirectoryA?.call.writableDirectoryCreate
+          .succeeded === true &&
           this.#report.writableDirectoryCreates.length === 1,
         "CreateDirectoryA report omitted its durable VFS transaction",
       );
@@ -4798,14 +5611,19 @@ class BrowserRuntimeSession {
       terminal.outcome === "structured-stop"
     ) {
       invariant(
-        this.#setWindowPosCompletionCount === 5 &&
-          this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence === 5 &&
+        this.#setWindowPosCompletionCount ===
+          (this.#configuration.capabilityProfile ===
+          "user32-set-window-pos-repeat-activation"
+            ? 5
+            : 6) &&
+          this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence ===
+            5 &&
           this.#report.setWindowPosRepeatActivation.callbackEvents.length === 2,
         "SetWindowPos report omitted its repeat activation callback completion",
       );
     }
     if (
-      this.#configuration.capabilityProfile === "d3d9-recreated-textures" &&
+      includesD3d9RecreatedTextures(this.#configuration.capabilityProfile) &&
       terminal.outcome === "structured-stop"
     ) {
       const recreated = this.#report.d3d9RecreatedTextures;
@@ -4820,12 +5638,28 @@ class BrowserRuntimeSession {
         "D3D9 recreated texture report omitted its transactional call sequence",
       );
     }
+    if (
+      isSetWindowPosFrameChangeMove(this.#configuration.capabilityProfile) &&
+      terminal.outcome === "structured-stop"
+    ) {
+      const frameChange = this.#report.setWindowPosFrameChangeMove;
+      invariant(
+        frameChange !== null &&
+          frameChange.callCount === 6 &&
+          frameChange.call.sequence === 127_346 &&
+          frameChange.callbackEvents.length === 6 &&
+          frameChange.nestedMoveCallbackEvents.length === 2,
+        "SetWindowPos frame-change move report omitted its callback or geometry evidence",
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
         "full BGI call evidence omitted a completed sequence",
       );
-      this.#report.supportedCalls.sort((left, right) => left.sequence - right.sequence);
+      this.#report.supportedCalls.sort(
+        (left, right) => left.sequence - right.sequence,
+      );
     } else {
       invariant(
         this.#report.supportedCalls.length === 0,
@@ -4854,7 +5688,8 @@ class BrowserRuntimeSession {
         wasmBridgeCalls: this.#bridge?.callCount() ?? 0,
         runtimeCoreLinearMemoryBytes: this.#bridge?.linearMemoryBytes() ?? 0,
         executionEngine: this.#engine?.identity() ?? null,
-        executionEngineLinearMemoryBytes: this.#engine?.linearMemoryBytes() ?? 0,
+        executionEngineLinearMemoryBytes:
+          this.#engine?.linearMemoryBytes() ?? 0,
         finalGeneration: Number(this.#generation),
       },
     };
@@ -4884,123 +5719,133 @@ class BrowserRuntimeSession {
   }
 
   #requirePrepared(): PreparedMetadata {
-    invariant(this.#prepared !== null, "runtime preparation metadata is unavailable");
+    invariant(
+      this.#prepared !== null,
+      "runtime preparation metadata is unavailable",
+    );
     return this.#prepared;
   }
 }
 
 let activeSession: BrowserRuntimeSession | null = null;
 
-worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) => {
-  const message = event.data;
-  assertProtocolVersion(message.protocolVersion);
-  switch (message.type) {
-    case "start-session": {
-      if (activeSession !== null) {
-        post({
-          type: "session-finished",
-          protocolVersion,
-          sessionId: message.sessionId,
-          report: {
-            evidenceLevel: message.configuration.evidenceLevel,
-            outcome: "fault",
-            exitCode: null,
-            elapsedMilliseconds: 0,
-            instructions: 0,
-            slices: 0,
-            budgetYields: 0,
-            hostRequests: 0,
-            rustSchedulerTransitions: 0,
-            timerPacing: {
-              requests: 0,
-              completions: 0,
-              cancellations: 0,
-              freezes: 0,
-              resumes: 0,
-              staleCallbacks: 0,
-              boundedCatchUps: 0,
-              pending: 0,
+worker.addEventListener(
+  "message",
+  (event: MessageEvent<MainToWorkerMessage>) => {
+    const message = event.data;
+    assertProtocolVersion(message.protocolVersion);
+    switch (message.type) {
+      case "start-session": {
+        if (activeSession !== null) {
+          post({
+            type: "session-finished",
+            protocolVersion,
+            sessionId: message.sessionId,
+            report: {
+              evidenceLevel: message.configuration.evidenceLevel,
+              outcome: "fault",
+              exitCode: null,
+              elapsedMilliseconds: 0,
+              instructions: 0,
+              slices: 0,
+              budgetYields: 0,
+              hostRequests: 0,
+              rustSchedulerTransitions: 0,
+              timerPacing: {
+                requests: 0,
+                completions: 0,
+                cancellations: 0,
+                freezes: 0,
+                resumes: 0,
+                staleCallbacks: 0,
+                boundedCatchUps: 0,
+                pending: 0,
+              },
+              registeredThreadIds: [],
+              executedThreadIds: [],
+              contextSwitches: 0,
+              hostWaitExecutions: [],
+              threadExits: [],
+              executionState: "stopped",
+              executionTransitionCount: 0,
+              lastExecutionTransition: null,
+              pendingHostRequestRecords: 0,
+              watchdogContext: null,
+              callbackEntries: 0,
+              maximumCallbackDepth: 0,
+              writebackBatches: 0,
+              writebackPages: 0,
+              stackGrowths: [],
+              mappingDeltas: 0,
+              mappingOperations: {
+                reserve: 0,
+                commit: 0,
+                protect: 0,
+                decommit: 0,
+                release: 0,
+              },
+              mappingDirtyPages: 0,
+              mappingAtomicRejections: 0,
+              mappingStaleAccessStops: 0,
+              mappingCacheEffects: {
+                tlbFlushes: 0,
+                instructionFetchInvalidations: 0,
+                generatedCodeInvalidations: 0,
+              },
+              mirrorRebuilds: 0,
+              initialGeneration: 0,
+              initialCurrentDirectory: null,
+              finalGeneration: 0,
+              pendingHostCalls: 0,
+              pendingCallbacks: 0,
+              maximumSliceMilliseconds: 0,
+              wasmBridgeCalls: 0,
+              runtimeCoreLinearMemoryBytes: 0,
+              executionEngine: null,
+              executionEngineLinearMemoryBytes: 0,
+              supportedCallCount: 0,
+              supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
+              supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
+              supportedCalls: [],
+              sourceReads: [],
+              writableCommits: [],
+              writableDirectoryCreates: [],
+              dragAcceptFiles: null,
+              sleepZero: null,
+              globalMemoryStatus: null,
+              getFileAttributesA: null,
+              createDirectoryA: null,
+              setWindowPosRepeatActivation: null,
+              setWindowPosFrameChangeMove: null,
+              d3d9RecreatedTextures: null,
+              firstUnsupported: null,
+              checkpointCompletion: null,
+              error: "another runtime session is active",
             },
-            registeredThreadIds: [],
-            executedThreadIds: [],
-            contextSwitches: 0,
-            hostWaitExecutions: [],
-            threadExits: [],
-            executionState: "stopped",
-            executionTransitionCount: 0,
-            lastExecutionTransition: null,
-            pendingHostRequestRecords: 0,
-            watchdogContext: null,
-            callbackEntries: 0,
-            maximumCallbackDepth: 0,
-            writebackBatches: 0,
-            writebackPages: 0,
-            stackGrowths: [],
-            mappingDeltas: 0,
-            mappingOperations: {
-              reserve: 0,
-              commit: 0,
-              protect: 0,
-              decommit: 0,
-              release: 0,
-            },
-            mappingDirtyPages: 0,
-            mappingAtomicRejections: 0,
-            mappingStaleAccessStops: 0,
-            mappingCacheEffects: {
-              tlbFlushes: 0,
-              instructionFetchInvalidations: 0,
-              generatedCodeInvalidations: 0,
-            },
-            mirrorRebuilds: 0,
-            initialGeneration: 0,
-            initialCurrentDirectory: null,
-            finalGeneration: 0,
-            pendingHostCalls: 0,
-            pendingCallbacks: 0,
-            maximumSliceMilliseconds: 0,
-            wasmBridgeCalls: 0,
-            runtimeCoreLinearMemoryBytes: 0,
-            executionEngine: null,
-            executionEngineLinearMemoryBytes: 0,
-            supportedCallCount: 0,
-            supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
-            supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
-            supportedCalls: [],
-            sourceReads: [],
-            writableCommits: [],
-            writableDirectoryCreates: [],
-            dragAcceptFiles: null,
-            sleepZero: null,
-            globalMemoryStatus: null,
-            getFileAttributesA: null,
-            createDirectoryA: null,
-            setWindowPosRepeatActivation: null,
-            d3d9RecreatedTextures: null,
-            firstUnsupported: null,
-            checkpointCompletion: null,
-            error: "another runtime session is active",
-          },
-        });
-        return;
-      }
-      const session = new BrowserRuntimeSession(message.sessionId, message.configuration);
-      activeSession = session;
-      void session.run().finally(() => {
-        if (activeSession === session) {
-          activeSession = null;
+          });
+          return;
         }
-      });
-      break;
+        const session = new BrowserRuntimeSession(
+          message.sessionId,
+          message.configuration,
+        );
+        activeSession = session;
+        void session.run().finally(() => {
+          if (activeSession === session) {
+            activeSession = null;
+          }
+        });
+        break;
+      }
+      case "cancel-session":
+        activeSession?.cancel();
+        break;
+      case "host-completion":
+        activeSession?.completeHost(message);
+        break;
+      case "page-lifecycle":
+        activeSession?.updatePageLifecycle(message);
+        break;
     }
-    case "cancel-session":
-      activeSession?.cancel();
-      break;
-    case "host-completion":
-      activeSession?.completeHost(message);
-      break;
-    case "page-lifecycle":
-      activeSession?.updatePageLifecycle(message);
-      break;
-  }
-});
+  },
+);

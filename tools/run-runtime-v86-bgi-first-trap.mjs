@@ -69,13 +69,22 @@ for (let index = 0; index < commandArguments.length; index += 1) {
     assert(!manifestOptionSeen, "--manifest may be specified only once");
     manifestOptionSeen = true;
     manifestPath = path.resolve(commandArguments[index + 1] ?? "");
-    assert(commandArguments[index + 1] !== undefined, "--manifest requires a file");
+    assert(
+      commandArguments[index + 1] !== undefined,
+      "--manifest requires a file",
+    );
     index += 1;
   } else if (argument === "--generic-runtime-reentry") {
-    assert(!genericRuntimeReentry, "--generic-runtime-reentry may be specified only once");
+    assert(
+      !genericRuntimeReentry,
+      "--generic-runtime-reentry may be specified only once",
+    );
     genericRuntimeReentry = true;
   } else if (argument === "--runtime-capability") {
-    assert(genericRuntimeCapability === null, "--runtime-capability may be specified only once");
+    assert(
+      genericRuntimeCapability === null,
+      "--runtime-capability may be specified only once",
+    );
     genericRuntimeCapability = commandArguments[index + 1] ?? null;
     assert(
       [
@@ -202,25 +211,41 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
+        "user32-set-window-pos-frame-change-move",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
     );
     index += 1;
   } else if (argument === "--runtime-policy") {
-    assert(!runtimePolicyOptionSeen, "--runtime-policy may be specified only once");
+    assert(
+      !runtimePolicyOptionSeen,
+      "--runtime-policy may be specified only once",
+    );
     runtimePolicyOptionSeen = true;
     runtimePolicyPath = path.resolve(commandArguments[index + 1] ?? "");
-    assert(commandArguments[index + 1] !== undefined, "--runtime-policy requires a file");
+    assert(
+      commandArguments[index + 1] !== undefined,
+      "--runtime-policy requires a file",
+    );
     index += 1;
   } else if (argument === "--source-manifest") {
-    assert(!sourceManifestOptionSeen, "--source-manifest may be specified only once");
+    assert(
+      !sourceManifestOptionSeen,
+      "--source-manifest may be specified only once",
+    );
     sourceManifestOptionSeen = true;
     sourceManifestPath = path.resolve(commandArguments[index + 1] ?? "");
-    assert(commandArguments[index + 1] !== undefined, "--source-manifest requires a file");
+    assert(
+      commandArguments[index + 1] !== undefined,
+      "--source-manifest requires a file",
+    );
     index += 1;
   } else if (argument === "--evidence-level") {
-    assert(!evidenceLevelOptionSeen, "--evidence-level may be specified only once");
+    assert(
+      !evidenceLevelOptionSeen,
+      "--evidence-level may be specified only once",
+    );
     evidenceLevelOptionSeen = true;
     evidenceLevel = commandArguments[index + 1];
     assert(
@@ -234,15 +259,22 @@ for (let index = 0; index < commandArguments.length; index += 1) {
   }
 }
 assert(
-  positionalArguments.length <= 2 && positionalArguments.every((argument) => !argument.startsWith("--")),
+  positionalArguments.length <= 2 &&
+    positionalArguments.every((argument) => !argument.startsWith("--")),
   "usage: run-runtime-v86-bgi-first-trap.mjs [--manifest FILE] [--checkpoint ID] [--generic-runtime-reentry [--runtime-capability ID] [--runtime-policy FILE] [--source-manifest FILE] [--evidence-level summary|full]] [WASM] [BGI.exe]",
 );
 assert(
   genericRuntimeCapability === null || genericRuntimeReentry,
   "--runtime-capability requires --generic-runtime-reentry",
 );
-assert(runtimePolicyPath === null || genericRuntimeReentry, "--runtime-policy requires --generic-runtime-reentry");
-assert(sourceManifestPath === null || genericRuntimeReentry, "--source-manifest requires --generic-runtime-reentry");
+assert(
+  runtimePolicyPath === null || genericRuntimeReentry,
+  "--runtime-policy requires --generic-runtime-reentry",
+);
+assert(
+  sourceManifestPath === null || genericRuntimeReentry,
+  "--source-manifest requires --generic-runtime-reentry",
+);
 assert(
   sourceManifestPath === null ||
     [
@@ -311,182 +343,271 @@ assert(
       "kernel32-create-directory-a",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
+      "user32-set-window-pos-frame-change-move",
       "kernel32-leave-critical-section",
-    ].includes(
-      genericRuntimeCapability,
-    ),
+    ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-create-directory-a" ||
     genericRuntimeCapability === "user32-set-window-pos-repeat-activation" ||
-    genericRuntimeCapability === "d3d9-recreated-textures"
+    genericRuntimeCapability === "d3d9-recreated-textures" ||
+    genericRuntimeCapability === "user32-set-window-pos-frame-change-move"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
-      ? "kernel32-get-file-attributes-a-v1.json"
-      : genericRuntimeCapability === "kernel32-global-memory-status"
-      ? "kernel32-global-memory-status-v1.json"
-      : genericRuntimeCapability === "kernel32-sleep-zero"
-      ? "kernel32-sleep-zero-v1.json"
-      : genericRuntimeCapability === "kernel32-wait-for-single-object-ex" ||
-    genericRuntimeCapability === "kernel32-enter-critical-section" ||
-    genericRuntimeCapability === "kernel32-enter-critical-section-continuation" ||
-    genericRuntimeCapability === "kernel32-leave-critical-section-continuation" ||
-    genericRuntimeCapability === "primary-main-loop-progression" ||
-    genericRuntimeCapability === "primary-main-loop-continuation" ||
-    genericRuntimeCapability === "shell32-drag-accept-files" ||
-    genericRuntimeCapability === "kernel32-archive-source-read" ||
-    genericRuntimeCapability === "kernel32-leave-critical-section"
-      ? "kernel32-wait-for-single-object-ex-v1.json"
-      : genericRuntimeCapability === "kernel32-set-waitable-timer"
-      ? "kernel32-set-waitable-timer-v1.json"
-      : genericRuntimeCapability === "kernel32-virtual-alloc" ||
-    genericRuntimeCapability === "imm32-default-ime-context"
-      ? "kernel32-virtual-alloc-reserve-v1.json"
-      : [
-      "kernel32-set-thread-priority",
-      "gdi-screen-dc",
-      "gdi-font-enumeration",
-      "gdi-font-creation",
-      "gdi-compatible-dc",
-      "gdi-dib-lifecycle",
-      "gdi-outline-text-metrics",
-      "gdi-text-raster",
-      "gdiplus-startup",
-    ].includes(genericRuntimeCapability)
-      ? "kernel32-set-thread-priority-v1.json"
-      : genericRuntimeCapability === "kernel32-create-thread"
-      ? "kernel32-create-thread-v1.json"
-      : genericRuntimeCapability === "kernel32-load-library-a" ||
-    genericRuntimeCapability === "user32-get-client-rect" ||
-    genericRuntimeCapability === "gdi-window-dc-fill" ||
-    genericRuntimeCapability === "user32-set-window-long-a" ||
-    genericRuntimeCapability === "user32-set-window-pos-activation" ||
-    genericRuntimeCapability === "user32-monitor-from-window" ||
-    genericRuntimeCapability === "d3d9-get-adapter-count" ||
-    genericRuntimeCapability === "d3d9-get-adapter-monitor" ||
-    genericRuntimeCapability === "d3d9-create-device" ||
-    genericRuntimeCapability === "d3d9-create-texture" ||
-    genericRuntimeCapability === "d3d9-get-surface-level" ||
-    genericRuntimeCapability === "d3d9-surface-get-dc" ||
-    genericRuntimeCapability === "winmm-time-get-time" ||
-    genericRuntimeCapability === "d3d9-initial-textures" ||
-    genericRuntimeCapability === "d3d9-initial-vertex-buffer" ||
-    genericRuntimeCapability === "d3d9-initial-render-states" ||
-    genericRuntimeCapability === "d3d9-raster-status" ||
-    genericRuntimeCapability === "kernel32-query-performance-frequency" ||
-    genericRuntimeCapability === "user32-get-monitor-info-a" ||
-    genericRuntimeCapability === "dinput8-api-contract" ||
-    genericRuntimeCapability === "dinput8-enum-devices" ||
-    genericRuntimeCapability === "dsound-root-and-cooperative-level" ||
-    genericRuntimeCapability === "dsound-initial-buffers" ||
-    genericRuntimeCapability === "dsound-buffer-lock-unlock-play" ||
-    genericRuntimeCapability === "user32-set-timer"
-      ? "kernel32-d3dx-runtime-module-v1.json"
-      : genericRuntimeCapability === "kernel32-source-file-read" ||
-    genericRuntimeCapability === "user32-create-window-ex-a" ||
-    genericRuntimeCapability === "user32-get-system-metrics-small-icon-height" ||
-    genericRuntimeCapability === "user32-get-system-metrics-small-icon-width" ||
-    genericRuntimeCapability === "user32-load-image-a-small-icon" ||
-    genericRuntimeCapability === "user32-send-message-a-small-icon" ||
-    genericRuntimeCapability === "user32-set-window-pos-initial-placement" ||
-    genericRuntimeCapability === "d3d9-root-factory-and-identity" ||
-    genericRuntimeCapability === "d3d9-get-adapter-display-mode" ||
-    genericRuntimeCapability === "d3d9-get-adapter-identifier" ||
-    genericRuntimeCapability === "d3d9-get-device-caps" ||
-    genericRuntimeCapability === "d3d9-check-device-type" ||
-    genericRuntimeCapability === "d3d9-check-device-format"
-      ? "kernel32-source-file-read-v1.json"
-      : genericRuntimeCapability === "kernel32-large-heap-allocation"
-      ? "kernel32-large-heap-allocation-v1.json"
-      : genericRuntimeCapability === "user32-get-system-metrics" ||
-    genericRuntimeCapability === "user32-register-class-ex-a" ||
-    genericRuntimeCapability === "user32-load-cursor-a" ||
-    genericRuntimeCapability === "user32-load-icon-a" ||
-    genericRuntimeCapability === "kernel32-create-waitable-timer-a"
-      ? "kernel32-create-waitable-timer-a-v1.json"
-      : genericRuntimeCapability === "kernel32-get-version-ex-a"
-      ? "kernel32-get-version-ex-a-v1.json"
-      : genericRuntimeCapability === "winmm-time-begin-period" ||
-    genericRuntimeCapability === "winmm-time-get-dev-caps" ||
-    genericRuntimeCapability === "user32-swap-mouse-button" ||
-    genericRuntimeCapability === "kernel32-get-drive-type-a"
-      ? "kernel32-get-drive-type-a-v1.json"
-      : genericRuntimeCapability === "kernel32-get-system-default-lang-id"
-      ? "kernel32-get-system-default-lang-id-v1.json"
-      : genericRuntimeCapability === "ole32-co-initialize" ||
-    genericRuntimeCapability === "kernel32-get-system-info" ||
-    genericRuntimeCapability === "user32-enum-display-monitors"
-      ? "kernel32-get-system-info-v1.json"
-      : genericRuntimeCapability === "kernel32-get-current-thread" ||
-    genericRuntimeCapability === "kernel32-set-thread-affinity-mask"
-      ? "kernel32-bounded-heap-v2.json"
-      : genericRuntimeCapability === "kernel32-create-mutex-a"
-      ? "kernel32-create-mutex-a-v1.json"
-      : genericRuntimeCapability === "kernel32-set-current-directory-a"
-      ? "kernel32-set-current-directory-a-v1.json"
-      : genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp"
-      ? "kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
-      : genericRuntimeCapability === "kernel32-initialize-critical-section"
-      ? "kernel32-initialize-critical-section-v1.json"
-      : genericRuntimeCapability === "kernel32-heap-size"
-      ? "kernel32-heap-size-v1.json"
-      : genericRuntimeCapability === "kernel32-set-unhandled-exception-filter" ||
-    genericRuntimeCapability === "kernel32-is-processor-feature-present"
-      ? "kernel32-is-processor-feature-present-v1.json"
-      : genericRuntimeCapability === "kernel32-private-heap-size-128"
-      ? "kernel32-private-heap-size-128-v1.json"
-      : genericRuntimeCapability === "kernel32-private-heap-free-size-1"
-      ? "kernel32-private-heap-free-size-1-v1.json"
-      : genericRuntimeCapability === "kernel32-private-heap-size-4"
-      ? "kernel32-private-heap-size-4-v1.json"
-      : genericRuntimeCapability === "kernel32-private-heap-size-16"
-      ? "kernel32-private-heap-size-16-v1.json"
-      : genericRuntimeCapability === "kernel32-get-module-file-name-a"
-        ? "kernel32-get-module-file-name-a-v1.json"
-      : genericRuntimeCapability === "kernel32-lc-map-string-w" ||
-          genericRuntimeCapability === "kernel32-interlocked-decrement"
-      ? "kernel32-lc-map-string-w-v1.json"
-      : genericRuntimeCapability === "kernel32-get-string-type-w"
-      ? "kernel32-get-string-type-w-v1.json"
-      : genericRuntimeCapability === "kernel32-multi-byte-to-wide-char"
-      ? "kernel32-multi-byte-to-wide-char-v1.json"
-      : genericRuntimeCapability === "kernel32-get-cp-info"
-      ? "kernel32-get-cp-info-v1.json"
-      : genericRuntimeCapability === "kernel32-private-heap-size-544"
-      ? "kernel32-private-heap-size-544-v1.json"
-      : genericRuntimeCapability === "kernel32-get-acp" ||
-    genericRuntimeCapability === "kernel32-set-last-error" ||
-    genericRuntimeCapability === "kernel32-fls-get-value" ||
-    genericRuntimeCapability === "kernel32-tls-get-value" ||
-    genericRuntimeCapability === "kernel32-get-last-error" ||
-    genericRuntimeCapability === "kernel32-private-heap-size-1"
-      ? "kernel32-private-heap-size-1-v1.json"
-      : genericRuntimeCapability === "kernel32-wide-char-to-multi-byte"
-      ? "kernel32-wide-char-to-multi-byte-v1.json"
-      : genericRuntimeCapability === "kernel32-environment-strings-w"
-      ? "kernel32-environment-strings-w-v1.json"
-      : genericRuntimeCapability === "kernel32-command-line-a"
-      ? "kernel32-command-line-a-v1.json"
-      : genericRuntimeCapability === "kernel32-set-handle-count"
-      ? "kernel32-set-handle-count-v1.json"
-      : genericRuntimeCapability === "kernel32-standard-error-file-type"
-      ? "kernel32-standard-error-file-type-v1.json"
-      : genericRuntimeCapability === "kernel32-standard-error-handle"
-      ? "kernel32-standard-error-v1.json"
-      : genericRuntimeCapability === "kernel32-standard-output-file-type"
-      ? "kernel32-standard-output-file-type-v1.json"
-      : genericRuntimeCapability === "kernel32-standard-output-handle"
-      ? "kernel32-standard-output-v1.json"
-      : [
-            "kernel32-private-heap-second-allocation",
-            "kernel32-standard-input-handle",
-            "kernel32-file-type",
-          ].includes(genericRuntimeCapability)
-        ? "kernel32-heap-two-v1.json"
-        : "kernel32-controlled-v1.json";
-  runtimePolicyPath = path.join(root, "fixtures", "runtime-policies", policyName);
+        ? "kernel32-get-file-attributes-a-v1.json"
+        : genericRuntimeCapability === "kernel32-global-memory-status"
+          ? "kernel32-global-memory-status-v1.json"
+          : genericRuntimeCapability === "kernel32-sleep-zero"
+            ? "kernel32-sleep-zero-v1.json"
+            : genericRuntimeCapability ===
+                  "kernel32-wait-for-single-object-ex" ||
+                genericRuntimeCapability ===
+                  "kernel32-enter-critical-section" ||
+                genericRuntimeCapability ===
+                  "kernel32-enter-critical-section-continuation" ||
+                genericRuntimeCapability ===
+                  "kernel32-leave-critical-section-continuation" ||
+                genericRuntimeCapability === "primary-main-loop-progression" ||
+                genericRuntimeCapability === "primary-main-loop-continuation" ||
+                genericRuntimeCapability === "shell32-drag-accept-files" ||
+                genericRuntimeCapability === "kernel32-archive-source-read" ||
+                genericRuntimeCapability === "kernel32-leave-critical-section"
+              ? "kernel32-wait-for-single-object-ex-v1.json"
+              : genericRuntimeCapability === "kernel32-set-waitable-timer"
+                ? "kernel32-set-waitable-timer-v1.json"
+                : genericRuntimeCapability === "kernel32-virtual-alloc" ||
+                    genericRuntimeCapability === "imm32-default-ime-context"
+                  ? "kernel32-virtual-alloc-reserve-v1.json"
+                  : [
+                        "kernel32-set-thread-priority",
+                        "gdi-screen-dc",
+                        "gdi-font-enumeration",
+                        "gdi-font-creation",
+                        "gdi-compatible-dc",
+                        "gdi-dib-lifecycle",
+                        "gdi-outline-text-metrics",
+                        "gdi-text-raster",
+                        "gdiplus-startup",
+                      ].includes(genericRuntimeCapability)
+                    ? "kernel32-set-thread-priority-v1.json"
+                    : genericRuntimeCapability === "kernel32-create-thread"
+                      ? "kernel32-create-thread-v1.json"
+                      : genericRuntimeCapability ===
+                            "kernel32-load-library-a" ||
+                          genericRuntimeCapability ===
+                            "user32-get-client-rect" ||
+                          genericRuntimeCapability === "gdi-window-dc-fill" ||
+                          genericRuntimeCapability ===
+                            "user32-set-window-long-a" ||
+                          genericRuntimeCapability ===
+                            "user32-set-window-pos-activation" ||
+                          genericRuntimeCapability ===
+                            "user32-monitor-from-window" ||
+                          genericRuntimeCapability ===
+                            "d3d9-get-adapter-count" ||
+                          genericRuntimeCapability ===
+                            "d3d9-get-adapter-monitor" ||
+                          genericRuntimeCapability === "d3d9-create-device" ||
+                          genericRuntimeCapability === "d3d9-create-texture" ||
+                          genericRuntimeCapability ===
+                            "d3d9-get-surface-level" ||
+                          genericRuntimeCapability === "d3d9-surface-get-dc" ||
+                          genericRuntimeCapability === "winmm-time-get-time" ||
+                          genericRuntimeCapability ===
+                            "d3d9-initial-textures" ||
+                          genericRuntimeCapability ===
+                            "d3d9-initial-vertex-buffer" ||
+                          genericRuntimeCapability ===
+                            "d3d9-initial-render-states" ||
+                          genericRuntimeCapability === "d3d9-raster-status" ||
+                          genericRuntimeCapability ===
+                            "kernel32-query-performance-frequency" ||
+                          genericRuntimeCapability ===
+                            "user32-get-monitor-info-a" ||
+                          genericRuntimeCapability === "dinput8-api-contract" ||
+                          genericRuntimeCapability === "dinput8-enum-devices" ||
+                          genericRuntimeCapability ===
+                            "dsound-root-and-cooperative-level" ||
+                          genericRuntimeCapability ===
+                            "dsound-initial-buffers" ||
+                          genericRuntimeCapability ===
+                            "dsound-buffer-lock-unlock-play" ||
+                          genericRuntimeCapability === "user32-set-timer"
+                        ? "kernel32-d3dx-runtime-module-v1.json"
+                        : genericRuntimeCapability ===
+                              "kernel32-source-file-read" ||
+                            genericRuntimeCapability ===
+                              "user32-create-window-ex-a" ||
+                            genericRuntimeCapability ===
+                              "user32-get-system-metrics-small-icon-height" ||
+                            genericRuntimeCapability ===
+                              "user32-get-system-metrics-small-icon-width" ||
+                            genericRuntimeCapability ===
+                              "user32-load-image-a-small-icon" ||
+                            genericRuntimeCapability ===
+                              "user32-send-message-a-small-icon" ||
+                            genericRuntimeCapability ===
+                              "user32-set-window-pos-initial-placement" ||
+                            genericRuntimeCapability ===
+                              "d3d9-root-factory-and-identity" ||
+                            genericRuntimeCapability ===
+                              "d3d9-get-adapter-display-mode" ||
+                            genericRuntimeCapability ===
+                              "d3d9-get-adapter-identifier" ||
+                            genericRuntimeCapability ===
+                              "d3d9-get-device-caps" ||
+                            genericRuntimeCapability ===
+                              "d3d9-check-device-type" ||
+                            genericRuntimeCapability ===
+                              "d3d9-check-device-format"
+                          ? "kernel32-source-file-read-v1.json"
+                          : genericRuntimeCapability ===
+                              "kernel32-large-heap-allocation"
+                            ? "kernel32-large-heap-allocation-v1.json"
+                            : genericRuntimeCapability ===
+                                  "user32-get-system-metrics" ||
+                                genericRuntimeCapability ===
+                                  "user32-register-class-ex-a" ||
+                                genericRuntimeCapability ===
+                                  "user32-load-cursor-a" ||
+                                genericRuntimeCapability ===
+                                  "user32-load-icon-a" ||
+                                genericRuntimeCapability ===
+                                  "kernel32-create-waitable-timer-a"
+                              ? "kernel32-create-waitable-timer-a-v1.json"
+                              : genericRuntimeCapability ===
+                                  "kernel32-get-version-ex-a"
+                                ? "kernel32-get-version-ex-a-v1.json"
+                                : genericRuntimeCapability ===
+                                      "winmm-time-begin-period" ||
+                                    genericRuntimeCapability ===
+                                      "winmm-time-get-dev-caps" ||
+                                    genericRuntimeCapability ===
+                                      "user32-swap-mouse-button" ||
+                                    genericRuntimeCapability ===
+                                      "kernel32-get-drive-type-a"
+                                  ? "kernel32-get-drive-type-a-v1.json"
+                                  : genericRuntimeCapability ===
+                                      "kernel32-get-system-default-lang-id"
+                                    ? "kernel32-get-system-default-lang-id-v1.json"
+                                    : genericRuntimeCapability ===
+                                          "ole32-co-initialize" ||
+                                        genericRuntimeCapability ===
+                                          "kernel32-get-system-info" ||
+                                        genericRuntimeCapability ===
+                                          "user32-enum-display-monitors"
+                                      ? "kernel32-get-system-info-v1.json"
+                                      : genericRuntimeCapability ===
+                                            "kernel32-get-current-thread" ||
+                                          genericRuntimeCapability ===
+                                            "kernel32-set-thread-affinity-mask"
+                                        ? "kernel32-bounded-heap-v2.json"
+                                        : genericRuntimeCapability ===
+                                            "kernel32-create-mutex-a"
+                                          ? "kernel32-create-mutex-a-v1.json"
+                                          : genericRuntimeCapability ===
+                                              "kernel32-set-current-directory-a"
+                                            ? "kernel32-set-current-directory-a-v1.json"
+                                            : genericRuntimeCapability ===
+                                                "kernel32-multi-byte-to-wide-char-cp-acp"
+                                              ? "kernel32-multi-byte-to-wide-char-cp-acp-v1.json"
+                                              : genericRuntimeCapability ===
+                                                  "kernel32-initialize-critical-section"
+                                                ? "kernel32-initialize-critical-section-v1.json"
+                                                : genericRuntimeCapability ===
+                                                    "kernel32-heap-size"
+                                                  ? "kernel32-heap-size-v1.json"
+                                                  : genericRuntimeCapability ===
+                                                        "kernel32-set-unhandled-exception-filter" ||
+                                                      genericRuntimeCapability ===
+                                                        "kernel32-is-processor-feature-present"
+                                                    ? "kernel32-is-processor-feature-present-v1.json"
+                                                    : genericRuntimeCapability ===
+                                                        "kernel32-private-heap-size-128"
+                                                      ? "kernel32-private-heap-size-128-v1.json"
+                                                      : genericRuntimeCapability ===
+                                                          "kernel32-private-heap-free-size-1"
+                                                        ? "kernel32-private-heap-free-size-1-v1.json"
+                                                        : genericRuntimeCapability ===
+                                                            "kernel32-private-heap-size-4"
+                                                          ? "kernel32-private-heap-size-4-v1.json"
+                                                          : genericRuntimeCapability ===
+                                                              "kernel32-private-heap-size-16"
+                                                            ? "kernel32-private-heap-size-16-v1.json"
+                                                            : genericRuntimeCapability ===
+                                                                "kernel32-get-module-file-name-a"
+                                                              ? "kernel32-get-module-file-name-a-v1.json"
+                                                              : genericRuntimeCapability ===
+                                                                    "kernel32-lc-map-string-w" ||
+                                                                  genericRuntimeCapability ===
+                                                                    "kernel32-interlocked-decrement"
+                                                                ? "kernel32-lc-map-string-w-v1.json"
+                                                                : genericRuntimeCapability ===
+                                                                    "kernel32-get-string-type-w"
+                                                                  ? "kernel32-get-string-type-w-v1.json"
+                                                                  : genericRuntimeCapability ===
+                                                                      "kernel32-multi-byte-to-wide-char"
+                                                                    ? "kernel32-multi-byte-to-wide-char-v1.json"
+                                                                    : genericRuntimeCapability ===
+                                                                        "kernel32-get-cp-info"
+                                                                      ? "kernel32-get-cp-info-v1.json"
+                                                                      : genericRuntimeCapability ===
+                                                                          "kernel32-private-heap-size-544"
+                                                                        ? "kernel32-private-heap-size-544-v1.json"
+                                                                        : genericRuntimeCapability ===
+                                                                              "kernel32-get-acp" ||
+                                                                            genericRuntimeCapability ===
+                                                                              "kernel32-set-last-error" ||
+                                                                            genericRuntimeCapability ===
+                                                                              "kernel32-fls-get-value" ||
+                                                                            genericRuntimeCapability ===
+                                                                              "kernel32-tls-get-value" ||
+                                                                            genericRuntimeCapability ===
+                                                                              "kernel32-get-last-error" ||
+                                                                            genericRuntimeCapability ===
+                                                                              "kernel32-private-heap-size-1"
+                                                                          ? "kernel32-private-heap-size-1-v1.json"
+                                                                          : genericRuntimeCapability ===
+                                                                              "kernel32-wide-char-to-multi-byte"
+                                                                            ? "kernel32-wide-char-to-multi-byte-v1.json"
+                                                                            : genericRuntimeCapability ===
+                                                                                "kernel32-environment-strings-w"
+                                                                              ? "kernel32-environment-strings-w-v1.json"
+                                                                              : genericRuntimeCapability ===
+                                                                                  "kernel32-command-line-a"
+                                                                                ? "kernel32-command-line-a-v1.json"
+                                                                                : genericRuntimeCapability ===
+                                                                                    "kernel32-set-handle-count"
+                                                                                  ? "kernel32-set-handle-count-v1.json"
+                                                                                  : genericRuntimeCapability ===
+                                                                                      "kernel32-standard-error-file-type"
+                                                                                    ? "kernel32-standard-error-file-type-v1.json"
+                                                                                    : genericRuntimeCapability ===
+                                                                                        "kernel32-standard-error-handle"
+                                                                                      ? "kernel32-standard-error-v1.json"
+                                                                                      : genericRuntimeCapability ===
+                                                                                          "kernel32-standard-output-file-type"
+                                                                                        ? "kernel32-standard-output-file-type-v1.json"
+                                                                                        : genericRuntimeCapability ===
+                                                                                            "kernel32-standard-output-handle"
+                                                                                          ? "kernel32-standard-output-v1.json"
+                                                                                          : [
+                                                                                                "kernel32-private-heap-second-allocation",
+                                                                                                "kernel32-standard-input-handle",
+                                                                                                "kernel32-file-type",
+                                                                                              ].includes(
+                                                                                                genericRuntimeCapability,
+                                                                                              )
+                                                                                            ? "kernel32-heap-two-v1.json"
+                                                                                            : "kernel32-controlled-v1.json";
+  runtimePolicyPath = path.join(
+    root,
+    "fixtures",
+    "runtime-policies",
+    policyName,
+  );
 }
 const runtimePolicy =
   runtimePolicyPath === null
@@ -498,8 +619,12 @@ if (runtimePolicy !== null) {
   assert.equal(typeof runtimePolicy.id, "string");
 }
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
-const selectedCheckpoint = selectRuntimeCheckpoint(checkpointManifest, checkpointId);
-const includesCall = (callNumber) => selectedCheckpoint.supportedCallCount >= callNumber;
+const selectedCheckpoint = selectRuntimeCheckpoint(
+  checkpointManifest,
+  checkpointId,
+);
+const includesCall = (callNumber) =>
+  selectedCheckpoint.supportedCallCount >= callNumber;
 const dispatchSystemTime = includesCall(1);
 const dispatchProcessId = includesCall(2);
 const dispatchThreadId = includesCall(3);
@@ -529,7 +654,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const setWindowPosFrameChangeMoveCheckpointEnabled =
+  genericRuntimeCapability === "user32-set-window-pos-frame-change-move";
 const d3d9RecreatedTexturesCheckpointEnabled =
+  setWindowPosFrameChangeMoveCheckpointEnabled ||
   genericRuntimeCapability === "d3d9-recreated-textures";
 const setWindowPosRepeatActivationCheckpointEnabled =
   d3d9RecreatedTexturesCheckpointEnabled ||
@@ -595,9 +723,11 @@ const fontEnumerationEnabled =
 const screenDcEnabled =
   fontEnumerationEnabled || genericRuntimeCapability === "gdi-screen-dc";
 const setThreadPriorityEnabled =
-  screenDcEnabled || genericRuntimeCapability === "kernel32-set-thread-priority";
+  screenDcEnabled ||
+  genericRuntimeCapability === "kernel32-set-thread-priority";
 const createThreadEnabled =
-  setThreadPriorityEnabled || genericRuntimeCapability === "kernel32-create-thread";
+  setThreadPriorityEnabled ||
+  genericRuntimeCapability === "kernel32-create-thread";
 const setTimerEnabled =
   createThreadEnabled || genericRuntimeCapability === "user32-set-timer";
 const dsoundBufferTransferEnabled =
@@ -633,17 +763,21 @@ const d3d9InitialTexturesEnabled =
   d3d9InitialVertexBufferEnabled ||
   genericRuntimeCapability === "d3d9-initial-textures";
 const timeGetTimeEnabled =
-  d3d9InitialTexturesEnabled || genericRuntimeCapability === "winmm-time-get-time";
+  d3d9InitialTexturesEnabled ||
+  genericRuntimeCapability === "winmm-time-get-time";
 const d3d9SurfaceGetDcEnabled =
   timeGetTimeEnabled || genericRuntimeCapability === "d3d9-surface-get-dc";
 const d3d9GetSurfaceLevelEnabled =
-  d3d9SurfaceGetDcEnabled || genericRuntimeCapability === "d3d9-get-surface-level";
+  d3d9SurfaceGetDcEnabled ||
+  genericRuntimeCapability === "d3d9-get-surface-level";
 const d3d9CreateTextureEnabled =
-  d3d9GetSurfaceLevelEnabled || genericRuntimeCapability === "d3d9-create-texture";
+  d3d9GetSurfaceLevelEnabled ||
+  genericRuntimeCapability === "d3d9-create-texture";
 const d3d9CreateDeviceEnabled =
   d3d9CreateTextureEnabled || genericRuntimeCapability === "d3d9-create-device";
 const d3d9GetAdapterMonitorEnabled =
-  d3d9CreateDeviceEnabled || genericRuntimeCapability === "d3d9-get-adapter-monitor";
+  d3d9CreateDeviceEnabled ||
+  genericRuntimeCapability === "d3d9-get-adapter-monitor";
 const d3d9GetAdapterCountEnabled =
   d3d9GetAdapterMonitorEnabled ||
   genericRuntimeCapability === "d3d9-get-adapter-count";
@@ -661,9 +795,11 @@ const windowDcFillEnabled =
 const getClientRectEnabled =
   windowDcFillEnabled || genericRuntimeCapability === "user32-get-client-rect";
 const loadLibraryAEnabled =
-  getClientRectEnabled || genericRuntimeCapability === "kernel32-load-library-a";
+  getClientRectEnabled ||
+  genericRuntimeCapability === "kernel32-load-library-a";
 const d3d9CheckDeviceFormatEnabled =
-  loadLibraryAEnabled || genericRuntimeCapability === "d3d9-check-device-format";
+  loadLibraryAEnabled ||
+  genericRuntimeCapability === "d3d9-check-device-format";
 const d3d9CheckDeviceTypeEnabled =
   d3d9CheckDeviceFormatEnabled ||
   genericRuntimeCapability === "d3d9-check-device-type";
@@ -698,46 +834,64 @@ const createWindowExAEnabled =
   getSystemMetricsSmallIconHeightEnabled ||
   genericRuntimeCapability === "user32-create-window-ex-a";
 const sourceFileReadEnabled =
-  createWindowExAEnabled || genericRuntimeCapability === "kernel32-source-file-read";
+  createWindowExAEnabled ||
+  genericRuntimeCapability === "kernel32-source-file-read";
 const largeHeapAllocationEnabled =
-  sourceFileReadEnabled || genericRuntimeCapability === "kernel32-large-heap-allocation";
+  sourceFileReadEnabled ||
+  genericRuntimeCapability === "kernel32-large-heap-allocation";
 const getSystemMetricsEnabled =
-  largeHeapAllocationEnabled || genericRuntimeCapability === "user32-get-system-metrics";
+  largeHeapAllocationEnabled ||
+  genericRuntimeCapability === "user32-get-system-metrics";
 const registerClassExAEnabled =
-  getSystemMetricsEnabled || genericRuntimeCapability === "user32-register-class-ex-a";
+  getSystemMetricsEnabled ||
+  genericRuntimeCapability === "user32-register-class-ex-a";
 const loadCursorAEnabled =
-  registerClassExAEnabled || genericRuntimeCapability === "user32-load-cursor-a";
+  registerClassExAEnabled ||
+  genericRuntimeCapability === "user32-load-cursor-a";
 const loadIconAEnabled =
   loadCursorAEnabled || genericRuntimeCapability === "user32-load-icon-a";
 const createWaitableTimerAEnabled =
-  loadIconAEnabled || genericRuntimeCapability === "kernel32-create-waitable-timer-a";
+  loadIconAEnabled ||
+  genericRuntimeCapability === "kernel32-create-waitable-timer-a";
 const getVersionExAEnabled =
   createWaitableTimerAEnabled ||
   genericRuntimeCapability === "kernel32-get-version-ex-a";
 const timeBeginPeriodEnabled =
-  getVersionExAEnabled || genericRuntimeCapability === "winmm-time-begin-period";
+  getVersionExAEnabled ||
+  genericRuntimeCapability === "winmm-time-begin-period";
 const timeGetDevCapsEnabled =
-  timeBeginPeriodEnabled || genericRuntimeCapability === "winmm-time-get-dev-caps";
+  timeBeginPeriodEnabled ||
+  genericRuntimeCapability === "winmm-time-get-dev-caps";
 const swapMouseButtonEnabled =
-  timeGetDevCapsEnabled || genericRuntimeCapability === "user32-swap-mouse-button";
+  timeGetDevCapsEnabled ||
+  genericRuntimeCapability === "user32-swap-mouse-button";
 const getDriveTypeAEnabled =
-  swapMouseButtonEnabled || genericRuntimeCapability === "kernel32-get-drive-type-a";
+  swapMouseButtonEnabled ||
+  genericRuntimeCapability === "kernel32-get-drive-type-a";
 const getSystemDefaultLangIdEnabled =
-  getDriveTypeAEnabled || genericRuntimeCapability === "kernel32-get-system-default-lang-id";
+  getDriveTypeAEnabled ||
+  genericRuntimeCapability === "kernel32-get-system-default-lang-id";
 const coInitializeEnabled =
-  getSystemDefaultLangIdEnabled || genericRuntimeCapability === "ole32-co-initialize";
+  getSystemDefaultLangIdEnabled ||
+  genericRuntimeCapability === "ole32-co-initialize";
 const enumDisplayMonitorsEnabled =
-  coInitializeEnabled || genericRuntimeCapability === "user32-enum-display-monitors";
+  coInitializeEnabled ||
+  genericRuntimeCapability === "user32-enum-display-monitors";
 const getSystemInfoEnabled =
-  enumDisplayMonitorsEnabled || genericRuntimeCapability === "kernel32-get-system-info";
+  enumDisplayMonitorsEnabled ||
+  genericRuntimeCapability === "kernel32-get-system-info";
 const setThreadAffinityMaskEnabled =
-  getSystemInfoEnabled || genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
+  getSystemInfoEnabled ||
+  genericRuntimeCapability === "kernel32-set-thread-affinity-mask";
 const getCurrentThreadEnabled =
-  setThreadAffinityMaskEnabled || genericRuntimeCapability === "kernel32-get-current-thread";
+  setThreadAffinityMaskEnabled ||
+  genericRuntimeCapability === "kernel32-get-current-thread";
 const createMutexAEnabled =
-  getCurrentThreadEnabled || genericRuntimeCapability === "kernel32-create-mutex-a";
+  getCurrentThreadEnabled ||
+  genericRuntimeCapability === "kernel32-create-mutex-a";
 const setCurrentDirectoryAEnabled =
-  createMutexAEnabled || genericRuntimeCapability === "kernel32-set-current-directory-a";
+  createMutexAEnabled ||
+  genericRuntimeCapability === "kernel32-set-current-directory-a";
 const multiByteToWideCharCpAcpEnabled =
   setCurrentDirectoryAEnabled ||
   genericRuntimeCapability === "kernel32-multi-byte-to-wide-char-cp-acp";
@@ -775,14 +929,17 @@ const lcMapStringWEnabled =
   interlockedDecrementEnabled ||
   genericRuntimeCapability === "kernel32-lc-map-string-w";
 const getStringTypeWEnabled =
-  lcMapStringWEnabled || genericRuntimeCapability === "kernel32-get-string-type-w";
+  lcMapStringWEnabled ||
+  genericRuntimeCapability === "kernel32-get-string-type-w";
 const multiByteToWideCharEnabled =
   getStringTypeWEnabled ||
   genericRuntimeCapability === "kernel32-multi-byte-to-wide-char";
 const getCpInfoEnabled =
-  multiByteToWideCharEnabled || genericRuntimeCapability === "kernel32-get-cp-info";
+  multiByteToWideCharEnabled ||
+  genericRuntimeCapability === "kernel32-get-cp-info";
 const privateHeapSize544Enabled =
-  getCpInfoEnabled || genericRuntimeCapability === "kernel32-private-heap-size-544";
+  getCpInfoEnabled ||
+  genericRuntimeCapability === "kernel32-private-heap-size-544";
 const getAcpEnabled =
   privateHeapSize544Enabled || genericRuntimeCapability === "kernel32-get-acp";
 const setLastErrorEnabled =
@@ -794,7 +951,8 @@ const tlsGetValueEnabled =
 const getLastErrorEnabled =
   tlsGetValueEnabled || genericRuntimeCapability === "kernel32-get-last-error";
 const privateHeapSize1Enabled =
-  getLastErrorEnabled || genericRuntimeCapability === "kernel32-private-heap-size-1";
+  getLastErrorEnabled ||
+  genericRuntimeCapability === "kernel32-private-heap-size-1";
 const wideCharToMultiByteEnabled =
   privateHeapSize1Enabled ||
   genericRuntimeCapability === "kernel32-wide-char-to-multi-byte";
@@ -805,7 +963,8 @@ const commandLineAEnabled =
   environmentStringsWEnabled ||
   genericRuntimeCapability === "kernel32-command-line-a";
 const setHandleCountEnabled =
-  commandLineAEnabled || genericRuntimeCapability === "kernel32-set-handle-count";
+  commandLineAEnabled ||
+  genericRuntimeCapability === "kernel32-set-handle-count";
 const standardErrorFileTypeEnabled =
   setHandleCountEnabled ||
   genericRuntimeCapability === "kernel32-standard-error-file-type";
@@ -844,7 +1003,13 @@ const runtimeHeapPageAllowance = isProcessorFeaturePresentEnabled
   : Number(privateHeapAllocationEnabled);
 const wasmPath = path.resolve(
   positionalArguments[0] ??
-    path.join(root, ".work", "v86-adapter-source", "build", "v86-fallback.wasm"),
+    path.join(
+      root,
+      ".work",
+      "v86-adapter-source",
+      "build",
+      "v86-fallback.wasm",
+    ),
 );
 const bgiPath = path.resolve(
   positionalArguments[1] ??
@@ -855,256 +1020,259 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? d3d9RecreatedTexturesCheckpointEnabled
-      ? "v86-bgi-d3d9-recreated-textures"
-      : setWindowPosRepeatActivationCheckpointEnabled
-      ? "v86-bgi-set-window-pos-repeat-activation"
-      : createDirectoryACheckpointEnabled
-      ? "v86-bgi-create-directory-a"
-      : getFileAttributesACheckpointEnabled
-      ? "v86-bgi-get-file-attributes-a"
-      : globalMemoryStatusCheckpointEnabled
-      ? "v86-bgi-global-memory-status"
-      : sleepZeroCheckpointEnabled
-      ? "v86-bgi-sleep-zero"
-      : archiveSourceReadEnabled
-      ? "v86-bgi-archive-source-read"
-      : leaveCriticalSectionContinuationEnabled
-      ? "v86-bgi-leave-critical-section-continuation"
-      : dragAcceptFilesEnabled
-      ? "v86-bgi-drag-accept-files"
-      : primaryMainLoopContinuationEnabled
-      ? "v86-bgi-primary-main-loop-continuation"
-      : enterCriticalSectionContinuationEnabled
-      ? "v86-bgi-enter-critical-section-continuation"
-      : leaveCriticalSectionCheckpointEnabled
-      ? "v86-bgi-leave-critical-section"
-      : mainLoopProgressionEnabled
-      ? "v86-bgi-primary-main-loop-progression"
-      : enterCriticalSectionEnabled
-      ? "v86-bgi-enter-critical-section"
-      : waitForSingleObjectExEnabled
-      ? "v86-bgi-wait-for-single-object-ex"
-      : setWaitableTimerEnabled
-      ? "v86-bgi-set-waitable-timer"
-      : imm32ContextEnabled
-      ? "v86-bgi-default-ime-context"
-      : virtualAllocEnabled
-      ? "v86-bgi-virtual-alloc"
-      : gdiplusStartupEnabled
-      ? "v86-bgi-startup"
-      : textRasterEnabled
-      ? "v86-bgi-text-raster"
-      : outlineTextMetricsEnabled
-      ? "v86-bgi-outline-text-metrics"
-      : dibLifecycleEnabled
-      ? "v86-bgi-dib-lifecycle"
-      : compatibleDcEnabled
-      ? "v86-bgi-compatible-dc"
-      : fontCreationEnabled
-      ? "v86-bgi-font-creation"
-      : fontEnumerationEnabled
-      ? "v86-bgi-font-enumeration"
-      : screenDcEnabled
-      ? "v86-bgi-screen-dc"
-      : setThreadPriorityEnabled
-      ? "v86-bgi-set-thread-priority"
-      : createThreadEnabled
-      ? "v86-bgi-create-thread"
-      : setTimerEnabled
-      ? "v86-bgi-set-timer"
-      : dsoundBufferTransferEnabled
-      ? "v86-bgi-dsound-buffer-lock-unlock-play"
-      : dsoundInitialBuffersEnabled
-      ? "v86-bgi-dsound-initial-buffers"
-      : dsoundRootEnabled
-      ? "v86-bgi-dsound-root-and-cooperative-level"
-      : dinput8EnumDevicesEnabled
-      ? "v86-bgi-dinput8-enum-devices"
-      : dinput8FactoryEnabled
-      ? "v86-bgi-dinput8-api-contract"
-      : getMonitorInfoAEnabled
-      ? "v86-bgi-get-monitor-info-a"
-      : queryPerformanceFrequencyEnabled
-      ? "v86-bgi-query-performance-frequency"
-      : d3d9RasterStatusEnabled
-      ? "v86-bgi-d3d9-raster-status"
-      : d3d9InitialRenderStatesEnabled
-        ? "v86-bgi-d3d9-initial-render-states"
-      : d3d9InitialVertexBufferEnabled
-        ? "v86-bgi-d3d9-initial-vertex-buffer"
-      : d3d9InitialTexturesEnabled
-        ? "v86-bgi-d3d9-initial-textures"
-      : timeGetTimeEnabled
-        ? "v86-bgi-time-get-time"
-      : d3d9SurfaceGetDcEnabled
-        ? "v86-bgi-d3d9-surface-get-dc"
-      : d3d9GetSurfaceLevelEnabled
-        ? "v86-bgi-d3d9-get-surface-level"
-      : d3d9CreateTextureEnabled
-        ? "v86-bgi-d3d9-create-texture"
-      : d3d9CreateDeviceEnabled
-        ? "v86-bgi-d3d9-create-device"
-      : d3d9GetAdapterMonitorEnabled
-        ? "v86-bgi-d3d9-get-adapter-monitor"
-      : d3d9GetAdapterCountEnabled
-        ? "v86-bgi-d3d9-get-adapter-count"
-      : monitorFromWindowEnabled
-        ? "v86-bgi-monitor-from-window"
-      : setWindowPosActivationEnabled
-        ? "v86-bgi-set-window-pos-activation"
-      : setWindowLongAEnabled
-        ? "v86-bgi-set-window-long-a"
-      : windowDcFillEnabled
-        ? "v86-bgi-window-dc-fill"
-      : getClientRectEnabled
-        ? "v86-bgi-get-client-rect"
-      : loadLibraryAEnabled
-        ? "v86-bgi-load-library-a"
-      : d3d9CheckDeviceFormatEnabled
-        ? "v86-bgi-d3d9-check-device-format"
-      : d3d9CheckDeviceTypeEnabled
-        ? "v86-bgi-d3d9-check-device-type"
-      : d3d9GetDeviceCapsEnabled
-        ? "v86-bgi-d3d9-get-device-caps"
-      : d3d9GetAdapterIdentifierEnabled
-        ? "v86-bgi-d3d9-get-adapter-identifier"
-      : d3d9GetAdapterDisplayModeEnabled
-        ? "v86-bgi-d3d9-get-adapter-display-mode"
-      : d3d9RootFactoryEnabled
-        ? "v86-bgi-d3d9-root-factory-and-identity"
-      : setWindowPosInitialPlacementEnabled
-        ? "v86-bgi-set-window-pos-initial-placement"
-      : sendMessageASmallIconEnabled
-        ? "v86-bgi-send-message-a-small-icon"
-      : loadImageASmallIconEnabled
-        ? "v86-bgi-load-image-a-small-icon"
-      : getSystemMetricsSmallIconWidthEnabled
-        ? "v86-bgi-get-system-metrics-small-icon-width"
-      : getSystemMetricsSmallIconHeightEnabled
-        ? "v86-bgi-get-system-metrics-small-icon-height"
-      : createWindowExAEnabled
-        ? "v86-bgi-create-window-ex-a"
-      : sourceFileReadEnabled
-        ? "v86-bgi-source-file-read"
-      : largeHeapAllocationEnabled
-        ? "v86-bgi-large-heap-allocation"
-      : getSystemMetricsEnabled
-        ? "v86-bgi-get-system-metrics"
-      : registerClassExAEnabled
-        ? "v86-bgi-register-class-ex-a"
-      : loadCursorAEnabled
-        ? "v86-bgi-load-cursor-a"
-      : loadIconAEnabled
-        ? "v86-bgi-load-icon-a"
-      : createWaitableTimerAEnabled
-        ? "v86-bgi-create-waitable-timer-a"
-      : getVersionExAEnabled
-        ? "v86-bgi-get-version-ex-a"
-      : timeBeginPeriodEnabled
-        ? "v86-bgi-time-begin-period"
-      : timeGetDevCapsEnabled
-        ? "v86-bgi-time-get-dev-caps"
-      : swapMouseButtonEnabled
-        ? "v86-bgi-swap-mouse-button"
-      : getDriveTypeAEnabled
-        ? "v86-bgi-get-drive-type-a"
-        : getSystemDefaultLangIdEnabled
-        ? "v86-bgi-get-system-default-lang-id"
-        : coInitializeEnabled
-        ? "v86-bgi-co-initialize"
-        : enumDisplayMonitorsEnabled
-        ? "v86-bgi-enum-display-monitors"
-        : getSystemInfoEnabled
-        ? "v86-bgi-get-system-info"
-        : setThreadAffinityMaskEnabled
-        ? "v86-bgi-set-thread-affinity-mask"
-        : getCurrentThreadEnabled
-        ? "v86-bgi-get-current-thread"
-        : createMutexAEnabled
-        ? "v86-bgi-create-mutex-a"
-        : setCurrentDirectoryAEnabled
-        ? "v86-bgi-set-current-directory-a"
-        : multiByteToWideCharCpAcpEnabled
-        ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
-        : initializeCriticalSectionEnabled
-        ? "v86-bgi-initialize-critical-section"
-        : heapSizeEnabled
-        ? "v86-bgi-heap-size"
-        : setUnhandledExceptionFilterEnabled
-        ? "v86-bgi-set-unhandled-exception-filter"
-        : isProcessorFeaturePresentEnabled
-        ? "v86-bgi-is-processor-feature-present"
-        : privateHeapSize128Enabled
-        ? "v86-bgi-private-heap-size-128"
-        : privateHeapFreeSize1Enabled
-        ? "v86-bgi-private-heap-free-size-1"
-        : privateHeapSize4Enabled
-        ? "v86-bgi-private-heap-size-4"
-        : privateHeapSize16Enabled
-        ? "v86-bgi-private-heap-size-16"
-        : getModuleFileNameAEnabled
-        ? "v86-bgi-get-module-file-name-a"
-        : interlockedDecrementEnabled
-        ? "v86-bgi-interlocked-decrement"
-        : lcMapStringWEnabled
-      ? "v86-bgi-lc-map-string-w"
-      : getStringTypeWEnabled
-      ? "v86-bgi-get-string-type-w"
-      : multiByteToWideCharEnabled
-      ? "v86-bgi-multi-byte-to-wide-char"
-      : getCpInfoEnabled
-      ? "v86-bgi-get-cp-info"
-      : privateHeapSize544Enabled
-      ? "v86-bgi-private-heap-size-544"
-      : getAcpEnabled
-      ? "v86-bgi-get-acp"
-      : setLastErrorEnabled
-      ? "v86-bgi-set-last-error"
-      : flsGetValueEnabled
-      ? "v86-bgi-fls-get-value"
-      : tlsGetValueEnabled
-      ? "v86-bgi-tls-get-value"
-      : getLastErrorEnabled
-      ? "v86-bgi-get-last-error"
-      : privateHeapSize1Enabled
-      ? "v86-bgi-private-heap-size-1"
-      : wideCharToMultiByteEnabled
-      ? "v86-bgi-wide-char-to-multi-byte"
-      : environmentStringsWEnabled
-      ? "v86-bgi-environment-strings-w"
-      : commandLineAEnabled
-      ? "v86-bgi-command-line-a"
-      : setHandleCountEnabled
-      ? "v86-bgi-set-handle-count"
-      : standardErrorFileTypeEnabled
-      ? "v86-bgi-standard-error-file-type"
-      : standardErrorHandleEnabled
-      ? "v86-bgi-standard-error-handle"
-      : standardOutputFileTypeEnabled
-      ? "v86-bgi-standard-output-file-type"
-      : standardOutputHandleEnabled
-      ? "v86-bgi-standard-output-handle"
-      : fileTypeEnabled
-      ? "v86-bgi-file-type"
-      : standardInputHandleEnabled
-      ? "v86-bgi-standard-input-handle"
-      : privateHeapSecondAllocationEnabled
-      ? "v86-bgi-private-heap-second-allocation"
-      : interlockedIncrementEnabled
-      ? "v86-bgi-interlocked-increment"
-      : fiberLocalStorageValueEnabled
-      ? "v86-bgi-fiber-local-storage-value"
-      : privateHeapAllocationEnabled
-      ? "v86-bgi-private-heap-allocation"
-      : fiberLocalStorageAllocationEnabled
-      ? "v86-bgi-fiber-local-storage-allocation"
-      : genericRuntimeCapability === "kernel32-pointer-decoding"
-        ? "v86-bgi-pointer-decoding"
-        : "v86-bgi-critical-section-synchronization"
+    ? setWindowPosFrameChangeMoveCheckpointEnabled
+      ? "v86-bgi-set-window-pos-frame-change-move"
+      : d3d9RecreatedTexturesCheckpointEnabled
+        ? "v86-bgi-d3d9-recreated-textures"
+        : setWindowPosRepeatActivationCheckpointEnabled
+          ? "v86-bgi-set-window-pos-repeat-activation"
+          : createDirectoryACheckpointEnabled
+            ? "v86-bgi-create-directory-a"
+            : getFileAttributesACheckpointEnabled
+              ? "v86-bgi-get-file-attributes-a"
+              : globalMemoryStatusCheckpointEnabled
+                ? "v86-bgi-global-memory-status"
+                : sleepZeroCheckpointEnabled
+                  ? "v86-bgi-sleep-zero"
+                  : archiveSourceReadEnabled
+                    ? "v86-bgi-archive-source-read"
+                    : leaveCriticalSectionContinuationEnabled
+                      ? "v86-bgi-leave-critical-section-continuation"
+                      : dragAcceptFilesEnabled
+                        ? "v86-bgi-drag-accept-files"
+                        : primaryMainLoopContinuationEnabled
+                          ? "v86-bgi-primary-main-loop-continuation"
+                          : enterCriticalSectionContinuationEnabled
+                            ? "v86-bgi-enter-critical-section-continuation"
+                            : leaveCriticalSectionCheckpointEnabled
+                              ? "v86-bgi-leave-critical-section"
+                              : mainLoopProgressionEnabled
+                                ? "v86-bgi-primary-main-loop-progression"
+                                : enterCriticalSectionEnabled
+                                  ? "v86-bgi-enter-critical-section"
+                                  : waitForSingleObjectExEnabled
+                                    ? "v86-bgi-wait-for-single-object-ex"
+                                    : setWaitableTimerEnabled
+                                      ? "v86-bgi-set-waitable-timer"
+                                      : imm32ContextEnabled
+                                        ? "v86-bgi-default-ime-context"
+                                        : virtualAllocEnabled
+                                          ? "v86-bgi-virtual-alloc"
+                                          : gdiplusStartupEnabled
+                                            ? "v86-bgi-startup"
+                                            : textRasterEnabled
+                                              ? "v86-bgi-text-raster"
+                                              : outlineTextMetricsEnabled
+                                                ? "v86-bgi-outline-text-metrics"
+                                                : dibLifecycleEnabled
+                                                  ? "v86-bgi-dib-lifecycle"
+                                                  : compatibleDcEnabled
+                                                    ? "v86-bgi-compatible-dc"
+                                                    : fontCreationEnabled
+                                                      ? "v86-bgi-font-creation"
+                                                      : fontEnumerationEnabled
+                                                        ? "v86-bgi-font-enumeration"
+                                                        : screenDcEnabled
+                                                          ? "v86-bgi-screen-dc"
+                                                          : setThreadPriorityEnabled
+                                                            ? "v86-bgi-set-thread-priority"
+                                                            : createThreadEnabled
+                                                              ? "v86-bgi-create-thread"
+                                                              : setTimerEnabled
+                                                                ? "v86-bgi-set-timer"
+                                                                : dsoundBufferTransferEnabled
+                                                                  ? "v86-bgi-dsound-buffer-lock-unlock-play"
+                                                                  : dsoundInitialBuffersEnabled
+                                                                    ? "v86-bgi-dsound-initial-buffers"
+                                                                    : dsoundRootEnabled
+                                                                      ? "v86-bgi-dsound-root-and-cooperative-level"
+                                                                      : dinput8EnumDevicesEnabled
+                                                                        ? "v86-bgi-dinput8-enum-devices"
+                                                                        : dinput8FactoryEnabled
+                                                                          ? "v86-bgi-dinput8-api-contract"
+                                                                          : getMonitorInfoAEnabled
+                                                                            ? "v86-bgi-get-monitor-info-a"
+                                                                            : queryPerformanceFrequencyEnabled
+                                                                              ? "v86-bgi-query-performance-frequency"
+                                                                              : d3d9RasterStatusEnabled
+                                                                                ? "v86-bgi-d3d9-raster-status"
+                                                                                : d3d9InitialRenderStatesEnabled
+                                                                                  ? "v86-bgi-d3d9-initial-render-states"
+                                                                                  : d3d9InitialVertexBufferEnabled
+                                                                                    ? "v86-bgi-d3d9-initial-vertex-buffer"
+                                                                                    : d3d9InitialTexturesEnabled
+                                                                                      ? "v86-bgi-d3d9-initial-textures"
+                                                                                      : timeGetTimeEnabled
+                                                                                        ? "v86-bgi-time-get-time"
+                                                                                        : d3d9SurfaceGetDcEnabled
+                                                                                          ? "v86-bgi-d3d9-surface-get-dc"
+                                                                                          : d3d9GetSurfaceLevelEnabled
+                                                                                            ? "v86-bgi-d3d9-get-surface-level"
+                                                                                            : d3d9CreateTextureEnabled
+                                                                                              ? "v86-bgi-d3d9-create-texture"
+                                                                                              : d3d9CreateDeviceEnabled
+                                                                                                ? "v86-bgi-d3d9-create-device"
+                                                                                                : d3d9GetAdapterMonitorEnabled
+                                                                                                  ? "v86-bgi-d3d9-get-adapter-monitor"
+                                                                                                  : d3d9GetAdapterCountEnabled
+                                                                                                    ? "v86-bgi-d3d9-get-adapter-count"
+                                                                                                    : monitorFromWindowEnabled
+                                                                                                      ? "v86-bgi-monitor-from-window"
+                                                                                                      : setWindowPosActivationEnabled
+                                                                                                        ? "v86-bgi-set-window-pos-activation"
+                                                                                                        : setWindowLongAEnabled
+                                                                                                          ? "v86-bgi-set-window-long-a"
+                                                                                                          : windowDcFillEnabled
+                                                                                                            ? "v86-bgi-window-dc-fill"
+                                                                                                            : getClientRectEnabled
+                                                                                                              ? "v86-bgi-get-client-rect"
+                                                                                                              : loadLibraryAEnabled
+                                                                                                                ? "v86-bgi-load-library-a"
+                                                                                                                : d3d9CheckDeviceFormatEnabled
+                                                                                                                  ? "v86-bgi-d3d9-check-device-format"
+                                                                                                                  : d3d9CheckDeviceTypeEnabled
+                                                                                                                    ? "v86-bgi-d3d9-check-device-type"
+                                                                                                                    : d3d9GetDeviceCapsEnabled
+                                                                                                                      ? "v86-bgi-d3d9-get-device-caps"
+                                                                                                                      : d3d9GetAdapterIdentifierEnabled
+                                                                                                                        ? "v86-bgi-d3d9-get-adapter-identifier"
+                                                                                                                        : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                          ? "v86-bgi-d3d9-get-adapter-display-mode"
+                                                                                                                          : d3d9RootFactoryEnabled
+                                                                                                                            ? "v86-bgi-d3d9-root-factory-and-identity"
+                                                                                                                            : setWindowPosInitialPlacementEnabled
+                                                                                                                              ? "v86-bgi-set-window-pos-initial-placement"
+                                                                                                                              : sendMessageASmallIconEnabled
+                                                                                                                                ? "v86-bgi-send-message-a-small-icon"
+                                                                                                                                : loadImageASmallIconEnabled
+                                                                                                                                  ? "v86-bgi-load-image-a-small-icon"
+                                                                                                                                  : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                    ? "v86-bgi-get-system-metrics-small-icon-width"
+                                                                                                                                    : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                      ? "v86-bgi-get-system-metrics-small-icon-height"
+                                                                                                                                      : createWindowExAEnabled
+                                                                                                                                        ? "v86-bgi-create-window-ex-a"
+                                                                                                                                        : sourceFileReadEnabled
+                                                                                                                                          ? "v86-bgi-source-file-read"
+                                                                                                                                          : largeHeapAllocationEnabled
+                                                                                                                                            ? "v86-bgi-large-heap-allocation"
+                                                                                                                                            : getSystemMetricsEnabled
+                                                                                                                                              ? "v86-bgi-get-system-metrics"
+                                                                                                                                              : registerClassExAEnabled
+                                                                                                                                                ? "v86-bgi-register-class-ex-a"
+                                                                                                                                                : loadCursorAEnabled
+                                                                                                                                                  ? "v86-bgi-load-cursor-a"
+                                                                                                                                                  : loadIconAEnabled
+                                                                                                                                                    ? "v86-bgi-load-icon-a"
+                                                                                                                                                    : createWaitableTimerAEnabled
+                                                                                                                                                      ? "v86-bgi-create-waitable-timer-a"
+                                                                                                                                                      : getVersionExAEnabled
+                                                                                                                                                        ? "v86-bgi-get-version-ex-a"
+                                                                                                                                                        : timeBeginPeriodEnabled
+                                                                                                                                                          ? "v86-bgi-time-begin-period"
+                                                                                                                                                          : timeGetDevCapsEnabled
+                                                                                                                                                            ? "v86-bgi-time-get-dev-caps"
+                                                                                                                                                            : swapMouseButtonEnabled
+                                                                                                                                                              ? "v86-bgi-swap-mouse-button"
+                                                                                                                                                              : getDriveTypeAEnabled
+                                                                                                                                                                ? "v86-bgi-get-drive-type-a"
+                                                                                                                                                                : getSystemDefaultLangIdEnabled
+                                                                                                                                                                  ? "v86-bgi-get-system-default-lang-id"
+                                                                                                                                                                  : coInitializeEnabled
+                                                                                                                                                                    ? "v86-bgi-co-initialize"
+                                                                                                                                                                    : enumDisplayMonitorsEnabled
+                                                                                                                                                                      ? "v86-bgi-enum-display-monitors"
+                                                                                                                                                                      : getSystemInfoEnabled
+                                                                                                                                                                        ? "v86-bgi-get-system-info"
+                                                                                                                                                                        : setThreadAffinityMaskEnabled
+                                                                                                                                                                          ? "v86-bgi-set-thread-affinity-mask"
+                                                                                                                                                                          : getCurrentThreadEnabled
+                                                                                                                                                                            ? "v86-bgi-get-current-thread"
+                                                                                                                                                                            : createMutexAEnabled
+                                                                                                                                                                              ? "v86-bgi-create-mutex-a"
+                                                                                                                                                                              : setCurrentDirectoryAEnabled
+                                                                                                                                                                                ? "v86-bgi-set-current-directory-a"
+                                                                                                                                                                                : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                  ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
+                                                                                                                                                                                  : initializeCriticalSectionEnabled
+                                                                                                                                                                                    ? "v86-bgi-initialize-critical-section"
+                                                                                                                                                                                    : heapSizeEnabled
+                                                                                                                                                                                      ? "v86-bgi-heap-size"
+                                                                                                                                                                                      : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                        ? "v86-bgi-set-unhandled-exception-filter"
+                                                                                                                                                                                        : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                          ? "v86-bgi-is-processor-feature-present"
+                                                                                                                                                                                          : privateHeapSize128Enabled
+                                                                                                                                                                                            ? "v86-bgi-private-heap-size-128"
+                                                                                                                                                                                            : privateHeapFreeSize1Enabled
+                                                                                                                                                                                              ? "v86-bgi-private-heap-free-size-1"
+                                                                                                                                                                                              : privateHeapSize4Enabled
+                                                                                                                                                                                                ? "v86-bgi-private-heap-size-4"
+                                                                                                                                                                                                : privateHeapSize16Enabled
+                                                                                                                                                                                                  ? "v86-bgi-private-heap-size-16"
+                                                                                                                                                                                                  : getModuleFileNameAEnabled
+                                                                                                                                                                                                    ? "v86-bgi-get-module-file-name-a"
+                                                                                                                                                                                                    : interlockedDecrementEnabled
+                                                                                                                                                                                                      ? "v86-bgi-interlocked-decrement"
+                                                                                                                                                                                                      : lcMapStringWEnabled
+                                                                                                                                                                                                        ? "v86-bgi-lc-map-string-w"
+                                                                                                                                                                                                        : getStringTypeWEnabled
+                                                                                                                                                                                                          ? "v86-bgi-get-string-type-w"
+                                                                                                                                                                                                          : multiByteToWideCharEnabled
+                                                                                                                                                                                                            ? "v86-bgi-multi-byte-to-wide-char"
+                                                                                                                                                                                                            : getCpInfoEnabled
+                                                                                                                                                                                                              ? "v86-bgi-get-cp-info"
+                                                                                                                                                                                                              : privateHeapSize544Enabled
+                                                                                                                                                                                                                ? "v86-bgi-private-heap-size-544"
+                                                                                                                                                                                                                : getAcpEnabled
+                                                                                                                                                                                                                  ? "v86-bgi-get-acp"
+                                                                                                                                                                                                                  : setLastErrorEnabled
+                                                                                                                                                                                                                    ? "v86-bgi-set-last-error"
+                                                                                                                                                                                                                    : flsGetValueEnabled
+                                                                                                                                                                                                                      ? "v86-bgi-fls-get-value"
+                                                                                                                                                                                                                      : tlsGetValueEnabled
+                                                                                                                                                                                                                        ? "v86-bgi-tls-get-value"
+                                                                                                                                                                                                                        : getLastErrorEnabled
+                                                                                                                                                                                                                          ? "v86-bgi-get-last-error"
+                                                                                                                                                                                                                          : privateHeapSize1Enabled
+                                                                                                                                                                                                                            ? "v86-bgi-private-heap-size-1"
+                                                                                                                                                                                                                            : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                              ? "v86-bgi-wide-char-to-multi-byte"
+                                                                                                                                                                                                                              : environmentStringsWEnabled
+                                                                                                                                                                                                                                ? "v86-bgi-environment-strings-w"
+                                                                                                                                                                                                                                : commandLineAEnabled
+                                                                                                                                                                                                                                  ? "v86-bgi-command-line-a"
+                                                                                                                                                                                                                                  : setHandleCountEnabled
+                                                                                                                                                                                                                                    ? "v86-bgi-set-handle-count"
+                                                                                                                                                                                                                                    : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                      ? "v86-bgi-standard-error-file-type"
+                                                                                                                                                                                                                                      : standardErrorHandleEnabled
+                                                                                                                                                                                                                                        ? "v86-bgi-standard-error-handle"
+                                                                                                                                                                                                                                        : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                          ? "v86-bgi-standard-output-file-type"
+                                                                                                                                                                                                                                          : standardOutputHandleEnabled
+                                                                                                                                                                                                                                            ? "v86-bgi-standard-output-handle"
+                                                                                                                                                                                                                                            : fileTypeEnabled
+                                                                                                                                                                                                                                              ? "v86-bgi-file-type"
+                                                                                                                                                                                                                                              : standardInputHandleEnabled
+                                                                                                                                                                                                                                                ? "v86-bgi-standard-input-handle"
+                                                                                                                                                                                                                                                : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                  ? "v86-bgi-private-heap-second-allocation"
+                                                                                                                                                                                                                                                  : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                    ? "v86-bgi-interlocked-increment"
+                                                                                                                                                                                                                                                    : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                      ? "v86-bgi-fiber-local-storage-value"
+                                                                                                                                                                                                                                                      : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                        ? "v86-bgi-private-heap-allocation"
+                                                                                                                                                                                                                                                        : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                          ? "v86-bgi-fiber-local-storage-allocation"
+                                                                                                                                                                                                                                                          : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                              "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                            ? "v86-bgi-pointer-decoding"
+                                                                                                                                                                                                                                                            : "v86-bgi-critical-section-synchronization"
     : genericRuntimeReentry
       ? "v86-bgi-generic-runtime-reentry"
-    : selectedCheckpoint.artifactDirectory,
+      : selectedCheckpoint.artifactDirectory,
 );
 const reportPath = path.join(outputDirectory, "report.json");
 
@@ -1214,7 +1382,8 @@ const controlledPrivateHeap = {
   liveAllocations: 0,
   nativeObservation: {
     source: "focused-frida-heap-lifecycle-2026-07-12",
-    traceSha256: "9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682",
+    traceSha256:
+      "9bdf000eedb8844a6e8db4732d025e7dd3a33854bea47175e26c5d5a3e678682",
     callerRva: 0x000a8886,
     arguments: [0, 0x1000, 0],
     resultRole: "host-process-heap-address-observed-and-discarded",
@@ -1251,7 +1420,8 @@ const controlledLoadedModule = {
   nativeObservation: {
     source: "focused-frida-module-handle-2026-07-12",
     traceBytes: 347_850,
-    traceSha256: "bac37acf086ff691ba436b2959143c76894f20f5e271667813cefebeb5ee3557",
+    traceSha256:
+      "bac37acf086ff691ba436b2959143c76894f20f5e271667813cefebeb5ee3557",
     callerRva: 0x000a5811,
     argument: "KERNEL32.DLL",
     resultRole: "host-system-module-base-observed-and-discarded",
@@ -1287,12 +1457,12 @@ const controlledDynamicExport = {
     contentSha256: loadLibraryAEnabled
       ? "0a7e1bc635237742f90f1c146e26d71519b0a299ee1a20236fdc1025ab4e2e26"
       : dispatchGetProcAddressFourth
-      ? "82ff4f595efb66795e9086158d940bdfb0f8e30a73d6d16879d599eb5afab615"
-      : dispatchGetProcAddressThird
-      ? "3b6345284f0929d025fc45cb9ae5f1d720c7575ec110cb41e7fbcaaa2fad2439"
-      : dispatchGetProcAddressSecond
-      ? "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc"
-      : "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
+        ? "82ff4f595efb66795e9086158d940bdfb0f8e30a73d6d16879d599eb5afab615"
+        : dispatchGetProcAddressThird
+          ? "3b6345284f0929d025fc45cb9ae5f1d720c7575ec110cb41e7fbcaaa2fad2439"
+          : dispatchGetProcAddressSecond
+            ? "bf852b2d7a8fb6faddf0c43f182d3298746eeeb644c2fe35f8413b0b9a6de7dc"
+            : "4a1211e03e37794b9434ba7e8866fdda0d3a7dcffb53d0dc3a92a55cf1438059",
     ownerSealed: true,
     invalidation: {
       generation: 27,
@@ -1306,7 +1476,8 @@ const controlledDynamicExport = {
   nativeObservation: {
     source: "focused-frida-dynamic-export-2026-07-12",
     traceBytes: 320_917,
-    traceSha256: "5b94c823da26761172ff7cc2e8b867b7fc8661046bbc6612ddbaff613161cdfe",
+    traceSha256:
+      "5b94c823da26761172ff7cc2e8b867b7fc8661046bbc6612ddbaff613161cdfe",
     callerRva: 0x000a582f,
     module: "KERNEL32.DLL",
     symbol: "FlsAlloc",
@@ -1361,8 +1532,10 @@ const controlledThirdDynamicExport = {
   indirectCallRegister: "esi",
   requestedName: "FlsSetValue",
   resolvedName: "FlsSetValue",
-  firstEndpointStoreAddress: controlledSecondDynamicExport.firstEndpointStoreAddress,
-  secondEndpointStoreAddress: controlledSecondDynamicExport.endpointStoreAddress,
+  firstEndpointStoreAddress:
+    controlledSecondDynamicExport.firstEndpointStoreAddress,
+  secondEndpointStoreAddress:
+    controlledSecondDynamicExport.endpointStoreAddress,
   endpointStoreAddress: 0x100feec4,
   endpoint: {
     ...controlledDynamicExport.endpoint,
@@ -1393,8 +1566,10 @@ const controlledFourthDynamicExport = {
   indirectCallRegister: "esi",
   requestedName: "FlsFree",
   resolvedName: "FlsFree",
-  firstEndpointStoreAddress: controlledThirdDynamicExport.firstEndpointStoreAddress,
-  secondEndpointStoreAddress: controlledThirdDynamicExport.secondEndpointStoreAddress,
+  firstEndpointStoreAddress:
+    controlledThirdDynamicExport.firstEndpointStoreAddress,
+  secondEndpointStoreAddress:
+    controlledThirdDynamicExport.secondEndpointStoreAddress,
   thirdEndpointStoreAddress: controlledThirdDynamicExport.endpointStoreAddress,
   endpointStoreAddress: 0x100feec8,
   endpoint: {
@@ -1441,7 +1616,8 @@ const controlledTlsAllocation = {
     source: "focused-frida-tls-lifecycle-2026-07-12",
     traceBytes: 6_138_442,
     traceLines: 19_816,
-    traceSha256: "214ca138648d6674860ba3fc43e18c017470f0b31e023f1e7e9e4afa88dae08b",
+    traceSha256:
+      "214ca138648d6674860ba3fc43e18c017470f0b31e023f1e7e9e4afa88dae08b",
     confirmationTraceBytes: 62_273,
     confirmationTraceLines: 223,
     confirmationTraceSha256:
@@ -1505,7 +1681,8 @@ const controlledEncodedNull = {
     source: "focused-frida-pointer-encoding-2026-07-12",
     traceBytes: 2_213_858,
     traceLines: 6_979,
-    traceSha256: "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
+    traceSha256:
+      "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
     confirmationTraceBytes: 312_314,
     confirmationTraceLines: 1_040,
     confirmationTraceSha256:
@@ -1533,8 +1710,8 @@ const controlledEncodedProcessInitializer = {
   sourcePointer: 0x100a9608,
   sourcePageAddress: 0x100a9000,
   sourceFunctionPrefix: [
-    0x6a, 0x08, 0x68, 0xf8, 0xb2, 0x0e, 0x10, 0xe8, 0x5c, 0xbc, 0xff, 0xff, 0xe8, 0x33,
-    0xc0, 0xff, 0xff,
+    0x6a, 0x08, 0x68, 0xf8, 0xb2, 0x0e, 0x10, 0xe8, 0x5c, 0xbc, 0xff, 0xff,
+    0xe8, 0x33, 0xc0, 0xff, 0xff,
   ],
   sourceRole: "process-initializer-guest-function",
   encodedStoreAddress: 0x100ff62c,
@@ -1546,7 +1723,8 @@ const controlledEncodedProcessInitializer = {
     source: "focused-frida-pointer-encoding-2026-07-12",
     traceBytes: 2_213_858,
     traceLines: 6_979,
-    traceSha256: "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
+    traceSha256:
+      "71a79c89aa9511cf0eca37c952d24130765212705ab34be08de56b1529045fa3",
     confirmationTraceBytes: 312_314,
     confirmationTraceLines: 1_040,
     confirmationTraceSha256:
@@ -1657,16 +1835,16 @@ const expected = {
     commandLine: "BGI.exe",
     commandLineLengthBytes: 14,
     commandLineMaximumLengthBytes: 16,
-    tebContentSha256: "5d4ad643f294d6976304f87d2912ec4a0b1f774fae1fd9a94de59749bfdcd67e",
-    pebContentSha256: "780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39",
-    processParametersContentSha256:
-      environmentStringsWEnabled
-        ? "ffbaed76ceb380c4240a04d838f0ce068c93fca8b0951a895ade87e863981625"
-        : "ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33",
-    commandLineContentSha256:
-      environmentStringsWEnabled
-        ? "99c221425a6c0f4a91e97aaecebe7f078007be033c9a6d81f4444286579ce121"
-        : commandLineAEnabled
+    tebContentSha256:
+      "5d4ad643f294d6976304f87d2912ec4a0b1f774fae1fd9a94de59749bfdcd67e",
+    pebContentSha256:
+      "780207feb049a4c658816bf0c986bb386ec04214722a21c47936cdec01ee4d39",
+    processParametersContentSha256: environmentStringsWEnabled
+      ? "ffbaed76ceb380c4240a04d838f0ce068c93fca8b0951a895ade87e863981625"
+      : "ac17565d250da1d27dc2429b2c81bd242fe26d67373495b2238eadbb762b6d33",
+    commandLineContentSha256: environmentStringsWEnabled
+      ? "99c221425a6c0f4a91e97aaecebe7f078007be033c9a6d81f4444286579ce121"
+      : commandLineAEnabled
         ? "99c221425a6c0f4a91e97aaecebe7f078007be033c9a6d81f4444286579ce121"
         : "c9b83dbe193708a3418517c43a4dadd26ca50a4006b00bd11701f3bb6ef0e6cc",
     ansiBuffer: 0x7ffdd010,
@@ -1688,17 +1866,18 @@ const expected = {
   ].slice(0, loadLibraryAEnabled ? 5 : Math.max(2, getProcAddressCallCount)),
   memory: {
     owners: dispatchGetProcAddress ? 9 : 8,
-    reservedPages: (dispatchGetProcAddress ? 433 : 417) + (genericRuntimeReentry ? 255 : 0),
+    reservedPages:
+      (dispatchGetProcAddress ? 433 : 417) + (genericRuntimeReentry ? 255 : 0),
     reflectedPages: dispatchGetProcAddress ? 389 : 388,
     generation: dispatchGetProcAddress ? 27 : 24,
   },
   reflectionContentSha256: loadLibraryAEnabled
     ? "65f3b728ff9570a0f3081571c05996df74232711142bbfc5045d2c780dcecf49"
     : commandLineAEnabled
-    ? environmentStringsWEnabled
-      ? "cdba586268a16e9f45dbfc562dc00fec117cf7c5307629ba3237ca4f293a4a55"
-      : "79b095d59577cb70afcd654328c5a014a3c7f99b5832fc4f7819aef43eef94be"
-    : selectedCheckpoint.evidence.reflectionSha256,
+      ? environmentStringsWEnabled
+        ? "cdba586268a16e9f45dbfc562dc00fec117cf7c5307629ba3237ca4f293a4a55"
+        : "79b095d59577cb70afcd654328c5a014a3c7f99b5832fc4f7819aef43eef94be"
+      : selectedCheckpoint.evidence.reflectionSha256,
   offerLineBytes: commandLineAEnabled
     ? environmentStringsWEnabled
       ? 4_923_170
@@ -1724,9 +1903,11 @@ const expected = {
     deltaLineBytes: 9_584,
     deltaReceiptLineBytes: 361,
     deltaGeneration: dispatchGetProcAddress ? 28 : 25,
-    stackPageContentSha256: "46d99e572b1fb4f18aeb340362f31a5264cfc745cb01d22e32bc00bbb19dc785",
+    stackPageContentSha256:
+      "46d99e572b1fb4f18aeb340362f31a5264cfc745cb01d22e32bc00bbb19dc785",
     reconciledChangedBytes: 11,
-    deltaContentSha256: "dfad2cdbcc57bb6c05b66962dc185dbb6139a458f4da3e725536168474653840",
+    deltaContentSha256:
+      "dfad2cdbcc57bb6c05b66962dc185dbb6139a458f4da3e725536168474653840",
     nextThunk: {
       identity: {
         id: 103,
@@ -1746,7 +1927,8 @@ const expected = {
   secondCall: {
     requestLineBytes: 8_552,
     receiptLineBytes: 845,
-    stackPageContentSha256: "5aa539018b6830e5fb6ebdd82880174b37e6edd05f6933008b68d6d994c8223f",
+    stackPageContentSha256:
+      "5aa539018b6830e5fb6ebdd82880174b37e6edd05f6933008b68d6d994c8223f",
     reconciledChangedBytes: 4,
     nextThunk: {
       identity: {
@@ -1767,7 +1949,8 @@ const expected = {
   thirdCall: {
     requestLineBytes: 8_548,
     receiptLineBytes: 840,
-    stackPageContentSha256: "b22f529af561901c5156e388732e0e79954527b3650fc733ae5b780319791617",
+    stackPageContentSha256:
+      "b22f529af561901c5156e388732e0e79954527b3650fc733ae5b780319791617",
     reconciledChangedBytes: 1,
     nextThunk: {
       identity: {
@@ -1788,7 +1971,8 @@ const expected = {
   fourthCall: {
     requestLineBytes: 8_640,
     receiptLineBytes: 926,
-    stackPageContentSha256: "f70a02d880af738aa49ba1233b61151929abf67f5e370e3479858c20f312453b",
+    stackPageContentSha256:
+      "f70a02d880af738aa49ba1233b61151929abf67f5e370e3479858c20f312453b",
     reconciledChangedBytes: 1,
     nextThunk: {
       identity: {
@@ -1810,10 +1994,12 @@ const expected = {
     requestLineBytes: 8_681,
     deltaLineBytes: 9_583,
     deltaReceiptLineBytes: 366,
-    stackPageContentSha256: "a581c7ce28aa0c683d1b0489e93fbe29d24924e35cd2abe3e966d2fc7c65c4bc",
+    stackPageContentSha256:
+      "a581c7ce28aa0c683d1b0489e93fbe29d24924e35cd2abe3e966d2fc7c65c4bc",
     reconciledChangedBytes: 5,
     deltaGeneration: dispatchGetProcAddress ? 29 : 26,
-    deltaContentSha256: "e466741f272179ad06d4777d23b91fa11b4fa526a47063c0adfa62c842c3d951",
+    deltaContentSha256:
+      "e466741f272179ad06d4777d23b91fa11b4fa526a47063c0adfa62c842c3d951",
     nextThunk: {
       identity: {
         id: 83,
@@ -1834,12 +2020,16 @@ const expected = {
     requestLineBytes: 8_663,
     deltaLineBytes: 9_936,
     deltaReceiptLineBytes: 474,
-    outputBeforeSha256: "5fa35fdf26ef33a7361c44c3dabdb80cee7c2a468bf39e1ff0d2188e53b48aed",
-    outputBytesSha256: "9a577f8dadf13d9197f2f83feebcf47567472ab68625099b4e7bcde0fef18653",
-    stackPageContentSha256: "75e2211e3e9a79f92313319d9897bb1e868d74bb15f0dc513cc9cb393c9bb843",
+    outputBeforeSha256:
+      "5fa35fdf26ef33a7361c44c3dabdb80cee7c2a468bf39e1ff0d2188e53b48aed",
+    outputBytesSha256:
+      "9a577f8dadf13d9197f2f83feebcf47567472ab68625099b4e7bcde0fef18653",
+    stackPageContentSha256:
+      "75e2211e3e9a79f92313319d9897bb1e868d74bb15f0dc513cc9cb393c9bb843",
     reconciledChangedBytes: 31,
     deltaGeneration: dispatchGetProcAddress ? 30 : 27,
-    deltaContentSha256: "a2c82c133e41916b0b9af10314376ece9a281a8503db4b811031e5ce52919de8",
+    deltaContentSha256:
+      "a2c82c133e41916b0b9af10314376ece9a281a8503db4b811031e5ce52919de8",
     nextThunk: {
       identity: {
         id: 84,
@@ -1859,7 +2049,8 @@ const expected = {
   seventhCall: {
     requestLineBytes: 8_724,
     receiptLineBytes: 1_042,
-    stackPageContentSha256: "d121a898c549de8cf2eea5d76912375a993cac9a7dfb41d101ef2eb2b68fa3da",
+    stackPageContentSha256:
+      "d121a898c549de8cf2eea5d76912375a993cac9a7dfb41d101ef2eb2b68fa3da",
     reconciledChangedBytes: 12,
     nextThunk: {
       identity: {
@@ -1880,7 +2071,8 @@ const expected = {
   eighthCall: {
     requestLineBytes: 8_691,
     receiptLineBytes: 1_233,
-    stackPageContentSha256: "48f30a675492096d7110c249c8f8bc35da1b58ab3db07df9553e168e56e05d93",
+    stackPageContentSha256:
+      "48f30a675492096d7110c249c8f8bc35da1b58ab3db07df9553e168e56e05d93",
     reconciledChangedBytes: 8,
     nextThunk: {
       identity: {
@@ -1901,8 +2093,10 @@ const expected = {
   ninthCall: {
     requestLineBytes: 8_721,
     receiptLineBytes: 1_499,
-    moduleNameBytesSha256: "4d40ac1582e46f291dedb30130e36b167bbe19b401a248b1972b1bfa7391d924",
-    stackPageContentSha256: "2d08da9d16a6782982e4b2b9e4617909c4ec2a65fbc1702479972ad4618f4b2e",
+    moduleNameBytesSha256:
+      "4d40ac1582e46f291dedb30130e36b167bbe19b401a248b1972b1bfa7391d924",
+    stackPageContentSha256:
+      "2d08da9d16a6782982e4b2b9e4617909c4ec2a65fbc1702479972ad4618f4b2e",
     reconciledChangedBytes: 9,
     nextThunk: {
       identity: {
@@ -1914,7 +2108,9 @@ const expected = {
       },
       unsupported: !dispatchGetProcAddress,
       returnAddress: 0x100a582f,
-      stackWords: [0x100a582f, 0x4d010001, 0x100d250c, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+      stackWords: [
+        0x100a582f, 0x4d010001, 0x100d250c, 0, 0, 0x100a375b, 0xe93f6d87, 0,
+      ],
     },
     instructionCount: 131,
     executeStops: 9,
@@ -1923,8 +2119,10 @@ const expected = {
   tenthCall: {
     requestLineBytes: 8_821,
     receiptLineBytes: 1_872,
-    procedureNameBytesSha256: "574f9b2cb1c509be66aa90427c3250a3249a19c7a243b86f4ab13b4040abbd1e",
-    stackPageContentSha256: "0ec9e7bed9bb310bdab5ae447581656314c744cf4d8fe2104a36d9fe297215c7",
+    procedureNameBytesSha256:
+      "574f9b2cb1c509be66aa90427c3250a3249a19c7a243b86f4ab13b4040abbd1e",
+    stackPageContentSha256:
+      "0ec9e7bed9bb310bdab5ae447581656314c744cf4d8fe2104a36d9fe297215c7",
     reconciledChangedBytes: 15,
     nextThunk: {
       identity: {
@@ -1936,7 +2134,9 @@ const expected = {
       },
       unsupported: false,
       returnAddress: 0x100a583c,
-      stackWords: [0x100a583c, 0x4d010001, 0x100d2500, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+      stackWords: [
+        0x100a583c, 0x4d010001, 0x100d2500, 0, 0, 0x100a375b, 0xe93f6d87, 0,
+      ],
     },
     instructionCount: 136,
     executeStops: 5,
@@ -1945,10 +2145,13 @@ const expected = {
   eleventhCall: {
     requestLineBytes: 17_273,
     receiptLineBytes: 2_704,
-    procedureNameBytesSha256: "51598ab3ab558b58b22deb49515346e61d997d79ab4215fd040ce7125ea0818f",
-    stackPageContentSha256: "5a4cdc83d919e8a3dfc1f0617bde34c9fc0f7eb3cee2a6597aa9f22e8e7e67ef",
+    procedureNameBytesSha256:
+      "51598ab3ab558b58b22deb49515346e61d997d79ab4215fd040ce7125ea0818f",
+    stackPageContentSha256:
+      "5a4cdc83d919e8a3dfc1f0617bde34c9fc0f7eb3cee2a6597aa9f22e8e7e67ef",
     stackReconciledChangedBytes: 2,
-    firstEndpointStorePageContentSha256: "098e6d79168e51989225bbab5e1c59d889363412c53b29d7478a0ad4174101f6",
+    firstEndpointStorePageContentSha256:
+      "098e6d79168e51989225bbab5e1c59d889363412c53b29d7478a0ad4174101f6",
     firstEndpointStoreReconciledChangedBytes: 2,
     nextThunk: {
       identity: {
@@ -1960,7 +2163,9 @@ const expected = {
       },
       unsupported: false,
       returnAddress: 0x100a5849,
-      stackWords: [0x100a5849, 0x4d010001, 0x100d24f4, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+      stackWords: [
+        0x100a5849, 0x4d010001, 0x100d24f4, 0, 0, 0x100a375b, 0xe93f6d87, 0,
+      ],
     },
     instructionCount: 141,
     executeStops: 5,
@@ -1969,10 +2174,13 @@ const expected = {
   twelfthCall: {
     requestLineBytes: 17_336,
     receiptLineBytes: 3_233,
-    procedureNameBytesSha256: "24e391b36bf5f29d67cdb94094f5662081c98677e63407f52f1dc1e924034c7d",
-    stackPageContentSha256: "c4f6754b2889228cfd3f7382adff164a4c9bb8c9722ac1f5f0a38e03471a9286",
+    procedureNameBytesSha256:
+      "24e391b36bf5f29d67cdb94094f5662081c98677e63407f52f1dc1e924034c7d",
+    stackPageContentSha256:
+      "c4f6754b2889228cfd3f7382adff164a4c9bb8c9722ac1f5f0a38e03471a9286",
     stackReconciledChangedBytes: 3,
-    endpointStorePageContentSha256: "1cb318f989df8cbf93f59a84f1f5ab9b62d57f3237f7e7162c8df79456ca9d68",
+    endpointStorePageContentSha256:
+      "1cb318f989df8cbf93f59a84f1f5ab9b62d57f3237f7e7162c8df79456ca9d68",
     endpointStoreReconciledChangedBytes: 3,
     nextThunk: {
       identity: {
@@ -1984,7 +2192,9 @@ const expected = {
       },
       unsupported: false,
       returnAddress: 0x100a5856,
-      stackWords: [0x100a5856, 0x4d010001, 0x100d24ec, 0, 0, 0x100a375b, 0xe93f6d87, 0],
+      stackWords: [
+        0x100a5856, 0x4d010001, 0x100d24ec, 0, 0, 0x100a375b, 0xe93f6d87, 0,
+      ],
     },
     instructionCount: 146,
     executeStops: 5,
@@ -1993,10 +2203,13 @@ const expected = {
   thirteenthCall: {
     requestLineBytes: 17_404,
     receiptLineBytes: 3_736,
-    procedureNameBytesSha256: "b25da59ca0b82d9b4b8ddb0a22566cbce73af231e364ed982046c841b26c8dd8",
-    stackPageContentSha256: "ecbad1e057c0e424b1bdc8c863bd9a4ae85d77f6bee312ce7ea02704160dedf8",
+    procedureNameBytesSha256:
+      "b25da59ca0b82d9b4b8ddb0a22566cbce73af231e364ed982046c841b26c8dd8",
+    stackPageContentSha256:
+      "ecbad1e057c0e424b1bdc8c863bd9a4ae85d77f6bee312ce7ea02704160dedf8",
     stackReconciledChangedBytes: 2,
-    endpointStorePageContentSha256: "c166a29b61c167001046de381b7dd5ba238ef5e5694021a152d626c9024ca7d0",
+    endpointStorePageContentSha256:
+      "c166a29b61c167001046de381b7dd5ba238ef5e5694021a152d626c9024ca7d0",
     endpointStoreReconciledChangedBytes: 3,
     nextTerminal: {
       kind: "owned-import-thunk",
@@ -2024,7 +2237,8 @@ const expected = {
   fourteenthCall: {
     requestLineBytes: 17_318,
     receiptLineBytes: 1_651,
-    stackPageContentSha256: "3595f775ff05d8b86348f1ddc3f931cc11b2bd9e769af5f012919daa888f91da",
+    stackPageContentSha256:
+      "3595f775ff05d8b86348f1ddc3f931cc11b2bd9e769af5f012919daa888f91da",
     stackReconciledChangedBytes: 3,
     endpointStorePageContentSha256:
       "705c675572bfe882af9addb23e20270278161fb8a8c7f4360afca09b0fbf96f8",
@@ -2055,7 +2269,8 @@ const expected = {
   fifteenthCall: {
     requestLineBytes: 28_349,
     receiptLineBytes: 2_733,
-    stackPageContentSha256: "0f62e02ebf62129f93e1bbad8e4b2f2739783536fd70af2df31a7cd5ef3accec",
+    stackPageContentSha256:
+      "0f62e02ebf62129f93e1bbad8e4b2f2739783536fd70af2df31a7cd5ef3accec",
     stackReconciledChangedBytes: 8,
     endpointStorePageContentSha256:
       "705c675572bfe882af9addb23e20270278161fb8a8c7f4360afca09b0fbf96f8",
@@ -2080,7 +2295,9 @@ const expected = {
         nameRva: 0x000ef9b0,
       },
       returnAddress: 0x100a5467,
-      stackWords: [0x100a5467, 0, 0x100a4fd6, 0x7f000430, 0x100a58ce, 0, 0, 0x100a375b],
+      stackWords: [
+        0x100a5467, 0, 0x100a4fd6, 0x7f000430, 0x100a58ce, 0, 0, 0x100a375b,
+      ],
     },
     instructionCount: 174,
     executeStops: 9,
@@ -2089,7 +2306,8 @@ const expected = {
   sixteenthCall: {
     requestLineBytes: 8_848,
     receiptLineBytes: 2_118,
-    stackPageContentSha256: "5f103e07657780d9f8a17053498cf300c1edee9a17272a20455ffd453fdff42a",
+    stackPageContentSha256:
+      "5f103e07657780d9f8a17053498cf300c1edee9a17272a20455ffd453fdff42a",
     stackReconciledChangedBytes: 13,
     nextTerminal: {
       kind: "owned-import-thunk",
@@ -2108,14 +2326,8 @@ const expected = {
       },
       returnAddress: 0x100a9697,
       stackWords: [
-        0x100a9697,
-        0x100a9608,
-        0x100a4ffc,
-        0xec010001,
-        0xec010001,
-        0xec010001,
-        0xec010001,
-        0xec010001,
+        0x100a9697, 0x100a9608, 0x100a4ffc, 0xec010001, 0xec010001, 0xec010001,
+        0xec010001, 0xec010001,
       ],
     },
     instructionCount: 229,
@@ -2127,7 +2339,8 @@ const expected = {
     receiptLineBytes: 2_574,
     sourceFunctionPrefixSha256:
       "ca74fa61a06f6555a4ec69ea76cdb33d4e1a461a970975d416644ecbeaf43b68",
-    stackPageContentSha256: "3091514821863563f1c42861b1835da0639a0aecf15286732f71dec102615893",
+    stackPageContentSha256:
+      "3091514821863563f1c42861b1835da0639a0aecf15286732f71dec102615893",
     stackReconciledChangedBytes: 32,
     encodedStoreValueBefore: 0,
     encodedStorePageContentSha256:
@@ -2148,16 +2361,7 @@ const expected = {
         nameRva: 0x000ef9b0,
       },
       returnAddress: 0x100a58dc,
-      stackWords: [
-        0x100a58dc,
-        0x7f020000,
-        0,
-        0,
-        0x100a375b,
-        0xe93f6d87,
-        0,
-        0,
-      ],
+      stackWords: [0x100a58dc, 0x7f020000, 0, 0, 0x100a375b, 0xe93f6d87, 0, 0],
     },
     instructionCount: 238,
     executeStops: 9,
@@ -2235,7 +2439,8 @@ const genericRuntimeExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 96_244,
-  reportSha256: "a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa",
+  reportSha256:
+    "a3aa1a78c688bd3af5fab86a0753a8449c1d5ca79f2b6d5d2dded2558b9d48fa",
 };
 const criticalSectionSynchronizationExpected = {
   frozenSemanticCalls: 17,
@@ -2262,7 +2467,8 @@ const criticalSectionSynchronizationExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 167_719,
-  reportSha256: "cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69",
+  reportSha256:
+    "cf0ea737b7eefc00e95c17a7dc3185c7f917fa7c8f3a10e009ccbd2943f06f69",
 };
 const pointerDecodingExpected = {
   frozenSemanticCalls: 17,
@@ -2291,7 +2497,8 @@ const pointerDecodingExpected = {
     faultCode: "dynamic-export-contract-missing",
   },
   reportBytes: 171_356,
-  reportSha256: "5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e",
+  reportSha256:
+    "5072319018e311156da1a619ac3edd1d7f9ad3c1c26b5b0d8215a11e872b7c9e",
 };
 const fiberLocalStorageAllocationExpected = {
   frozenSemanticCalls: 17,
@@ -2321,7 +2528,8 @@ const fiberLocalStorageAllocationExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 175_123,
-  reportSha256: "26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c",
+  reportSha256:
+    "26ed41c2a7e8266a47431da9fd737d26752e5812f057400b9715047990e6695c",
 };
 const privateHeapAllocationExpected = {
   frozenSemanticCalls: 17,
@@ -2346,7 +2554,8 @@ const privateHeapAllocationExpected = {
     mappingOperations: 2,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+    payloadSha256:
+      "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
   },
   firstUnsupported: {
     capabilityCluster: "kernel32-fiber-local-storage",
@@ -2360,7 +2569,8 @@ const privateHeapAllocationExpected = {
     faultCode: "dynamic-export-contract-missing",
   },
   reportBytes: 183_102,
-  reportSha256: "d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4",
+  reportSha256:
+    "d4081cfeca7648435b8a4f49c56b7abaec483dd8cd181343c2c543d2586df2b4",
 };
 const fiberLocalStorageValueExpected = {
   frozenSemanticCalls: 17,
@@ -2371,7 +2581,11 @@ const fiberLocalStorageValueExpected = {
   threadId: 8192,
   callInstructionCount: 644,
   callReturnAddress: 0x100a5955,
-  continuationSymbols: ["FlsSetValue", "GetModuleHandleW", "EnterCriticalSection"],
+  continuationSymbols: [
+    "FlsSetValue",
+    "GetModuleHandleW",
+    "EnterCriticalSection",
+  ],
   writebackBatches: 43,
   dirtyPages: 75,
   changedBytes: 497,
@@ -2390,7 +2604,8 @@ const fiberLocalStorageValueExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 195_821,
-  reportSha256: "f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f",
+  reportSha256:
+    "f6698bdfb51d0420bd3a85b2b2525b3cd09e155fde529a4997283548382e742f",
 };
 const interlockedIncrementExpected = {
   frozenSemanticCalls: 17,
@@ -2440,7 +2655,8 @@ const interlockedIncrementExpected = {
     faultCode: "heap-alloc-variant-unsupported",
   },
   reportBytes: 234_775,
-  reportSha256: "4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643",
+  reportSha256:
+    "4c6cfe6d57acd34763d69b1f00f9e20a882360b971f2bc1dd70084a72e67f643",
 };
 const privateHeapSecondAllocationExpected = {
   frozenSemanticCalls: 17,
@@ -2462,7 +2678,8 @@ const privateHeapSecondAllocationExpected = {
     generation: 107,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "bd49b343e4864d3d12162b7f0d9a7ce77782b4aa1c931f72121ddcb0f2018532",
+    payloadSha256:
+      "bd49b343e4864d3d12162b7f0d9a7ce77782b4aa1c931f72121ddcb0f2018532",
   },
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
@@ -2477,7 +2694,8 @@ const privateHeapSecondAllocationExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 239_789,
-  reportSha256: "fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8",
+  reportSha256:
+    "fe23cec93befb00a73e58ddd9ce94b9fa1d5c78cf193d4751a08f1fb68708ae8",
 };
 const standardInputHandleExpected = {
   frozenSemanticCalls: 17,
@@ -2503,7 +2721,8 @@ const standardInputHandleExpected = {
     faultCode: "endpoint-contract-missing",
   },
   reportBytes: 243_749,
-  reportSha256: "5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e",
+  reportSha256:
+    "5c1210d5313c7008c1628a7afeda4df3ef2ef3caa3fa29ba8bc577030c80a80e",
 };
 const fileTypeExpected = {
   frozenSemanticCalls: 17,
@@ -2536,7 +2755,8 @@ const fileTypeExpected = {
     faultCode: "standard-handle-selector-unsupported",
   },
   reportBytes: 252_994,
-  reportSha256: "dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf",
+  reportSha256:
+    "dff76ce6eb289bdc4e57e6013c113906d9b0cee80eaa8cbf23948dcccd7efbcf",
 };
 const standardOutputHandleExpected = {
   frozenSemanticCalls: 17,
@@ -2563,7 +2783,8 @@ const standardOutputHandleExpected = {
     faultCode: "file-type-standard-handle-unsupported",
   },
   reportBytes: 257_008,
-  reportSha256: "0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d",
+  reportSha256:
+    "0c6047e5c5007f244edaa5bd7ea963dd410283801d3bb572fa8a3aa82b10795d",
 };
 const standardOutputFileTypeExpected = {
   frozenSemanticCalls: 17,
@@ -2596,9 +2817,11 @@ const standardOutputFileTypeExpected = {
     instructionCount: 1484,
     faultCode: "standard-handle-selector-unsupported",
   },
-  memoryContentSha256: "909cca3e66d023f7bc2a6b9c8ab9f2435b17338fa850a14823983f513b1c1b68",
+  memoryContentSha256:
+    "909cca3e66d023f7bc2a6b9c8ab9f2435b17338fa850a14823983f513b1c1b68",
   reportBytes: 267_223,
-  reportSha256: "0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301",
+  reportSha256:
+    "0bc3770b1da0af519e4065021c11cc423427b9855d9ceedac6d9b00053837301",
 };
 const standardErrorHandleExpected = {
   frozenSemanticCalls: 17,
@@ -2612,7 +2835,8 @@ const standardErrorHandleExpected = {
   changedBytes: 971,
   hostDeltaBatches: 29,
   finalGeneration: 117,
-  memoryContentSha256: "a97f019fb34b6ab90d9cbf76f35b194674296de83088cb1736cbdbad090b5b12",
+  memoryContentSha256:
+    "a97f019fb34b6ab90d9cbf76f35b194674296de83088cb1736cbdbad090b5b12",
   firstUnsupported: {
     endpointId: 101,
     endpointAddress: 0x7f000640,
@@ -2625,7 +2849,8 @@ const standardErrorHandleExpected = {
     faultCode: "file-type-standard-handle-unsupported",
   },
   reportBytes: 271_184,
-  reportSha256: "bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f",
+  reportSha256:
+    "bfa1da3badbbd96ed5c282bd21c3bb0041fa06834dbad38fe0af32e116432c2f",
 };
 const standardErrorFileTypeExpected = {
   frozenSemanticCalls: 17,
@@ -2658,9 +2883,11 @@ const standardErrorFileTypeExpected = {
     instructionCount: 1516,
     faultCode: "endpoint-contract-missing",
   },
-  memoryContentSha256: "5bb58fba2f503a84550a71e0ba35f11049e77ebb9038461db91f04d0dfb3bb61",
+  memoryContentSha256:
+    "5bb58fba2f503a84550a71e0ba35f11049e77ebb9038461db91f04d0dfb3bb61",
   reportBytes: 280_475,
-  reportSha256: "ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1",
+  reportSha256:
+    "ce9d4271db746b1b7d377bb3e42a861f9c611367e5fcfefba0f19b35fca5aee1",
 };
 const setHandleCountExpected = {
   frozenSemanticCalls: 17,
@@ -2684,9 +2911,11 @@ const setHandleCountExpected = {
     instructionCount: 1526,
     faultCode: "endpoint-contract-missing",
   },
-  memoryContentSha256: "3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3",
+  memoryContentSha256:
+    "3e0e3dc6fc0420af4cf1bc4233d8fc267311f3926abc18b91ce839ce2ff083b3",
   reportBytes: 284_215,
-  reportSha256: "91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b",
+  reportSha256:
+    "91be62c168dd5296fa549a8bf553975853dfef506bcb3ce7670a7b8843f82f3b",
 };
 const commandLineAExpected = {
   frozenSemanticCalls: 17,
@@ -2699,9 +2928,11 @@ const commandLineAExpected = {
   changedBytes: 1001,
   hostDeltaBatches: 30,
   finalGeneration: 122,
-  memoryContentSha256: "33986edc39e1f5ecb9f050add5e9f534d2e1d81cc31d003ccd5060e1d30806f2",
+  memoryContentSha256:
+    "33986edc39e1f5ecb9f050add5e9f534d2e1d81cc31d003ccd5060e1d30806f2",
   reportBytes: 288_041,
-  reportSha256: "efa02444d94353422ff0d9a842045025a89a0adb9cf7f90f6d3a87a616b84668",
+  reportSha256:
+    "efa02444d94353422ff0d9a842045025a89a0adb9cf7f90f6d3a87a616b84668",
   firstUnsupported: {
     endpointId: 98,
     endpointAddress: 0x7f000610,
@@ -2725,9 +2956,11 @@ const environmentStringsWExpected = {
   changedBytes: 1015,
   hostDeltaBatches: 30,
   finalGeneration: 123,
-  memoryContentSha256: "20109e02acad2ff74cc74520f10b4bba715479f87a1fec2ae000be3f3e179481",
+  memoryContentSha256:
+    "20109e02acad2ff74cc74520f10b4bba715479f87a1fec2ae000be3f3e179481",
   reportBytes: 291_793,
-  reportSha256: "96cb98f09a1d2733442d38ce2736c15c38fd87f3f4fa082e020d623c3fdb6013",
+  reportSha256:
+    "96cb98f09a1d2733442d38ce2736c15c38fd87f3f4fa082e020d623c3fdb6013",
   firstUnsupported: {
     endpointId: 132,
     endpointAddress: 0x7f000830,
@@ -2750,9 +2983,11 @@ const wideCharToMultiByteExpected = {
   changedBytes: 1057,
   hostDeltaBatches: 30,
   finalGeneration: 124,
-  memoryContentSha256: "9b2b6b23255736f59b3c02c75bb3dd5adf811fb99e93ce40bc31a601ba55fddb",
+  memoryContentSha256:
+    "9b2b6b23255736f59b3c02c75bb3dd5adf811fb99e93ce40bc31a601ba55fddb",
   reportBytes: 295_762,
-  reportSha256: "ea0eb0f6a14869ca4e75643f01bd42c8c2e7360584c893e7578f6c21423b56cf",
+  reportSha256:
+    "ea0eb0f6a14869ca4e75643f01bd42c8c2e7360584c893e7578f6c21423b56cf",
   firstUnsupported: {
     capabilityCluster: "kernel32-private-heap-allocation",
     endpointId: 75,
@@ -2788,7 +3023,8 @@ const privateHeapSize1Expected = {
     generation: 125,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "ad2fa02b3d6607b908899adf2b82cca5ebd6bd63e33709f43f2da67e0a55ac42",
+    payloadSha256:
+      "ad2fa02b3d6607b908899adf2b82cca5ebd6bd63e33709f43f2da67e0a55ac42",
   },
   conversionDelta: {
     sequence: 66,
@@ -2796,11 +3032,14 @@ const privateHeapSize1Expected = {
     generation: 127,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "1504483f3eb1dfa3da39c5141a14dda7233850b774769f59431cf97b46989526",
+    payloadSha256:
+      "1504483f3eb1dfa3da39c5141a14dda7233850b774769f59431cf97b46989526",
   },
-  memoryContentSha256: "db234b2791244b2ca04dc20c957d3636a04b8a75ab506194d08ee03065bed7f2",
+  memoryContentSha256:
+    "db234b2791244b2ca04dc20c957d3636a04b8a75ab506194d08ee03065bed7f2",
   reportBytes: 308_984,
-  reportSha256: "bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e",
+  reportSha256:
+    "bfecc42fc7b32d21fc86580f81174548e6a26ff2b96f9dee05de51a9e7b4e26e",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 129,
@@ -2825,9 +3064,11 @@ const getLastErrorExpected = {
   changedBytes: 1179,
   hostDeltaBatches: 32,
   finalGeneration: 130,
-  memoryContentSha256: "ea204befffc2c6eebbf5aed3a6e11f792644a35bce5c54a23c996678f2ccb909",
+  memoryContentSha256:
+    "ea204befffc2c6eebbf5aed3a6e11f792644a35bce5c54a23c996678f2ccb909",
   reportBytes: 312_644,
-  reportSha256: "29b3517baa9bc71d3b34b523f0a57c0cb17a0ff09e1dba9a842a0fc1339516b6",
+  reportSha256:
+    "29b3517baa9bc71d3b34b523f0a57c0cb17a0ff09e1dba9a842a0fc1339516b6",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 69,
@@ -2852,9 +3093,11 @@ const tlsGetValueExpected = {
   changedBytes: 1180,
   hostDeltaBatches: 32,
   finalGeneration: 131,
-  memoryContentSha256: "3b2a4d71de4d796d93b92b16a2cb0ab1b62b45cab0cdaf173c5d6f09895736ba",
+  memoryContentSha256:
+    "3b2a4d71de4d796d93b92b16a2cb0ab1b62b45cab0cdaf173c5d6f09895736ba",
   reportBytes: 316_360,
-  reportSha256: "f14401c55cac1c5247050aad297cc19e35cdd2b4f772ccb842568e0de21ee2d9",
+  reportSha256:
+    "f14401c55cac1c5247050aad297cc19e35cdd2b4f772ccb842568e0de21ee2d9",
   firstUnsupported: {
     capabilityCluster: "kernel32-fiber-local-storage",
     endpointId: 2,
@@ -2878,9 +3121,11 @@ const flsGetValueExpected = {
   changedBytes: 1183,
   hostDeltaBatches: 32,
   finalGeneration: 132,
-  memoryContentSha256: "de703069e1242705785faa744b240ab843cf6ee1aa7fa78ddf4ea835e2c4e811",
+  memoryContentSha256:
+    "de703069e1242705785faa744b240ab843cf6ee1aa7fa78ddf4ea835e2c4e811",
   reportBytes: 320_070,
-  reportSha256: "f7672697a5f95f709fc242ce1c31b8f95039152a0d06f516aa042c8dafcacbcf",
+  reportSha256:
+    "f7672697a5f95f709fc242ce1c31b8f95039152a0d06f516aa042c8dafcacbcf",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 154,
@@ -2905,9 +3150,11 @@ const setLastErrorExpected = {
   changedBytes: 1370,
   hostDeltaBatches: 34,
   finalGeneration: 145,
-  memoryContentSha256: "3f212a5faa9d76896ed9f464e344aafe7c1fae60baae03856815a4c89cb417fe",
+  memoryContentSha256:
+    "3f212a5faa9d76896ed9f464e344aafe7c1fae60baae03856815a4c89cb417fe",
   reportBytes: 363_609,
-  reportSha256: "a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657",
+  reportSha256:
+    "a915d7b91d65e6b1d4805bc4f0ab62d6444573693402bed9fd473518f56f9657",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 156,
@@ -2933,9 +3180,11 @@ const getAcpExpected = {
   changedBytes: 1430,
   hostDeltaBatches: 34,
   finalGeneration: 146,
-  memoryContentSha256: "7ed5262e4eef60c3f665765d5741872b595205c5022193ec4633194e5ffa25ea",
+  memoryContentSha256:
+    "7ed5262e4eef60c3f665765d5741872b595205c5022193ec4633194e5ffa25ea",
   reportBytes: 367_384,
-  reportSha256: "b897324ff6b85383b2b51be1505e84868e53d9fa5488e5d8f0f4da0ed36b476d",
+  reportSha256:
+    "b897324ff6b85383b2b51be1505e84868e53d9fa5488e5d8f0f4da0ed36b476d",
   firstUnsupported: {
     capabilityCluster: "kernel32-private-heap-allocation",
     endpointId: 75,
@@ -2973,7 +3222,8 @@ const privateHeapSize544Expected = {
     generation: 147,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "104d76ea818bcc3969bad0e0a277dc5954a2b175dd508f7952b9eddf98136fb4",
+    payloadSha256:
+      "104d76ea818bcc3969bad0e0a277dc5954a2b175dd508f7952b9eddf98136fb4",
   },
   consumerWriteback: {
     sequence: 84,
@@ -2985,11 +3235,14 @@ const privateHeapSize544Expected = {
       { address: 0x006ff000, owner: 4 },
       { address: 0x20000000, owner: 10 },
     ],
-    payloadSha256: "e96d08f3b4a9e8663b3b381c23737195780a648af108bd99004ceaf70438d151",
+    payloadSha256:
+      "e96d08f3b4a9e8663b3b381c23737195780a648af108bd99004ceaf70438d151",
   },
-  memoryContentSha256: "c420169199f66f0bec6dc619b5d694e1f4987ea1990ae98f4d6a7773c63fcb26",
+  memoryContentSha256:
+    "c420169199f66f0bec6dc619b5d694e1f4987ea1990ae98f4d6a7773c63fcb26",
   reportBytes: 386_921,
-  reportSha256: "355c6c2dfc089c8d6f1ca30ea6cbe3b697f4e7afdfa6ed1ec4f2b0ea15593781",
+  reportSha256:
+    "355c6c2dfc089c8d6f1ca30ea6cbe3b697f4e7afdfa6ed1ec4f2b0ea15593781",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 155,
@@ -3025,7 +3278,8 @@ const getCpInfoExpected = {
     generation: 153,
     pageAddress: 0x006ff000,
     owner: 4,
-    payloadSha256: "6581defd12dd1676cc0b42a7597d4a0c7d3e2ba5daf74e2167f8a083e662df4d",
+    payloadSha256:
+      "6581defd12dd1676cc0b42a7597d4a0c7d3e2ba5daf74e2167f8a083e662df4d",
   },
   consumerWriteback: {
     sequence: 89,
@@ -3034,7 +3288,8 @@ const getCpInfoExpected = {
     generation: 154,
     changedBytes: 307,
     dirtyPages: [{ address: 0x006ff000, owner: 4 }],
-    payloadSha256: "d71dced9e69c9bf404b67af6fef4ee760f2b5975b86c8ee00e02bb2a9c6dc545",
+    payloadSha256:
+      "d71dced9e69c9bf404b67af6fef4ee760f2b5975b86c8ee00e02bb2a9c6dc545",
   },
   followupCalls: [
     ["GetLastError", 5703, 0x100a55dd],
@@ -3042,9 +3297,11 @@ const getCpInfoExpected = {
     ["FlsGetValue", 5719, 0x100a55ec],
     ["SetLastError", 5725, 0x100a5647],
   ],
-  memoryContentSha256: "1d0a6694d155aed6f9b12989c7d78ba0f6017c556749f218b9b131ac199eb389",
+  memoryContentSha256:
+    "1d0a6694d155aed6f9b12989c7d78ba0f6017c556749f218b9b131ac199eb389",
   reportBytes: 407_009,
-  reportSha256: "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1",
+  reportSha256:
+    "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 130,
@@ -3060,7 +3317,11 @@ const getCpInfoExpected = {
 };
 const multiByteTableOutputBytes = Array.from({ length: 256 }, (_, byte) => {
   let unit;
-  if (byte === 0 || (byte >= 0x81 && byte <= 0x9f) || (byte >= 0xe0 && byte <= 0xfc)) {
+  if (
+    byte === 0 ||
+    (byte >= 0x81 && byte <= 0x9f) ||
+    (byte >= 0xe0 && byte <= 0xfc)
+  ) {
     unit = 0x20;
   } else if (byte <= 0x80) {
     unit = byte;
@@ -3100,11 +3361,14 @@ const multiByteToWideCharExpected = {
     generation: 160,
     pageAddress: 0x006ff000,
     owner: 4,
-    payloadSha256: "be1040f1774da4926f9f0162ff5f0d72360d3af1ccb2afadd0a2e0c30909b73a",
+    payloadSha256:
+      "be1040f1774da4926f9f0162ff5f0d72360d3af1ccb2afadd0a2e0c30909b73a",
   },
-  memoryContentSha256: "eb77024dd956d49c9a1a9f89a0e248220cd6ab6850203978134aeb93b8c4e811",
+  memoryContentSha256:
+    "eb77024dd956d49c9a1a9f89a0e248220cd6ab6850203978134aeb93b8c4e811",
   reportBytes: 423_814,
-  reportSha256: "97655782894eca5f4e97a095d1ee3b64619e4f5ecf076c2be91d9b79ca045718",
+  reportSha256:
+    "97655782894eca5f4e97a095d1ee3b64619e4f5ecf076c2be91d9b79ca045718",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 108,
@@ -3127,7 +3391,12 @@ const getStringTypeTableOutputWords = Array.from({ length: 256 }, (_, byte) => {
   ) {
     return 0x0248;
   }
-  if ((byte >= 1 && byte <= 8) || (byte >= 14 && byte <= 31) || byte === 127 || byte === 128) {
+  if (
+    (byte >= 1 && byte <= 8) ||
+    (byte >= 14 && byte <= 31) ||
+    byte === 127 ||
+    byte === 128
+  ) {
     return 0x0220;
   }
   if (byte === 9) {
@@ -3165,10 +3434,9 @@ const getStringTypeTableOutputWords = Array.from({ length: 256 }, (_, byte) => {
   }
   return 0x0200;
 });
-const getStringTypeTableOutputBytes = getStringTypeTableOutputWords.flatMap((word) => [
-  word & 0xff,
-  word >>> 8,
-]);
+const getStringTypeTableOutputBytes = getStringTypeTableOutputWords.flatMap(
+  (word) => [word & 0xff, word >>> 8],
+);
 const getStringTypeWExpected = {
   frozenSemanticCalls: 17,
   supportedCalls: 101,
@@ -3190,7 +3458,8 @@ const getStringTypeWExpected = {
     generation: 162,
     pageAddress: 0x006ff000,
     owner: 4,
-    payloadSha256: "b4a11394007a1cbd18154b31d864421d2c9ec4062e83b88dafa18421e238dab6",
+    payloadSha256:
+      "b4a11394007a1cbd18154b31d864421d2c9ec4062e83b88dafa18421e238dab6",
   },
   consumerWriteback: {
     sequence: 96,
@@ -3202,7 +3471,8 @@ const getStringTypeWExpected = {
       { address: 0x006ff000, owner: 4 },
       { address: 0x20000000, owner: 10 },
     ],
-    payloadSha256: "1a343abf4d9e2b61cf0924a9eb44ac80c77131a231ddeebbba1eb93e2a816809",
+    payloadSha256:
+      "1a343abf4d9e2b61cf0924a9eb44ac80c77131a231ddeebbba1eb93e2a816809",
   },
   followupCalls: [
     ["GetLastError", 5967, 0x100a55dd],
@@ -3212,9 +3482,11 @@ const getStringTypeWExpected = {
     ["MultiByteToWideChar", 7606, 0x100a7ef7],
     ["MultiByteToWideChar", 7664, 0x100a7f65],
   ],
-  memoryContentSha256: "3c26a9fa98427249ef0f37546f25592d18d18e9ade8c07c4ebbd10e2ce6b9aa2",
+  memoryContentSha256:
+    "3c26a9fa98427249ef0f37546f25592d18d18e9ade8c07c4ebbd10e2ce6b9aa2",
   reportBytes: 468_010,
-  reportSha256: "00facfca5960a6e0e233deab536aa5d01e190d6e7f72e6be7caffb2e8997c425",
+  reportSha256:
+    "00facfca5960a6e0e233deab536aa5d01e190d6e7f72e6be7caffb2e8997c425",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 96,
@@ -3285,7 +3557,8 @@ const lcMapStringWExpected = {
       generation: 172,
       pageAddress: 0x006ff000,
       owner: 4,
-      payloadSha256: "387148ebbbfe78efb69a41e9c0cde9408f237880a748e69f0765f6d8d2ad4b27",
+      payloadSha256:
+        "387148ebbbfe78efb69a41e9c0cde9408f237880a748e69f0765f6d8d2ad4b27",
     },
     {
       sequence: 112,
@@ -3293,7 +3566,8 @@ const lcMapStringWExpected = {
       generation: 184,
       pageAddress: 0x006ff000,
       owner: 4,
-      payloadSha256: "1f5252fecc213757fa3e867aa9886d993f6ca748454b847df7ad211c55dfe83c",
+      payloadSha256:
+        "1f5252fecc213757fa3e867aa9886d993f6ca748454b847df7ad211c55dfe83c",
     },
   ],
   followupCalls: [
@@ -3306,9 +3580,11 @@ const lcMapStringWExpected = {
     ["MultiByteToWideChar", 9533, 0x100a7f65],
     ["WideCharToMultiByte", 9618, 0x100a8043],
   ],
-  memoryContentSha256: "00d38b3de81df69fb459a3ff8ad7f0b53e1e50317f1fc6b546efabab19f20b55",
+  memoryContentSha256:
+    "00d38b3de81df69fb459a3ff8ad7f0b53e1e50317f1fc6b546efabab19f20b55",
   reportBytes: 550_988,
-  reportSha256: "d56849eac369c5ad5b946c06b27acba844b779e548795efcc464a67bc2c7a889",
+  reportSha256:
+    "d56849eac369c5ad5b946c06b27acba844b779e548795efcc464a67bc2c7a889",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 123,
@@ -3344,7 +3620,8 @@ const interlockedDecrementExpected = {
         generation: 188,
         pageAddress: 0x100f0000,
         owner: 1,
-        payloadSha256: "25d935f63b91d0707a2c69ca70a0d27ad2a336e280099bdf4857bf24227bf37d",
+        payloadSha256:
+          "25d935f63b91d0707a2c69ca70a0d27ad2a336e280099bdf4857bf24227bf37d",
       },
     },
     {
@@ -3360,7 +3637,8 @@ const interlockedDecrementExpected = {
         generation: 194,
         pageAddress: 0x100f0000,
         owner: 1,
-        payloadSha256: "11f320560d0c6ca418481dffc089df2c07efdb4a539ae4e7dc3cdec6dd39c8f9",
+        payloadSha256:
+          "11f320560d0c6ca418481dffc089df2c07efdb4a539ae4e7dc3cdec6dd39c8f9",
       },
     },
   ],
@@ -3370,9 +3648,11 @@ const interlockedDecrementExpected = {
     ["InterlockedIncrement", 15822, 0x100a72d8],
     ["LeaveCriticalSection", 15833, 0x100ab66f],
   ],
-  memoryContentSha256: "83a1a4fd36f1f94efc7c0dcd83f1ff12f35729a00158ef7b48746f51896228f3",
+  memoryContentSha256:
+    "83a1a4fd36f1f94efc7c0dcd83f1ff12f35729a00158ef7b48746f51896228f3",
   reportBytes: 580_772,
-  reportSha256: "6c905456197834909eb965cfa950c05a4587a91486b7b9c72f55253340bb9ff4",
+  reportSha256:
+    "6c905456197834909eb965cfa950c05a4587a91486b7b9c72f55253340bb9ff4",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 34,
@@ -3406,16 +3686,19 @@ const getModuleFileNameAExpected = {
       generation: 200,
       pageAddress: 0x100ff000,
       owner: 1,
-      payloadSha256: "ba1dab4296a6af9944e54edfbca89515d034ce0207960b404e65a3dfa252b498",
+      payloadSha256:
+        "ba1dab4296a6af9944e54edfbca89515d034ce0207960b404e65a3dfa252b498",
     },
   },
   followupCalls: [
     ["GetLastError", 15935, 0x100a55dd],
     ["SetLastError", 16853, 0x100a5647],
   ],
-  memoryContentSha256: "b233490f03ec30f568aa6ddf9868da4f41804150f4bbccfff8a20f2e9d01e943",
+  memoryContentSha256:
+    "b233490f03ec30f568aa6ddf9868da4f41804150f4bbccfff8a20f2e9d01e943",
   reportBytes: 704_797,
-  reportSha256: "3bbeda2ffff7720afc73c7729b52f7168b2989758baf6c7cc7e6a45b870e15e7",
+  reportSha256:
+    "3bbeda2ffff7720afc73c7729b52f7168b2989758baf6c7cc7e6a45b870e15e7",
   firstUnsupported: {
     capabilityCluster: "kernel32-private-heap-allocation",
     endpointId: 75,
@@ -3447,7 +3730,8 @@ const privateHeapSize16Expected = {
     generation: 234,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "e542f0cb74547f59cf7579ea2dba8ad7f69b7bd174332b3ec7163768ebd2df03",
+    payloadSha256:
+      "e542f0cb74547f59cf7579ea2dba8ad7f69b7bd174332b3ec7163768ebd2df03",
   },
   consumerWriteback: {
     sequence: 154,
@@ -3456,7 +3740,8 @@ const privateHeapSize16Expected = {
       { address: 0x006ff000, owner: 4 },
       { address: 0x20000000, owner: 10 },
     ],
-    payloadSha256: "b02aaa44a8d92c0a63162c813c3eba46e7fec72782c3636e28a88d0ef2a6e9b3",
+    payloadSha256:
+      "b02aaa44a8d92c0a63162c813c3eba46e7fec72782c3636e28a88d0ef2a6e9b3",
     fromGeneration: 234,
     generation: 235,
     changedBytes: 55,
@@ -3465,9 +3750,11 @@ const privateHeapSize16Expected = {
     ["GetLastError", 17061, 0x100a55dd],
     ["SetLastError", 18007, 0x100a5647],
   ],
-  memoryContentSha256: "b648580e9ea1840e7c2703115d144e3b7014040f74a6670a14136808ee2782ff",
+  memoryContentSha256:
+    "b648580e9ea1840e7c2703115d144e3b7014040f74a6670a14136808ee2782ff",
   reportBytes: 828_414,
-  reportSha256: "887a74c11a1466cfbbfdeebf126ecc6138588c4b1f9e89c39cfdbb290a2ee8e6",
+  reportSha256:
+    "887a74c11a1466cfbbfdeebf126ecc6138588c4b1f9e89c39cfdbb290a2ee8e6",
   firstUnsupported: {
     capabilityCluster: "kernel32-private-heap-allocation",
     endpointId: 75,
@@ -3499,7 +3786,8 @@ const privateHeapSize4Expected = {
     generation: 268,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "1849087a95d674f3e6d3876d75739a49d1faa5ad948249223d3215bc45d4fed5",
+    payloadSha256:
+      "1849087a95d674f3e6d3876d75739a49d1faa5ad948249223d3215bc45d4fed5",
   },
   consumerWriteback: {
     sequence: 187,
@@ -3508,14 +3796,17 @@ const privateHeapSize4Expected = {
       { address: 0x006ff000, owner: 4 },
       { address: 0x100fe000, owner: 1 },
     ],
-    payloadSha256: "1cd6cab32153e17fba2c7a368e562ff6bec446a637e4f510ec285c7ac265689b",
+    payloadSha256:
+      "1cd6cab32153e17fba2c7a368e562ff6bec446a637e4f510ec285c7ac265689b",
     fromGeneration: 268,
     generation: 269,
     changedBytes: 16,
   },
-  memoryContentSha256: "d9abc780ef3d253810695351cb66296b1aeb727e7e8590f73fe20e2c1c73cd2c",
+  memoryContentSha256:
+    "d9abc780ef3d253810695351cb66296b1aeb727e7e8590f73fe20e2c1c73cd2c",
   reportBytes: 833_007,
-  reportSha256: "80f28db63bf8400b7ea7d1db5d7552303dec05dc71addb1ac2ed1ecea29eefa1",
+  reportSha256:
+    "80f28db63bf8400b7ea7d1db5d7552303dec05dc71addb1ac2ed1ecea29eefa1",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 76,
@@ -3550,12 +3841,15 @@ const privateHeapFreeSize1Expected = {
     generation: 270,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a",
+    payloadSha256:
+      "93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a",
   },
   postFreeEncodePointerCalls: 10,
-  memoryContentSha256: "f248e7dafa44a4a036822bd2eda199959e01c5d39090f67fba5f9f15c0de0186",
+  memoryContentSha256:
+    "f248e7dafa44a4a036822bd2eda199959e01c5d39090f67fba5f9f15c0de0186",
   reportBytes: 875_554,
-  reportSha256: "e0b255e0112fb7d0cbcef12afcd91be63877049fed56fc30b62ce5123f1acd96",
+  reportSha256:
+    "e0b255e0112fb7d0cbcef12afcd91be63877049fed56fc30b62ce5123f1acd96",
   firstUnsupported: {
     capabilityCluster: "kernel32-private-heap-allocation",
     endpointId: 75,
@@ -3587,7 +3881,8 @@ const privateHeapSize128Expected = {
     generation: 282,
     address: 0x20000000,
     owner: 10,
-    payloadSha256: "93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a",
+    payloadSha256:
+      "93cb85efb43c4586535cabdedf112e538d7fbe792245ed8954482b9815aa092a",
   },
   encodePointerCall: {
     sequence: 199,
@@ -3604,14 +3899,17 @@ const privateHeapSize128Expected = {
       { address: 0x10153000, owner: 1 },
       { address: 0x20000000, owner: 10 },
     ],
-    payloadSha256: "181672ed0948ea489ac06efa8f4c8440ba46bd17c631f9729e7fb92c1f20e913",
+    payloadSha256:
+      "181672ed0948ea489ac06efa8f4c8440ba46bd17c631f9729e7fb92c1f20e913",
     fromGeneration: 283,
     generation: 284,
     changedBytes: 14,
   },
-  memoryContentSha256: "5262246193dbe482a09781cac162f4f23f4eabaa4981c5f50ec2c9460ce96a89",
+  memoryContentSha256:
+    "5262246193dbe482a09781cac162f4f23f4eabaa4981c5f50ec2c9460ce96a89",
   reportBytes: 883_995,
-  reportSha256: "51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073",
+  reportSha256:
+    "51382513962b57159e178966b16aac2010513a3c58cccaf9b9d6abbfc857d073",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 74,
@@ -3646,7 +3944,8 @@ const isProcessorFeaturePresentExpected = {
           { address: 0x006ff000, owner: 4 },
           { address: 0x10153000, owner: 1 },
         ],
-        payloadSha256: "8c4ff44a051a92d9c7f8dd81de98ed1e0447b083bda6af13dcb8ef126c26c322",
+        payloadSha256:
+          "8c4ff44a051a92d9c7f8dd81de98ed1e0447b083bda6af13dcb8ef126c26c322",
         fromGeneration: 284,
         generation: 285,
         changedBytes: 3,
@@ -3664,7 +3963,8 @@ const isProcessorFeaturePresentExpected = {
           { address: 0x006ff000, owner: 4 },
           { address: 0x10153000, owner: 1 },
         ],
-        payloadSha256: "0b4547357c675c727b5c40ab53cfe53665e7dfd11561e159e40ec963191e0483",
+        payloadSha256:
+          "0b4547357c675c727b5c40ab53cfe53665e7dfd11561e159e40ec963191e0483",
         fromGeneration: 285,
         generation: 286,
         changedBytes: 24,
@@ -3687,12 +3987,15 @@ const isProcessorFeaturePresentExpected = {
         { address: 0x20001000, owner: 10 },
       ],
       payloadBytes: 8192,
-      payloadSha256: "5646000ab7257eae19481643eea8c9ac40bfbb41ba4bd5c9ebb51933b756e825",
+      payloadSha256:
+        "5646000ab7257eae19481643eea8c9ac40bfbb41ba4bd5c9ebb51933b756e825",
     },
   },
-  memoryContentSha256: "b4e25674b53cc1e159ee02cff2c00610dfbd3499d716c932ee2cd64fc99362e1",
+  memoryContentSha256:
+    "b4e25674b53cc1e159ee02cff2c00610dfbd3499d716c932ee2cd64fc99362e1",
   reportBytes: 896_534,
-  reportSha256: "c173fd9d2ae2763f15ddafa0b487bddeba9b934a978ddd840766cfbad870cdb5",
+  reportSha256:
+    "c173fd9d2ae2763f15ddafa0b487bddeba9b934a978ddd840766cfbad870cdb5",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 78,
@@ -3727,7 +4030,8 @@ const setUnhandledExceptionFilterExpected = {
         { address: 0x006ff000, owner: 4 },
         { address: 0x7ffde000, owner: 5 },
       ],
-      payloadSha256: "67189a41be50b8fa5528b9b5a2ccf6eaf885ae206f347aee46cedb65268b22cd",
+      payloadSha256:
+        "67189a41be50b8fa5528b9b5a2ccf6eaf885ae206f347aee46cedb65268b22cd",
       fromGeneration: 289,
       generation: 290,
       changedBytes: 76,
@@ -3774,11 +4078,14 @@ const setUnhandledExceptionFilterExpected = {
     generation: 291,
     address: 0x100ff000,
     owner: 1,
-    payloadSha256: "01986be151ae34103b6631d77d778644f4a2d931e8cdab261fd41276455f0556",
+    payloadSha256:
+      "01986be151ae34103b6631d77d778644f4a2d931e8cdab261fd41276455f0556",
   },
-  memoryContentSha256: "563d391b69ea3dcad1669d68f167bb35fad5b4d48adbd153a9f95ad1fb072f97",
+  memoryContentSha256:
+    "563d391b69ea3dcad1669d68f167bb35fad5b4d48adbd153a9f95ad1fb072f97",
   reportBytes: 912_806,
-  reportSha256: "92caa9ef24a63fc1abbac0bfc063361b2c7b9998cd14d2d2ee02e2d5c999defa",
+  reportSha256:
+    "92caa9ef24a63fc1abbac0bfc063361b2c7b9998cd14d2d2ee02e2d5c999defa",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 73,
@@ -3850,11 +4157,14 @@ const heapSizeExpected = {
     generation: 298,
     address: 0x100ff000,
     owner: 1,
-    payloadSha256: "ba1dab4296a6af9944e54edfbca89515d034ce0207960b404e65a3dfa252b498",
+    payloadSha256:
+      "ba1dab4296a6af9944e54edfbca89515d034ce0207960b404e65a3dfa252b498",
   },
-  memoryContentSha256: "90c245267e933a01c1e54fa0305bec1d54a16180a3e7465b6a3b6b3c8d3dd0b8",
+  memoryContentSha256:
+    "90c245267e933a01c1e54fa0305bec1d54a16180a3e7465b6a3b6b3c8d3dd0b8",
   reportBytes: 929_421,
-  reportSha256: "058ca051ad9b4118ce8854333eafd35aab117dc70da860b28188a2e1afff8fac",
+  reportSha256:
+    "058ca051ad9b4118ce8854333eafd35aab117dc70da860b28188a2e1afff8fac",
   firstUnsupported: {
     capabilityCluster: "kernel32-critical-section-synchronization",
     endpointId: 147,
@@ -3885,16 +4195,16 @@ const initializeCriticalSectionExpected = {
     returnAddress: 0x1009b2c3,
     stackCleanupBytes: 8,
     bytes: [
-      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
     ],
     delta: {
       fromGeneration: 299,
       generation: 300,
       address: 0x100fd000,
       owner: 1,
-      payloadSha256: "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
+      payloadSha256:
+        "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
     },
   },
   occurrenceCounts: {
@@ -3960,7 +4270,8 @@ const initializeCriticalSectionExpected = {
     returnAddress: 0x10060219,
     stackCleanupBytes: 16,
   },
-  memoryContentSha256: "ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa",
+  memoryContentSha256:
+    "ca1d082833b4349640451886843761aafecc0a5e63e5771694e09e5c1906c0aa",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 130,
@@ -3993,9 +4304,8 @@ const multiByteToWideCharCpAcpExpected = {
     returnAddress: 0x1002bb13,
     stackCleanupBytes: 28,
     outputBytes: [
-      0x43, 0x00, 0x3a, 0x00, 0x5c, 0x00, 0x56, 0x00,
-      0x69, 0x00, 0x6e, 0x00, 0x65, 0x00, 0x5c, 0x00,
-      0x42, 0x00, 0x47, 0x00, 0x49, 0x00, 0x2e, 0x00,
+      0x43, 0x00, 0x3a, 0x00, 0x5c, 0x00, 0x56, 0x00, 0x69, 0x00, 0x6e, 0x00,
+      0x65, 0x00, 0x5c, 0x00, 0x42, 0x00, 0x47, 0x00, 0x49, 0x00, 0x2e, 0x00,
       0x65, 0x00, 0x78, 0x00, 0x65, 0x00, 0x00, 0x00,
     ],
     delta: {
@@ -4003,7 +4313,8 @@ const multiByteToWideCharCpAcpExpected = {
       generation: 375,
       pageAddress: 0x006fd000,
       owner: 4,
-      payloadSha256: "ec49c75137a5ab18ac8cfe297f0cd504a7ace563708a335bd254ba87e833de84",
+      payloadSha256:
+        "ec49c75137a5ab18ac8cfe297f0cd504a7ace563708a335bd254ba87e833de84",
     },
   },
   consumerCalls: [
@@ -4122,7 +4433,8 @@ const multiByteToWideCharCpAcpExpected = {
       stackCleanupBytes: 8,
     },
   ],
-  memoryContentSha256: "dfb9d4fae57c56d3c518b522669c129377a2de98e64cd7de9e5dfdad42e6113d",
+  memoryContentSha256:
+    "dfb9d4fae57c56d3c518b522669c129377a2de98e64cd7de9e5dfdad42e6113d",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 25,
@@ -4165,7 +4477,8 @@ const setCurrentDirectoryAExpected = {
       generation: 1,
     },
   },
-  memoryContentSha256: "7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2",
+  memoryContentSha256:
+    "7b95978468db1f5664799d9621b990ace2c06332b4e251bf6b377fa6c4e15bb2",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 59,
@@ -4268,7 +4581,8 @@ const createMutexAExpected = {
       lastError: 0,
     },
   ],
-  memoryContentSha256: "338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add",
+  memoryContentSha256:
+    "338da6511938aedf1ec46c5838499f159da7fcbf86218459821e385cc6cd3add",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 40,
@@ -4303,7 +4617,8 @@ const getCurrentThreadExpected = {
     stackCleanupBytes: 4,
     lastError: 0,
   },
-  memoryContentSha256: "08afd63f56cf8c18788d80f50a6e8037f005c35d53bd50c55ec3b88975eb698b",
+  memoryContentSha256:
+    "08afd63f56cf8c18788d80f50a6e8037f005c35d53bd50c55ec3b88975eb698b",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 41,
@@ -4375,7 +4690,8 @@ const setThreadAffinityMaskExpected = {
     stackCleanupBytes: 4,
     incrementPerRead: 1,
   },
-  memoryContentSha256: "ca8193a48aa4293f31a9cd95bf516ff777e50256e3d1c53c440ae02b0d6b4bb5",
+  memoryContentSha256:
+    "ca8193a48aa4293f31a9cd95bf516ff777e50256e3d1c53c440ae02b0d6b4bb5",
   firstUnsupported: {
     capabilityCluster: "kernel32-api-contract",
     endpointId: 120,
@@ -4409,16 +4725,9 @@ const getSystemInfoExpected = {
     stackCleanupBytes: 8,
     lastError: 0,
     outputBytes: [
-      0x00, 0x00, 0x00, 0x00,
-      0x00, 0x10, 0x00, 0x00,
-      0x00, 0x00, 0x01, 0x00,
-      0xff, 0xff, 0xfe, 0x7f,
-      0x01, 0x00, 0x00, 0x00,
-      0x01, 0x00, 0x00, 0x00,
-      0x4a, 0x02, 0x00, 0x00,
-      0x00, 0x00, 0x01, 0x00,
-      0x06, 0x00,
-      0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+      0xff, 0xff, 0xfe, 0x7f, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+      0x4a, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00,
     ],
     delta: {
       sequence: 1291,
@@ -4426,10 +4735,12 @@ const getSystemInfoExpected = {
       generation: 1402,
       pageAddress: 0x006ff000,
       owner: 4,
-      payloadSha256: "17edf8b735d23805592033c604371e1cf6a00f3ed5b152c0e0ec25bdd1562999",
+      payloadSha256:
+        "17edf8b735d23805592033c604371e1cf6a00f3ed5b152c0e0ec25bdd1562999",
     },
   },
-  memoryContentSha256: "651b3336011adb55b98e8bb13329e4bb368993a73d59ab878c65294636df92f5",
+  memoryContentSha256:
+    "651b3336011adb55b98e8bb13329e4bb368993a73d59ab878c65294636df92f5",
   firstUnsupported: {
     capabilityCluster: "user32-api-contract",
     endpointId: 189,
@@ -4448,7 +4759,9 @@ const getSystemInfoExpected = {
 const bgiMaximumPhysicalPages = 16 * 1024;
 const guest = {
   physicalPoolBytes: sourceFileReadEnabled ? 71_442_432 : 2 * 1024 * 1024,
-  excludedPhysicalRanges: [{ start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" }],
+  excludedPhysicalRanges: [
+    { start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" },
+  ],
   instructionBudget: 1,
   maximumExecuteStops: 4_096,
 };
@@ -4500,7 +4813,10 @@ function sha256(bytes) {
 }
 
 function checkedEnd(start, size, limit, label) {
-  assert(Number.isSafeInteger(start) && start >= 0, `${label} start is invalid`);
+  assert(
+    Number.isSafeInteger(start) && start >= 0,
+    `${label} start is invalid`,
+  );
   assert(Number.isSafeInteger(size) && size >= 0, `${label} size is invalid`);
   const end = start + size;
   assert(Number.isSafeInteger(end) && end >= start, `${label} overflows`);
@@ -4570,27 +4886,69 @@ const checkpointSessionSteps = [
   ["processIdentity", "GetCurrentProcessId", 1, dispatchSecondProcessIdCall],
   ["threadIdentity", "GetCurrentThreadId", 1, dispatchThirdThreadIdCall],
   ["monotonicClock", "GetTickCount", 1, dispatchFourthTickCountCall],
-  ["performanceCounter", "QueryPerformanceCounter", 1, dispatchFifthPerformanceCounterCall],
+  [
+    "performanceCounter",
+    "QueryPerformanceCounter",
+    1,
+    dispatchFifthPerformanceCounterCall,
+  ],
   ["processStartup", "GetStartupInfoW", 1, dispatchSixthStartupInfoCall],
-  ["heapPolicy", "HeapSetInformation", 1, dispatchSeventhHeapSetInformationCall],
+  [
+    "heapPolicy",
+    "HeapSetInformation",
+    1,
+    dispatchSeventhHeapSetInformationCall,
+  ],
   ["privateHeap", "HeapCreate", 1, dispatchEighthHeapCreateCall],
   ["loadedModule", "GetModuleHandleW", 1, dispatchNinthGetModuleHandleWCall],
   ["dynamicExport", "GetProcAddress", 1, dispatchTenthGetProcAddressCall],
-  ["secondDynamicExport", "GetProcAddress", 2, dispatchEleventhGetProcAddressCall],
-  ["thirdDynamicExport", "GetProcAddress", 3, dispatchTwelfthGetProcAddressCall],
-  ["fourthDynamicExport", "GetProcAddress", 4, dispatchThirteenthGetProcAddressCall],
+  [
+    "secondDynamicExport",
+    "GetProcAddress",
+    2,
+    dispatchEleventhGetProcAddressCall,
+  ],
+  [
+    "thirdDynamicExport",
+    "GetProcAddress",
+    3,
+    dispatchTwelfthGetProcAddressCall,
+  ],
+  [
+    "fourthDynamicExport",
+    "GetProcAddress",
+    4,
+    dispatchThirteenthGetProcAddressCall,
+  ],
   ["tlsAllocation", "TlsAlloc", 1, dispatchFourteenthTlsAllocCall],
   ["tlsValue", "TlsSetValue", 1, dispatchFifteenthTlsSetValueCall],
   ["encodedNull", "EncodePointer", 1, dispatchSixteenthEncodePointerCall],
-  ["encodedProcessInitializer", "EncodePointer", 2, dispatchSeventeenthEncodePointerCall],
+  [
+    "encodedProcessInitializer",
+    "EncodePointer",
+    2,
+    dispatchSeventeenthEncodePointerCall,
+  ],
 ];
 
-async function runCheckpointSession({ child, context, execution, nextMessage, offer }) {
-  const selectedSteps = checkpointSessionSteps.slice(0, selectedCheckpoint.supportedCallCount);
+async function runCheckpointSession({
+  child,
+  context,
+  execution,
+  nextMessage,
+  offer,
+}) {
+  const selectedSteps = checkpointSessionSteps.slice(
+    0,
+    selectedCheckpoint.supportedCallCount,
+  );
   const results = {};
   let continuation = execution;
 
-  for (const [index, [resultKey, symbol, occurrence, dispatch]] of selectedSteps.entries()) {
+  for (const [
+    index,
+    [resultKey, symbol, occurrence, dispatch],
+  ] of selectedSteps.entries()) {
     const manifestCall = checkpointManifest.checkpoints[index + 1].dispatch;
     assert.equal(manifestCall.module.toLowerCase(), "kernel32.dll");
     assert.equal(manifestCall.symbol, symbol);
@@ -4604,7 +4962,10 @@ async function runCheckpointSession({ child, context, execution, nextMessage, of
       execution: continuation,
       continueSession: index + 1 < selectedSteps.length,
     });
-    assert(result?.continuation, `${manifestCall.module}!${symbol} did not return a continuation`);
+    assert(
+      result?.continuation,
+      `${manifestCall.module}!${symbol} did not return a continuation`,
+    );
     results[resultKey] = result;
     continuation = result.continuation;
   }
@@ -4644,7 +5005,8 @@ assert.equal(
 );
 
 function buildCheckpointReport(arguments_) {
-  const builder = checkpointReportBuilders[selectedCheckpoint.supportedCallCount];
+  const builder =
+    checkpointReportBuilders[selectedCheckpoint.supportedCallCount];
   assert(builder, `no report builder for ${selectedCheckpoint.id}`);
   return builder(arguments_);
 }
@@ -4688,7 +5050,9 @@ function buildFirstTrapReport({
     },
     imports: {
       total: offer.thunks.length,
-      declared: offer.thunks.filter(({ disposition }) => disposition === undefined).length,
+      declared: offer.thunks.filter(
+        ({ disposition }) => disposition === undefined,
+      ).length,
       unsupported: offer.thunks.filter(
         ({ disposition }) => disposition === "unsupported-trap",
       ).length,
@@ -4701,7 +5065,10 @@ function buildFirstTrapReport({
       excludedPhysicalRanges: guest.excludedPhysicalRanges,
       pageDirectory: context.pageDirectory,
       pageTables: [...context.pageTables.entries()].map(
-        ([directoryIndex, physicalAddress]) => ({ directoryIndex, physicalAddress }),
+        ([directoryIndex, physicalAddress]) => ({
+          directoryIndex,
+          physicalAddress,
+        }),
       ),
       allocatedPages: context.allocations.length,
       reflectedPageAllocations: context.allocations.filter(({ role }) =>
@@ -4734,9 +5101,14 @@ function buildFirstTrapReport({
 
 async function run() {
   requireFile(wasmPath, "npm run prepare:engine");
-  requireFile(bgiPath, "the primary title must be installed at its configured path");
+  requireFile(
+    bgiPath,
+    "the primary title must be installed at its configured path",
+  );
   const bgiGdbPath = path.join(path.dirname(bgiPath), "BGI.gdb");
-  const bgiGdbBefore = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
+  const bgiGdbBefore = fs.existsSync(bgiGdbPath)
+    ? sourceIdentity(bgiGdbPath)
+    : null;
   if (archiveSourceReadEnabled) {
     assert.equal(
       sourceManifestPath,
@@ -4751,18 +5123,19 @@ async function run() {
     );
   }
   const bgiDirectory = path.dirname(bgiPath);
-  const sourceRegistration = sourceManifestPath !== null
-    ? await registerSourceSnapshot({
-        manifestPath: sourceManifestPath,
-        objectFiles: archiveSourceReadEnabled
-          ? {
-              1: path.join(bgiDirectory, "system.arc"),
-              2: path.join(bgiDirectory, "sysprg.arc"),
-              3: path.join(bgiDirectory, "sysgrp.arc"),
-            }
-          : { 1: bgiGdbPath },
-      })
-    : null;
+  const sourceRegistration =
+    sourceManifestPath !== null
+      ? await registerSourceSnapshot({
+          manifestPath: sourceManifestPath,
+          objectFiles: archiveSourceReadEnabled
+            ? {
+                1: path.join(bgiDirectory, "system.arc"),
+                2: path.join(bgiDirectory, "sysprg.arc"),
+                3: path.join(bgiDirectory, "sysgrp.arc"),
+              }
+            : { 1: bgiGdbPath },
+        })
+      : null;
   const sourceBefore = sourceIdentity(bgiPath);
   assert.deepEqual(sourceBefore, expected.source);
   const writableProfileBaseDirectory = path.join(
@@ -4773,55 +5146,57 @@ async function run() {
   );
   fs.mkdirSync(writableProfileBaseDirectory, { recursive: true });
   const writableProfileRunDirectory = createDirectoryACheckpointEnabled
-    ? fs.mkdtempSync(path.join(writableProfileBaseDirectory, "create-directory-run-"))
+    ? fs.mkdtempSync(
+        path.join(writableProfileBaseDirectory, "create-directory-run-"),
+      )
     : null;
-  const writableProfile = sourceFileReadEnabled &&
+  const writableProfile =
+    sourceFileReadEnabled &&
     (sourceRegistration === null || archiveSourceReadEnabled)
-    ? openWritableProfile({
-        databasePath: path.join(
+      ? openWritableProfile({
+          databasePath: path.join(
+            writableProfileRunDirectory ?? writableProfileBaseDirectory,
+            "default.sqlite",
+          ),
+          titleFingerprint: expected.source.sha256,
+          profileId: "default",
+          rootPathA: Buffer.from("C:\\Vine\0", "binary"),
+          quotaBytes: 16 * 1024 * 1024,
+          files: [
+            {
+              objectId: 1,
+              relativePathA: Buffer.from("BGI.gdb", "ascii"),
+              seedBytes: fs.existsSync(bgiGdbPath)
+                ? fs.readFileSync(bgiGdbPath)
+                : null,
+            },
+          ],
+          directories: createDirectoryACheckpointEnabled
+            ? [
+                {
+                  directoryId: 1,
+                  relativePathA: Buffer.from("UserData", "ascii"),
+                },
+              ]
+            : [],
+        })
+      : null;
+  const writableProfileManifestPath =
+    writableProfile === null
+      ? null
+      : path.join(
           writableProfileRunDirectory ?? writableProfileBaseDirectory,
-          "default.sqlite",
-        ),
-        titleFingerprint: expected.source.sha256,
-        profileId: "default",
-        rootPathA: Buffer.from("C:\\Vine\0", "binary"),
-        quotaBytes: 16 * 1024 * 1024,
-        files: [
-          {
-            objectId: 1,
-            relativePathA: Buffer.from("BGI.gdb", "ascii"),
-            seedBytes: fs.existsSync(bgiGdbPath)
-              ? fs.readFileSync(bgiGdbPath)
-              : null,
-          },
-        ],
-        directories: createDirectoryACheckpointEnabled
-          ? [
-              {
-                directoryId: 1,
-                relativePathA: Buffer.from("UserData", "ascii"),
-              },
-            ]
-          : [],
-      })
-    : null;
-  const writableProfileManifestPath = writableProfile === null
-    ? null
-    : path.join(
-        writableProfileRunDirectory ?? writableProfileBaseDirectory,
-        `snapshot-${process.pid}.json`,
-      );
+          `snapshot-${process.pid}.json`,
+        );
   if (writableProfileManifestPath !== null) {
     fs.writeFileSync(
       writableProfileManifestPath,
       `${JSON.stringify(snapshotWritableProfile(writableProfile))}\n`,
     );
   }
-  const runtimeBindingArguments = declaredDispatches.flatMap(({ module, symbol }) => [
-    "--bind-name",
-    module,
-    symbol,
-  ]);
+  const runtimeBindingArguments = declaredDispatches.flatMap(
+    ({ module, symbol }) => ["--bind-name", module, symbol],
+  );
 
   const probeArguments = [
     "run",
@@ -4860,8 +5235,12 @@ async function run() {
           primaryMainLoopContinuationTrapLimit.toString(),
         ]
       : []),
-    ...(runtimePolicyPath === null ? [] : ["--runtime-policy", runtimePolicyPath]),
-    ...(sourceManifestPath === null ? [] : ["--source-manifest", sourceManifestPath]),
+    ...(runtimePolicyPath === null
+      ? []
+      : ["--runtime-policy", runtimePolicyPath]),
+    ...(sourceManifestPath === null
+      ? []
+      : ["--source-manifest", sourceManifestPath]),
     ...(writableProfileManifestPath === null
       ? []
       : ["--writable-profile", writableProfileManifestPath]),
@@ -4894,7 +5273,10 @@ async function run() {
   let writableProfileLease = null;
 
   const nextMessage = async (label) => {
-    const line = await protocolReader.readLine(protocol.maximumLineBytes, label);
+    const line = await protocolReader.readLine(
+      protocol.maximumLineBytes,
+      label,
+    );
     const lineBytes = line.byteLength;
     assert(
       lineBytes <= protocol.maximumLineBytes,
@@ -4942,21 +5324,35 @@ async function run() {
 
     const execution = executeToFirstOwnedTrap(offer, context);
     assert.equal(execution.terminal.kind, "owned-import-thunk");
-    validateThunk(execution.terminal.thunk, expected.terminal.thunk, !dispatchSystemTime);
-    assert.equal(execution.instructionCount, expected.terminal.instructionCount);
+    validateThunk(
+      execution.terminal.thunk,
+      expected.terminal.thunk,
+      !dispatchSystemTime,
+    );
+    assert.equal(
+      execution.instructionCount,
+      expected.terminal.instructionCount,
+    );
     assert.equal(execution.executeStops, expected.terminal.executeStops);
     assert.equal(execution.budgetStops, expected.terminal.budgetStops);
-    assert.equal(execution.terminal.returnAddress, expected.terminal.returnAddress);
-    assert.deepEqual(execution.terminal.stackWords, expected.terminal.stackWords);
+    assert.equal(
+      execution.terminal.returnAddress,
+      expected.terminal.returnAddress,
+    );
+    assert.deepEqual(
+      execution.terminal.stackWords,
+      expected.terminal.stackWords,
+    );
     if (genericRuntimeReentry) {
       assert.equal(
         selectedCheckpoint.supportedCallCount,
         checkpointSessionSteps.length,
         "generic runtime re-entry starts from the frozen full manifest checkpoint",
       );
-      writableProfileLease = writableProfile === null
-        ? null
-        : acquireWritableProfileLease(writableProfile, crypto.randomUUID());
+      writableProfileLease =
+        writableProfile === null
+          ? null
+          : acquireWritableProfileLease(writableProfile, crypto.randomUUID());
       const genericResult = await runGenericRuntimeReentry({
         child,
         context,
@@ -4970,8 +5366,16 @@ async function run() {
       });
       child.stdin.end();
       const processExit = await exit;
-      assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
-      assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
+      assert.equal(
+        processExit.signal,
+        null,
+        `reflection probe terminated by ${processExit.signal}`,
+      );
+      assert.equal(
+        processExit.code,
+        0,
+        `reflection probe failed: ${stderr.trim()}`,
+      );
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
@@ -4994,6 +5398,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (setWindowPosFrameChangeMoveCheckpointEnabled) {
+        validateSetWindowPosFrameChangeMoveResult(genericResult);
       } else if (d3d9RecreatedTexturesCheckpointEnabled) {
         validateD3d9RecreatedTexturesResult(genericResult);
       } else if (setWindowPosRepeatActivationCheckpointEnabled) {
@@ -5243,253 +5649,256 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9RecreatedTexturesCheckpointEnabled
-          ? "bgi D3D9 recreated texture sequence"
-          : setWindowPosRepeatActivationCheckpointEnabled
-          ? "bgi SetWindowPos repeat activation"
-          : createDirectoryACheckpointEnabled
-          ? "bgi durable Runtime VFS CreateDirectoryA"
-          : getFileAttributesACheckpointEnabled
-          ? "bgi Runtime VFS GetFileAttributesA"
-          : globalMemoryStatusCheckpointEnabled
-          ? "bgi deterministic x86 GlobalMemoryStatus"
-          : sleepZeroCheckpointEnabled
-          ? "bgi Sleep(0) cooperative scheduler yield"
-          : archiveSourceReadEnabled
-          ? "bgi primary boot-archive source read"
-          : dragAcceptFilesEnabled
-          ? "bgi Shell32 DragAcceptFiles"
-          : primaryMainLoopContinuationEnabled
-          ? "bgi primary main-loop continuation"
-          : leaveCriticalSectionContinuationEnabled
-          ? "bgi primary LeaveCriticalSection continuation"
-          : leaveCriticalSectionCheckpointEnabled
-          ? "bgi primary LeaveCriticalSection completion"
-          : enterCriticalSectionContinuationEnabled
-          ? "bgi primary EnterCriticalSection continuation"
-          : mainLoopProgressionEnabled
-          ? "bgi primary main-loop scheduler roundtrip"
-          : enterCriticalSectionEnabled
-          ? "bgi EnterCriticalSection primary continuation"
-          : waitForSingleObjectExEnabled
-          ? "bgi finite alertable waitable timer completion"
-          : setWaitableTimerEnabled
-          ? "bgi relative one-shot waitable timer arm"
-          : imm32ContextEnabled
-          ? "bgi logical default IME window and context"
-          : virtualAllocEnabled
-          ? "bgi VirtualAlloc top-down reserve-only mapping"
-          : gdiplusStartupEnabled
-          ? "bgi logical GDI+ startup session"
-          : textRasterEnabled
-          ? "bgi CP932 text raster write into selected 8bpp DIB"
-          : outlineTextMetricsEnabled
-          ? "bgi CP932 outline text metrics query and output"
-          : dibLifecycleEnabled
-          ? "bgi DIB section and GDI object lifecycle"
-          : compatibleDcEnabled
-          ? "bgi NULL-screen compatible memory DC creation"
-          : fontCreationEnabled
-          ? "bgi CP932 logical font object creation"
-          : fontEnumerationEnabled
-          ? "bgi CP932 logical font enumeration"
-          : screenDcEnabled
-          ? "bgi NULL-window primary screen DC acquisition"
-          : setThreadPriorityEnabled
-          ? "bgi SetThreadPriority logical created-thread priority"
-          : createThreadEnabled
-          ? "bgi CreateThread and ResumeThread bootstrap"
-          : setTimerEnabled
-          ? "bgi SetTimer logical window callback registration"
-          : dsoundBufferTransferEnabled
-          ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
-          : dsoundInitialBuffersEnabled
-          ? "bgi DirectSound 8 initial primary and secondary buffers"
-          : dsoundRootEnabled
-          ? "bgi DirectSound 8 root and cooperative window relation"
-          : dinput8EnumDevicesEnabled
-          ? "bgi DirectInput8 empty game-controller enumeration"
-          : dinput8FactoryEnabled
-          ? "bgi DirectInput8 root factory and identity"
-          : getMonitorInfoAEnabled
-          ? "bgi GetMonitorInfoA logical primary monitor"
-          : queryPerformanceFrequencyEnabled
-          ? "bgi QueryPerformanceFrequency"
-          : d3d9RasterStatusEnabled
-          ? "bgi D3D9 raster-status polling"
-          : d3d9InitialRenderStatesEnabled
-            ? "bgi D3D9 initial render-state sequence"
-          : d3d9InitialVertexBufferEnabled
-            ? "bgi D3D9 initial vertex-buffer sequence"
-          : d3d9InitialTexturesEnabled
-            ? "bgi D3D9 initial texture sequence"
-          : timeGetTimeEnabled
-            ? "bgi WinMM timeGetTime"
-          : d3d9SurfaceGetDcEnabled
-            ? "bgi D3D9 surface GetDC fill and ReleaseDC"
-          : d3d9GetSurfaceLevelEnabled
-            ? "bgi D3D9 GetSurfaceLevel"
-          : d3d9CreateTextureEnabled
-            ? "bgi D3D9 CreateTexture"
-          : d3d9CreateDeviceEnabled
-            ? "bgi D3D9 CreateDevice"
-          : d3d9GetAdapterMonitorEnabled
-            ? "bgi D3D9 GetAdapterMonitor"
-          : d3d9GetAdapterCountEnabled
-            ? "bgi D3D9 GetAdapterCount"
-          : monitorFromWindowEnabled
-            ? "bgi MonitorFromWindow logical primary lookup"
-          : setWindowPosActivationEnabled
-            ? "bgi SetWindowPos same-geometry activation"
-          : setWindowLongAEnabled
-            ? "bgi SetWindowLongA GWL_STYLE"
-          : windowDcFillEnabled
-            ? "bgi window DC fill"
-          : getClientRectEnabled
-            ? "bgi GetClientRect"
-          : loadLibraryAEnabled
-            ? "bgi LoadLibraryA runtime-system module"
-          : d3d9CheckDeviceFormatEnabled
-            ? "bgi D3D9 CheckDeviceFormat"
-          : d3d9CheckDeviceTypeEnabled
-            ? "bgi D3D9 CheckDeviceType"
-          : d3d9GetDeviceCapsEnabled
-            ? "bgi D3D9 GetDeviceCaps"
-          : d3d9GetAdapterIdentifierEnabled
-            ? "bgi D3D9 GetAdapterIdentifier"
-          : d3d9GetAdapterDisplayModeEnabled
-            ? "bgi D3D9 GetAdapterDisplayMode"
-          : d3d9RootFactoryEnabled
-            ? "bgi D3D9 root factory and identity"
-          : setWindowPosInitialPlacementEnabled
-            ? "bgi SetWindowPos initial placement"
-          : sendMessageASmallIconEnabled
-            ? "bgi SendMessageA small icon"
-          : loadImageASmallIconEnabled
-            ? "bgi LoadImageA small icon"
-          : getSystemMetricsSmallIconWidthEnabled
-            ? "bgi GetSystemMetrics small icon width"
-          : getSystemMetricsSmallIconHeightEnabled
-            ? "bgi GetSystemMetrics small icon height"
-          : createWindowExAEnabled
-            ? "bgi CreateWindowExA"
-          : sourceFileReadEnabled
-            ? "bgi source file read"
-          : largeHeapAllocationEnabled
-            ? "bgi large HeapAlloc"
-          : getSystemMetricsEnabled
-            ? "bgi GetSystemMetrics"
-          : registerClassExAEnabled
-            ? "bgi RegisterClassExA"
-          : loadCursorAEnabled
-            ? "bgi LoadCursorA"
-          : loadIconAEnabled
-            ? "bgi LoadIconA"
-          : createWaitableTimerAEnabled
-            ? "bgi CreateWaitableTimerA"
-          : getVersionExAEnabled
-            ? "bgi GetVersionExA"
-          : timeBeginPeriodEnabled
-            ? "bgi timeBeginPeriod"
-          : timeGetDevCapsEnabled
-            ? "bgi timeGetDevCaps"
-          : swapMouseButtonEnabled
-            ? "bgi SwapMouseButton"
-          : getDriveTypeAEnabled
-            ? "bgi GetDriveTypeA"
-          : getSystemDefaultLangIdEnabled
-            ? "bgi GetSystemDefaultLangID"
-          : coInitializeEnabled
-            ? "bgi CoInitialize"
-          : enumDisplayMonitorsEnabled
-            ? "bgi EnumDisplayMonitors"
-          : getSystemInfoEnabled
-            ? "bgi GetSystemInfo"
-          : setThreadAffinityMaskEnabled
-            ? "bgi SetThreadAffinityMask"
-            : getCurrentThreadEnabled
-            ? "bgi GetCurrentThread"
-            : createMutexAEnabled
-            ? "bgi CreateMutexA"
-            : setCurrentDirectoryAEnabled
-            ? "bgi SetCurrentDirectoryA"
-            : multiByteToWideCharCpAcpEnabled
-            ? "bgi MultiByteToWideChar CP_ACP"
-            : initializeCriticalSectionEnabled
-            ? "bgi InitializeCriticalSection"
-            : heapSizeEnabled
-            ? "bgi HeapSize"
-            : setUnhandledExceptionFilterEnabled
-            ? "bgi SetUnhandledExceptionFilter"
-            : isProcessorFeaturePresentEnabled
-            ? "bgi IsProcessorFeaturePresent"
-            : privateHeapSize128Enabled
-            ? "bgi private-heap size-128 allocation"
-            : privateHeapFreeSize1Enabled
-            ? "bgi private-heap size-1 free"
-            : privateHeapSize4Enabled
-            ? "bgi private-heap size-4 allocation"
-            : privateHeapSize16Enabled
-            ? "bgi private-heap size-16 allocation"
-            : getModuleFileNameAEnabled
-            ? "bgi GetModuleFileNameA"
-            : interlockedDecrementEnabled
-            ? "bgi InterlockedDecrement"
-            : lcMapStringWEnabled
-            ? "bgi LCMapStringW"
-            : getStringTypeWEnabled
-            ? "bgi GetStringTypeW"
-            : multiByteToWideCharEnabled
-            ? "bgi MultiByteToWideChar"
-            : getCpInfoEnabled
-            ? "bgi GetCPInfo"
-            : privateHeapSize544Enabled
-            ? "bgi private-heap size-544 allocation"
-            : getAcpEnabled
-            ? "bgi GetACP"
-            : setLastErrorEnabled
-            ? "bgi SetLastError"
-            : flsGetValueEnabled
-            ? "bgi FlsGetValue"
-            : tlsGetValueEnabled
-            ? "bgi TlsGetValue"
-            : getLastErrorEnabled
-            ? "bgi GetLastError"
-            : privateHeapSize1Enabled
-            ? "bgi private-heap size-1 allocation"
-            : wideCharToMultiByteEnabled
-            ? "bgi WideCharToMultiByte"
-            : environmentStringsWEnabled
-            ? "bgi environment strings W"
-            : commandLineAEnabled
-            ? "bgi command line A"
-            : setHandleCountEnabled
-            ? "bgi set handle count"
-            : standardErrorFileTypeEnabled
-            ? "bgi standard error file type"
-            : standardErrorHandleEnabled
-            ? "bgi standard error handle"
-            : standardOutputFileTypeEnabled
-            ? "bgi standard output file type"
-            : standardOutputHandleEnabled
-            ? "bgi standard output handle"
-            : fileTypeEnabled
-            ? "bgi file type"
-            : standardInputHandleEnabled
-            ? "bgi standard input handle"
-            : privateHeapSecondAllocationEnabled
-            ? "bgi private-heap second allocation"
-            : interlockedIncrementEnabled
-            ? "bgi interlocked increment"
-            : fiberLocalStorageValueEnabled
-            ? "bgi fiber-local-storage value"
-            : privateHeapAllocationEnabled
-            ? "bgi private-heap allocation"
-            : fiberLocalStorageAllocationEnabled
-            ? "bgi fiber-local-storage allocation"
-            : genericRuntimeCapability === "kernel32-pointer-decoding"
-              ? "bgi pointer decoding"
-              : "bgi critical-section synchronization";
+          : setWindowPosFrameChangeMoveCheckpointEnabled
+            ? "bgi SetWindowPos frame-change move"
+            : d3d9RecreatedTexturesCheckpointEnabled
+              ? "bgi D3D9 recreated texture sequence"
+              : setWindowPosRepeatActivationCheckpointEnabled
+                ? "bgi SetWindowPos repeat activation"
+                : createDirectoryACheckpointEnabled
+                  ? "bgi durable Runtime VFS CreateDirectoryA"
+                  : getFileAttributesACheckpointEnabled
+                    ? "bgi Runtime VFS GetFileAttributesA"
+                    : globalMemoryStatusCheckpointEnabled
+                      ? "bgi deterministic x86 GlobalMemoryStatus"
+                      : sleepZeroCheckpointEnabled
+                        ? "bgi Sleep(0) cooperative scheduler yield"
+                        : archiveSourceReadEnabled
+                          ? "bgi primary boot-archive source read"
+                          : dragAcceptFilesEnabled
+                            ? "bgi Shell32 DragAcceptFiles"
+                            : primaryMainLoopContinuationEnabled
+                              ? "bgi primary main-loop continuation"
+                              : leaveCriticalSectionContinuationEnabled
+                                ? "bgi primary LeaveCriticalSection continuation"
+                                : leaveCriticalSectionCheckpointEnabled
+                                  ? "bgi primary LeaveCriticalSection completion"
+                                  : enterCriticalSectionContinuationEnabled
+                                    ? "bgi primary EnterCriticalSection continuation"
+                                    : mainLoopProgressionEnabled
+                                      ? "bgi primary main-loop scheduler roundtrip"
+                                      : enterCriticalSectionEnabled
+                                        ? "bgi EnterCriticalSection primary continuation"
+                                        : waitForSingleObjectExEnabled
+                                          ? "bgi finite alertable waitable timer completion"
+                                          : setWaitableTimerEnabled
+                                            ? "bgi relative one-shot waitable timer arm"
+                                            : imm32ContextEnabled
+                                              ? "bgi logical default IME window and context"
+                                              : virtualAllocEnabled
+                                                ? "bgi VirtualAlloc top-down reserve-only mapping"
+                                                : gdiplusStartupEnabled
+                                                  ? "bgi logical GDI+ startup session"
+                                                  : textRasterEnabled
+                                                    ? "bgi CP932 text raster write into selected 8bpp DIB"
+                                                    : outlineTextMetricsEnabled
+                                                      ? "bgi CP932 outline text metrics query and output"
+                                                      : dibLifecycleEnabled
+                                                        ? "bgi DIB section and GDI object lifecycle"
+                                                        : compatibleDcEnabled
+                                                          ? "bgi NULL-screen compatible memory DC creation"
+                                                          : fontCreationEnabled
+                                                            ? "bgi CP932 logical font object creation"
+                                                            : fontEnumerationEnabled
+                                                              ? "bgi CP932 logical font enumeration"
+                                                              : screenDcEnabled
+                                                                ? "bgi NULL-window primary screen DC acquisition"
+                                                                : setThreadPriorityEnabled
+                                                                  ? "bgi SetThreadPriority logical created-thread priority"
+                                                                  : createThreadEnabled
+                                                                    ? "bgi CreateThread and ResumeThread bootstrap"
+                                                                    : setTimerEnabled
+                                                                      ? "bgi SetTimer logical window callback registration"
+                                                                      : dsoundBufferTransferEnabled
+                                                                        ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
+                                                                        : dsoundInitialBuffersEnabled
+                                                                          ? "bgi DirectSound 8 initial primary and secondary buffers"
+                                                                          : dsoundRootEnabled
+                                                                            ? "bgi DirectSound 8 root and cooperative window relation"
+                                                                            : dinput8EnumDevicesEnabled
+                                                                              ? "bgi DirectInput8 empty game-controller enumeration"
+                                                                              : dinput8FactoryEnabled
+                                                                                ? "bgi DirectInput8 root factory and identity"
+                                                                                : getMonitorInfoAEnabled
+                                                                                  ? "bgi GetMonitorInfoA logical primary monitor"
+                                                                                  : queryPerformanceFrequencyEnabled
+                                                                                    ? "bgi QueryPerformanceFrequency"
+                                                                                    : d3d9RasterStatusEnabled
+                                                                                      ? "bgi D3D9 raster-status polling"
+                                                                                      : d3d9InitialRenderStatesEnabled
+                                                                                        ? "bgi D3D9 initial render-state sequence"
+                                                                                        : d3d9InitialVertexBufferEnabled
+                                                                                          ? "bgi D3D9 initial vertex-buffer sequence"
+                                                                                          : d3d9InitialTexturesEnabled
+                                                                                            ? "bgi D3D9 initial texture sequence"
+                                                                                            : timeGetTimeEnabled
+                                                                                              ? "bgi WinMM timeGetTime"
+                                                                                              : d3d9SurfaceGetDcEnabled
+                                                                                                ? "bgi D3D9 surface GetDC fill and ReleaseDC"
+                                                                                                : d3d9GetSurfaceLevelEnabled
+                                                                                                  ? "bgi D3D9 GetSurfaceLevel"
+                                                                                                  : d3d9CreateTextureEnabled
+                                                                                                    ? "bgi D3D9 CreateTexture"
+                                                                                                    : d3d9CreateDeviceEnabled
+                                                                                                      ? "bgi D3D9 CreateDevice"
+                                                                                                      : d3d9GetAdapterMonitorEnabled
+                                                                                                        ? "bgi D3D9 GetAdapterMonitor"
+                                                                                                        : d3d9GetAdapterCountEnabled
+                                                                                                          ? "bgi D3D9 GetAdapterCount"
+                                                                                                          : monitorFromWindowEnabled
+                                                                                                            ? "bgi MonitorFromWindow logical primary lookup"
+                                                                                                            : setWindowPosActivationEnabled
+                                                                                                              ? "bgi SetWindowPos same-geometry activation"
+                                                                                                              : setWindowLongAEnabled
+                                                                                                                ? "bgi SetWindowLongA GWL_STYLE"
+                                                                                                                : windowDcFillEnabled
+                                                                                                                  ? "bgi window DC fill"
+                                                                                                                  : getClientRectEnabled
+                                                                                                                    ? "bgi GetClientRect"
+                                                                                                                    : loadLibraryAEnabled
+                                                                                                                      ? "bgi LoadLibraryA runtime-system module"
+                                                                                                                      : d3d9CheckDeviceFormatEnabled
+                                                                                                                        ? "bgi D3D9 CheckDeviceFormat"
+                                                                                                                        : d3d9CheckDeviceTypeEnabled
+                                                                                                                          ? "bgi D3D9 CheckDeviceType"
+                                                                                                                          : d3d9GetDeviceCapsEnabled
+                                                                                                                            ? "bgi D3D9 GetDeviceCaps"
+                                                                                                                            : d3d9GetAdapterIdentifierEnabled
+                                                                                                                              ? "bgi D3D9 GetAdapterIdentifier"
+                                                                                                                              : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                                ? "bgi D3D9 GetAdapterDisplayMode"
+                                                                                                                                : d3d9RootFactoryEnabled
+                                                                                                                                  ? "bgi D3D9 root factory and identity"
+                                                                                                                                  : setWindowPosInitialPlacementEnabled
+                                                                                                                                    ? "bgi SetWindowPos initial placement"
+                                                                                                                                    : sendMessageASmallIconEnabled
+                                                                                                                                      ? "bgi SendMessageA small icon"
+                                                                                                                                      : loadImageASmallIconEnabled
+                                                                                                                                        ? "bgi LoadImageA small icon"
+                                                                                                                                        : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                          ? "bgi GetSystemMetrics small icon width"
+                                                                                                                                          : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                            ? "bgi GetSystemMetrics small icon height"
+                                                                                                                                            : createWindowExAEnabled
+                                                                                                                                              ? "bgi CreateWindowExA"
+                                                                                                                                              : sourceFileReadEnabled
+                                                                                                                                                ? "bgi source file read"
+                                                                                                                                                : largeHeapAllocationEnabled
+                                                                                                                                                  ? "bgi large HeapAlloc"
+                                                                                                                                                  : getSystemMetricsEnabled
+                                                                                                                                                    ? "bgi GetSystemMetrics"
+                                                                                                                                                    : registerClassExAEnabled
+                                                                                                                                                      ? "bgi RegisterClassExA"
+                                                                                                                                                      : loadCursorAEnabled
+                                                                                                                                                        ? "bgi LoadCursorA"
+                                                                                                                                                        : loadIconAEnabled
+                                                                                                                                                          ? "bgi LoadIconA"
+                                                                                                                                                          : createWaitableTimerAEnabled
+                                                                                                                                                            ? "bgi CreateWaitableTimerA"
+                                                                                                                                                            : getVersionExAEnabled
+                                                                                                                                                              ? "bgi GetVersionExA"
+                                                                                                                                                              : timeBeginPeriodEnabled
+                                                                                                                                                                ? "bgi timeBeginPeriod"
+                                                                                                                                                                : timeGetDevCapsEnabled
+                                                                                                                                                                  ? "bgi timeGetDevCaps"
+                                                                                                                                                                  : swapMouseButtonEnabled
+                                                                                                                                                                    ? "bgi SwapMouseButton"
+                                                                                                                                                                    : getDriveTypeAEnabled
+                                                                                                                                                                      ? "bgi GetDriveTypeA"
+                                                                                                                                                                      : getSystemDefaultLangIdEnabled
+                                                                                                                                                                        ? "bgi GetSystemDefaultLangID"
+                                                                                                                                                                        : coInitializeEnabled
+                                                                                                                                                                          ? "bgi CoInitialize"
+                                                                                                                                                                          : enumDisplayMonitorsEnabled
+                                                                                                                                                                            ? "bgi EnumDisplayMonitors"
+                                                                                                                                                                            : getSystemInfoEnabled
+                                                                                                                                                                              ? "bgi GetSystemInfo"
+                                                                                                                                                                              : setThreadAffinityMaskEnabled
+                                                                                                                                                                                ? "bgi SetThreadAffinityMask"
+                                                                                                                                                                                : getCurrentThreadEnabled
+                                                                                                                                                                                  ? "bgi GetCurrentThread"
+                                                                                                                                                                                  : createMutexAEnabled
+                                                                                                                                                                                    ? "bgi CreateMutexA"
+                                                                                                                                                                                    : setCurrentDirectoryAEnabled
+                                                                                                                                                                                      ? "bgi SetCurrentDirectoryA"
+                                                                                                                                                                                      : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                        ? "bgi MultiByteToWideChar CP_ACP"
+                                                                                                                                                                                        : initializeCriticalSectionEnabled
+                                                                                                                                                                                          ? "bgi InitializeCriticalSection"
+                                                                                                                                                                                          : heapSizeEnabled
+                                                                                                                                                                                            ? "bgi HeapSize"
+                                                                                                                                                                                            : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                              ? "bgi SetUnhandledExceptionFilter"
+                                                                                                                                                                                              : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                                ? "bgi IsProcessorFeaturePresent"
+                                                                                                                                                                                                : privateHeapSize128Enabled
+                                                                                                                                                                                                  ? "bgi private-heap size-128 allocation"
+                                                                                                                                                                                                  : privateHeapFreeSize1Enabled
+                                                                                                                                                                                                    ? "bgi private-heap size-1 free"
+                                                                                                                                                                                                    : privateHeapSize4Enabled
+                                                                                                                                                                                                      ? "bgi private-heap size-4 allocation"
+                                                                                                                                                                                                      : privateHeapSize16Enabled
+                                                                                                                                                                                                        ? "bgi private-heap size-16 allocation"
+                                                                                                                                                                                                        : getModuleFileNameAEnabled
+                                                                                                                                                                                                          ? "bgi GetModuleFileNameA"
+                                                                                                                                                                                                          : interlockedDecrementEnabled
+                                                                                                                                                                                                            ? "bgi InterlockedDecrement"
+                                                                                                                                                                                                            : lcMapStringWEnabled
+                                                                                                                                                                                                              ? "bgi LCMapStringW"
+                                                                                                                                                                                                              : getStringTypeWEnabled
+                                                                                                                                                                                                                ? "bgi GetStringTypeW"
+                                                                                                                                                                                                                : multiByteToWideCharEnabled
+                                                                                                                                                                                                                  ? "bgi MultiByteToWideChar"
+                                                                                                                                                                                                                  : getCpInfoEnabled
+                                                                                                                                                                                                                    ? "bgi GetCPInfo"
+                                                                                                                                                                                                                    : privateHeapSize544Enabled
+                                                                                                                                                                                                                      ? "bgi private-heap size-544 allocation"
+                                                                                                                                                                                                                      : getAcpEnabled
+                                                                                                                                                                                                                        ? "bgi GetACP"
+                                                                                                                                                                                                                        : setLastErrorEnabled
+                                                                                                                                                                                                                          ? "bgi SetLastError"
+                                                                                                                                                                                                                          : flsGetValueEnabled
+                                                                                                                                                                                                                            ? "bgi FlsGetValue"
+                                                                                                                                                                                                                            : tlsGetValueEnabled
+                                                                                                                                                                                                                              ? "bgi TlsGetValue"
+                                                                                                                                                                                                                              : getLastErrorEnabled
+                                                                                                                                                                                                                                ? "bgi GetLastError"
+                                                                                                                                                                                                                                : privateHeapSize1Enabled
+                                                                                                                                                                                                                                  ? "bgi private-heap size-1 allocation"
+                                                                                                                                                                                                                                  : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                                    ? "bgi WideCharToMultiByte"
+                                                                                                                                                                                                                                    : environmentStringsWEnabled
+                                                                                                                                                                                                                                      ? "bgi environment strings W"
+                                                                                                                                                                                                                                      : commandLineAEnabled
+                                                                                                                                                                                                                                        ? "bgi command line A"
+                                                                                                                                                                                                                                        : setHandleCountEnabled
+                                                                                                                                                                                                                                          ? "bgi set handle count"
+                                                                                                                                                                                                                                          : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                            ? "bgi standard error file type"
+                                                                                                                                                                                                                                            : standardErrorHandleEnabled
+                                                                                                                                                                                                                                              ? "bgi standard error handle"
+                                                                                                                                                                                                                                              : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                                ? "bgi standard output file type"
+                                                                                                                                                                                                                                                : standardOutputHandleEnabled
+                                                                                                                                                                                                                                                  ? "bgi standard output handle"
+                                                                                                                                                                                                                                                  : fileTypeEnabled
+                                                                                                                                                                                                                                                    ? "bgi file type"
+                                                                                                                                                                                                                                                    : standardInputHandleEnabled
+                                                                                                                                                                                                                                                      ? "bgi standard input handle"
+                                                                                                                                                                                                                                                      : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                        ? "bgi private-heap second allocation"
+                                                                                                                                                                                                                                                        : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                          ? "bgi interlocked increment"
+                                                                                                                                                                                                                                                          : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                            ? "bgi fiber-local-storage value"
+                                                                                                                                                                                                                                                            : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                              ? "bgi private-heap allocation"
+                                                                                                                                                                                                                                                              : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                                ? "bgi fiber-local-storage allocation"
+                                                                                                                                                                                                                                                                : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                                    "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                                  ? "bgi pointer decoding"
+                                                                                                                                                                                                                                                                  : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
           (genericResult.checkpointCompletion === undefined
@@ -5497,22 +5906,22 @@ async function run() {
             : genericResult.checkpointCompletion.capability ===
                 "kernel32-leave-critical-section"
               ? `${genericResult.checkpointCompletion.completionCount} critical-section release completed`
-            : genericResult.checkpointCompletion.capability ===
-                "kernel32-leave-critical-section-continuation"
-              ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation release completed`
-            : genericResult.checkpointCompletion.capability ===
-                "kernel32-enter-critical-section-continuation"
-              ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
-            : genericResult.checkpointCompletion.capability ===
-                "primary-main-loop-continuation"
-              ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
-            : genericResult.checkpointCompletion.capability ===
-                "primary-main-loop-progression"
-              ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
               : genericResult.checkpointCompletion.capability ===
-                "kernel32-enter-critical-section"
-              ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section acquisitions completed`
-              : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
+                  "kernel32-leave-critical-section-continuation"
+                ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation release completed`
+                : genericResult.checkpointCompletion.capability ===
+                    "kernel32-enter-critical-section-continuation"
+                  ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
+                  : genericResult.checkpointCompletion.capability ===
+                      "primary-main-loop-continuation"
+                    ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
+                    : genericResult.checkpointCompletion.capability ===
+                        "primary-main-loop-progression"
+                      ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
+                      : genericResult.checkpointCompletion.capability ===
+                          "kernel32-enter-critical-section"
+                        ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section acquisitions completed`
+                        : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -5548,8 +5957,16 @@ async function run() {
       encodedProcessInitializer = null,
     } = callResults;
     const processExit = await exit;
-    assert.equal(processExit.signal, null, `reflection probe terminated by ${processExit.signal}`);
-    assert.equal(processExit.code, 0, `reflection probe failed: ${stderr.trim()}`);
+    assert.equal(
+      processExit.signal,
+      null,
+      `reflection probe terminated by ${processExit.signal}`,
+    );
+    assert.equal(
+      processExit.code,
+      0,
+      `reflection probe failed: ${stderr.trim()}`,
+    );
     sessionCompleted = true;
     const sourceAfter = sourceIdentity(bgiPath);
     assert.deepEqual(sourceAfter, sourceBefore);
@@ -5598,15 +6015,23 @@ async function run() {
             checkpointSessionSteps[selectedCheckpoint.supportedCallCount - 1][0]
           ].continuation;
     const nextThunk = finalExecution.terminal.thunk;
-    assert.equal(nextThunk.module.toLowerCase(), selectedCheckpoint.nextStop.module.toLowerCase());
+    assert.equal(
+      nextThunk.module.toLowerCase(),
+      selectedCheckpoint.nextStop.module.toLowerCase(),
+    );
     assert.equal(nextThunk.name, selectedCheckpoint.nextStop.symbol);
-    assert.equal(finalExecution.instructionCount, selectedCheckpoint.evidence.instructionCount);
+    assert.equal(
+      finalExecution.instructionCount,
+      selectedCheckpoint.evidence.instructionCount,
+    );
     assert.deepEqual(
       finalExecution.terminal.stackWords.slice(
         1,
         selectedCheckpoint.nextStop.arguments.length + 1,
       ),
-      selectedCheckpoint.nextStop.arguments.map((argument) => Number.parseInt(argument, 16)),
+      selectedCheckpoint.nextStop.arguments.map((argument) =>
+        Number.parseInt(argument, 16),
+      ),
     );
     console.log(
       `${selectedCheckpoint.id} passed: ${selectedCheckpoint.supportedCallCount} dispatched calls, ` +
@@ -5647,7 +6072,9 @@ async function run() {
     if (writableProfileRunDirectory !== null) {
       fs.rmSync(writableProfileRunDirectory, { recursive: true, force: true });
     }
-    const bgiGdbAfter = fs.existsSync(bgiGdbPath) ? sourceIdentity(bgiGdbPath) : null;
+    const bgiGdbAfter = fs.existsSync(bgiGdbPath)
+      ? sourceIdentity(bgiGdbPath)
+      : null;
     assert.deepEqual(
       bgiGdbAfter,
       bgiGdbBefore,
@@ -5671,26 +6098,44 @@ async function runGenericRuntimeReentry({
   if (sourceRegistration === null) {
     assert.equal(runtimeReady.sourceSnapshot, undefined);
   } else {
-    assert.equal(runtimeReady.sourceSnapshot.titleFingerprint, sourceRegistration.manifest.titleFingerprint);
-    assert.equal(runtimeReady.sourceSnapshot.snapshotId, sourceRegistration.manifest.snapshotId);
-    assert.equal(runtimeReady.sourceSnapshot.sourceId, sourceRegistration.manifest.mount.sourceId);
+    assert.equal(
+      runtimeReady.sourceSnapshot.titleFingerprint,
+      sourceRegistration.manifest.titleFingerprint,
+    );
+    assert.equal(
+      runtimeReady.sourceSnapshot.snapshotId,
+      sourceRegistration.manifest.snapshotId,
+    );
+    assert.equal(
+      runtimeReady.sourceSnapshot.sourceId,
+      sourceRegistration.manifest.mount.sourceId,
+    );
     assert.equal(
       Object.keys(runtimeReady.sourceSnapshot.files).length,
       sourceRegistration.manifest.files.length,
     );
     for (const descriptor of sourceRegistration.manifest.files) {
-      assert.deepEqual(runtimeReady.sourceSnapshot.files[String(descriptor.objectId)], descriptor);
+      assert.deepEqual(
+        runtimeReady.sourceSnapshot.files[String(descriptor.objectId)],
+        descriptor,
+      );
     }
   }
   if (writableProfile === null) {
     assert.equal(runtimeReady.writableProfile, undefined);
   } else {
     const profile = snapshotWritableProfile(writableProfile);
-    assert.equal(runtimeReady.writableProfile.titleFingerprint, profile.titleFingerprint);
+    assert.equal(
+      runtimeReady.writableProfile.titleFingerprint,
+      profile.titleFingerprint,
+    );
     assert.equal(runtimeReady.writableProfile.profileId, profile.profileId);
     assert.deepEqual(runtimeReady.writableProfile.rootPathA, profile.rootPathA);
     assert.equal(runtimeReady.writableProfile.quotaBytes, profile.quotaBytes);
-    assert.equal(Object.keys(runtimeReady.writableProfile.files).length, profile.files.length);
+    assert.equal(
+      Object.keys(runtimeReady.writableProfile.files).length,
+      profile.files.length,
+    );
     assert.equal(
       Object.keys(runtimeReady.writableProfile.directories).length,
       profile.directories.length,
@@ -5720,9 +6165,12 @@ async function runGenericRuntimeReentry({
   let primaryMainLoopWorkerCycle = null;
   let primaryMainLoopSelectedThreadCycle = null;
   let frozenSemanticCalls = 0;
-  let currentStackGuard = runtimeReady.initialThreadStack.guardPage?.start ?? null;
+  let currentStackGuard =
+    runtimeReady.initialThreadStack.guardPage?.start ?? null;
   let currentThreadId = runtimeReady.currentThreadId;
-  const threadContexts = new Map([[currentThreadId, saveGenericCpuContext(context)]]);
+  const threadContexts = new Map([
+    [currentThreadId, saveGenericCpuContext(context)],
+  ]);
   const registeredThreadIds = [currentThreadId];
   const executedThreadIds = [currentThreadId];
   const threadExits = [];
@@ -5789,7 +6237,9 @@ async function runGenericRuntimeReentry({
               ? null
               : structuredClone(yieldCurrentThreadSelections.at(-1)),
           ...(evidenceLevel === "full"
-            ? { threadSelections: structuredClone(yieldCurrentThreadSelections) }
+            ? {
+                threadSelections: structuredClone(yieldCurrentThreadSelections),
+              }
             : {}),
         },
         ...(evidenceLevel === "full"
@@ -5830,7 +6280,10 @@ async function runGenericRuntimeReentry({
       "Rust returned an invalid API-boundary thread selection",
     );
     const selectedContext = threadContexts.get(selection.threadId);
-    assert(selectedContext !== undefined, "selected guest thread has no CPU context");
+    assert(
+      selectedContext !== undefined,
+      "selected guest thread has no CPU context",
+    );
     if (saveCurrent) {
       threadContexts.set(currentThreadId, saveGenericCpuContext(context));
     }
@@ -5843,9 +6296,9 @@ async function runGenericRuntimeReentry({
     ? primaryMainLoopContinuationTrapLimit
     : setWindowPosInitialPlacementEnabled
       ? 32_768
-    : initializeCriticalSectionEnabled
-      ? 4096
-      : 256;
+      : initializeCriticalSectionEnabled
+        ? 4096
+        : 256;
   for (let iteration = 1; iteration <= callLimit; iteration += 1) {
     const sequence = supportedCalls.length + 1;
     if (!executedThreadIds.includes(currentThreadId)) {
@@ -5857,11 +6310,13 @@ async function runGenericRuntimeReentry({
       terminal.kind === "owned-dynamic-export-thunk" ||
       terminal.kind === "owned-com-method";
     const callbackReturnTerminal = terminal.kind === "callback-return-sentinel";
-    const threadReturnTerminal = terminal.kind === "process-entry-return-sentinel";
+    const threadReturnTerminal =
+      terminal.kind === "process-entry-return-sentinel";
     if (!ownedTerminal) {
       assert(
         callbackReturnTerminal ||
-          (threadReturnTerminal && currentThreadId !== runtimeReady.currentThreadId) ||
+          (threadReturnTerminal &&
+            currentThreadId !== runtimeReady.currentThreadId) ||
           (initializeCriticalSectionEnabled && terminal.kind === "page-fault"),
         `generic runtime reached non-owned terminal at call ${sequence}, ` +
           `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
@@ -5869,10 +6324,16 @@ async function runGenericRuntimeReentry({
     }
     const endpoint = ownedTerminal ? genericTerminalEndpoint(terminal) : null;
     const occurrenceKey =
-      endpoint === null ? null : `${endpoint.module.toLowerCase()}!${endpoint.symbol}`;
-    const occurrence = occurrenceKey === null ? null : (occurrences.get(occurrenceKey) ?? 0) + 1;
+      endpoint === null
+        ? null
+        : `${endpoint.module.toLowerCase()}!${endpoint.symbol}`;
+    const occurrence =
+      occurrenceKey === null ? null : (occurrences.get(occurrenceKey) ?? 0) + 1;
 
-    if (endpoint !== null && sequence <= checkpointManifest.checkpoints.length) {
+    if (
+      endpoint !== null &&
+      sequence <= checkpointManifest.checkpoints.length
+    ) {
       const stopCheckpoint = checkpointManifest.checkpoints[sequence - 1];
       assertGenericStopMatchesCheckpoint(
         continuation,
@@ -5897,13 +6358,20 @@ async function runGenericRuntimeReentry({
     );
     assert.equal(receiptFrame.payload.length, 0);
     const writebackReceipt = decodeWritebackReceipt(receiptFrame.control);
-    validateGenericWritebackReceipt(writebackReceipt, generation, discovery.pages.length);
+    validateGenericWritebackReceipt(
+      writebackReceipt,
+      generation,
+      discovery.pages.length,
+    );
     generation = writebackReceipt.generation;
     writebacks.push({
       sequence,
       instructionCount: continuation.instructionCount,
       scannedWritablePages: discovery.scannedWritablePages,
-      dirtyPages: discovery.pages.map(({ address, owner }) => ({ address, owner })),
+      dirtyPages: discovery.pages.map(({ address, owner }) => ({
+        address,
+        owner,
+      })),
       cleanWritablePages: discovery.cleanWritablePages,
       clearedDirtyBits: discovery.pages.length,
       tlbFlushAfterClear: true,
@@ -5913,7 +6381,10 @@ async function runGenericRuntimeReentry({
       receipt: writebackReceipt,
     });
     if (checkpointCompletion !== null) {
-      assert(endpoint !== null, "capability checkpoint terminal is not an owned endpoint");
+      assert(
+        endpoint !== null,
+        "capability checkpoint terminal is not an owned endpoint",
+      );
       const stopped = await stopGenericRuntimeSession({
         child,
         protocolReader,
@@ -5923,15 +6394,17 @@ async function runGenericRuntimeReentry({
             ? "kernel32-leave-critical-section-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "kernel32-leave-critical-section-continuation"
-            ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
-            : checkpointCompletion.capability ===
-                "kernel32-enter-critical-section-continuation"
-            ? "kernel32-enter-critical-section-continuation-checkpoint-complete"
-            : checkpointCompletion.capability === "primary-main-loop-progression"
-            ? "primary-main-loop-progression-checkpoint-complete"
-            : checkpointCompletion.capability === "kernel32-enter-critical-section"
-            ? "kernel32-enter-critical-section-checkpoint-complete"
-            : "kernel32-wait-for-single-object-ex-checkpoint-complete",
+              ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
+              : checkpointCompletion.capability ===
+                  "kernel32-enter-critical-section-continuation"
+                ? "kernel32-enter-critical-section-continuation-checkpoint-complete"
+                : checkpointCompletion.capability ===
+                    "primary-main-loop-progression"
+                  ? "primary-main-loop-progression-checkpoint-complete"
+                  : checkpointCompletion.capability ===
+                      "kernel32-enter-critical-section"
+                    ? "kernel32-enter-critical-section-checkpoint-complete"
+                    : "kernel32-wait-for-single-object-ex-checkpoint-complete",
       });
       checkpointCompletion.instructionCount = continuation.instructionCount;
       checkpointCompletion.nextEndpoint = {
@@ -5939,7 +6412,10 @@ async function runGenericRuntimeReentry({
         address: endpoint.address,
         module: endpoint.module,
         symbol: endpoint.symbol.startsWith("#")
-          ? { kind: "ordinal", ordinal: Number.parseInt(endpoint.symbol.slice(1), 10) }
+          ? {
+              kind: "ordinal",
+              ordinal: Number.parseInt(endpoint.symbol.slice(1), 10),
+            }
           : { kind: "name", name: endpoint.symbol },
       };
       checkpointCompletion.memoryContentSha256 = stopped.memoryContentSha256;
@@ -5973,21 +6449,28 @@ async function runGenericRuntimeReentry({
       assert.equal(terminal.address, active.entry.returnSentinel);
       assert.equal(continuation.finalState.esp, active.outerState.esp);
       const callbackResult = continuation.finalState.eax >>> 0;
-      await writeRuntimeJsonFrame(child.stdin, runtimeFrame.guestCallbackReturn, {
-        schema: "vine.v86-generic-runtime-callback-return",
-        schemaVersion: 1,
-        frameId: active.entry.frameId,
-        returnSentinel: terminal.address,
-        stackPointer: continuation.finalState.esp,
-        result: callbackResult,
-      });
+      await writeRuntimeJsonFrame(
+        child.stdin,
+        runtimeFrame.guestCallbackReturn,
+        {
+          schema: "vine.v86-generic-runtime-callback-return",
+          schemaVersion: 1,
+          frameId: active.entry.frameId,
+          returnSentinel: terminal.address,
+          stackPointer: continuation.finalState.esp,
+          result: callbackResult,
+        },
+      );
       let response = await readRuntimeFrame(
         protocolReader,
         null,
         "generic callback completion",
       );
       if (response.kind === runtimeFrame.hostDelta) {
-        const delta = decodeRuntimeHostDelta(response.control, response.payload);
+        const delta = decodeRuntimeHostDelta(
+          response.control,
+          response.payload,
+        );
         assert.equal(delta.fromGeneration, generation);
         applyRuntimeHostDelta(context, delta);
         generation = delta.generation;
@@ -5997,7 +6480,10 @@ async function runGenericRuntimeReentry({
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
           mappingOperations: delta.mappingOperations.length,
-          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
           controlBytes: response.control.length,
           payloadBytes: response.payload.length,
           payloadSha256: sha256(response.payload),
@@ -6018,7 +6504,12 @@ async function runGenericRuntimeReentry({
       if (response.kind === runtimeFrame.guestCallback) {
         assert.equal(response.payload.length, 0);
         const entry = JSON.parse(response.control.toString("utf8"));
-        validateGenericCallbackEntry(entry, active.endpoint, generation, context);
+        validateGenericCallbackEntry(
+          entry,
+          active.endpoint,
+          generation,
+          context,
+        );
         callbackEvents.push({
           action: "return",
           sequence: active.sequence,
@@ -6052,7 +6543,11 @@ async function runGenericRuntimeReentry({
       assert.equal(response.kind, runtimeFrame.apiCompletion);
       assert.equal(response.payload.length, 0);
       const completionFrame = JSON.parse(response.control.toString("utf8"));
-      validateGenericCompletionFrame(completionFrame, active.endpoint, generation);
+      validateGenericCompletionFrame(
+        completionFrame,
+        active.endpoint,
+        generation,
+      );
       const call = buildGenericCallRecord(
         active.sequence,
         active.endpoint,
@@ -6076,11 +6571,14 @@ async function runGenericRuntimeReentry({
       if (active.manifestCheckpoint !== null) {
         validateGenericCallAgainstManifest(call, active.manifestCheckpoint);
         const dispatcherWriteAddresses = new Set(
-          completionFrame.completion.guestWrites.map(({ write }) => write.address),
+          completionFrame.completion.guestWrites.map(
+            ({ write }) => write.address,
+          ),
         );
-        const dispatcherWrites = active.manifestCheckpoint.expected.guestWrites.filter(
-          ({ address }) => dispatcherWriteAddresses.has(parseManifestInteger(address)),
-        );
+        const dispatcherWrites =
+          active.manifestCheckpoint.expected.guestWrites.filter(({ address }) =>
+            dispatcherWriteAddresses.has(parseManifestInteger(address)),
+          );
         validateManifestGuestWrites(context, dispatcherWrites);
         frozenSemanticCalls += 1;
       }
@@ -6122,7 +6620,10 @@ async function runGenericRuntimeReentry({
         "generic guest thread exit",
       );
       if (response.kind === runtimeFrame.hostDelta) {
-        const delta = decodeRuntimeHostDelta(response.control, response.payload);
+        const delta = decodeRuntimeHostDelta(
+          response.control,
+          response.payload,
+        );
         assert.equal(delta.fromGeneration, generation);
         applyRuntimeHostDelta(context, delta);
         generation = delta.generation;
@@ -6132,7 +6633,10 @@ async function runGenericRuntimeReentry({
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
           mappingOperations: delta.mappingOperations.length,
-          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
           controlBytes: response.control.length,
           payloadBytes: response.payload.length,
           payloadSha256: sha256(response.payload),
@@ -6154,16 +6658,25 @@ async function runGenericRuntimeReentry({
       }
       assert.equal(response.payload.length, 0);
       const completion = JSON.parse(response.control.toString("utf8"));
-      assert.equal(completion.schema, "vine.v86-generic-runtime-thread-exit-completion");
+      assert.equal(
+        completion.schema,
+        "vine.v86-generic-runtime-thread-exit-completion",
+      );
       assert.equal(completion.schemaVersion, 1);
       assert.equal(completion.threadId, exitedThreadId);
       assert.equal(completion.exitCode, exitCode);
-      assert.deepEqual(completion.schedulerState, { state: "terminated", exitCode });
+      assert.deepEqual(completion.schedulerState, {
+        state: "terminated",
+        exitCode,
+      });
       assert.equal(completion.memory.generation, generation);
       assert.equal(completion.memory.acknowledgedGeneration, generation);
       threadContexts.delete(exitedThreadId);
       threadExits.push({ threadId: exitedThreadId, exitCode });
-      assert(completion.threadSelection, "guest thread exit left no executable runtime lane");
+      assert(
+        completion.threadSelection,
+        "guest thread exit left no executable runtime lane",
+      );
       selectThread(completion.threadSelection, false);
       continuation = executeToNextOwnedTrap(
         offer,
@@ -6188,19 +6701,26 @@ async function runGenericRuntimeReentry({
           largeHeapAllocation.address + largeHeapAllocation.byteLength &&
         (terminal.pageFaultErrorCode & 1) === 0;
       if (largeHeapFaultCandidate) {
-        await writeRuntimeJsonFrame(child.stdin, runtimeFrame.pageFaultService, {
-          schema: "vine.v86-generic-runtime-page-fault",
-          schemaVersion: 1,
-          generation,
-          faultAddress: terminal.faultAddress,
-          pageFaultErrorCode: terminal.pageFaultErrorCode,
-        });
+        await writeRuntimeJsonFrame(
+          child.stdin,
+          runtimeFrame.pageFaultService,
+          {
+            schema: "vine.v86-generic-runtime-page-fault",
+            schemaVersion: 1,
+            generation,
+            faultAddress: terminal.faultAddress,
+            pageFaultErrorCode: terminal.pageFaultErrorCode,
+          },
+        );
         const deltaFrame = await readRuntimeFrame(
           protocolReader,
           runtimeFrame.hostDelta,
           "large heap page materialization delta",
         );
-        const delta = decodeRuntimeHostDelta(deltaFrame.control, deltaFrame.payload);
+        const delta = decodeRuntimeHostDelta(
+          deltaFrame.control,
+          deltaFrame.payload,
+        );
         assert.equal(delta.fromGeneration, generation);
         assert.equal(delta.mappingOperations.length, 1);
         assert.equal(delta.mappingOperations[0].operation, 2);
@@ -6215,7 +6735,10 @@ async function runGenericRuntimeReentry({
         });
         assert.equal(delta.dirtyPages.length, 1);
         assert.equal(delta.dirtyPages[0].address, committedPage);
-        assert.equal(delta.dirtyPages[0].owner, delta.mappingOperations[0].owner);
+        assert.equal(
+          delta.dirtyPages[0].owner,
+          delta.mappingOperations[0].owner,
+        );
         assert.deepEqual(
           delta.dirtyPages[0].protection,
           delta.mappingOperations[0].protection,
@@ -6233,7 +6756,10 @@ async function runGenericRuntimeReentry({
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
           mappingOperations: delta.mappingOperations.length,
-          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
           controlBytes: deltaFrame.control.length,
           payloadBytes: deltaFrame.payload.length,
           payloadSha256: sha256(deltaFrame.payload),
@@ -6289,7 +6815,8 @@ async function runGenericRuntimeReentry({
       }
       const stackGrowthCandidate =
         terminal.kind === "page-fault" &&
-        terminal.faultAddress - (terminal.faultAddress % page.size) === currentStackGuard &&
+        terminal.faultAddress - (terminal.faultAddress % page.size) ===
+          currentStackGuard &&
         (terminal.pageFaultErrorCode & 1) === 0;
       if (stackGrowthCandidate) {
         await writeRuntimeJsonFrame(child.stdin, runtimeFrame.stackGrowth, {
@@ -6304,7 +6831,10 @@ async function runGenericRuntimeReentry({
           runtimeFrame.hostDelta,
           "initial thread stack growth delta",
         );
-        const delta = decodeRuntimeHostDelta(deltaFrame.control, deltaFrame.payload);
+        const delta = decodeRuntimeHostDelta(
+          deltaFrame.control,
+          deltaFrame.payload,
+        );
         assert.equal(delta.fromGeneration, generation);
         assert.equal(delta.mappingOperations.length, 1);
         assert.equal(delta.mappingOperations[0].operation, 2);
@@ -6317,9 +6847,15 @@ async function runGenericRuntimeReentry({
         });
         assert.equal(delta.dirtyPages.length, 1);
         assert.equal(delta.dirtyPages[0].address, currentStackGuard);
-        assert.equal(delta.dirtyPages[0].owner, delta.mappingOperations[0].owner);
+        assert.equal(
+          delta.dirtyPages[0].owner,
+          delta.mappingOperations[0].owner,
+        );
         assert.equal(delta.dirtyPages[0].ownerSealed, true);
-        assert.deepEqual(delta.dirtyPages[0].protection, delta.mappingOperations[0].protection);
+        assert.deepEqual(
+          delta.dirtyPages[0].protection,
+          delta.mappingOperations[0].protection,
+        );
         assert(delta.dirtyPages[0].bytes.every((byte) => byte === 0));
         applyRuntimeHostDelta(context, delta);
         generation = delta.generation;
@@ -6329,7 +6865,10 @@ async function runGenericRuntimeReentry({
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
           mappingOperations: delta.mappingOperations.length,
-          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
           controlBytes: deltaFrame.control.length,
           payloadBytes: deltaFrame.payload.length,
           payloadSha256: sha256(deltaFrame.payload),
@@ -6348,16 +6887,25 @@ async function runGenericRuntimeReentry({
         );
         assert.equal(completionFrame.payload.length, 0);
         const completion = JSON.parse(completionFrame.control.toString("utf8"));
-        assert.equal(completion.schema, "vine.v86-generic-runtime-stack-growth-completion");
+        assert.equal(
+          completion.schema,
+          "vine.v86-generic-runtime-stack-growth-completion",
+        );
         assert.equal(completion.schemaVersion, 1);
         assert.equal(completion.growth.threadId, runtimeReady.currentThreadId);
         assert.equal(
           completion.growth.addressAllocationId,
           runtimeReady.initialThreadStack.addressAllocationId,
         );
-        assert.equal(completion.growth.memoryOwner, runtimeReady.initialThreadStack.memoryOwner);
+        assert.equal(
+          completion.growth.memoryOwner,
+          runtimeReady.initialThreadStack.memoryOwner,
+        );
         assert.equal(completion.growth.faultAddress, terminal.faultAddress);
-        assert.equal(completion.growth.pageFaultErrorCode, terminal.pageFaultErrorCode);
+        assert.equal(
+          completion.growth.pageFaultErrorCode,
+          terminal.pageFaultErrorCode,
+        );
         assert.equal(completion.growth.committedPage.start, currentStackGuard);
         assert.equal(completion.growth.committedPage.byteLength, page.size);
         assert.deepEqual(
@@ -6476,7 +7024,11 @@ async function runGenericRuntimeReentry({
         : null;
     await writeRuntimeJsonFrame(child.stdin, runtimeFrame.trap, trapRequest);
 
-    let response = await readRuntimeFrame(protocolReader, null, "generic API response");
+    let response = await readRuntimeFrame(
+      protocolReader,
+      null,
+      "generic API response",
+    );
     while (response.kind === runtimeFrame.hostRequest) {
       response = await completeStorageHostRequest({
         child,
@@ -6504,7 +7056,10 @@ async function runGenericRuntimeReentry({
         fromGeneration: delta.fromGeneration,
         generation: delta.generation,
         mappingOperations: delta.mappingOperations.length,
-        dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({ address, owner })),
+        dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+          address,
+          owner,
+        })),
         controlBytes: response.control.length,
         payloadBytes: response.payload.length,
         payloadSha256: sha256(response.payload),
@@ -6516,7 +7071,11 @@ async function runGenericRuntimeReentry({
         encodeGeneration(generation),
         Buffer.alloc(0),
       );
-      response = await readRuntimeFrame(protocolReader, null, "generic API completion");
+      response = await readRuntimeFrame(
+        protocolReader,
+        null,
+        "generic API completion",
+      );
     }
 
     if (response.kind === runtimeFrame.guestCallback) {
@@ -6577,7 +7136,11 @@ async function runGenericRuntimeReentry({
       const fault = JSON.parse(response.control.toString("utf8"));
       if (endpoint.kind === "com-method") {
         validateGenericRuntimeComFault(fault, endpoint, generation);
-        continuation = captureGenericComFaultStack(context, continuation, fault);
+        continuation = captureGenericComFaultStack(
+          context,
+          continuation,
+          fault,
+        );
       } else {
         validateGenericRuntimeFault(fault, endpoint, generation);
       }
@@ -6650,13 +7213,17 @@ async function runGenericRuntimeReentry({
     if (manifestCheckpoint !== null) {
       validateGenericCallAgainstManifest(call, manifestCheckpoint);
       const dispatcherWriteAddresses = new Set(
-        completionFrame.completion.guestWrites.map(({ write }) => write.address),
+        completionFrame.completion.guestWrites.map(
+          ({ write }) => write.address,
+        ),
       );
-      const dispatcherWrites = manifestCheckpoint.expected.guestWrites.filter(({ address }) =>
-        dispatcherWriteAddresses.has(parseManifestInteger(address)),
+      const dispatcherWrites = manifestCheckpoint.expected.guestWrites.filter(
+        ({ address }) =>
+          dispatcherWriteAddresses.has(parseManifestInteger(address)),
       );
       postReturnGuestWrites = manifestCheckpoint.expected.guestWrites.filter(
-        ({ address }) => !dispatcherWriteAddresses.has(parseManifestInteger(address)),
+        ({ address }) =>
+          !dispatcherWriteAddresses.has(parseManifestInteger(address)),
       );
       validateManifestGuestWrites(context, dispatcherWrites);
       frozenSemanticCalls += 1;
@@ -6749,9 +7316,17 @@ async function runGenericRuntimeReentry({
       registerCreatedThread(completionFrame.createdThread);
     }
     if (endpoint.kind === "com-method") {
-      restoreGenericComCompletion(context, continuation.finalState, completionFrame.completion);
+      restoreGenericComCompletion(
+        context,
+        continuation.finalState,
+        completionFrame.completion,
+      );
     } else {
-      restoreGenericApiCompletion(context, continuation.finalState, completionFrame.completion);
+      restoreGenericApiCompletion(
+        context,
+        continuation.finalState,
+        completionFrame.completion,
+      );
     }
     if (completionFrame.threadSelection !== undefined) {
       threadSelections.push({
@@ -6767,8 +7342,7 @@ async function runGenericRuntimeReentry({
           ? {
               previousThreadTrapContext: {
                 threadId: currentThreadId,
-                instructionPointer:
-                  continuation.finalState.instructionPointer,
+                instructionPointer: continuation.finalState.instructionPointer,
                 stackPointer: continuation.finalState.esp,
                 basePointer: continuation.finalState.ebp,
                 stackWords: Array.from(
@@ -6783,7 +7357,7 @@ async function runGenericRuntimeReentry({
                     context.readVirtualU32(
                       continuation.finalState.esp + index * 4,
                       `primary main-loop selection stack word ${index}`,
-                  ),
+                    ),
                 ),
               },
               previousThreadCompletedCall: {
@@ -7020,7 +7594,11 @@ async function runGenericRuntimeReentry({
     }
     let next;
     try {
-      next = executeToNextOwnedTrap(offer, context, continuation.instructionCount);
+      next = executeToNextOwnedTrap(
+        offer,
+        context,
+        continuation.instructionCount,
+      );
     } catch (error) {
       error.stack =
         `${error.stack ?? error.message}\nafter supported call ${call.sequence} ` +
@@ -7100,7 +7678,10 @@ async function completeStorageHostRequest({
   assert.equal(metadata.endpoint.kind, "runtime-system-export");
   assert.equal(metadata.endpoint.endpoint.id, endpoint.id);
   assert.equal(metadata.endpoint.endpoint.address, endpoint.address);
-  assert.equal(metadata.endpoint.endpoint.module.toLowerCase(), endpoint.module.toLowerCase());
+  assert.equal(
+    metadata.endpoint.endpoint.module.toLowerCase(),
+    endpoint.module.toLowerCase(),
+  );
   assert.equal(metadata.endpoint.endpoint.symbol.kind, "name");
   assert.equal(metadata.memory.generation, generation);
   assert.equal(metadata.memory.acknowledgedGeneration, generation);
@@ -7110,7 +7691,10 @@ async function completeStorageHostRequest({
   });
   if (metadata.service === timerPacingService) {
     assert.equal(response.payload.length, 0);
-    assert.equal(metadata.endpoint.endpoint.symbol.name, "WaitForSingleObjectEx");
+    assert.equal(
+      metadata.endpoint.endpoint.symbol.name,
+      "WaitForSingleObjectEx",
+    );
     assert.equal(metadata.arguments.length, 13);
     const [
       version,
@@ -7128,7 +7712,11 @@ async function completeStorageHostRequest({
       outcome,
     ] = metadata.arguments;
     assert.equal(version, 1);
-    assert(Number.isInteger(delayMilliseconds) && delayMilliseconds > 0 && delayMilliseconds <= 10);
+    assert(
+      Number.isInteger(delayMilliseconds) &&
+        delayMilliseconds > 0 &&
+        delayMilliseconds <= 10,
+    );
     assert(outcome === 0 || outcome === 1);
     const requestIdentity = Buffer.alloc(8);
     requestIdentity.writeBigUInt64LE(BigInt(metadata.requestId));
@@ -7149,7 +7737,10 @@ async function completeStorageHostRequest({
         (BigInt(registrationHigh) << 32n)
       ).toString(),
       timerId: (BigInt(timerLow) | (BigInt(timerHigh) << 32n)).toString(),
-      targetTime100ns: (BigInt(targetLow) | (BigInt(targetHigh) << 32n)).toString(),
+      targetTime100ns: (
+        BigInt(targetLow) |
+        (BigInt(targetHigh) << 32n)
+      ).toString(),
       timerClockGeneration: (
         BigInt(clockGenerationLow) |
         (BigInt(clockGenerationHigh) << 32n)
@@ -7161,7 +7752,11 @@ async function completeStorageHostRequest({
       outcome: outcome === 0 ? "object-signaled" : "timed-out",
       pacing: "deterministic-node-ack",
     });
-    return readRuntimeFrame(protocolReader, null, "generic timer pacing completion");
+    return readRuntimeFrame(
+      protocolReader,
+      null,
+      "generic timer pacing completion",
+    );
   }
 
   assert(
@@ -7169,7 +7764,11 @@ async function completeStorageHostRequest({
     "runtime emitted storage I/O without a registered backing",
   );
   if (metadata.service === writableProfileDirectoryCreateService) {
-    assert.notEqual(writableProfile, null, "directory create has no profile database");
+    assert.notEqual(
+      writableProfile,
+      null,
+      "directory create has no profile database",
+    );
     assert.notEqual(
       writableProfileLease,
       null,
@@ -7186,7 +7785,11 @@ async function completeStorageHostRequest({
     const directory = profile.directories.find(
       (candidate) => candidate.directoryId === directoryId,
     );
-    assert.notEqual(directory, undefined, "writable directory is not allowlisted");
+    assert.notEqual(
+      directory,
+      undefined,
+      "writable directory is not allowlisted",
+    );
     assert.equal(directory.exists, false);
     assert.equal(directory.generation, baseGeneration);
     const result = commitWritableDirectory(writableProfile, {
@@ -7224,8 +7827,16 @@ async function completeStorageHostRequest({
     );
   }
   if (metadata.service === writableProfileCommitService) {
-    assert.notEqual(writableProfile, null, "writable commit has no profile database");
-    assert.notEqual(writableProfileLease, null, "writable commit has no profile session lease");
+    assert.notEqual(
+      writableProfile,
+      null,
+      "writable commit has no profile database",
+    );
+    assert.notEqual(
+      writableProfileLease,
+      null,
+      "writable commit has no profile session lease",
+    );
     assert(
       metadata.endpoint.endpoint.symbol.name === "CloseHandle" ||
         metadata.endpoint.endpoint.symbol.name === "FlushFileBuffers",
@@ -7244,13 +7855,21 @@ async function completeStorageHostRequest({
     assert.equal(version, 1);
     assert(closeAfterCommit === 0 || closeAfterCommit === 1);
     const baseGeneration = Number(BigInt(baseLow) | (BigInt(baseHigh) << 32n));
-    const byteLength = Number(BigInt(byteLengthLow) | (BigInt(byteLengthHigh) << 32n));
+    const byteLength = Number(
+      BigInt(byteLengthLow) | (BigInt(byteLengthHigh) << 32n),
+    );
     assert(Number.isSafeInteger(baseGeneration));
     assert(Number.isSafeInteger(byteLength));
     assert.equal(response.payload.length, byteLength);
     const profile = snapshotWritableProfile(writableProfile);
-    const file = profile.files.find((candidate) => candidate.objectId === objectId);
-    assert.notEqual(file, undefined, "writable commit object is not allowlisted");
+    const file = profile.files.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    assert.notEqual(
+      file,
+      undefined,
+      "writable commit object is not allowlisted",
+    );
     assert.equal(file.generation, baseGeneration);
     const contentSha256 = sha256(response.payload);
     const result = commitWritableProfile(
@@ -7289,7 +7908,11 @@ async function completeStorageHostRequest({
       closeAfterCommit: closeAfterCommit === 1,
       duplicate: result.duplicate,
     });
-    return readRuntimeFrame(protocolReader, null, "generic writable commit completion");
+    return readRuntimeFrame(
+      protocolReader,
+      null,
+      "generic writable commit completion",
+    );
   }
 
   assert.equal(response.payload.length, 0);
@@ -7299,9 +7922,10 @@ async function completeStorageHostRequest({
     metadata.service,
     metadata.arguments,
   );
-  const sourceResponse = metadata.service === profileReadService
-    ? readWritableProfile(writableProfile, request)
-    : readSourceSnapshot(sourceRegistration, request);
+  const sourceResponse =
+    metadata.service === profileReadService
+      ? readWritableProfile(writableProfile, request)
+      : readSourceSnapshot(sourceRegistration, request);
   const encoded = encodeSourceReadResponse(sourceResponse);
   const requestIdentity = Buffer.alloc(8);
   requestIdentity.writeBigUInt64LE(BigInt(request.requestId));
@@ -7321,7 +7945,11 @@ async function completeStorageHostRequest({
     transferredBytes: sourceResponse.transferredBytes,
     payloadSha256: sha256(encoded.payload),
   });
-  return readRuntimeFrame(protocolReader, null, "generic source read completion");
+  return readRuntimeFrame(
+    protocolReader,
+    null,
+    "generic source read completion",
+  );
 }
 
 function encodeWritableCommitResponse(result) {
@@ -7360,18 +7988,22 @@ function buildGenericCallRecord(
     symbol: endpoint.symbol,
     occurrence,
     trapInstructionCount,
-    arguments: completionFrame.completion.frame.arguments.flatMap(({ words }) => words),
+    arguments: completionFrame.completion.frame.arguments.flatMap(
+      ({ words }) => words,
+    ),
     result: completionFrame.completion.eax,
     implementationId: completionFrame.completion.implementationId,
     returnAddress: completionFrame.completion.instructionPointer,
     stackPointerBefore: completionFrame.completion.frame.stackPointer,
     stackPointerAfter: completionFrame.completion.stackPointer,
     lastError: completionFrame.completion.lastError,
-    guestWrites: completionFrame.completion.guestWrites.map(({ write, result }) => ({
-      address: write.address,
-      bytes: write.bytes,
-      result,
-    })),
+    guestWrites: completionFrame.completion.guestWrites.map(
+      ({ write, result }) => ({
+        address: write.address,
+        bytes: write.bytes,
+        result,
+      }),
+    ),
     ...(completionFrame.completion.executionBoundary === undefined
       ? {}
       : { executionBoundary: completionFrame.completion.executionBoundary }),
@@ -7396,16 +8028,24 @@ function buildGenericCallRecord(
     ...(completionFrame.currentDirectory === undefined
       ? {}
       : { currentDirectory: completionFrame.currentDirectory }),
-    ...(completionFrame.mutex === undefined ? {} : { mutex: completionFrame.mutex }),
+    ...(completionFrame.mutex === undefined
+      ? {}
+      : { mutex: completionFrame.mutex }),
     ...(completionFrame.waitableTimer === undefined
       ? {}
       : { waitableTimer: completionFrame.waitableTimer }),
-    ...(completionFrame.icon === undefined ? {} : { icon: completionFrame.icon }),
-    ...(completionFrame.cursor === undefined ? {} : { cursor: completionFrame.cursor }),
+    ...(completionFrame.icon === undefined
+      ? {}
+      : { icon: completionFrame.icon }),
+    ...(completionFrame.cursor === undefined
+      ? {}
+      : { cursor: completionFrame.cursor }),
     ...(completionFrame.windowClass === undefined
       ? {}
       : { windowClass: completionFrame.windowClass }),
-    ...(completionFrame.window === undefined ? {} : { window: completionFrame.window }),
+    ...(completionFrame.window === undefined
+      ? {}
+      : { window: completionFrame.window }),
     ...(completionFrame.windowTimer === undefined
       ? {}
       : { windowTimer: completionFrame.windowTimer }),
@@ -7471,7 +8111,10 @@ function buildGenericComCallRecord(
     trapInstructionCount,
     interface: completion.frame.interface,
     vtableSlot: completion.frame.vtableSlot,
-    arguments: [completion.frame.thisPointer, ...completion.frame.explicitArguments],
+    arguments: [
+      completion.frame.thisPointer,
+      ...completion.frame.explicitArguments,
+    ],
     result: completion.returnValue,
     returnAddress: completion.instructionPointer,
     stackPointerBefore: completion.frame.stackPointer,
@@ -7506,188 +8149,189 @@ function validateGenericRuntimeReady(ready, offer) {
       (genericRuntimeCapability === null
         ? 0
         : createDirectoryACheckpointEnabled
-        ? 102
-        : getFileAttributesACheckpointEnabled
-        ? 101
-        : globalMemoryStatusCheckpointEnabled
-        ? 100
-        : sleepZeroCheckpointEnabled
-        ? 99
-        : archiveSourceReadEnabled
-          ? 98
-        : dragAcceptFilesEnabled
-          ? 98
-        : waitForSingleObjectExEnabled
-          ? 97
-        : setWaitableTimerEnabled
-          ? 96
-        : imm32ContextEnabled
-          ? 95
-        : virtualAllocEnabled
-          ? 93
-        : gdiplusStartupEnabled
-          ? 92
-        : textRasterEnabled
-          ? 90
-        : outlineTextMetricsEnabled
-          ? 89
-        : dibLifecycleEnabled
-          ? 88
-        : compatibleDcEnabled
-          ? 84
-        : fontCreationEnabled
-          ? 82
-        : fontEnumerationEnabled
-          ? 81
-        : setThreadPriorityEnabled
-          ? 80
-        : createThreadEnabled
-          ? 79
-        : setTimerEnabled
-          ? 77
-        : dsoundRootEnabled
-          ? 76
-        : dinput8FactoryEnabled
-          ? 75
-        : getMonitorInfoAEnabled
-          ? 74
-        : queryPerformanceFrequencyEnabled
-          ? 73
-        : timeGetTimeEnabled
-          ? 72
-        : monitorFromWindowEnabled
-          ? 71
-        : setWindowPosActivationEnabled
-          ? 70
-        : setWindowLongAEnabled
-          ? 70
-        : windowDcFillEnabled
-          ? 69
-        : getClientRectEnabled
-          ? 65
-        : loadLibraryAEnabled
-          ? 64
-        : d3d9RootFactoryEnabled
-          ? 63
-        : setWindowPosInitialPlacementEnabled
-          ? 62
-        : sendMessageASmallIconEnabled
-          ? 61
-        : loadImageASmallIconEnabled
-          ? 60
-        : createWindowExAEnabled
-          ? 59
-        : sourceFileReadEnabled
-          ? 55
-        : largeHeapAllocationEnabled
-          ? 50
-        : getSystemMetricsEnabled
-          ? 50
-        : registerClassExAEnabled
-          ? 49
-        : loadCursorAEnabled
-          ? 48
-        : loadIconAEnabled
-          ? 47
-        : createWaitableTimerAEnabled
-          ? 46
-        : getVersionExAEnabled
-          ? 45
-        : timeBeginPeriodEnabled
-          ? 44
-        : timeGetDevCapsEnabled
-          ? 42
-        : swapMouseButtonEnabled
-          ? 41
-        : getDriveTypeAEnabled
-          ? 40
-        : getSystemDefaultLangIdEnabled
-          ? 39
-        : coInitializeEnabled
-          ? 38
-        : enumDisplayMonitorsEnabled
-          ? 37
-        : getSystemInfoEnabled
-          ? 36
-        : setThreadAffinityMaskEnabled
-          ? 35
-          : getCurrentThreadEnabled
-          ? 34
-          : createMutexAEnabled
-          ? 33
-          : setCurrentDirectoryAEnabled
-          ? 32
-          : multiByteToWideCharCpAcpEnabled
-          ? 31
-          : initializeCriticalSectionEnabled
-          ? 31
-          : heapSizeEnabled
-          ? 30
-          : setUnhandledExceptionFilterEnabled
-          ? 29
-          : isProcessorFeaturePresentEnabled
-          ? 28
-          : privateHeapSize128Enabled
-          ? 27
-          : privateHeapFreeSize1Enabled
-          ? 27
-          : privateHeapSize4Enabled
-          ? 26
-          : privateHeapSize16Enabled
-          ? 26
-          : getModuleFileNameAEnabled
-          ? 26
-          : interlockedDecrementEnabled
-          ? 25
-          : lcMapStringWEnabled
-          ? 24
-          : getStringTypeWEnabled
-          ? 23
-          : multiByteToWideCharEnabled
-          ? 22
-          : getCpInfoEnabled
-          ? 21
-          : getAcpEnabled
-          ? 20
-          : setLastErrorEnabled
-          ? 19
-          : flsGetValueEnabled
-          ? 18
-          : tlsGetValueEnabled
-          ? 17
-          : getLastErrorEnabled
-          ? 16
-          : wideCharToMultiByteEnabled
-          ? 15
-          : environmentStringsWEnabled
-          ? 14
-          : commandLineAEnabled
-          ? 12
-          : setHandleCountEnabled
-          ? 11
-          : fileTypeEnabled
-          ? 10
-          : standardInputHandleEnabled
-          ? 9
-          : privateHeapSecondAllocationEnabled
-          ? 8
-          : interlockedIncrementEnabled
-          ? 8
-          : fiberLocalStorageValueEnabled
-          ? 7
-          : privateHeapAllocationEnabled
-          ? 6
-          : fiberLocalStorageAllocationEnabled
-          ? 5
-          : genericRuntimeCapability === "kernel32-pointer-decoding"
-            ? 4
-            : 3),
+          ? 102
+          : getFileAttributesACheckpointEnabled
+            ? 101
+            : globalMemoryStatusCheckpointEnabled
+              ? 100
+              : sleepZeroCheckpointEnabled
+                ? 99
+                : archiveSourceReadEnabled
+                  ? 98
+                  : dragAcceptFilesEnabled
+                    ? 98
+                    : waitForSingleObjectExEnabled
+                      ? 97
+                      : setWaitableTimerEnabled
+                        ? 96
+                        : imm32ContextEnabled
+                          ? 95
+                          : virtualAllocEnabled
+                            ? 93
+                            : gdiplusStartupEnabled
+                              ? 92
+                              : textRasterEnabled
+                                ? 90
+                                : outlineTextMetricsEnabled
+                                  ? 89
+                                  : dibLifecycleEnabled
+                                    ? 88
+                                    : compatibleDcEnabled
+                                      ? 84
+                                      : fontCreationEnabled
+                                        ? 82
+                                        : fontEnumerationEnabled
+                                          ? 81
+                                          : setThreadPriorityEnabled
+                                            ? 80
+                                            : createThreadEnabled
+                                              ? 79
+                                              : setTimerEnabled
+                                                ? 77
+                                                : dsoundRootEnabled
+                                                  ? 76
+                                                  : dinput8FactoryEnabled
+                                                    ? 75
+                                                    : getMonitorInfoAEnabled
+                                                      ? 74
+                                                      : queryPerformanceFrequencyEnabled
+                                                        ? 73
+                                                        : timeGetTimeEnabled
+                                                          ? 72
+                                                          : monitorFromWindowEnabled
+                                                            ? 71
+                                                            : setWindowPosActivationEnabled
+                                                              ? 70
+                                                              : setWindowLongAEnabled
+                                                                ? 70
+                                                                : windowDcFillEnabled
+                                                                  ? 69
+                                                                  : getClientRectEnabled
+                                                                    ? 65
+                                                                    : loadLibraryAEnabled
+                                                                      ? 64
+                                                                      : d3d9RootFactoryEnabled
+                                                                        ? 63
+                                                                        : setWindowPosInitialPlacementEnabled
+                                                                          ? 62
+                                                                          : sendMessageASmallIconEnabled
+                                                                            ? 61
+                                                                            : loadImageASmallIconEnabled
+                                                                              ? 60
+                                                                              : createWindowExAEnabled
+                                                                                ? 59
+                                                                                : sourceFileReadEnabled
+                                                                                  ? 55
+                                                                                  : largeHeapAllocationEnabled
+                                                                                    ? 50
+                                                                                    : getSystemMetricsEnabled
+                                                                                      ? 50
+                                                                                      : registerClassExAEnabled
+                                                                                        ? 49
+                                                                                        : loadCursorAEnabled
+                                                                                          ? 48
+                                                                                          : loadIconAEnabled
+                                                                                            ? 47
+                                                                                            : createWaitableTimerAEnabled
+                                                                                              ? 46
+                                                                                              : getVersionExAEnabled
+                                                                                                ? 45
+                                                                                                : timeBeginPeriodEnabled
+                                                                                                  ? 44
+                                                                                                  : timeGetDevCapsEnabled
+                                                                                                    ? 42
+                                                                                                    : swapMouseButtonEnabled
+                                                                                                      ? 41
+                                                                                                      : getDriveTypeAEnabled
+                                                                                                        ? 40
+                                                                                                        : getSystemDefaultLangIdEnabled
+                                                                                                          ? 39
+                                                                                                          : coInitializeEnabled
+                                                                                                            ? 38
+                                                                                                            : enumDisplayMonitorsEnabled
+                                                                                                              ? 37
+                                                                                                              : getSystemInfoEnabled
+                                                                                                                ? 36
+                                                                                                                : setThreadAffinityMaskEnabled
+                                                                                                                  ? 35
+                                                                                                                  : getCurrentThreadEnabled
+                                                                                                                    ? 34
+                                                                                                                    : createMutexAEnabled
+                                                                                                                      ? 33
+                                                                                                                      : setCurrentDirectoryAEnabled
+                                                                                                                        ? 32
+                                                                                                                        : multiByteToWideCharCpAcpEnabled
+                                                                                                                          ? 31
+                                                                                                                          : initializeCriticalSectionEnabled
+                                                                                                                            ? 31
+                                                                                                                            : heapSizeEnabled
+                                                                                                                              ? 30
+                                                                                                                              : setUnhandledExceptionFilterEnabled
+                                                                                                                                ? 29
+                                                                                                                                : isProcessorFeaturePresentEnabled
+                                                                                                                                  ? 28
+                                                                                                                                  : privateHeapSize128Enabled
+                                                                                                                                    ? 27
+                                                                                                                                    : privateHeapFreeSize1Enabled
+                                                                                                                                      ? 27
+                                                                                                                                      : privateHeapSize4Enabled
+                                                                                                                                        ? 26
+                                                                                                                                        : privateHeapSize16Enabled
+                                                                                                                                          ? 26
+                                                                                                                                          : getModuleFileNameAEnabled
+                                                                                                                                            ? 26
+                                                                                                                                            : interlockedDecrementEnabled
+                                                                                                                                              ? 25
+                                                                                                                                              : lcMapStringWEnabled
+                                                                                                                                                ? 24
+                                                                                                                                                : getStringTypeWEnabled
+                                                                                                                                                  ? 23
+                                                                                                                                                  : multiByteToWideCharEnabled
+                                                                                                                                                    ? 22
+                                                                                                                                                    : getCpInfoEnabled
+                                                                                                                                                      ? 21
+                                                                                                                                                      : getAcpEnabled
+                                                                                                                                                        ? 20
+                                                                                                                                                        : setLastErrorEnabled
+                                                                                                                                                          ? 19
+                                                                                                                                                          : flsGetValueEnabled
+                                                                                                                                                            ? 18
+                                                                                                                                                            : tlsGetValueEnabled
+                                                                                                                                                              ? 17
+                                                                                                                                                              : getLastErrorEnabled
+                                                                                                                                                                ? 16
+                                                                                                                                                                : wideCharToMultiByteEnabled
+                                                                                                                                                                  ? 15
+                                                                                                                                                                  : environmentStringsWEnabled
+                                                                                                                                                                    ? 14
+                                                                                                                                                                    : commandLineAEnabled
+                                                                                                                                                                      ? 12
+                                                                                                                                                                      : setHandleCountEnabled
+                                                                                                                                                                        ? 11
+                                                                                                                                                                        : fileTypeEnabled
+                                                                                                                                                                          ? 10
+                                                                                                                                                                          : standardInputHandleEnabled
+                                                                                                                                                                            ? 9
+                                                                                                                                                                            : privateHeapSecondAllocationEnabled
+                                                                                                                                                                              ? 8
+                                                                                                                                                                              : interlockedIncrementEnabled
+                                                                                                                                                                                ? 8
+                                                                                                                                                                                : fiberLocalStorageValueEnabled
+                                                                                                                                                                                  ? 7
+                                                                                                                                                                                  : privateHeapAllocationEnabled
+                                                                                                                                                                                    ? 6
+                                                                                                                                                                                    : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                      ? 5
+                                                                                                                                                                                      : genericRuntimeCapability ===
+                                                                                                                                                                                          "kernel32-pointer-decoding"
+                                                                                                                                                                                        ? 4
+                                                                                                                                                                                        : 3),
   );
   assert.equal(ready.dynamicExportEndpoints, loadLibraryAEnabled ? 5 : 4);
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-v22",
+      "user32-single-monitor-work-area-window-input-resources-monitor-info-screen-dc-ime-resize-system-menu-frame-change-move-v23",
     );
     assert.equal(
       ready.displayProfileId,
@@ -7768,7 +8412,9 @@ function validateGenericRuntimeReady(ready, offer) {
     ready.initialStackAddressAllocation.id,
     ready.initialThreadStack.addressAllocationId,
   );
-  assert.deepEqual(ready.initialStackAddressAllocation.purpose, { kind: "thread-stack" });
+  assert.deepEqual(ready.initialStackAddressAllocation.purpose, {
+    kind: "thread-stack",
+  });
   assert.deepEqual(ready.initialStackAddressAllocation.range, {
     base: expected.stack.reserveBase,
     byteLength: expected.stack.reserveBytes,
@@ -7782,15 +8428,25 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(ready.initialStackAddressAllocation.lifetime, "thread");
   assert.equal(ready.initialStackAddressAllocation.releasePolicy, "explicit");
   assert.equal(ready.initialStackAddressAllocation.executable, false);
-  assert.equal(ready.memory.generation, offer.reflection.invalidation.generation);
-  assert.equal(ready.memory.acknowledgedGeneration, offer.reflection.invalidation.generation);
+  assert.equal(
+    ready.memory.generation,
+    offer.reflection.invalidation.generation,
+  );
+  assert.equal(
+    ready.memory.acknowledgedGeneration,
+    offer.reflection.invalidation.generation,
+  );
   assert.equal(ready.memory.dirtyPages, 0);
   assert.equal(ready.memory.pendingInvalidation, undefined);
   assert.equal(ready.attachOrder.length, ready.modules.length);
-  const kernel32 = ready.modules.find(({ canonicalName }) => canonicalName === "kernel32.dll");
+  const kernel32 = ready.modules.find(
+    ({ canonicalName }) => canonicalName === "kernel32.dll",
+  );
   assert(kernel32, "generic runtime process has no KERNEL32 module");
   assert.equal(kernel32.handle, controlledLoadedModule.handle.value);
-  const main = ready.modules.find(({ handle }) => handle === ready.mainModuleHandle);
+  const main = ready.modules.find(
+    ({ handle }) => handle === ready.mainModuleHandle,
+  );
   assert(main, "generic runtime process has no main executable module");
   assert.equal(main.canonicalName, "bgi.exe");
 }
@@ -7833,26 +8489,44 @@ function assertGenericStopMatchesCheckpoint(
   occurrence,
   checkpoint,
 ) {
-  assert.equal(endpoint.module.toLowerCase(), checkpoint.nextStop.module.toLowerCase());
+  assert.equal(
+    endpoint.module.toLowerCase(),
+    checkpoint.nextStop.module.toLowerCase(),
+  );
   assert.equal(endpoint.symbol, checkpoint.nextStop.symbol);
   assert.equal(occurrence, checkpoint.nextStop.occurrence);
-  assert.equal(execution.instructionCount, checkpoint.evidence.instructionCount);
+  assert.equal(
+    execution.instructionCount,
+    checkpoint.evidence.instructionCount,
+  );
   assert.deepEqual(
-    execution.terminal.stackWords.slice(1, checkpoint.nextStop.arguments.length + 1),
+    execution.terminal.stackWords.slice(
+      1,
+      checkpoint.nextStop.arguments.length + 1,
+    ),
     checkpoint.nextStop.arguments.map(parseManifestInteger),
   );
 }
 
 function validateGenericCallAgainstManifest(call, checkpoint) {
-  assert.equal(call.module.toLowerCase(), checkpoint.dispatch.module.toLowerCase());
+  assert.equal(
+    call.module.toLowerCase(),
+    checkpoint.dispatch.module.toLowerCase(),
+  );
   assert.equal(call.symbol, checkpoint.dispatch.symbol);
   assert.equal(call.occurrence, checkpoint.dispatch.occurrence);
-  assert.deepEqual(call.arguments, checkpoint.expected.arguments.map(parseManifestInteger));
+  assert.deepEqual(
+    call.arguments,
+    checkpoint.expected.arguments.map(parseManifestInteger),
+  );
   if (checkpoint.expected.result.kind === "void") {
     assert.deepEqual(call.result, { action: "preserve" });
   } else {
     assert.equal(call.result.action, "set");
-    assert.equal(call.result.value, parseManifestInteger(checkpoint.expected.result.value));
+    assert.equal(
+      call.result.value,
+      parseManifestInteger(checkpoint.expected.result.value),
+    );
   }
 }
 
@@ -7861,7 +8535,10 @@ function validateManifestGuestWrites(context, writes) {
     const address = parseManifestInteger(write.address);
     if (write.kind === "u32-le") {
       assert.equal(
-        context.readVirtualU32(address, `manifest guest write 0x${address.toString(16)}`),
+        context.readVirtualU32(
+          address,
+          `manifest guest write 0x${address.toString(16)}`,
+        ),
         parseManifestInteger(write.value),
       );
     } else if (write.kind === "u64-le") {
@@ -7870,11 +8547,17 @@ function validateManifestGuestWrites(context, writes) {
         8,
         `manifest guest write 0x${address.toString(16)}`,
       );
-      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+      );
       assert.equal(view.getBigUint64(0, true), BigInt(write.value));
     } else if (write.kind === "struct") {
       assert.equal(write.value, controlledProcessStartup.profileId);
-      const expectedBytes = Buffer.alloc(controlledProcessStartup.structureSize);
+      const expectedBytes = Buffer.alloc(
+        controlledProcessStartup.structureSize,
+      );
       expectedBytes.writeUInt32LE(controlledProcessStartup.structureSize, 0);
       assert.deepEqual(
         Buffer.from(
@@ -7930,7 +8613,8 @@ function discoverDirtyMirrorPages(context) {
 
 function encodeCpuWriteback(generation, pages) {
   const control = Buffer.alloc(
-    writebackFormat.headerBytes + pages.length * writebackFormat.descriptorBytes,
+    writebackFormat.headerBytes +
+      pages.length * writebackFormat.descriptorBytes,
   );
   control.write(writebackFormat.magic, 0, "ascii");
   const view = dataView(control);
@@ -7941,7 +8625,8 @@ function encodeCpuWriteback(generation, pages) {
   view.setUint32(28, writebackFormat.descriptorBytes, true);
   const payload = Buffer.alloc(pages.length * page.size);
   pages.forEach((dirty, index) => {
-    const offset = writebackFormat.headerBytes + index * writebackFormat.descriptorBytes;
+    const offset =
+      writebackFormat.headerBytes + index * writebackFormat.descriptorBytes;
     view.setUint32(offset, dirty.address, true);
     view.setUint32(offset + 4, dirty.owner, true);
     dirty.bytes.copy(payload, index * page.size);
@@ -7955,13 +8640,19 @@ function decodeWritebackReceipt(control) {
   const view = dataView(control);
   assert.equal(view.getUint32(8, true), 1);
   return {
-    fromGeneration: safeNumber(view.getBigUint64(16, true), "receipt from generation"),
+    fromGeneration: safeNumber(
+      view.getBigUint64(16, true),
+      "receipt from generation",
+    ),
     generation: safeNumber(view.getBigUint64(24, true), "receipt generation"),
     touchedPages: view.getUint32(32, true),
     changedPages: view.getUint32(36, true),
     unchangedPages: view.getUint32(40, true),
     executablePages: view.getUint32(44, true),
-    changedBytes: safeNumber(view.getBigUint64(48, true), "receipt changed bytes"),
+    changedBytes: safeNumber(
+      view.getBigUint64(48, true),
+      "receipt changed bytes",
+    ),
     transferredBytes: safeNumber(
       view.getBigUint64(56, true),
       "receipt transferred bytes",
@@ -7997,8 +8688,14 @@ function decodeRuntimeHostDelta(control, payload) {
   const view = dataView(control);
   assert.equal(view.getUint32(8, true), deltaFormat.version);
   assert.equal(view.getUint32(12, true), page.size);
-  const fromGeneration = safeNumber(view.getBigUint64(16, true), "delta from generation");
-  const generation = safeNumber(view.getBigUint64(24, true), "delta generation");
+  const fromGeneration = safeNumber(
+    view.getBigUint64(16, true),
+    "delta from generation",
+  );
+  const generation = safeNumber(
+    view.getBigUint64(24, true),
+    "delta generation",
+  );
   const mappingCount = view.getUint32(32, true);
   assert.equal(view.getUint32(36, true), deltaFormat.mappingDescriptorBytes);
   const dirtyCount = view.getUint32(40, true);
@@ -8013,7 +8710,8 @@ function decodeRuntimeHostDelta(control, payload) {
   assert.equal(payload.length, dirtyCount * page.size);
   const mappingOperations = [];
   for (let index = 0; index < mappingCount; index += 1) {
-    const offset = deltaFormat.headerBytes + index * deltaFormat.mappingDescriptorBytes;
+    const offset =
+      deltaFormat.headerBytes + index * deltaFormat.mappingDescriptorBytes;
     const addressAllocationId = safeNumber(
       view.getBigUint64(offset + 28, true),
       "mapping address allocation ID",
@@ -8031,7 +8729,10 @@ function decodeRuntimeHostDelta(control, payload) {
         execute: Boolean(view.getUint32(offset + 12, true) & 4),
       },
       address: view.getUint32(offset + 16, true),
-      byteLength: safeNumber(view.getBigUint64(offset + 20, true), "mapping byte length"),
+      byteLength: safeNumber(
+        view.getBigUint64(offset + 20, true),
+        "mapping byte length",
+      ),
     });
   }
   const dirtyPages = [];
@@ -8066,7 +8767,9 @@ function decodeRuntimeHostDelta(control, payload) {
 }
 
 function applyRuntimeHostDelta(context, delta) {
-  const dirtyByAddress = new Map(delta.dirtyPages.map((dirty) => [dirty.address, dirty]));
+  const dirtyByAddress = new Map(
+    delta.dirtyPages.map((dirty) => [dirty.address, dirty]),
+  );
   for (const operation of delta.mappingOperations) {
     const end = checkedEnd(
       operation.address,
@@ -8106,7 +8809,9 @@ function applyRuntimeHostDelta(context, delta) {
     if (operation.regionKind === 9) {
       assert(
         (enumDisplayMonitorsEnabled && callbackScratchOperation) ||
-          ((d3d9RootFactoryEnabled || dinput8FactoryEnabled || dsoundRootEnabled) &&
+          ((d3d9RootFactoryEnabled ||
+            dinput8FactoryEnabled ||
+            dsoundRootEnabled) &&
             comBackingOperation),
         "runtime-owned mapping is neither callback scratch nor COM backing",
       );
@@ -8168,9 +8873,11 @@ function applyRuntimeHostDelta(context, delta) {
         operation.address === 0x0050_1000 &&
         operation.byteLength === 0x1_0000;
       assert(
-          operation.regionKind === 7 ||
+        operation.regionKind === 7 ||
           (enumDisplayMonitorsEnabled && callbackScratchReserve) ||
-          ((d3d9RootFactoryEnabled || dinput8FactoryEnabled || dsoundRootEnabled) &&
+          ((d3d9RootFactoryEnabled ||
+            dinput8FactoryEnabled ||
+            dsoundRootEnabled) &&
             comBackingOperation) ||
           graphicsResourceOperation ||
           audioResourceOperation ||
@@ -8202,10 +8909,7 @@ function applyRuntimeHostDelta(context, delta) {
       continue;
     }
     if (operation.operation === 2) {
-      if (
-        0x0050_1000 <= operation.address &&
-        operation.address < 0x0051_1000
-      ) {
+      if (0x0050_1000 <= operation.address && operation.address < 0x0051_1000) {
         assert(enumDisplayMonitorsEnabled);
         assert.equal(operation.byteLength, page.size);
         assert.deepEqual(operation.protection, {
@@ -8224,13 +8928,18 @@ function applyRuntimeHostDelta(context, delta) {
           overlappingReservations.some(
             (reservation) =>
               reservation.owner === operation.owner &&
-              reservation.addressAllocationId === operation.addressAllocationId &&
+              reservation.addressAllocationId ===
+                operation.addressAllocationId &&
               reservation.address <= operation.address &&
               end <= reservation.address + reservation.byteLength,
           ),
         "runtime host commit is outside its reservation",
       );
-      for (let address = operation.address; address < end; address += page.size) {
+      for (
+        let address = operation.address;
+        address < end;
+        address += page.size
+      ) {
         const dirty = dirtyByAddress.get(address);
         assert(dirty, "committed runtime host page has no bytes");
         assert.equal(dirty.owner, operation.owner);
@@ -8263,7 +8972,11 @@ function applyRuntimeHostDelta(context, delta) {
       continue;
     }
     if (operation.operation === 3) {
-      for (let address = operation.address; address < end; address += page.size) {
+      for (
+        let address = operation.address;
+        address < end;
+        address += page.size
+      ) {
         context.protectRuntimePage(
           address,
           operation.owner,
@@ -8274,7 +8987,11 @@ function applyRuntimeHostDelta(context, delta) {
       continue;
     }
     if (operation.operation === 4) {
-      for (let address = operation.address; address < end; address += page.size) {
+      for (
+        let address = operation.address;
+        address < end;
+        address += page.size
+      ) {
         context.unmapRuntimePage(
           address,
           operation.owner,
@@ -8284,7 +9001,11 @@ function applyRuntimeHostDelta(context, delta) {
       }
       continue;
     }
-    assert.equal(operation.operation, 5, "unsupported runtime host mapping operation");
+    assert.equal(
+      operation.operation,
+      5,
+      "unsupported runtime host mapping operation",
+    );
     const overlappingReservations = [...context.reservations.values()].filter(
       (reservation) =>
         operation.address < reservation.address + reservation.byteLength &&
@@ -8299,7 +9020,10 @@ function applyRuntimeHostDelta(context, delta) {
       );
     } else {
       assert.equal(reservation.owner, operation.owner);
-      assert.equal(reservation.addressAllocationId, operation.addressAllocationId);
+      assert.equal(
+        reservation.addressAllocationId,
+        operation.addressAllocationId,
+      );
       assert.equal(reservation.byteLength, operation.byteLength);
       context.reservations.delete(operation.address);
     }
@@ -8321,13 +9045,19 @@ function applyRuntimeHostDelta(context, delta) {
   }
   for (const dirty of dirtyByAddress.values()) {
     const mapping = context.mappings.get(dirty.address);
-    assert(mapping, `host dirty page 0x${dirty.address.toString(16)} is unmapped`);
+    assert(
+      mapping,
+      `host dirty page 0x${dirty.address.toString(16)} is unmapped`,
+    );
     assert.equal(mapping.owner, dirty.owner);
     assert.equal(mapping.ownerSealed, dirty.ownerSealed);
     assert.deepEqual(mapping.protection, dirty.protection);
     context.physicalMemory.set(dirty.bytes, mapping.physicalBase);
   }
-  if (delta.cacheEffects.flushTlb || delta.cacheEffects.invalidateInstructionFetch) {
+  if (
+    delta.cacheEffects.flushTlb ||
+    delta.cacheEffects.invalidateInstructionFetch
+  ) {
     context.wasm.full_clear_tlb();
   }
   if (delta.cacheEffects.invalidateGeneratedCode) {
@@ -8350,7 +9080,10 @@ function validateGenericCompletionFrame(frame, endpoint, generation) {
   }
   assert.equal(frame.completion.frame.endpoint.id, endpoint.id);
   assert.equal(frame.completion.frame.endpoint.address, endpoint.address);
-  validateGenericApiSymbol(frame.completion.frame.endpoint.symbol, endpoint.symbol);
+  validateGenericApiSymbol(
+    frame.completion.frame.endpoint.symbol,
+    endpoint.symbol,
+  );
   assert.equal(frame.memory.generation, generation);
   assert.equal(frame.memory.acknowledgedGeneration, generation);
   assert.equal(frame.memory.dirtyPages, 0);
@@ -8370,20 +9103,23 @@ function validateGenericComEndpoint(actual, endpoint) {
       ? "d3d9.idirect3d9-root.v1"
       : target.interface.name === "IDirect3DDevice9"
         ? "d3d9.idirect3ddevice9.v1"
-      : target.interface.name === "IDirect3DTexture9"
-        ? "d3d9.idirect3dtexture9.v1"
-      : target.interface.name === "IDirect3DSurface9"
-        ? "d3d9.idirect3dsurface9.v1"
-      : target.interface.name === "IDirect3DVertexBuffer9"
-        ? "d3d9.idirect3dvertexbuffer9.v1"
-      : target.interface.name === "IDirectInput8A"
-        ? "dinput8.idirectinput8a-root.v1"
-      : target.interface.name === "IDirectSound8"
-        ? "dsound.idirectsound8-root.v1"
-      : target.interface.name === "IDirectSoundBuffer8"
-        ? "dsound.idirectsoundbuffer8.v1"
-        : null;
-  assert(expectedClassIdentity, `unexpected generic COM interface ${target.interface.name}`);
+        : target.interface.name === "IDirect3DTexture9"
+          ? "d3d9.idirect3dtexture9.v1"
+          : target.interface.name === "IDirect3DSurface9"
+            ? "d3d9.idirect3dsurface9.v1"
+            : target.interface.name === "IDirect3DVertexBuffer9"
+              ? "d3d9.idirect3dvertexbuffer9.v1"
+              : target.interface.name === "IDirectInput8A"
+                ? "dinput8.idirectinput8a-root.v1"
+                : target.interface.name === "IDirectSound8"
+                  ? "dsound.idirectsound8-root.v1"
+                  : target.interface.name === "IDirectSoundBuffer8"
+                    ? "dsound.idirectsoundbuffer8.v1"
+                    : null;
+  assert(
+    expectedClassIdentity,
+    `unexpected generic COM interface ${target.interface.name}`,
+  );
   assert.equal(target.method.slot, endpoint.vtableSlot);
   assert.equal(target.method.endpoint, endpoint.address);
   assert.equal(target.object.id, target.interface.objectId);
@@ -8396,8 +9132,14 @@ function validateGenericComCompletionFrame(frame, endpoint, generation) {
   validateGenericComEndpoint(frame.endpoint, endpoint);
   const completion = frame.completion;
   assert.equal(completion.frame.endpointAddress, endpoint.address);
-  assert.equal(completion.frame.interfaceId, frame.endpoint.target.interface.id);
-  assert.equal(completion.frame.interface, frame.endpoint.target.interface.name);
+  assert.equal(
+    completion.frame.interfaceId,
+    frame.endpoint.target.interface.id,
+  );
+  assert.equal(
+    completion.frame.interface,
+    frame.endpoint.target.interface.name,
+  );
   assert.equal(completion.frame.vtableSlot, endpoint.vtableSlot);
   assert.equal(completion.frame.method, frame.endpoint.target.method.name);
   assert.equal(completion.frame.callSite, endpoint.returnAddress);
@@ -8465,17 +9207,17 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
       ? "d3d9-idirect3d9-method"
       : interfaceName === "IDirect3DDevice9"
         ? "d3d9-idirect3ddevice9-method"
-      : interfaceName === "IDirect3DTexture9"
-        ? "d3d9-idirect3dtexture9-method"
-      : interfaceName === "IDirect3DSurface9"
-        ? "d3d9-idirect3dsurface9-method"
-      : interfaceName === "IDirectInput8A"
-        ? "com-method-dispatch"
-      : interfaceName === "IDirectSound8"
-        ? "com-method-dispatch"
-      : interfaceName === "IDirectSoundBuffer8"
-        ? "com-method-dispatch"
-        : "d3d9-idirect3dvertexbuffer9-method",
+        : interfaceName === "IDirect3DTexture9"
+          ? "d3d9-idirect3dtexture9-method"
+          : interfaceName === "IDirect3DSurface9"
+            ? "d3d9-idirect3dsurface9-method"
+            : interfaceName === "IDirectInput8A"
+              ? "com-method-dispatch"
+              : interfaceName === "IDirectSound8"
+                ? "com-method-dispatch"
+                : interfaceName === "IDirectSoundBuffer8"
+                  ? "com-method-dispatch"
+                  : "d3d9-idirect3dvertexbuffer9-method",
   );
   assert.equal(
     fault.fault.class,
@@ -8483,7 +9225,10 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
     `generic runtime COM fault: ${JSON.stringify(fault.fault)}`,
   );
   assert.equal(fault.fault.callSite, endpoint.returnAddress);
-  assert.equal(fault.fault.target.interfaceId, fault.endpoint.target.interface.id);
+  assert.equal(
+    fault.fault.target.interfaceId,
+    fault.endpoint.target.interface.id,
+  );
   assert.equal(fault.fault.target.interface, interfaceName);
   assert.equal(fault.fault.target.vtableSlot, endpoint.vtableSlot);
   assert.equal(fault.fault.target.endpointAddress, endpoint.address);
@@ -8496,7 +9241,8 @@ function validateGenericRuntimeComFault(fault, endpoint, generation) {
 
 function captureGenericComFaultStack(context, continuation, fault) {
   const maximumExplicitArgumentWords = 64;
-  const explicitArgumentWords = fault.endpoint.target.method.explicitArgumentWords;
+  const explicitArgumentWords =
+    fault.endpoint.target.method.explicitArgumentWords;
   assert(
     Number.isSafeInteger(explicitArgumentWords) &&
       explicitArgumentWords >= 0 &&
@@ -8554,11 +9300,18 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
     context.readVirtualU32(entry.stackPointer, "callback return sentinel"),
     entry.returnSentinel,
   );
-  if (endpoint.module.toLowerCase() === "user32.dll" && endpoint.symbol === "EnumDisplayMonitors") {
+  if (
+    endpoint.module.toLowerCase() === "user32.dll" &&
+    endpoint.symbol === "EnumDisplayMonitors"
+  ) {
     assert.equal(entry.argumentCount, 4);
     assert.equal(entry.scratchBytes, 16);
     const rect = Buffer.from(
-      context.readVirtualBytes(entry.scratchAddress, 16, "EnumDisplayMonitors callback RECT"),
+      context.readVirtualBytes(
+        entry.scratchAddress,
+        16,
+        "EnumDisplayMonitors callback RECT",
+      ),
     );
     assert.deepEqual(
       [0, 4, 8, 12].map((offset) => rect.readInt32LE(offset)),
@@ -8596,7 +9349,8 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
     expected.writeInt32LE(400, 16);
     Buffer.from([128, 3, 2, 1, 49]).copy(expected, 23);
     const face = Buffer.from([
-      0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83, 0x4e,
+      0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83,
+      0x4e,
     ]);
     face.copy(expected, 28);
     face.copy(expected, 60);
@@ -8619,8 +9373,8 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
     expected.writeUInt32LE(256, metric + 64);
     expected.writeUInt32LE(128, metric + 68);
     Buffer.from([
-      0xff, 0x02, 0x00, 0xe0, 0xfb, 0xfd, 0xc7, 0x6a, 0x12, 0x00, 0x00, 0x08, 0x00, 0x00,
-      0x00, 0x00, 0x9f, 0x00, 0x02, 0x40, 0x00, 0x00, 0xd7, 0xdf,
+      0xff, 0x02, 0x00, 0xe0, 0xfb, 0xfd, 0xc7, 0x6a, 0x12, 0x00, 0x00, 0x08,
+      0x00, 0x00, 0x00, 0x00, 0x9f, 0x00, 0x02, 0x40, 0x00, 0x00, 0xd7, 0xdf,
     ]).copy(expected, metric + 72);
     const actual = Buffer.from(
       context.readVirtualBytes(
@@ -8659,7 +9413,10 @@ function enterGenericGuestCallback(context, trapped, entry) {
     context.wasm.vine_cpu_state_size() / 4,
   );
   assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
-  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(
+    words[stateWord.previousInstructionPointer],
+    trapped.previousInstructionPointer,
+  );
   assert.equal(words[stateWord.esp], trapped.esp);
   words[stateWord.esp] = entry.stackPointer;
   words[stateWord.instructionPointer] = entry.target;
@@ -8671,15 +9428,26 @@ function enterGenericGuestCallback(context, trapped, entry) {
   assert.equal(entered.previousInstructionPointer, entry.target);
 }
 
-function restoreGenericCallbackApiCompletion(context, returned, outer, completion) {
+function restoreGenericCallbackApiCompletion(
+  context,
+  returned,
+  outer,
+  completion,
+) {
   context.wasm.vine_cpu_state_save();
   const words = new Uint32Array(
     context.wasm.memory.buffer,
     context.wasm.vine_cpu_state_ptr(),
     context.wasm.vine_cpu_state_size() / 4,
   );
-  assert.equal(words[stateWord.instructionPointer], returned.instructionPointer);
-  assert.equal(words[stateWord.previousInstructionPointer], returned.previousInstructionPointer);
+  assert.equal(
+    words[stateWord.instructionPointer],
+    returned.instructionPointer,
+  );
+  assert.equal(
+    words[stateWord.previousInstructionPointer],
+    returned.previousInstructionPointer,
+  );
   assert.equal(words[stateWord.esp], returned.esp);
   assert.equal(completion.frame.stackPointer, outer.esp);
   words[stateWord.eax] = outer.eax;
@@ -8700,7 +9468,10 @@ function restoreGenericCallbackApiCompletion(context, returned, outer, completio
   const resumed = captureCpuState(context, 0);
   assert.equal(resumed.esp, completion.stackPointer);
   assert.equal(resumed.instructionPointer, completion.instructionPointer);
-  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
+  assert.equal(
+    resumed.previousInstructionPointer,
+    completion.instructionPointer,
+  );
 }
 
 function restoreGenericApiCompletion(context, trapped, completion) {
@@ -8711,7 +9482,10 @@ function restoreGenericApiCompletion(context, trapped, completion) {
     context.wasm.vine_cpu_state_size() / 4,
   );
   assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
-  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(
+    words[stateWord.previousInstructionPointer],
+    trapped.previousInstructionPointer,
+  );
   assert.equal(words[stateWord.esp], trapped.esp);
   applyRegisterUpdate(words, stateWord.eax, completion.eax);
   applyRegisterUpdate(words, stateWord.edx, completion.edx);
@@ -8723,7 +9497,10 @@ function restoreGenericApiCompletion(context, trapped, completion) {
   const resumed = captureCpuState(context, 0);
   assert.equal(resumed.esp, completion.stackPointer);
   assert.equal(resumed.instructionPointer, completion.instructionPointer);
-  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
+  assert.equal(
+    resumed.previousInstructionPointer,
+    completion.instructionPointer,
+  );
 }
 
 function restoreGenericComCompletion(context, trapped, completion) {
@@ -8734,7 +9511,10 @@ function restoreGenericComCompletion(context, trapped, completion) {
     context.wasm.vine_cpu_state_size() / 4,
   );
   assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
-  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(
+    words[stateWord.previousInstructionPointer],
+    trapped.previousInstructionPointer,
+  );
   assert.equal(words[stateWord.esp], trapped.esp);
   words[stateWord.eax] = completion.returnValue.value >>> 0;
   words[stateWord.esp] = completion.stackPointer;
@@ -8745,7 +9525,10 @@ function restoreGenericComCompletion(context, trapped, completion) {
   assert.equal(resumed.eax, completion.returnValue.value >>> 0);
   assert.equal(resumed.esp, completion.stackPointer);
   assert.equal(resumed.instructionPointer, completion.instructionPointer);
-  assert.equal(resumed.previousInstructionPointer, completion.instructionPointer);
+  assert.equal(
+    resumed.previousInstructionPointer,
+    completion.instructionPointer,
+  );
 }
 
 function applyRegisterUpdate(words, index, update) {
@@ -8757,9 +9540,18 @@ function applyRegisterUpdate(words, index, update) {
 }
 
 function validateGenericRuntimeReentryResult(result) {
-  assert.equal(result.frozenSemanticCalls, genericRuntimeExpected.frozenSemanticCalls);
-  assert.equal(result.supportedCalls.length, genericRuntimeExpected.supportedCalls);
-  assert.equal(result.writebacks.length, genericRuntimeExpected.writebackBatches);
+  assert.equal(
+    result.frozenSemanticCalls,
+    genericRuntimeExpected.frozenSemanticCalls,
+  );
+  assert.equal(
+    result.supportedCalls.length,
+    genericRuntimeExpected.supportedCalls,
+  );
+  assert.equal(
+    result.writebacks.length,
+    genericRuntimeExpected.writebackBatches,
+  );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
@@ -8774,13 +9566,21 @@ function validateGenericRuntimeReentryResult(result) {
     ),
     genericRuntimeExpected.changedBytes,
   );
-  assert.equal(result.hostDeltas.length, genericRuntimeExpected.hostDeltaBatches);
+  assert.equal(
+    result.hostDeltas.length,
+    genericRuntimeExpected.hostDeltaBatches,
+  );
   assert.equal(result.finalGeneration, genericRuntimeExpected.finalGeneration);
 
   const laterPointerCalls = result.supportedCalls.slice(17);
   assert.deepEqual(
     laterPointerCalls.map(
-      ({ symbol, occurrence, arguments: callArguments, result: callResult }) => ({
+      ({
+        symbol,
+        occurrence,
+        arguments: callArguments,
+        result: callResult,
+      }) => ({
         symbol,
         occurrence,
         arguments: callArguments,
@@ -8819,7 +9619,10 @@ function validateGenericRuntimeReentryResult(result) {
   assert.equal(result.fault.capabilityCluster, expected.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, expected.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, expected.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    expected.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, expected.module);
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
@@ -8862,15 +9665,12 @@ function validateCriticalSectionSynchronizationResult(result) {
   );
   assert.equal(initializations.length, expected.initializationCalls);
   const unlockedBytes = [
-    0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    0xa0, 0x0f, 0, 0,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0xa0, 0x0f, 0, 0,
   ];
   initializations.forEach((call, index) => {
-    const address = expected.firstStorageAddress + index * expected.storageStride;
+    const address =
+      expected.firstStorageAddress + index * expected.storageStride;
     assert.equal(call.occurrence, index + 1);
     assert.deepEqual(call.arguments, [address, expected.spinCount]);
     assert.deepEqual(call.result, { action: "set", value: 1 });
@@ -8887,18 +9687,30 @@ function validateCriticalSectionSynchronizationResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: unsupported.symbol,
   });
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -8936,10 +9748,15 @@ function validatePointerDecodingResult(result) {
     ]);
   });
 
-  const decodes = result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer");
+  const decodes = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "DecodePointer",
+  );
   assert.equal(decodes.length, expected.decodeCalls);
   assert.deepEqual(decodes[0].arguments, [expected.decodedToken]);
-  assert.deepEqual(decodes[0].result, { action: "set", value: expected.decodedSource });
+  assert.deepEqual(decodes[0].result, {
+    action: "set",
+    value: expected.decodedSource,
+  });
   assert.equal(decodes[0].implementationId, "kernel32.decode-pointer.v1");
   assert.equal(decodes[0].lastError, 87);
   assert.deepEqual(decodes[0].guestWrites, []);
@@ -8949,15 +9766,24 @@ function validatePointerDecodingResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "dynamic-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.name, unsupported.name);
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-dynamic-export-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -8991,45 +9817,71 @@ function validateFiberLocalStorageAllocationResult(result) {
     expected.initializationCalls,
   );
   assert.equal(
-    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer").length,
+    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer")
+      .length,
     expected.decodeCalls,
   );
 
-  const allocations = result.supportedCalls.filter(({ symbol }) => symbol === "FlsAlloc");
+  const allocations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "FlsAlloc",
+  );
   assert.equal(allocations.length, expected.allocationCalls);
   assert.deepEqual(allocations[0].arguments, [expected.callback]);
-  assert.deepEqual(allocations[0].result, { action: "set", value: expected.logicalIndex });
+  assert.deepEqual(allocations[0].result, {
+    action: "set",
+    value: expected.logicalIndex,
+  });
   assert.equal(allocations[0].implementationId, "kernel32.fls-alloc.v1");
   assert.equal(allocations[0].lastError, 87);
   assert.deepEqual(allocations[0].guestWrites, []);
-  assert.equal(allocations[0].stackPointerAfter, allocations[0].stackPointerBefore + 8);
-  assert.equal(allocations[0].trapInstructionCount, expected.allocationInstructionCount);
+  assert.equal(
+    allocations[0].stackPointerAfter,
+    allocations[0].stackPointerBefore + 8,
+  );
+  assert.equal(
+    allocations[0].trapInstructionCount,
+    expected.allocationInstructionCount,
+  );
   assert.equal(allocations[0].returnAddress, expected.allocationReturnAddress);
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: unsupported.symbol,
   });
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validatePrivateHeapAllocationResult(result) {
   const expected = privateHeapAllocationExpected;
-  const allocations = result.supportedCalls.filter(({ symbol }) => symbol === "HeapAlloc");
+  const allocations = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapAlloc",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9051,12 +9903,13 @@ function validatePrivateHeapAllocationResult(result) {
   assert.equal(result.finalGeneration, expected.finalGeneration);
 
   assert.equal(
-    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer").length,
+    result.supportedCalls.filter(({ symbol }) => symbol === "DecodePointer")
+      .length,
     expected.decodeCalls,
   );
-  const lastDecode = result.supportedCalls.filter(
-    ({ symbol }) => symbol === "DecodePointer",
-  ).at(-1);
+  const lastDecode = result.supportedCalls
+    .filter(({ symbol }) => symbol === "DecodePointer")
+    .at(-1);
   assert.deepEqual(lastDecode.arguments, [0xec010005]);
   assert.deepEqual(lastDecode.result, { action: "set", value: 0x7f020020 });
 
@@ -9073,16 +9926,27 @@ function validatePrivateHeapAllocationResult(result) {
   assert.equal(allocations[0].implementationId, "kernel32.heap-alloc.v1");
   assert.equal(allocations[0].lastError, 87);
   assert.deepEqual(allocations[0].guestWrites, []);
-  assert.equal(allocations[0].stackPointerAfter, allocations[0].stackPointerBefore + 16);
-  assert.equal(allocations[0].trapInstructionCount, expected.allocationInstructionCount);
+  assert.equal(
+    allocations[0].stackPointerAfter,
+    allocations[0].stackPointerBefore + 16,
+  );
+  assert.equal(
+    allocations[0].trapInstructionCount,
+    expected.allocationInstructionCount,
+  );
   assert.equal(allocations[0].returnAddress, expected.allocationReturnAddress);
 
-  const heapDelta = result.hostDeltas.find(({ mappingOperations }) => mappingOperations !== 0);
+  const heapDelta = result.hostDeltas.find(
+    ({ mappingOperations }) => mappingOperations !== 0,
+  );
   assert(heapDelta, "HeapAlloc did not emit a host mapping delta");
   assert.equal(heapDelta.sequence, expected.heapDelta.sequence);
   assert.equal(heapDelta.fromGeneration, expected.heapDelta.fromGeneration);
   assert.equal(heapDelta.generation, expected.heapDelta.generation);
-  assert.equal(heapDelta.mappingOperations, expected.heapDelta.mappingOperations);
+  assert.equal(
+    heapDelta.mappingOperations,
+    expected.heapDelta.mappingOperations,
+  );
   assert.deepEqual(heapDelta.dirtyPages, [
     { address: expected.heapDelta.address, owner: expected.heapDelta.owner },
   ]);
@@ -9098,22 +9962,33 @@ function validatePrivateHeapAllocationResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "dynamic-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.name, unsupported.name);
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-dynamic-export-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateFiberLocalStorageValueResult(result) {
   const expected = fiberLocalStorageValueExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "FlsSetValue");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "FlsSetValue",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9149,7 +10024,9 @@ function validateFiberLocalStorageValueResult(result) {
     value: expected.value,
   });
   assert.deepEqual(
-    result.supportedCalls.slice(-expected.continuationSymbols.length).map(({ symbol }) => symbol),
+    result.supportedCalls
+      .slice(-expected.continuationSymbols.length)
+      .map(({ symbol }) => symbol),
     expected.continuationSymbols,
   );
 
@@ -9157,17 +10034,29 @@ function validateFiberLocalStorageValueResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -9228,24 +10117,38 @@ function validateInterlockedIncrementResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validatePrivateHeapSecondAllocationResult(result) {
   const expected = privateHeapSecondAllocationExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "HeapAlloc");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapAlloc",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9290,10 +10193,7 @@ function validatePrivateHeapSecondAllocationResult(result) {
     action: "set",
     value: expected.secondGuestAddress,
   });
-  assert.equal(
-    calls[1].implementationId,
-    "kernel32.heap-alloc.v2",
-  );
+  assert.equal(calls[1].implementationId, "kernel32.heap-alloc.v2");
   assert.equal(calls[1].lastError, 87);
   assert.deepEqual(calls[1].guestWrites, []);
   assert.equal(calls[1].stackPointerAfter, calls[1].stackPointerBefore + 16);
@@ -9319,7 +10219,10 @@ function validatePrivateHeapSecondAllocationResult(result) {
   assert.equal(secondDelta.generation, expected.secondDelta.generation);
   assert.equal(secondDelta.mappingOperations, 0);
   assert.deepEqual(secondDelta.dirtyPages, [
-    { address: expected.secondDelta.address, owner: expected.secondDelta.owner },
+    {
+      address: expected.secondDelta.address,
+      owner: expected.secondDelta.owner,
+    },
   ]);
   assert.equal(secondDelta.payloadBytes, page.size);
   assert.equal(secondDelta.payloadSha256, expected.secondDelta.payloadSha256);
@@ -9333,24 +10236,38 @@ function validatePrivateHeapSecondAllocationResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateStandardInputHandleResult(result) {
   const expected = standardInputHandleExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetStdHandle");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetStdHandle",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9391,24 +10308,38 @@ function validateStandardInputHandleResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateFileTypeResult(result) {
   const expected = fileTypeExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetFileType",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9430,8 +10361,14 @@ function validateFileTypeResult(result) {
   assert.equal(result.finalGeneration, expected.finalGeneration);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].arguments, [expected.handle]);
-  assert.deepEqual(calls[0].result, { action: "set", value: expected.fileType });
-  assert.equal(calls[0].implementationId, "kernel32.get-file-type-standard-input.v1");
+  assert.deepEqual(calls[0].result, {
+    action: "set",
+    value: expected.fileType,
+  });
+  assert.equal(
+    calls[0].implementationId,
+    "kernel32.get-file-type-standard-input.v1",
+  );
   assert.equal(calls[0].lastError, 87);
   assert.deepEqual(calls[0].guestWrites, []);
   assert.equal(calls[0].stackPointerAfter, calls[0].stackPointerBefore + 8);
@@ -9460,31 +10397,50 @@ function validateFileTypeResult(result) {
     criticalSection.trapInstructionCount,
     expected.criticalSection.instructionCount,
   );
-  assert.equal(criticalSection.returnAddress, expected.criticalSection.returnAddress);
+  assert.equal(
+    criticalSection.returnAddress,
+    expected.criticalSection.returnAddress,
+  );
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateStandardOutputHandleResult(result) {
   const expected = standardOutputHandleExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetStdHandle");
-  const fileTypeCalls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetStdHandle",
+  );
+  const fileTypeCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetFileType",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9507,13 +10463,16 @@ function validateStandardOutputHandleResult(result) {
   assert.equal(calls.length, 2);
   assert.equal(fileTypeCalls.length, 1);
   assert.deepEqual(calls[0].arguments, [0xfffffff6]);
-  assert.deepEqual(calls[0].result, { action: "set", value: expected.inputHandle });
+  assert.deepEqual(calls[0].result, {
+    action: "set",
+    value: expected.inputHandle,
+  });
   assert.deepEqual(calls[1].arguments, [expected.outputSelector]);
-  assert.deepEqual(calls[1].result, { action: "set", value: expected.outputHandle });
-  assert.equal(
-    calls[1].implementationId,
-    "kernel32.get-std-handle.v2",
-  );
+  assert.deepEqual(calls[1].result, {
+    action: "set",
+    value: expected.outputHandle,
+  });
+  assert.equal(calls[1].implementationId, "kernel32.get-std-handle.v2");
   assert.equal(calls[1].lastError, 87);
   assert.deepEqual(calls[1].guestWrites, []);
   assert.equal(calls[1].stackPointerAfter, calls[1].stackPointerBefore + 8);
@@ -9531,24 +10490,38 @@ function validateStandardOutputHandleResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateStandardOutputFileTypeResult(result) {
   const expected = standardOutputFileTypeExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetFileType",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9570,7 +10543,10 @@ function validateStandardOutputFileTypeResult(result) {
   assert.equal(result.finalGeneration, expected.finalGeneration);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[1].arguments, [expected.outputHandle]);
-  assert.deepEqual(calls[1].result, { action: "set", value: expected.outputFileType });
+  assert.deepEqual(calls[1].result, {
+    action: "set",
+    value: expected.outputFileType,
+  });
   assert.equal(calls[1].implementationId, "kernel32.get-file-type.v2");
   assert.equal(calls[1].lastError, 87);
   assert.deepEqual(calls[1].guestWrites, []);
@@ -9600,32 +10576,51 @@ function validateStandardOutputFileTypeResult(result) {
     criticalSection.trapInstructionCount,
     expected.criticalSection.instructionCount,
   );
-  assert.equal(criticalSection.returnAddress, expected.criticalSection.returnAddress);
+  assert.equal(
+    criticalSection.returnAddress,
+    expected.criticalSection.returnAddress,
+  );
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateStandardErrorHandleResult(result) {
   const expected = standardErrorHandleExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetStdHandle");
-  const fileTypeCalls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetStdHandle",
+  );
+  const fileTypeCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetFileType",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9667,25 +10662,39 @@ function validateStandardErrorHandleResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateStandardErrorFileTypeResult(result) {
   const expected = standardErrorFileTypeExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetFileType");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetFileType",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9707,7 +10716,10 @@ function validateStandardErrorFileTypeResult(result) {
   assert.equal(result.finalGeneration, expected.finalGeneration);
   assert.equal(calls.length, 3);
   assert.deepEqual(calls[2].arguments, [expected.handle]);
-  assert.deepEqual(calls[2].result, { action: "set", value: expected.fileType });
+  assert.deepEqual(calls[2].result, {
+    action: "set",
+    value: expected.fileType,
+  });
   assert.equal(calls[2].implementationId, "kernel32.get-file-type.v2");
   assert.equal(calls[2].lastError, 87);
   assert.deepEqual(calls[2].guestWrites, []);
@@ -9737,31 +10749,48 @@ function validateStandardErrorFileTypeResult(result) {
     criticalSection.trapInstructionCount,
     expected.criticalSection.instructionCount,
   );
-  assert.equal(criticalSection.returnAddress, expected.criticalSection.returnAddress);
+  assert.equal(
+    criticalSection.returnAddress,
+    expected.criticalSection.returnAddress,
+  );
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateSetHandleCountResult(result) {
   const expected = setHandleCountExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "SetHandleCount");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "SetHandleCount",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9795,25 +10824,39 @@ function validateSetHandleCountResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateCommandLineAResult(result) {
   const expected = commandLineAExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCommandLineA");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetCommandLineA",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -9847,18 +10890,30 @@ function validateCommandLineAResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -9908,18 +10963,30 @@ function validateEnvironmentStringsWResult(result) {
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -9980,18 +11047,30 @@ function validateWideCharToMultiByteResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10140,18 +11219,30 @@ function validatePrivateHeapSize1Result(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10194,18 +11285,30 @@ function validateGetLastErrorResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10248,16 +11351,25 @@ function validateTlsGetValueResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "dynamic-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.name, unsupported.symbol);
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-dynamic-export-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10300,18 +11412,30 @@ function validateFlsGetValueResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10357,25 +11481,39 @@ function validateSetLastErrorResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateGetAcpResult(result) {
   const expected = getAcpExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetACP");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetACP",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -10415,18 +11553,30 @@ function validateGetAcpResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10465,7 +11615,10 @@ function validatePrivateHeapSize544Result(result) {
   assert.equal(allocation.implementationId, "kernel32.heap-alloc.v2");
   assert.equal(allocation.lastError, 87);
   assert.deepEqual(allocation.guestWrites, []);
-  assert.equal(allocation.stackPointerAfter, allocation.stackPointerBefore + 16);
+  assert.equal(
+    allocation.stackPointerAfter,
+    allocation.stackPointerBefore + 16,
+  );
   assert.equal(
     allocation.trapInstructionCount,
     expected.allocationInstructionCount,
@@ -10483,7 +11636,11 @@ function validatePrivateHeapSize544Result(result) {
     liveAllocations: 4,
   });
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const call = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
@@ -10553,18 +11710,30 @@ function validatePrivateHeapSize544Result(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10597,7 +11766,10 @@ function validateMultiByteToWideCharResult(result) {
 
   const [query, conversion] = calls;
   assert.deepEqual(query.arguments, expected.query.arguments);
-  assert.deepEqual(query.result, { action: "set", value: expected.query.result });
+  assert.deepEqual(query.result, {
+    action: "set",
+    value: expected.query.result,
+  });
   assert.equal(query.implementationId, "kernel32.multi-byte-to-wide-char.v1");
   assert.equal(query.lastError, 87);
   assert.equal(query.stackPointerAfter, query.stackPointerBefore + 28);
@@ -10610,14 +11782,29 @@ function validateMultiByteToWideCharResult(result) {
     action: "set",
     value: expected.conversion.result,
   });
-  assert.equal(conversion.implementationId, "kernel32.multi-byte-to-wide-char.v1");
+  assert.equal(
+    conversion.implementationId,
+    "kernel32.multi-byte-to-wide-char.v1",
+  );
   assert.equal(conversion.lastError, 87);
-  assert.equal(conversion.stackPointerAfter, conversion.stackPointerBefore + 28);
-  assert.equal(conversion.trapInstructionCount, expected.conversion.instructionCount);
+  assert.equal(
+    conversion.stackPointerAfter,
+    conversion.stackPointerBefore + 28,
+  );
+  assert.equal(
+    conversion.trapInstructionCount,
+    expected.conversion.instructionCount,
+  );
   assert.equal(conversion.returnAddress, expected.conversion.returnAddress);
   assert.equal(conversion.guestWrites.length, 1);
-  assert.equal(conversion.guestWrites[0].address, expected.conversion.arguments[4]);
-  assert.deepEqual(conversion.guestWrites[0].bytes, expected.conversion.outputBytes);
+  assert.equal(
+    conversion.guestWrites[0].address,
+    expected.conversion.arguments[4],
+  );
+  assert.deepEqual(
+    conversion.guestWrites[0].bytes,
+    expected.conversion.outputBytes,
+  );
   assert.deepEqual(conversion.guestWrites[0].result, {
     bytesWritten: expected.conversion.outputBytes.length,
     dirtyPages: 1,
@@ -10649,18 +11836,30 @@ function validateMultiByteToWideCharResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10765,13 +11964,20 @@ function validateGetStringTypeWResult(result) {
     expected.consumerWriteback.changedBytes,
   );
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
         candidate.trapInstructionCount === instructionCount,
     );
-    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert(
+      followup,
+      `${symbol} follow-up call at ${instructionCount} is missing`,
+    );
     assert.equal(followup.returnAddress, returnAddress);
   }
 
@@ -10779,18 +11985,30 @@ function validateGetStringTypeWResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10853,7 +12071,10 @@ function validateLCMapStringWResult(result) {
     const actual = result.hostDeltas.find(
       ({ sequence }) => sequence === outputDelta.sequence,
     );
-    assert(actual, `LCMapStringW output delta ${outputDelta.sequence} is missing`);
+    assert(
+      actual,
+      `LCMapStringW output delta ${outputDelta.sequence} is missing`,
+    );
     assert.equal(actual.fromGeneration, outputDelta.fromGeneration);
     assert.equal(actual.generation, outputDelta.generation);
     assert.equal(actual.mappingOperations, 0);
@@ -10864,13 +12085,20 @@ function validateLCMapStringWResult(result) {
     assert.equal(actual.payloadSha256, outputDelta.payloadSha256);
   }
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
         candidate.trapInstructionCount === instructionCount,
     );
-    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert(
+      followup,
+      `${symbol} follow-up call at ${instructionCount} is missing`,
+    );
     assert.equal(followup.returnAddress, returnAddress);
   }
 
@@ -10878,18 +12106,30 @@ function validateLCMapStringWResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -10928,7 +12168,10 @@ function validatePrivateHeapSize4Result(result) {
   assert.equal(allocation.implementationId, "kernel32.heap-alloc.v2");
   assert.equal(allocation.lastError, 0);
   assert.deepEqual(allocation.guestWrites, []);
-  assert.equal(allocation.stackPointerAfter, allocation.stackPointerBefore + 16);
+  assert.equal(
+    allocation.stackPointerAfter,
+    allocation.stackPointerBefore + 16,
+  );
   assert.equal(
     allocation.trapInstructionCount,
     expected.allocationInstructionCount,
@@ -11006,18 +12249,30 @@ function validatePrivateHeapSize4Result(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -11049,7 +12304,8 @@ function validatePrivateHeapFreeSize1Result(result) {
   );
   assert.equal(allocations.length, 6);
   const sourceAllocation = allocations.find(
-    ({ heapAllocation }) => heapAllocation?.allocation.id === expected.allocationId,
+    ({ heapAllocation }) =>
+      heapAllocation?.allocation.id === expected.allocationId,
   );
   assert(sourceAllocation, "freed source allocation is missing");
   assert.deepEqual(sourceAllocation.arguments, [
@@ -11069,7 +12325,9 @@ function validatePrivateHeapFreeSize1Result(result) {
     liveAllocations: 3,
   });
 
-  const frees = result.supportedCalls.filter(({ symbol }) => symbol === "HeapFree");
+  const frees = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapFree",
+  );
   assert.equal(frees.length, 1);
   const free = frees[0];
   assert.equal(free.sequence, expected.freeDelta.sequence);
@@ -11125,18 +12383,30 @@ function validatePrivateHeapFreeSize1Result(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -11178,7 +12448,10 @@ function validatePrivateHeapSize128Result(
   assert.equal(allocation.implementationId, "kernel32.heap-alloc.v2");
   assert.equal(allocation.lastError, 0);
   assert.deepEqual(allocation.guestWrites, []);
-  assert.equal(allocation.stackPointerAfter, allocation.stackPointerBefore + 16);
+  assert.equal(
+    allocation.stackPointerAfter,
+    allocation.stackPointerBefore + 16,
+  );
   assert.equal(
     allocation.trapInstructionCount,
     expected.allocationInstructionCount,
@@ -11239,12 +12512,18 @@ function validatePrivateHeapSize128Result(
   assert.equal(encodePointer.implementationId, "kernel32.encode-pointer.v1");
   assert.equal(encodePointer.lastError, 0);
   assert.deepEqual(encodePointer.guestWrites, []);
-  assert.equal(encodePointer.stackPointerAfter, encodePointer.stackPointerBefore + 8);
+  assert.equal(
+    encodePointer.stackPointerAfter,
+    encodePointer.stackPointerBefore + 8,
+  );
   assert.equal(
     encodePointer.trapInstructionCount,
     expected.encodePointerCall.instructionCount,
   );
-  assert.equal(encodePointer.returnAddress, expected.encodePointerCall.returnAddress);
+  assert.equal(
+    encodePointer.returnAddress,
+    expected.encodePointerCall.returnAddress,
+  );
 
   const consumerWriteback = result.writebacks.find(
     ({ sequence }) => sequence === expected.consumerWriteback.sequence,
@@ -11279,18 +12558,30 @@ function validatePrivateHeapSize128Result(
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -11327,13 +12618,22 @@ function validateIsProcessorFeaturePresentResult(
     const writeback = result.writebacks.find(
       ({ sequence }) => sequence === expectedCall.consumerWriteback.sequence,
     );
-    assert(writeback, `processor-feature consumer ${index + 1} writeback is missing`);
+    assert(
+      writeback,
+      `processor-feature consumer ${index + 1} writeback is missing`,
+    );
     assert.equal(
       writeback.instructionCount,
       expectedCall.consumerWriteback.instructionCount,
     );
-    assert.deepEqual(writeback.dirtyPages, expectedCall.consumerWriteback.dirtyPages);
-    assert.equal(writeback.payloadSha256, expectedCall.consumerWriteback.payloadSha256);
+    assert.deepEqual(
+      writeback.dirtyPages,
+      expectedCall.consumerWriteback.dirtyPages,
+    );
+    assert.equal(
+      writeback.payloadSha256,
+      expectedCall.consumerWriteback.payloadSha256,
+    );
     assert.equal(
       writeback.receipt.fromGeneration,
       expectedCall.consumerWriteback.fromGeneration,
@@ -11370,7 +12670,10 @@ function validateIsProcessorFeaturePresentResult(
     laterAllocation.trapInstructionCount,
     expected.laterAllocation.instructionCount,
   );
-  assert.equal(laterAllocation.returnAddress, expected.laterAllocation.returnAddress);
+  assert.equal(
+    laterAllocation.returnAddress,
+    expected.laterAllocation.returnAddress,
+  );
   assert.deepEqual(laterAllocation.heapAllocation, {
     heapHandle: expected.heapHandle,
     allocation: {
@@ -11391,13 +12694,22 @@ function validateIsProcessorFeaturePresentResult(
     allocationDelta.fromGeneration,
     expected.laterAllocation.delta.fromGeneration,
   );
-  assert.equal(allocationDelta.generation, expected.laterAllocation.delta.generation);
+  assert.equal(
+    allocationDelta.generation,
+    expected.laterAllocation.delta.generation,
+  );
   assert.equal(
     allocationDelta.mappingOperations,
     expected.laterAllocation.delta.mappingOperations,
   );
-  assert.deepEqual(allocationDelta.dirtyPages, expected.laterAllocation.delta.dirtyPages);
-  assert.equal(allocationDelta.payloadBytes, expected.laterAllocation.delta.payloadBytes);
+  assert.deepEqual(
+    allocationDelta.dirtyPages,
+    expected.laterAllocation.delta.dirtyPages,
+  );
+  assert.equal(
+    allocationDelta.payloadBytes,
+    expected.laterAllocation.delta.payloadBytes,
+  );
   assert.equal(
     allocationDelta.payloadSha256,
     expected.laterAllocation.delta.payloadSha256,
@@ -11426,7 +12738,10 @@ function validateSetUnhandledExceptionFilterResult(
   assert.equal(call.occurrence, expected.filterCall.occurrence);
   assert.deepEqual(call.arguments, [expected.filterCall.filterAddress]);
   assert.deepEqual(call.result, { action: "set", value: 0 });
-  assert.equal(call.implementationId, "kernel32.set-unhandled-exception-filter.v1");
+  assert.equal(
+    call.implementationId,
+    "kernel32.set-unhandled-exception-filter.v1",
+  );
   assert.equal(call.lastError, 0);
   assert.deepEqual(call.guestWrites, []);
   assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
@@ -11434,9 +12749,13 @@ function validateSetUnhandledExceptionFilterResult(
   assert.equal(call.returnAddress, expected.filterCall.returnAddress);
 
   const consumerWriteback = result.writebacks.find(
-    ({ sequence }) => sequence === expected.filterCall.consumerWriteback.sequence,
+    ({ sequence }) =>
+      sequence === expected.filterCall.consumerWriteback.sequence,
   );
-  assert(consumerWriteback, "unhandled-exception filter consumer writeback is missing");
+  assert(
+    consumerWriteback,
+    "unhandled-exception filter consumer writeback is missing",
+  );
   assert.equal(
     consumerWriteback.instructionCount,
     expected.filterCall.consumerWriteback.instructionCount,
@@ -11466,10 +12785,16 @@ function validateSetUnhandledExceptionFilterResult(
     const continuation = result.supportedCalls.find(
       ({ sequence }) => sequence === expectedCall.sequence,
     );
-    assert(continuation, `continuation call ${expectedCall.sequence} is missing`);
+    assert(
+      continuation,
+      `continuation call ${expectedCall.sequence} is missing`,
+    );
     assert.equal(continuation.symbol, expectedCall.symbol);
     assert.equal(continuation.occurrence, expectedCall.occurrence);
-    assert.equal(continuation.trapInstructionCount, expectedCall.instructionCount);
+    assert.equal(
+      continuation.trapInstructionCount,
+      expectedCall.instructionCount,
+    );
     assert.deepEqual(continuation.arguments, expectedCall.arguments);
     assert.deepEqual(continuation.result, expectedCall.result);
     assert.equal(continuation.implementationId, expectedCall.implementationId);
@@ -11517,12 +12842,17 @@ function validateHeapSizeResult(result) {
   validateSetUnhandledExceptionFilterResult(result, expected, {
     postAllocationCallCount: 12,
   });
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "HeapSize");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "HeapSize",
+  );
   assert.equal(calls.length, 1);
   const call = calls[0];
   assert.equal(call.sequence, expected.heapSizeCall.sequence);
   assert.equal(call.occurrence, expected.heapSizeCall.occurrence);
-  assert.equal(call.trapInstructionCount, expected.heapSizeCall.instructionCount);
+  assert.equal(
+    call.trapInstructionCount,
+    expected.heapSizeCall.instructionCount,
+  );
   assert.equal(call.returnAddress, expected.heapSizeCall.returnAddress);
   assert.deepEqual(call.arguments, expected.heapSizeCall.arguments);
   assert.deepEqual(call.result, {
@@ -11541,10 +12871,16 @@ function validateHeapSizeResult(result) {
     const continuation = result.supportedCalls.find(
       ({ sequence }) => sequence === expectedCall.sequence,
     );
-    assert(continuation, `post-HeapSize call ${expectedCall.sequence} is missing`);
+    assert(
+      continuation,
+      `post-HeapSize call ${expectedCall.sequence} is missing`,
+    );
     assert.equal(continuation.symbol, expectedCall.symbol);
     assert.equal(continuation.occurrence, expectedCall.occurrence);
-    assert.equal(continuation.trapInstructionCount, expectedCall.instructionCount);
+    assert.equal(
+      continuation.trapInstructionCount,
+      expectedCall.instructionCount,
+    );
     assert.deepEqual(continuation.arguments, expectedCall.arguments);
     assert.deepEqual(continuation.result, expectedCall.result);
     assert.equal(continuation.implementationId, expectedCall.implementationId);
@@ -11559,7 +12895,10 @@ function validateHeapSizeResult(result) {
   const criticalSectionDelta = result.hostDeltas.find(
     ({ sequence }) => sequence === expected.leaveCriticalSectionDelta.sequence,
   );
-  assert(criticalSectionDelta, "post-HeapSize critical-section delta is missing");
+  assert(
+    criticalSectionDelta,
+    "post-HeapSize critical-section delta is missing",
+  );
   assert.equal(
     criticalSectionDelta.fromGeneration,
     expected.leaveCriticalSectionDelta.fromGeneration,
@@ -11610,7 +12949,10 @@ function validateInitializeCriticalSectionResult(result) {
   const call = initializations[0];
   assert.equal(call.sequence, expected.initializationCall.sequence);
   assert.equal(call.occurrence, expected.initializationCall.occurrence);
-  assert.equal(call.trapInstructionCount, expected.initializationCall.instructionCount);
+  assert.equal(
+    call.trapInstructionCount,
+    expected.initializationCall.instructionCount,
+  );
   assert.deepEqual(call.arguments, expected.initializationCall.arguments);
   assert.deepEqual(call.result, { action: "preserve" });
   assert.equal(
@@ -11624,13 +12966,22 @@ function validateInitializeCriticalSectionResult(result) {
   );
   assert.equal(call.lastError, 0);
   assert.equal(call.guestWrites.length, 1);
-  assert.equal(call.guestWrites[0].address, expected.initializationCall.arguments[0]);
-  assert.deepEqual(call.guestWrites[0].bytes, expected.initializationCall.bytes);
+  assert.equal(
+    call.guestWrites[0].address,
+    expected.initializationCall.arguments[0],
+  );
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    expected.initializationCall.bytes,
+  );
 
   const initializationDelta = result.hostDeltas.find(
     ({ sequence }) => sequence === expected.initializationCall.sequence,
   );
-  assert(initializationDelta, "InitializeCriticalSection host delta is missing");
+  assert(
+    initializationDelta,
+    "InitializeCriticalSection host delta is missing",
+  );
   assert.equal(
     initializationDelta.fromGeneration,
     expected.initializationCall.delta.fromGeneration,
@@ -11688,10 +13039,19 @@ function validateInitializeCriticalSectionResult(result) {
   assert.equal(finalCall.sequence, expected.postGrowthCall.sequence);
   assert.equal(finalCall.symbol, "GetModuleFileNameA");
   assert.equal(finalCall.occurrence, expected.postGrowthCall.occurrence);
-  assert.equal(finalCall.trapInstructionCount, expected.postGrowthCall.instructionCount);
+  assert.equal(
+    finalCall.trapInstructionCount,
+    expected.postGrowthCall.instructionCount,
+  );
   assert.deepEqual(finalCall.arguments, expected.postGrowthCall.arguments);
-  assert.deepEqual(finalCall.result, { action: "set", value: expected.postGrowthCall.result });
-  assert.equal(finalCall.implementationId, "kernel32.get-module-file-name-a.v1");
+  assert.deepEqual(finalCall.result, {
+    action: "set",
+    value: expected.postGrowthCall.result,
+  });
+  assert.equal(
+    finalCall.implementationId,
+    "kernel32.get-module-file-name-a.v1",
+  );
   assert.equal(finalCall.returnAddress, expected.postGrowthCall.returnAddress);
   assert.equal(
     finalCall.stackPointerAfter,
@@ -11699,8 +13059,13 @@ function validateInitializeCriticalSectionResult(result) {
   );
   assert.equal(finalCall.lastError, 0);
   assert.equal(finalCall.guestWrites.length, 1);
-  assert.equal(finalCall.guestWrites[0].address, expected.postGrowthCall.arguments[1]);
-  assert.deepEqual(finalCall.guestWrites[0].bytes, [...Buffer.from("C:\\Vine\\BGI.exe\0")]);
+  assert.equal(
+    finalCall.guestWrites[0].address,
+    expected.postGrowthCall.arguments[1],
+  );
+  assert.deepEqual(finalCall.guestWrites[0].bytes, [
+    ...Buffer.from("C:\\Vine\\BGI.exe\0"),
+  ]);
 
   const unsupported = expected.firstUnsupported;
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
@@ -11719,11 +13084,20 @@ function validateInitializeCriticalSectionResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -11776,7 +13150,10 @@ function validateCreateMutexAResult(result) {
     assert(continuation, `${expectedCall.symbol} continuation call is missing`);
     assert.equal(continuation.symbol, expectedCall.symbol);
     assert.equal(continuation.occurrence, expectedCall.occurrence);
-    assert.equal(continuation.trapInstructionCount, expectedCall.instructionCount);
+    assert.equal(
+      continuation.trapInstructionCount,
+      expectedCall.instructionCount,
+    );
     assert.deepEqual(continuation.arguments, expectedCall.arguments);
     assert.deepEqual(continuation.result, {
       action: "set",
@@ -11808,11 +13185,20 @@ function validateCreateMutexAResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -11821,12 +13207,15 @@ function validateEnumDisplayMonitorsResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 1293);
   assert.equal(
-    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    result.supportedCalls.some(
+      ({ pendingCallback }) => pendingCallback === true,
+    ),
     false,
     "EnumDisplayMonitors must complete its guest callback before the next structured stop",
   );
   const calls = result.supportedCalls.filter(
-    ({ module, symbol }) => module.toLowerCase() === "user32.dll" && symbol === "EnumDisplayMonitors",
+    ({ module, symbol }) =>
+      module.toLowerCase() === "user32.dll" && symbol === "EnumDisplayMonitors",
   );
   assert.equal(calls.length, 1);
   const call = calls[0];
@@ -11845,7 +13234,9 @@ function validateEnumDisplayMonitorsResult(result) {
   assert.equal(call.callback.frameBytes, 36);
   assert.equal(call.callback.returnSentinel, 0x7f010000);
   assert.equal(call.callback.result, 1);
-  const nested = result.supportedCalls.find(({ sequence }) => sequence === 1293);
+  const nested = result.supportedCalls.find(
+    ({ sequence }) => sequence === 1293,
+  );
   assert.equal(nested.module.toLowerCase(), "kernel32.dll");
   assert.equal(nested.symbol, "HeapAlloc");
   assert.equal(nested.occurrence, 10);
@@ -11868,13 +13259,19 @@ function validateEnumDisplayMonitorsResult(result) {
   assert.equal(result.fault.capabilityCluster, "ole32-api-contract");
   assert.equal(result.fault.endpoint.endpoint.id, 301);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f0012c0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "ole32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "ole32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "CoInitialize",
   });
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d1544);
-  assert.equal(result.fault.memoryContentSha256, "8ec8022f983af336f4e1b015d9f1760c6db01c606e678059cd6996cf4b403753");
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "8ec8022f983af336f4e1b015d9f1760c6db01c606e678059cd6996cf4b403753",
+  );
   assert.equal(result.terminal.instructionCount, 45685);
   assert.equal(result.terminal.terminal.returnAddress, 0x10087399);
   assert.equal(result.terminal.terminal.stackWords[1], 0);
@@ -11885,7 +13282,10 @@ function validateCoInitializeResult(result) {
   assert.equal(result.supportedCalls.length, 1294);
   assert.equal(result.writebacks.length, 1300);
   assert.equal(
-    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
     2460,
   );
   assert.equal(
@@ -11898,7 +13298,8 @@ function validateCoInitializeResult(result) {
   assert.equal(result.hostDeltas.length, 80);
   assert.equal(result.finalGeneration, 1409);
   const calls = result.supportedCalls.filter(
-    ({ module, symbol }) => module.toLowerCase() === "ole32.dll" && symbol === "CoInitialize",
+    ({ module, symbol }) =>
+      module.toLowerCase() === "ole32.dll" && symbol === "CoInitialize",
   );
   assert.equal(calls.length, 1);
   const call = calls[0];
@@ -11921,7 +13322,10 @@ function validateCoInitializeResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 39);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000260);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetSystemDefaultLangID",
@@ -11944,7 +13348,10 @@ function validateGetSystemDefaultLangIdResult(result) {
   assert.equal(result.supportedCalls.length, 1295);
   assert.equal(result.writebacks.length, 1301);
   assert.equal(
-    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
     2461,
   );
   assert.equal(
@@ -11958,7 +13365,8 @@ function validateGetSystemDefaultLangIdResult(result) {
   assert.equal(result.finalGeneration, 1410);
   const calls = result.supportedCalls.filter(
     ({ module, symbol }) =>
-      module.toLowerCase() === "kernel32.dll" && symbol === "GetSystemDefaultLangID",
+      module.toLowerCase() === "kernel32.dll" &&
+      symbol === "GetSystemDefaultLangID",
   );
   assert.equal(calls.length, 1);
   const call = calls[0];
@@ -11977,7 +13385,10 @@ function validateGetSystemDefaultLangIdResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 19);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000120);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetDriveTypeA",
@@ -12001,7 +13412,10 @@ function validateGetDriveTypeAResult(result) {
   assert.equal(result.supportedCalls.length, 1321);
   assert.equal(result.writebacks.length, 1327);
   assert.equal(
-    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
     2513,
   );
   assert.equal(
@@ -12039,7 +13453,10 @@ function validateGetDriveTypeAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 166);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000a50);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "SwapMouseButton",
@@ -12063,7 +13480,10 @@ function validateSwapMouseButtonResult(result) {
   assert.equal(result.supportedCalls.length, 1333);
   assert.equal(result.writebacks.length, 1339);
   assert.equal(
-    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
     2530,
   );
   assert.equal(
@@ -12092,32 +13512,85 @@ function validateSwapMouseButtonResult(result) {
     assert.equal(call.lastError, 0);
     assert.deepEqual(call.guestWrites, []);
   }
-  const followups = result.supportedCalls.slice(1323).map(
-    ({ sequence, symbol, trapInstructionCount, returnAddress }) => ({
+  const followups = result.supportedCalls
+    .slice(1323)
+    .map(({ sequence, symbol, trapInstructionCount, returnAddress }) => ({
       sequence,
       symbol,
       trapInstructionCount,
       returnAddress,
-    }),
-  );
+    }));
   assert.deepEqual(followups, [
-    { sequence: 1324, symbol: "GetLastError", trapInstructionCount: 46301, returnAddress: 0x100a55dd },
-    { sequence: 1325, symbol: "TlsGetValue", trapInstructionCount: 46309, returnAddress: 0x100a54a0 },
-    { sequence: 1326, symbol: "FlsGetValue", trapInstructionCount: 46317, returnAddress: 0x100a55ec },
-    { sequence: 1327, symbol: "SetLastError", trapInstructionCount: 46323, returnAddress: 0x100a5647 },
-    { sequence: 1328, symbol: "GetLastError", trapInstructionCount: 46361, returnAddress: 0x100a55dd },
-    { sequence: 1329, symbol: "TlsGetValue", trapInstructionCount: 46369, returnAddress: 0x100a54a0 },
-    { sequence: 1330, symbol: "FlsGetValue", trapInstructionCount: 46377, returnAddress: 0x100a55ec },
-    { sequence: 1331, symbol: "SetLastError", trapInstructionCount: 46383, returnAddress: 0x100a5647 },
-    { sequence: 1332, symbol: "InitializeCriticalSection", trapInstructionCount: 49719, returnAddress: 0x1009105b },
-    { sequence: 1333, symbol: "InitializeCriticalSection", trapInstructionCount: 49725, returnAddress: 0x1006697b },
+    {
+      sequence: 1324,
+      symbol: "GetLastError",
+      trapInstructionCount: 46301,
+      returnAddress: 0x100a55dd,
+    },
+    {
+      sequence: 1325,
+      symbol: "TlsGetValue",
+      trapInstructionCount: 46309,
+      returnAddress: 0x100a54a0,
+    },
+    {
+      sequence: 1326,
+      symbol: "FlsGetValue",
+      trapInstructionCount: 46317,
+      returnAddress: 0x100a55ec,
+    },
+    {
+      sequence: 1327,
+      symbol: "SetLastError",
+      trapInstructionCount: 46323,
+      returnAddress: 0x100a5647,
+    },
+    {
+      sequence: 1328,
+      symbol: "GetLastError",
+      trapInstructionCount: 46361,
+      returnAddress: 0x100a55dd,
+    },
+    {
+      sequence: 1329,
+      symbol: "TlsGetValue",
+      trapInstructionCount: 46369,
+      returnAddress: 0x100a54a0,
+    },
+    {
+      sequence: 1330,
+      symbol: "FlsGetValue",
+      trapInstructionCount: 46377,
+      returnAddress: 0x100a55ec,
+    },
+    {
+      sequence: 1331,
+      symbol: "SetLastError",
+      trapInstructionCount: 46383,
+      returnAddress: 0x100a5647,
+    },
+    {
+      sequence: 1332,
+      symbol: "InitializeCriticalSection",
+      trapInstructionCount: 49719,
+      returnAddress: 0x1009105b,
+    },
+    {
+      sequence: 1333,
+      symbol: "InitializeCriticalSection",
+      trapInstructionCount: 49725,
+      returnAddress: 0x1006697b,
+    },
   ]);
   assert.equal(result.fault.fault.code, "endpoint-contract-missing");
   assert.equal(result.fault.capabilityCluster, "winmm-api-contract");
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 3);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000020);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "winmm.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "winmm.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "timeGetDevCaps",
@@ -12192,7 +13665,10 @@ function validateTimeGetDevCapsResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 4);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000030);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "winmm.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "winmm.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "timeBeginPeriod",
@@ -12248,14 +13724,10 @@ function validateGetVersionExAResult(result) {
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, 0x006ffe9c);
   assert.equal(call.guestWrites[0].bytes.length, 148);
-  assert.deepEqual(call.guestWrites[0].bytes.slice(0, 21), [
-    148, 0, 0, 0,
-    10, 0, 0, 0,
-    0, 0, 0, 0,
-    0x65, 0x4a, 0, 0,
-    2, 0, 0, 0,
-    0,
-  ]);
+  assert.deepEqual(
+    call.guestWrites[0].bytes.slice(0, 21),
+    [148, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0x65, 0x4a, 0, 0, 2, 0, 0, 0, 0],
+  );
   assert(call.guestWrites[0].bytes.slice(21).every((byte) => byte === 0));
   assert.deepEqual(call.guestWrites[0].result, {
     bytesWritten: 148,
@@ -12268,7 +13740,9 @@ function validateGetVersionExAResult(result) {
     },
   });
 
-  const outputDelta = result.hostDeltas.find(({ sequence }) => sequence === 1337);
+  const outputDelta = result.hostDeltas.find(
+    ({ sequence }) => sequence === 1337,
+  );
   assert(outputDelta, "GetVersionExA output delta is missing");
   assert.equal(outputDelta.fromGeneration, 1455);
   assert.equal(outputDelta.generation, 1456);
@@ -12285,7 +13759,10 @@ function validateGetVersionExAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 116);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000730);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "CreateWaitableTimerA",
@@ -12301,10 +13778,7 @@ function validateGetVersionExAResult(result) {
   assert.equal(result.terminal.terminal.thunk.address, 0x7f000730);
   assert.equal(result.terminal.terminal.thunk.name, "CreateWaitableTimerA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1005053b);
-  assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, 4),
-    [0, 1, 0],
-  );
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 4), [0, 1, 0]);
 }
 
 function validateCreateWaitableTimerAResult(result) {
@@ -12337,10 +13811,7 @@ function validateCreateWaitableTimerAResult(result) {
   assert.equal(call.trapInstructionCount, 49897);
   assert.deepEqual(call.arguments, [0, 1, 0]);
   assert.deepEqual(call.result, { action: "set", value: 0x57010001 });
-  assert.equal(
-    call.implementationId,
-    "kernel32.create-waitable-timer-a.v1",
-  );
+  assert.equal(call.implementationId, "kernel32.create-waitable-timer-a.v1");
   assert.equal(call.returnAddress, 0x1005053b);
   assert.equal(call.stackPointerAfter, call.stackPointerBefore + 16);
   assert.equal(call.lastError, 0);
@@ -12363,7 +13834,10 @@ function validateCreateWaitableTimerAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 192);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000bf0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "LoadIconA",
@@ -12406,7 +13880,9 @@ function validateLoadIconAResult(result) {
   );
   assert.equal(result.hostDeltas.length, 85);
   assert.equal(result.finalGeneration, 1459);
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadIconA");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "LoadIconA",
+  );
   assert.equal(calls.length, 1);
   for (const call of calls) {
     assert.equal(call.sequence, 1339);
@@ -12427,7 +13903,8 @@ function validateLoadIconAResult(result) {
       resource: {
         moduleId: 15,
         moduleLoadBase: 0x10000000,
-        moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        moduleSourceSha256:
+          "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         groupResourceId: 101,
         languageId: 1041,
         iconResourceId: 3,
@@ -12447,7 +13924,10 @@ function validateLoadIconAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 244);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000f30);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "LoadCursorA",
@@ -12488,8 +13968,12 @@ function validateRegisterClassExAResult(result) {
   assert.equal(result.hostDeltas.length, 85);
   assert.equal(result.finalGeneration, 1464);
 
-  const iconCalls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadIconA");
-  const cursorCalls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadCursorA");
+  const iconCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "LoadIconA",
+  );
+  const cursorCalls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "LoadCursorA",
+  );
   assert.equal(iconCalls.length, 2);
   assert.equal(cursorCalls.length, 2);
   assert.equal(iconCalls[0].icon.id, iconCalls[1].icon.id);
@@ -12497,27 +13981,51 @@ function validateRegisterClassExAResult(result) {
   assert.equal(cursorCalls[0].cursor.id, cursorCalls[1].cursor.id);
   assert.equal(cursorCalls[0].cursor.handle, cursorCalls[1].cursor.handle);
   assert.deepEqual(
-    iconCalls.map(({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
-      sequence,
-      occurrence,
-      trapInstructionCount,
-      returnAddress,
-    })),
+    iconCalls.map(
+      ({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        returnAddress,
+      }),
+    ),
     [
-      { sequence: 1339, occurrence: 1, trapInstructionCount: 49942, returnAddress: 0x10067cf3 },
-      { sequence: 1342, occurrence: 2, trapInstructionCount: 49970, returnAddress: 0x10067d7c },
+      {
+        sequence: 1339,
+        occurrence: 1,
+        trapInstructionCount: 49942,
+        returnAddress: 0x10067cf3,
+      },
+      {
+        sequence: 1342,
+        occurrence: 2,
+        trapInstructionCount: 49970,
+        returnAddress: 0x10067d7c,
+      },
     ],
   );
   assert.deepEqual(
-    cursorCalls.map(({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
-      sequence,
-      occurrence,
-      trapInstructionCount,
-      returnAddress,
-    })),
+    cursorCalls.map(
+      ({ sequence, occurrence, trapInstructionCount, returnAddress }) => ({
+        sequence,
+        occurrence,
+        trapInstructionCount,
+        returnAddress,
+      }),
+    ),
     [
-      { sequence: 1340, occurrence: 1, trapInstructionCount: 49949, returnAddress: 0x10067d09 },
-      { sequence: 1343, occurrence: 2, trapInstructionCount: 49976, returnAddress: 0x10067d8c },
+      {
+        sequence: 1340,
+        occurrence: 1,
+        trapInstructionCount: 49949,
+        returnAddress: 0x10067d09,
+      },
+      {
+        sequence: 1343,
+        occurrence: 2,
+        trapInstructionCount: 49976,
+        returnAddress: 0x10067d8c,
+      },
     ],
   );
 
@@ -12553,12 +14061,18 @@ function validateRegisterClassExAResult(result) {
       name: "BGI - Child window",
     },
   ];
-  for (const [call, expectedClass] of classCalls.map((call, index) => [call, expectedClasses[index]])) {
+  for (const [call, expectedClass] of classCalls.map((call, index) => [
+    call,
+    expectedClasses[index],
+  ])) {
     assert.equal(call.sequence, expectedClass.sequence);
     assert.equal(call.occurrence, expectedClass.occurrence);
     assert.equal(call.trapInstructionCount, expectedClass.instructionCount);
     assert.deepEqual(call.arguments, [0x006ffb08]);
-    assert.deepEqual(call.result, { action: "set", value: expectedClass.result });
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expectedClass.result,
+    });
     assert.equal(call.implementationId, "user32.register-class-ex-a.v1");
     assert.equal(call.returnAddress, expectedClass.returnAddress);
     assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
@@ -12572,7 +14086,8 @@ function validateRegisterClassExAResult(result) {
       module: {
         moduleId: 15,
         loadBase: 0x10000000,
-        sourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        sourceSha256:
+          "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       },
       style: expectedClass.style,
       windowProcedure: {
@@ -12599,7 +14114,10 @@ function validateRegisterClassExAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 203);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000ca0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetSystemMetrics",
@@ -12619,13 +14137,17 @@ function validateRegisterClassExAResult(result) {
 }
 
 function validateSourceFileReadResult(result) {
-  const contentSha256 = "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92";
+  const contentSha256 =
+    "e14899243887737b5fd1bddcf35d9fb3e74dc5f7ff0eea7198e1821f9a4d0f92";
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.supportedCalls.length, 1_389);
   assert.equal(result.writebacks.length, 1_426);
   assert.equal(
-    result.writebacks.reduce((total, writeback) => total + writeback.dirtyPages.length, 0),
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
     2_968,
   );
   assert.equal(
@@ -12637,11 +14159,17 @@ function validateSourceFileReadResult(result) {
   );
   assert.equal(result.hostDeltas.length, 132);
   assert.equal(
-    result.hostDeltas.reduce((total, delta) => total + delta.mappingOperations, 0),
+    result.hostDeltas.reduce(
+      (total, delta) => total + delta.mappingOperations,
+      0,
+    ),
     43,
   );
   assert.equal(
-    result.hostDeltas.reduce((total, delta) => total + delta.dirtyPages.length, 0),
+    result.hostDeltas.reduce(
+      (total, delta) => total + delta.dirtyPages.length,
+      0,
+    ),
     958,
   );
   assert.equal(result.stackGrowths.length, 4);
@@ -12672,32 +14200,92 @@ function validateSourceFileReadResult(result) {
   ]);
 
   const sourceCalls = result.supportedCalls.filter(({ symbol }) =>
-    ["CreateFileA", "GetFileSize", "ReadFile", "SetFilePointer", "CloseHandle"].includes(
-      symbol,
-    ),
+    [
+      "CreateFileA",
+      "GetFileSize",
+      "ReadFile",
+      "SetFilePointer",
+      "CloseHandle",
+    ].includes(symbol),
   );
   assert.deepEqual(
-    sourceCalls.map(({ sequence, symbol, occurrence, trapInstructionCount }) => ({
-      sequence,
-      symbol,
-      occurrence,
-      trapInstructionCount,
-    })),
+    sourceCalls.map(
+      ({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+        sequence,
+        symbol,
+        occurrence,
+        trapInstructionCount,
+      }),
+    ),
     [
-      { sequence: 1_359, symbol: "CreateFileA", occurrence: 1, trapInstructionCount: 51_614 },
-      { sequence: 1_360, symbol: "GetFileSize", occurrence: 1, trapInstructionCount: 51_629 },
-      { sequence: 1_362, symbol: "ReadFile", occurrence: 1, trapInstructionCount: 51_701 },
-      { sequence: 1_364, symbol: "CloseHandle", occurrence: 1, trapInstructionCount: 71_560 },
-      { sequence: 1_375, symbol: "CreateFileA", occurrence: 2, trapInstructionCount: 73_213 },
-      { sequence: 1_376, symbol: "GetFileSize", occurrence: 2, trapInstructionCount: 73_228 },
-      { sequence: 1_378, symbol: "ReadFile", occurrence: 2, trapInstructionCount: 73_300 },
-      { sequence: 1_380, symbol: "CloseHandle", occurrence: 2, trapInstructionCount: 73_584 },
+      {
+        sequence: 1_359,
+        symbol: "CreateFileA",
+        occurrence: 1,
+        trapInstructionCount: 51_614,
+      },
+      {
+        sequence: 1_360,
+        symbol: "GetFileSize",
+        occurrence: 1,
+        trapInstructionCount: 51_629,
+      },
+      {
+        sequence: 1_362,
+        symbol: "ReadFile",
+        occurrence: 1,
+        trapInstructionCount: 51_701,
+      },
+      {
+        sequence: 1_364,
+        symbol: "CloseHandle",
+        occurrence: 1,
+        trapInstructionCount: 71_560,
+      },
+      {
+        sequence: 1_375,
+        symbol: "CreateFileA",
+        occurrence: 2,
+        trapInstructionCount: 73_213,
+      },
+      {
+        sequence: 1_376,
+        symbol: "GetFileSize",
+        occurrence: 2,
+        trapInstructionCount: 73_228,
+      },
+      {
+        sequence: 1_378,
+        symbol: "ReadFile",
+        occurrence: 2,
+        trapInstructionCount: 73_300,
+      },
+      {
+        sequence: 1_380,
+        symbol: "CloseHandle",
+        occurrence: 2,
+        trapInstructionCount: 73_584,
+      },
     ],
   );
-  const [firstCreate, firstSize, firstRead, firstClose, secondCreate, secondSize, secondRead, secondClose] =
-    sourceCalls;
-  assert.deepEqual(firstCreate.arguments, [0x006f_f45c, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
-  assert.deepEqual(secondCreate.arguments, [0x006f_f364, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
+  const [
+    firstCreate,
+    firstSize,
+    firstRead,
+    firstClose,
+    secondCreate,
+    secondSize,
+    secondRead,
+    secondClose,
+  ] = sourceCalls;
+  assert.deepEqual(
+    firstCreate.arguments,
+    [0x006f_f45c, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0],
+  );
+  assert.deepEqual(
+    secondCreate.arguments,
+    [0x006f_f364, 0x8000_0000, 1, 0, 3, 0x0800_0020, 0],
+  );
   assert.equal(firstCreate.result.value, 0x4601_0001);
   assert.equal(secondCreate.result.value, 0x4602_0001);
   assert.notEqual(firstCreate.result.value, secondCreate.result.value);
@@ -12705,8 +14293,14 @@ function validateSourceFileReadResult(result) {
   assert.deepEqual(secondSize.arguments, [secondCreate.result.value, 0]);
   assert.equal(firstSize.result.value, 125_461);
   assert.equal(secondSize.result.value, 125_461);
-  assert.deepEqual(firstRead.arguments, [0x4601_0001, 0x2000_1500, 125_461, 0x006f_f3ec, 0]);
-  assert.deepEqual(secondRead.arguments, [0x4602_0001, 0x2001_ff18, 125_461, 0x006f_f2f4, 0]);
+  assert.deepEqual(
+    firstRead.arguments,
+    [0x4601_0001, 0x2000_1500, 125_461, 0x006f_f3ec, 0],
+  );
+  assert.deepEqual(
+    secondRead.arguments,
+    [0x4602_0001, 0x2001_ff18, 125_461, 0x006f_f2f4, 0],
+  );
   for (const [index, read] of [firstRead, secondRead].entries()) {
     assert.equal(read.result.value, 1);
     assert.equal(read.lastError, 0);
@@ -12723,13 +14317,19 @@ function validateSourceFileReadResult(result) {
     assert.equal(read.sourceRead.cursorAfter, 125_461);
     assert.equal(read.sourceRead.contentSha256, contentSha256);
     assert.deepEqual(
-      read.guestWrites.map(({ address, bytes }) => ({ address, byteLength: bytes.length })),
+      read.guestWrites.map(({ address, bytes }) => ({
+        address,
+        byteLength: bytes.length,
+      })),
       [
         { address: read.arguments[3], byteLength: 4 },
         { address: read.arguments[1], byteLength: 125_461 },
       ],
     );
-    assert.equal(sha256(Buffer.from(read.guestWrites[0].bytes)), "145638eb05a9c9c514d6a421e0c322768e5ca70d7a809685cbe49ed24debd493");
+    assert.equal(
+      sha256(Buffer.from(read.guestWrites[0].bytes)),
+      "145638eb05a9c9c514d6a421e0c322768e5ca70d7a809685cbe49ed24debd493",
+    );
     assert.equal(sha256(Buffer.from(read.guestWrites[1].bytes)), contentSha256);
   }
   assert.deepEqual(firstClose.arguments, [firstCreate.result.value]);
@@ -12746,7 +14346,10 @@ function validateSourceFileReadResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 232);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0e70);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "CreateWindowExA",
@@ -12763,15 +14366,13 @@ function validateSourceFileReadResult(result) {
   assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0e70);
   assert.equal(result.terminal.terminal.thunk.name, "CreateWindowExA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_7efa);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
-    0x0004_0000,
-    0x100f_ba4c,
-    0x006f_fb48,
-    0x80ca_0000,
-    0x0000_022d,
-    0x0000_00d6,
-    0x0000_0326,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1),
+    [
+      0x0004_0000, 0x100f_ba4c, 0x006f_fb48, 0x80ca_0000, 0x0000_022d,
+      0x0000_00d6, 0x0000_0326,
+    ],
+  );
 }
 
 function validateLoadImageASmallIconResult(result) {
@@ -12821,7 +14422,8 @@ function validateLoadImageASmallIconResult(result) {
     resource: {
       moduleId: 15,
       moduleLoadBase: 0x1000_0000,
-      moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+      moduleSourceSha256:
+        "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       groupResourceId: 101,
       languageId: 1041,
       iconResourceId: 4,
@@ -12843,7 +14445,10 @@ function validateLoadImageASmallIconResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 229);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0e40);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "SendMessageA",
@@ -12860,12 +14465,10 @@ function validateLoadImageASmallIconResult(result) {
   assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0e40);
   assert.equal(result.terminal.terminal.thunk.name, "SendMessageA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f58);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 5), [
-    0x4801_0001,
-    0x0080,
-    0,
-    0x4901_0002,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 5),
+    [0x4801_0001, 0x0080, 0, 0x4901_0002],
+  );
 }
 
 function validateSendMessageASmallIconResult(result) {
@@ -12891,7 +14494,9 @@ function validateSendMessageASmallIconResult(result) {
   );
   assert.equal(result.hostDeltas.length, 139);
   assert.equal(
-    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    result.supportedCalls.some(
+      ({ pendingCallback }) => pendingCallback === true,
+    ),
     false,
     "SendMessageA must complete its synchronous WndProc before the next structured stop",
   );
@@ -12922,7 +14527,9 @@ function validateSendMessageASmallIconResult(result) {
   assert.equal(call.callback.returnInstructionCount, 11_476_589);
   assert.equal(call.callback.result, 0);
 
-  const nested = result.supportedCalls.find(({ sequence }) => sequence === 1399);
+  const nested = result.supportedCalls.find(
+    ({ sequence }) => sequence === 1399,
+  );
   assert.equal(nested.module.toLowerCase(), "user32.dll");
   assert.equal(nested.symbol, "DefWindowProcA");
   assert.equal(nested.occurrence, 5);
@@ -12991,7 +14598,10 @@ function validateSendMessageASmallIconResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 202);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0c90);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "SetWindowPos",
@@ -13008,15 +14618,10 @@ function validateSendMessageASmallIconResult(result) {
   assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0c90);
   assert.equal(result.terminal.terminal.thunk.name, "SetWindowPos");
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f88);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
-    0x4801_0001,
-    0xffff_fffe,
-    15_360,
-    8_640,
-    0,
-    0,
-    0x0559,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 8),
+    [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
+  );
 }
 
 function validateSetWindowPosInitialPlacementSummary(result) {
@@ -13042,7 +14647,9 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   );
   assert.equal(result.hostDeltas.length, 16_547);
   assert.equal(
-    result.supportedCalls.some(({ pendingCallback }) => pendingCallback === true),
+    result.supportedCalls.some(
+      ({ pendingCallback }) => pendingCallback === true,
+    ),
     false,
     "both SetWindowPos calls must complete before the next structured stop",
   );
@@ -13072,7 +14679,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_612,
       arguments: [0x4801_0001, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v4",
+      implementationId: "user32.set-window-pos.v5",
       returnAddress: 0x1006_7f88,
       stackDelta: 32,
       lastError: 0,
@@ -13127,7 +14734,7 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       trapInstructionCount: 11_476_797,
       arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 0, 0, 0x059b],
       result: { action: "set", value: 1 },
-      implementationId: "user32.set-window-pos.v4",
+      implementationId: "user32.set-window-pos.v5",
       returnAddress: 0x1006_7f9f,
       stackDelta: 32,
       lastError: 0,
@@ -13157,42 +14764,87 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   assert.equal(nestedPosition.symbol, "DefWindowProcA");
   assert.equal(nestedPosition.occurrence, 6);
   assert.equal(nestedPosition.trapInstructionCount, 11_476_652);
-  assert.deepEqual(nestedPosition.arguments, [0x4801_0001, 0x0047, 0, 0x0050_1000]);
+  assert.deepEqual(
+    nestedPosition.arguments,
+    [0x4801_0001, 0x0047, 0, 0x0050_1000],
+  );
   assert.deepEqual(nestedPosition.result, { action: "set", value: 0 });
   assert.equal(nestedPosition.callback.frameId, 9);
   assert.equal(nestedPosition.callback.returnInstructionCount, 11_476_705);
   assert.equal(nestedPosition.callback.result, 0);
 
-  const nestedMove = result.supportedCalls.find(({ sequence }) => sequence === 1404);
+  const nestedMove = result.supportedCalls.find(
+    ({ sequence }) => sequence === 1404,
+  );
   assert.equal(nestedMove.symbol, "DefWindowProcA");
   assert.equal(nestedMove.occurrence, 7);
   assert.equal(nestedMove.trapInstructionCount, 11_476_692);
   assert.deepEqual(nestedMove.arguments, [0x4801_0001, 0x0003, 0, 0x21da_3c03]);
   assert.deepEqual(nestedMove.result, { action: "set", value: 0 });
 
-  const hideDefault = result.supportedCalls.find(({ sequence }) => sequence === 1409);
+  const hideDefault = result.supportedCalls.find(
+    ({ sequence }) => sequence === 1409,
+  );
   assert.equal(hideDefault.symbol, "DefWindowProcA");
   assert.equal(hideDefault.occurrence, 8);
   assert.equal(hideDefault.trapInstructionCount, 11_476_837);
-  assert.deepEqual(hideDefault.arguments, [0x4801_0001, 0x0047, 0, 0x0050_1000]);
+  assert.deepEqual(
+    hideDefault.arguments,
+    [0x4801_0001, 0x0047, 0, 0x0050_1000],
+  );
   assert.deepEqual(hideDefault.result, { action: "set", value: 0 });
 
   assert.deepEqual(
-    result.callbackEvents.slice(-8).map(
-      ({ action, sequence, frameId, instructionCount, result: callbackResult }) => ({
-        action,
-        sequence,
-        frameId,
-        instructionCount,
-        ...(callbackResult === undefined ? {} : { result: callbackResult }),
-      }),
-    ),
+    result.callbackEvents
+      .slice(-8)
+      .map(
+        ({
+          action,
+          sequence,
+          frameId,
+          instructionCount,
+          result: callbackResult,
+        }) => ({
+          action,
+          sequence,
+          frameId,
+          instructionCount,
+          ...(callbackResult === undefined ? {} : { result: callbackResult }),
+        }),
+      ),
     [
-      { action: "enter", sequence: 1402, frameId: 8, instructionCount: 11_476_612 },
-      { action: "enter", sequence: 1403, frameId: 9, instructionCount: 11_476_652 },
-      { action: "return", sequence: 1403, frameId: 9, instructionCount: 11_476_705, result: 0 },
-      { action: "return", sequence: 1402, frameId: 8, instructionCount: 11_476_718, result: 0 },
-      { action: "replace", sequence: 1402, frameId: 10, instructionCount: 11_476_718 },
+      {
+        action: "enter",
+        sequence: 1402,
+        frameId: 8,
+        instructionCount: 11_476_612,
+      },
+      {
+        action: "enter",
+        sequence: 1403,
+        frameId: 9,
+        instructionCount: 11_476_652,
+      },
+      {
+        action: "return",
+        sequence: 1403,
+        frameId: 9,
+        instructionCount: 11_476_705,
+        result: 0,
+      },
+      {
+        action: "return",
+        sequence: 1402,
+        frameId: 8,
+        instructionCount: 11_476_718,
+        result: 0,
+      },
+      {
+        action: "replace",
+        sequence: 1402,
+        frameId: 10,
+        instructionCount: 11_476_718,
+      },
       {
         action: "return",
         sequence: 1402,
@@ -13200,8 +14852,19 @@ function validateSetWindowPosInitialPlacementSummary(result) {
         instructionCount: 11_476_787,
         result: 0x4901_0002,
       },
-      { action: "enter", sequence: 1408, frameId: 11, instructionCount: 11_476_797 },
-      { action: "return", sequence: 1408, frameId: 11, instructionCount: 11_476_850, result: 0 },
+      {
+        action: "enter",
+        sequence: 1408,
+        frameId: 11,
+        instructionCount: 11_476_797,
+      },
+      {
+        action: "return",
+        sequence: 1408,
+        frameId: 11,
+        instructionCount: 11_476_850,
+        result: 0,
+      },
     ],
   );
 
@@ -13232,7 +14895,10 @@ function validateSetWindowPosInitialPlacementSummary(result) {
   assert.deepEqual(moduleCursor.result, { action: "set", value: 0x4301_0002 });
   assert.equal(moduleCursor.implementationId, "user32.load-cursor-a.v1");
   assert.equal(moduleCursor.returnAddress, 0x1006_7fe1);
-  assert.equal(moduleCursor.stackPointerAfter, moduleCursor.stackPointerBefore + 12);
+  assert.equal(
+    moduleCursor.stackPointerAfter,
+    moduleCursor.stackPointerBefore + 12,
+  );
   assert.equal(moduleCursor.lastError, 0);
   assert.deepEqual(moduleCursor.guestWrites, []);
   assert.deepEqual(moduleCursor.cursor, {
@@ -13245,7 +14911,8 @@ function validateSetWindowPosInitialPlacementSummary(result) {
       resource: {
         moduleId: 15,
         moduleLoadBase: 0x1000_0000,
-        moduleSourceSha256: "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        moduleSourceSha256:
+          "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         groupResourceId: 106,
         languageId: 1041,
         cursorResourceId: 5,
@@ -13334,10 +15001,16 @@ function validateD3d9RootFactoryResult(result) {
   assert.equal(endpoint.target.object.backing.range.byteLength, page.size * 2);
   assert.equal(endpoint.target.interface.name, "IDirect3D9");
   assert.equal(endpoint.target.interface.guestPointer, factory.result.value);
-  assert.equal(endpoint.target.interface.methods["8"].name, "GetAdapterDisplayMode");
+  assert.equal(
+    endpoint.target.interface.methods["8"].name,
+    "GetAdapterDisplayMode",
+  );
   assert.equal(endpoint.target.interface.methods["8"].explicitArgumentWords, 2);
   assert.equal(endpoint.target.interface.methods["16"].name, "CreateDevice");
-  assert.equal(endpoint.target.interface.methods["16"].explicitArgumentWords, 6);
+  assert.equal(
+    endpoint.target.interface.methods["16"].explicitArgumentWords,
+    6,
+  );
   assert.equal(endpoint.target.method.slot, 8);
   assert.equal(endpoint.target.method.name, "GetAdapterDisplayMode");
   assert.equal(endpoint.target.method.explicitArgumentWords, 2);
@@ -13347,7 +15020,10 @@ function validateD3d9RootFactoryResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_b8d6);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3D9");
   assert.equal(result.fault.fault.target.vtableSlot, 8);
   assert.equal(result.fault.fault.target.method, "GetAdapterDisplayMode");
@@ -13405,12 +15081,7 @@ function validateD3d9GetAdapterDisplayModeResult(result) {
   assert.deepEqual(call.guestWrites, [
     {
       address: 0x1010_38e0,
-      bytes: [
-        0x80, 0x07, 0, 0,
-        0x38, 0x04, 0, 0,
-        60, 0, 0, 0,
-        22, 0, 0, 0,
-      ],
+      bytes: [0x80, 0x07, 0, 0, 0x38, 0x04, 0, 0, 60, 0, 0, 0, 22, 0, 0, 0],
       result: {
         bytesWritten: 16,
         dirtyPages: 1,
@@ -13465,12 +15136,10 @@ function validateD3d9GetAdapterDisplayModeResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 5);
   assert.equal(terminal.returnAddress, 0x1005_b91c);
-  assert.deepEqual(terminal.stackWords.slice(1, 5), [
-    0x0100_0004,
-    0,
-    0,
-    0x1010_3410,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 5),
+    [0x0100_0004, 0, 0, 0x1010_3410],
+  );
 }
 
 function expectedD3d9AdapterIdentifierBytes() {
@@ -13480,8 +15149,8 @@ function expectedD3d9AdapterIdentifierBytes() {
   bytes.write("\\\\.\\DISPLAY1", 1_024, "ascii");
   bytes.writeBigUInt64LE(0x0001_0000_0000_0000n, 1_056);
   Buffer.from([
-    0x45, 0x4e, 0x49, 0x56, 0x33, 0x44, 0x39, 0x44,
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x45, 0x4e, 0x49, 0x56, 0x33, 0x44, 0x39, 0x44, 0x80, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x01,
   ]).copy(bytes, 1_080);
   return [...bytes];
 }
@@ -13594,14 +15263,10 @@ function validateD3d9GetDeviceCapsResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 9);
   assert.equal(terminal.returnAddress, 0x1005_b9d6);
-  assert.deepEqual(terminal.stackWords.slice(1, 7), [
-    0x0100_0004,
-    0,
-    1,
-    22,
-    22,
-    1,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 7),
+    [0x0100_0004, 0, 1, 22, 22, 1],
+  );
 }
 
 function validateD3d9CheckDeviceTypeResult(result) {
@@ -13677,15 +15342,10 @@ function validateD3d9CheckDeviceTypeResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 10);
   assert.equal(terminal.returnAddress, 0x1005_ba69);
-  assert.deepEqual(terminal.stackWords.slice(1, 8), [
-    0x0100_0004,
-    0,
-    1,
-    22,
-    0x200,
-    3,
-    22,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 8),
+    [0x0100_0004, 0, 1, 22, 0x200, 3, 22],
+  );
 }
 
 function validateD3d9CheckDeviceFormatResult(result) {
@@ -13798,9 +15458,10 @@ function validateGetClientRectResult(result) {
   assert.equal(call.lastError, 0);
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, 0x006f_fdc4);
-  assert.deepEqual(call.guestWrites[0].bytes, [
-    0, 0, 0, 0, 0, 0, 0, 0, 0x20, 3, 0, 0, 0x58, 2, 0, 0,
-  ]);
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    [0, 0, 0, 0, 0, 0, 0, 0, 0x20, 3, 0, 0, 0x58, 2, 0, 0],
+  );
   assert.equal(call.guestWrites[0].result.bytesWritten, 16);
   assert.equal(call.guestWrites[0].result.dirtyPages, 1);
   assert.equal(call.guestWrites[0].result.invalidation.generation, 34_524);
@@ -13811,7 +15472,10 @@ function validateGetClientRectResult(result) {
   assert.equal(result.fault.endpoint.endpoint.id, 239);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0ee0);
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1494);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetDC",
@@ -13868,7 +15532,12 @@ function validateWindowDcFillResult(result) {
 
   const calls = result.supportedCalls.slice(-4);
   assert.deepEqual(
-    calls.map((call) => [call.sequence, call.module, call.symbol, call.occurrence]),
+    calls.map((call) => [
+      call.sequence,
+      call.module,
+      call.symbol,
+      call.occurrence,
+    ]),
     [
       [17_826, "USER32.dll", "GetDC", 1],
       [17_827, "GDI32.dll", "GetStockObject", 1],
@@ -13982,7 +15651,10 @@ function validateWindowDcFillResult(result) {
   assert.equal(result.fault.endpoint.endpoint.id, 212);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0d30);
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1428);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "SetWindowLongA",
@@ -14097,7 +15769,10 @@ function validateSetWindowLongAResult(result) {
   assert.equal(result.fault.endpoint.endpoint.id, 202);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0c90);
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1400);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "SetWindowPos",
@@ -14174,7 +15849,7 @@ function validateSetWindowPosActivationResult(result) {
         instruction: 11_806_645,
         arguments: [0x4801_0001, 0xffff_fffe, 0, 0, 806, 629, 0x10a],
         result: { action: "set", value: 1 },
-        implementationId: "user32.set-window-pos.v4",
+        implementationId: "user32.set-window-pos.v5",
       },
       ...[
         [17_832, 9, 11_806_687, [0x4801_0001, 70, 0, 0x0050_1000], 0],
@@ -14274,7 +15949,15 @@ function validateSetWindowPosActivationResult(result) {
       ["return", 17_836, 19, 11_807_087, null, null, 0],
       ["return", 17_831, 16, 11_807_100, null, null, 0],
     ].map(
-      ([action, sequence, frameId, instructionCount, target, stackPointer, result]) => ({
+      ([
+        action,
+        sequence,
+        frameId,
+        instructionCount,
+        target,
+        stackPointer,
+        result,
+      ]) => ({
         action,
         sequence,
         frameId,
@@ -14290,7 +15973,10 @@ function validateSetWindowPosActivationResult(result) {
   assert.equal(result.fault.endpoint.endpoint.id, 206);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0cd0);
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1410);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "MonitorFromWindow",
@@ -14379,7 +16065,10 @@ function validateD3d9GetAdapterCountResult(result) {
   assert.equal(result.fault.fault.code, "get-adapter-monitor-policy-disabled");
   assert.equal(result.fault.fault.callSite, 0x1005_9d5e);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3D9");
   assert.equal(result.fault.fault.target.vtableSlot, 15);
   assert.equal(result.fault.fault.target.method, "GetAdapterMonitor");
@@ -14532,7 +16221,10 @@ function validateD3d9GetAdapterMonitorResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_aca5);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3D9");
   assert.equal(result.fault.fault.target.vtableSlot, 16);
   assert.equal(result.fault.fault.target.method, "CreateDevice");
@@ -14550,15 +16242,10 @@ function validateD3d9GetAdapterMonitorResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 16);
   assert.equal(terminal.returnAddress, 0x1005_aca5);
-  assert.deepEqual(terminal.stackWords.slice(1, 8), [
-    0x0100_0004,
-    0,
-    1,
-    0x4801_0001,
-    0x44,
-    0x1010_38f0,
-    0x1015_17c4,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 8),
+    [0x0100_0004, 0, 1, 0x4801_0001, 0x44, 0x1010_38f0, 0x1015_17c4],
+  );
 }
 
 function validateD3d9CreateDeviceResult(result) {
@@ -14598,15 +16285,10 @@ function validateD3d9CreateDeviceResult(result) {
   assert.equal(call.module, "<com>");
   assert.equal(call.interface, "IDirect3D9");
   assert.equal(call.vtableSlot, 16);
-  assert.deepEqual(call.arguments, [
-    0x0100_0004,
-    0,
-    1,
-    0x4801_0001,
-    0x44,
-    0x1010_38f0,
-    0x1015_17c4,
-  ]);
+  assert.deepEqual(
+    call.arguments,
+    [0x0100_0004, 0, 1, 0x4801_0001, 0x44, 0x1010_38f0, 0x1015_17c4],
+  );
   assert.deepEqual(call.result, { kind: "h-result", value: 0 });
   assert.equal(call.returnAddress, 0x1005_aca5);
   assert.equal(call.stackPointerAfter, call.stackPointerBefore + 32);
@@ -14614,15 +16296,19 @@ function validateD3d9CreateDeviceResult(result) {
   assert.equal(call.objectRetired, false);
   assert.equal(call.guestWrites.length, 2);
   assert.equal(call.guestWrites[0].address, 0x1010_38f0);
-  assert.deepEqual(call.guestWrites[0].bytes, [
-    0x20, 0x03, 0, 0, 0x58, 0x02, 0, 0, 0x16, 0, 0, 0,
-  ]);
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    [0x20, 0x03, 0, 0, 0x58, 0x02, 0, 0, 0x16, 0, 0, 0],
+  );
   assert.equal(call.guestWrites[1].address, 0x1015_17c4);
   assert.deepEqual(call.guestWrites[1].bytes, [0x04, 0x00, 0x01, 0x01]);
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3ddevice9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 1);
   assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
   assert.equal(endpoint.target.interface.guestPointer, 0x0101_0004);
@@ -14635,7 +16321,10 @@ function validateD3d9CreateDeviceResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_a715);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
   assert.equal(result.fault.fault.target.vtableSlot, 23);
   assert.equal(result.fault.fault.target.method, "CreateTexture");
@@ -14653,18 +16342,10 @@ function validateD3d9CreateDeviceResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 23);
   assert.equal(terminal.returnAddress, 0x1005_a715);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_a715,
-    0x0101_0004,
-    1024,
-    1024,
-    1,
-    0,
-    22,
-    2,
-    0x1015_17cc,
-    0,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_a715, 0x0101_0004, 1024, 1024, 1, 0, 22, 2, 0x1015_17cc, 0],
+  );
 }
 
 function validateD3d9CreateTextureResult(result) {
@@ -14705,17 +16386,10 @@ function validateD3d9CreateTextureResult(result) {
   assert.deepEqual(call.result, { kind: "h-result", value: 0 });
   assert.equal(call.interface, "IDirect3DDevice9");
   assert.equal(call.vtableSlot, 23);
-  assert.deepEqual(call.arguments, [
-    0x0101_0004,
-    1024,
-    1024,
-    1,
-    0,
-    22,
-    2,
-    0x1015_17cc,
-    0,
-  ]);
+  assert.deepEqual(
+    call.arguments,
+    [0x0101_0004, 1024, 1024, 1, 0, 22, 2, 0x1015_17cc, 0],
+  );
   assert.equal(call.returnAddress, 0x1005_a715);
   assert.equal(call.stackPointerAfter, call.stackPointerBefore + 40);
   assert.equal(call.referenceCount, 1);
@@ -14726,7 +16400,10 @@ function validateD3d9CreateTextureResult(result) {
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3dtexture9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3dtexture9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 1);
   assert.equal(endpoint.target.object.parentInterfaceId, "6");
   assert.equal(endpoint.target.interface.name, "IDirect3DTexture9");
@@ -14740,7 +16417,10 @@ function validateD3d9CreateTextureResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_a731);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DTexture9");
   assert.equal(result.fault.fault.target.vtableSlot, 18);
   assert.equal(result.fault.fault.target.method, "GetSurfaceLevel");
@@ -14758,12 +16438,10 @@ function validateD3d9CreateTextureResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 18);
   assert.equal(terminal.returnAddress, 0x1005_a731);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_a731,
-    0x0102_0004,
-    0,
-    0x006f_fd38,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_a731, 0x0102_0004, 0, 0x006f_fd38],
+  );
 }
 
 function validateD3d9GetSurfaceLevelResult(result) {
@@ -14815,7 +16493,10 @@ function validateD3d9GetSurfaceLevelResult(result) {
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3dsurface9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3dsurface9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 1);
   assert.equal(endpoint.target.object.parentInterfaceId, "8");
   assert.equal(endpoint.target.interface.name, "IDirect3DSurface9");
@@ -14829,7 +16510,10 @@ function validateD3d9GetSurfaceLevelResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_a746);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DSurface9");
   assert.equal(result.fault.fault.target.vtableSlot, 15);
   assert.equal(result.fault.fault.target.method, "GetDC");
@@ -14847,11 +16531,10 @@ function validateD3d9GetSurfaceLevelResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 15);
   assert.equal(terminal.returnAddress, 0x1005_a746);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_a746,
-    0x0103_0004,
-    0x006f_fd3c,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_a746, 0x0103_0004, 0x006f_fd3c],
+  );
 }
 
 function validateTimeGetTimeResult(result) {
@@ -14903,7 +16586,10 @@ function validateTimeGetTimeResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 221);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0dc0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "MessageBoxA",
@@ -14926,12 +16612,10 @@ function validateTimeGetTimeResult(result) {
   assert.equal(terminal.thunk.module, "USER32.dll");
   assert.equal(terminal.thunk.name, "MessageBoxA");
   assert.equal(terminal.returnAddress, 0x1006_6b0d);
-  assert.deepEqual(terminal.stackWords.slice(1, 5), [
-    0x4801_0001,
-    0x100d_cba0,
-    0x100d_cbe0,
-    0x0000_1010,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 5),
+    [0x4801_0001, 0x100d_cba0, 0x100d_cbe0, 0x0000_1010],
+  );
 }
 
 function validateD3d9InitialTexturesResult(result) {
@@ -15025,13 +16709,17 @@ function validateD3d9InitialTexturesResult(result) {
     ],
   );
   assert.equal(
-    result.supportedCalls.filter((call) => call.symbol === "timeGetTime").length,
+    result.supportedCalls.filter((call) => call.symbol === "timeGetTime")
+      .length,
     0,
   );
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3ddevice9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 4);
   assert.equal(endpoint.target.object.parentInterfaceId, "4");
   assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
@@ -15045,7 +16733,10 @@ function validateD3d9InitialTexturesResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_a890);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
   assert.equal(result.fault.fault.target.vtableSlot, 26);
   assert.equal(result.fault.fault.target.method, "CreateVertexBuffer");
@@ -15063,16 +16754,10 @@ function validateD3d9InitialTexturesResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 26);
   assert.equal(terminal.returnAddress, 0x1005_a890);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_a890,
-    0x0101_0004,
-    112,
-    8,
-    0x144,
-    1,
-    0x1015_17dc,
-    0,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_a890, 0x0101_0004, 112, 8, 0x144, 1, 0x1015_17dc, 0],
+  );
 }
 
 function validateD3d9InitialVertexBufferResult(result) {
@@ -15176,7 +16861,10 @@ function validateD3d9InitialVertexBufferResult(result) {
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3ddevice9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 5);
   assert.equal(endpoint.target.object.parentInterfaceId, "4");
   assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
@@ -15190,7 +16878,10 @@ function validateD3d9InitialVertexBufferResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_ad13);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
   assert.equal(result.fault.fault.target.vtableSlot, 57);
   assert.equal(result.fault.fault.target.method, "SetRenderState");
@@ -15208,12 +16899,7 @@ function validateD3d9InitialVertexBufferResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 57);
   assert.equal(terminal.returnAddress, 0x1005_ad13);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_ad13,
-    0x0101_0004,
-    22,
-    1,
-  ]);
+  assert.deepEqual(terminal.stackWords, [0x1005_ad13, 0x0101_0004, 22, 1]);
 }
 
 function validateGetMonitorInfoAResult(result) {
@@ -15259,18 +16945,13 @@ function validateGetMonitorInfoAResult(result) {
   assert.equal(call.lastError, 0);
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, 0x006f_fd44);
-  assert.deepEqual(call.guestWrites[0].bytes, [
-    40, 0, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    128, 7, 0, 0,
-    56, 4, 0, 0,
-    0, 0, 0, 0,
-    0, 0, 0, 0,
-    128, 7, 0, 0,
-    8, 4, 0, 0,
-    1, 0, 0, 0,
-  ]);
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    [
+      40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 7, 0, 0, 56, 4, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 128, 7, 0, 0, 8, 4, 0, 0, 1, 0, 0, 0,
+    ],
+  );
   assert.equal(call.guestWrites[0].result.bytesWritten, 40);
   assert.equal(call.guestWrites[0].result.dirtyPages, 1);
   assert.deepEqual(call.guestWrites[0].result.invalidation, {
@@ -15342,16 +17023,13 @@ function validateGetMonitorInfoAResult(result) {
   assert.equal(terminal.thunk.module, "DINPUT8.dll");
   assert.equal(terminal.thunk.name, "DirectInput8Create");
   assert.equal(terminal.returnAddress, 0x1005_c234);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_c234,
-    0x1000_0000,
-    0x0000_0800,
-    0x100d_22b8,
-    0x1015_1800,
-    0,
-    1,
-    0x1006_8315,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [
+      0x1005_c234, 0x1000_0000, 0x0000_0800, 0x100d_22b8, 0x1015_1800, 0, 1,
+      0x1006_8315,
+    ],
+  );
 }
 
 function validateGenericApiSymbol(actual, expected) {
@@ -15398,13 +17076,10 @@ function validateDinput8FactoryResult(result) {
   assert.equal(factory.trapInstructionCount, 11_825_212);
   assert.equal(factory.module.toLowerCase(), "dinput8.dll");
   assert.equal(factory.symbol, "DirectInput8Create");
-  assert.deepEqual(factory.arguments, [
-    0x1000_0000,
-    0x0000_0800,
-    0x100d_22b8,
-    0x1015_1800,
-    0,
-  ]);
+  assert.deepEqual(
+    factory.arguments,
+    [0x1000_0000, 0x0000_0800, 0x100d_22b8, 0x1015_1800, 0],
+  );
   assert.deepEqual(factory.result, { action: "set", value: 0 });
   assert.equal(factory.implementationId, "dinput8.direct-input-8-create.v1");
   assert.equal(factory.returnAddress, 0x1005_c234);
@@ -15438,7 +17113,10 @@ function validateDinput8FactoryResult(result) {
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "dinput8.idirectinput8a-root.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "dinput8.idirectinput8a-root.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 1);
   assert.equal(endpoint.target.object.backing.range.base, 0x0106_0000);
   assert.equal(endpoint.target.object.backing.range.byteLength, page.size * 2);
@@ -15449,12 +17127,21 @@ function validateDinput8FactoryResult(result) {
     Buffer.from(factory.guestWrites[0].bytes).readUInt32LE(0),
   );
   assert.equal(endpoint.target.interface.objectId, endpoint.target.object.id);
-  assert.equal(endpoint.target.object.interfaceIds[1], endpoint.target.interface.id);
+  assert.equal(
+    endpoint.target.object.interfaceIds[1],
+    endpoint.target.interface.id,
+  );
   assert.equal(Object.keys(endpoint.target.interface.methods).length, 11);
   assert.equal(endpoint.target.interface.methods["3"].name, "CreateDevice");
   assert.equal(endpoint.target.interface.methods["3"].explicitArgumentWords, 3);
-  assert.equal(endpoint.target.interface.methods["10"].name, "ConfigureDevices");
-  assert.equal(endpoint.target.interface.methods["10"].explicitArgumentWords, 4);
+  assert.equal(
+    endpoint.target.interface.methods["10"].name,
+    "ConfigureDevices",
+  );
+  assert.equal(
+    endpoint.target.interface.methods["10"].explicitArgumentWords,
+    4,
+  );
   assert.equal(endpoint.target.method.slot, 4);
   assert.equal(endpoint.target.method.name, "EnumDevices");
   assert.equal(endpoint.target.method.explicitArgumentWords, 4);
@@ -15464,7 +17151,10 @@ function validateDinput8FactoryResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_c1ce);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirectInput8A");
   assert.equal(result.fault.fault.target.vtableSlot, 4);
   assert.equal(result.fault.fault.target.method, "EnumDevices");
@@ -15482,14 +17172,10 @@ function validateDinput8FactoryResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 4);
   assert.equal(terminal.returnAddress, 0x1005_c1ce);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_c1ce,
-    0x0106_0004,
-    4,
-    0x1005_bef0,
-    0,
-    1,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_c1ce, 0x0106_0004, 4, 0x1005_bef0, 0, 1],
+  );
 }
 
 function validateDinput8EnumDevicesResult(result) {
@@ -15529,16 +17215,13 @@ function validateDinput8EnumDevicesResult(result) {
   assert.equal(enumeration.symbol, "IDirectInput8A.EnumDevices");
   assert.equal(enumeration.interface, "IDirectInput8A");
   assert.equal(enumeration.vtableSlot, 4);
-  assert.deepEqual(enumeration.arguments, [
-    0x0106_0004,
-    4,
-    0x1005_bef0,
-    0,
-    1,
-  ]);
+  assert.deepEqual(enumeration.arguments, [0x0106_0004, 4, 0x1005_bef0, 0, 1]);
   assert.deepEqual(enumeration.result, { kind: "h-result", value: 0 });
   assert.equal(enumeration.returnAddress, 0x1005_c1ce);
-  assert.equal(enumeration.stackPointerAfter, enumeration.stackPointerBefore + 24);
+  assert.equal(
+    enumeration.stackPointerAfter,
+    enumeration.stackPointerBefore + 24,
+  );
   assert.equal(enumeration.referenceCount, 1);
   assert.equal(enumeration.objectRetired, false);
   assert.deepEqual(enumeration.guestWrites, []);
@@ -15590,16 +17273,10 @@ function validateDinput8EnumDevicesResult(result) {
   assert.equal(terminal.thunk.kind, "ordinal");
   assert.equal(terminal.thunk.ordinal, 11);
   assert.equal(terminal.returnAddress, 0x1009_cccc);
-  assert.deepEqual(terminal.stackWords, [
-    0x1009_cccc,
-    0,
-    0x100f_eb10,
-    0,
-    0xe93f_6cd3,
-    0,
-    0x2013_2b20,
-    0,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1009_cccc, 0, 0x100f_eb10, 0, 0xe93f_6cd3, 0, 0x2013_2b20, 0],
+  );
 }
 
 function validateDsoundRootResult(result) {
@@ -15630,8 +17307,7 @@ function validateDsoundRootResult(result) {
 
   const factory = result.supportedCalls.find(
     (call) =>
-      call.module.toLowerCase() === "dsound.dll" &&
-      call.symbol === "#11",
+      call.module.toLowerCase() === "dsound.dll" && call.symbol === "#11",
   );
   assert(factory, "DirectSoundCreate8 ordinal completion is missing");
   assert.equal(factory.sequence, 18_453);
@@ -15672,7 +17348,10 @@ function validateDsoundRootResult(result) {
   const cooperative = result.supportedCalls.find(
     (call) => call.symbol === "IDirectSound8.SetCooperativeLevel",
   );
-  assert(cooperative, "IDirectSound8::SetCooperativeLevel completion is missing");
+  assert(
+    cooperative,
+    "IDirectSound8::SetCooperativeLevel completion is missing",
+  );
   assert.equal(cooperative.sequence, 18_454);
   assert.equal(cooperative.sequence, factory.sequence + 1);
   assert.equal(cooperative.occurrence, 1);
@@ -15785,7 +17464,16 @@ function validateDsoundInitialBuffersResult(result) {
       "IDirectSoundBuffer8.Release",
     ],
   );
-  const [factory, cooperative, primary, setFormat, play, secondary, query, release] = calls;
+  const [
+    factory,
+    cooperative,
+    primary,
+    setFormat,
+    play,
+    secondary,
+    query,
+    release,
+  ] = calls;
   const rootPointer = Buffer.from(factory.guestWrites[0].bytes).readUInt32LE(0);
   assert.equal(rootPointer, 0x0107_0004);
   assert.equal(factory.sequence, 18_453);
@@ -15813,7 +17501,9 @@ function validateDsoundInitialBuffersResult(result) {
   assert.equal(primary.guestWrites[0].result.bytesWritten, 4);
   assert.equal(primary.guestWrites[0].result.dirtyPages, 1);
   assert.equal(primary.guestWrites[0].result.invalidation.generation, 36_187);
-  const primaryPointer = Buffer.from(primary.guestWrites[0].bytes).readUInt32LE(0);
+  const primaryPointer = Buffer.from(primary.guestWrites[0].bytes).readUInt32LE(
+    0,
+  );
   assert.equal(primaryPointer, 0x0108_0004);
 
   const primaryDelta = result.hostDeltas.find(
@@ -15881,7 +17571,9 @@ function validateDsoundInitialBuffersResult(result) {
   assert.equal(secondary.guestWrites[0].result.bytesWritten, 4);
   assert.equal(secondary.guestWrites[0].result.dirtyPages, 1);
   assert.equal(secondary.guestWrites[0].result.invalidation.generation, 36_228);
-  const secondaryPointer = Buffer.from(secondary.guestWrites[0].bytes).readUInt32LE(0);
+  const secondaryPointer = Buffer.from(
+    secondary.guestWrites[0].bytes,
+  ).readUInt32LE(0);
   assert.equal(secondaryPointer, 0x0109_0004);
 
   const secondaryDelta = result.hostDeltas.find(
@@ -15928,13 +17620,14 @@ function validateDsoundInitialBuffersResult(result) {
   const queryDelta = result.hostDeltas.find(
     (delta) => delta.sequence === query.sequence,
   );
-  assert(queryDelta, "IDirectSoundBuffer8 QueryInterface host delta is missing");
+  assert(
+    queryDelta,
+    "IDirectSoundBuffer8 QueryInterface host delta is missing",
+  );
   assert.equal(queryDelta.fromGeneration, 36_229);
   assert.equal(queryDelta.generation, 36_230);
   assert.equal(queryDelta.mappingOperations, 0);
-  assert.deepEqual(queryDelta.dirtyPages, [
-    { address: 0x100f_e000, owner: 1 },
-  ]);
+  assert.deepEqual(queryDelta.dirtyPages, [{ address: 0x100f_e000, owner: 1 }]);
   assert.equal(
     queryDelta.payloadSha256,
     "6983da45720d05c632ba127e2fab52a41242391a41c7166ac0a3258cb35e6fae",
@@ -15965,7 +17658,10 @@ function validateDsoundInitialBuffersResult(result) {
     result.fault.memoryContentSha256,
     "7dedfbcb0926c81f62fcfd19af56f4403bc7913be7011933bd8e84419dc9ad0d",
   );
-  assert.equal(endpoint.target.object.classIdentity, "dsound.idirectsoundbuffer8.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "dsound.idirectsoundbuffer8.v1",
+  );
   assert.equal(endpoint.target.object.id, "12");
   assert.equal(endpoint.target.object.referenceCount, 1);
   assert.equal(endpoint.target.object.parentInterfaceId, "20");
@@ -16032,16 +17728,13 @@ function validateDsoundBufferLockUnlockPlayResult(result) {
   assert.equal(lock.trapInstructionCount, 11_921_896);
   assert.equal(lock.interface, "IDirectSoundBuffer8");
   assert.equal(lock.vtableSlot, 11);
-  assert.deepEqual(lock.arguments, [
-    0x0109_0004,
-    0,
-    88_200,
-    0x006f_fe2c,
-    0x006f_fe30,
-    0x006f_fe20,
-    0x006f_fe28,
-    0,
-  ]);
+  assert.deepEqual(
+    lock.arguments,
+    [
+      0x0109_0004, 0, 88_200, 0x006f_fe2c, 0x006f_fe30, 0x006f_fe20,
+      0x006f_fe28, 0,
+    ],
+  );
   assert.deepEqual(lock.result, { kind: "h-result", value: 0 });
   assert.equal(lock.referenceCount, 1);
   assert.equal(lock.objectRetired, false);
@@ -16183,16 +17876,10 @@ function validateDsoundBufferLockUnlockPlayResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "SetTimer");
   assert.equal(result.terminal.terminal.returnAddress, 0x1009_9d4b);
-  assert.deepEqual(result.terminal.terminal.stackWords, [
-    0x1009_9d4b,
-    0x4801_0001,
-    1,
-    20,
-    0x1009_9600,
-    0x1009_a5e1,
-    0xe93f_6d2f,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords,
+    [0x1009_9d4b, 0x4801_0001, 1, 20, 0x1009_9600, 0x1009_a5e1, 0xe93f_6d2f, 0],
+  );
 }
 
 function validateSetThreadPriorityResult(result) {
@@ -16221,9 +17908,14 @@ function validateSetThreadPriorityResult(result) {
   assert.equal(result.sourceReads.length, 2);
   assert.equal(result.finalGeneration, 36_527);
   const calls = result.supportedCalls.filter(
-    (call) => call.symbol === "SetThreadPriority" && call.returnAddress === 0x1009_1b77,
+    (call) =>
+      call.symbol === "SetThreadPriority" && call.returnAddress === 0x1009_1b77,
   );
-  assert.equal(calls.length, 1, "unexpected primary SetThreadPriority completion count");
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected primary SetThreadPriority completion count",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_600);
   assert.equal(call.occurrence, 1);
@@ -16248,10 +17940,18 @@ function validateSetThreadPriorityResult(result) {
     })),
     [
       { sequence: 18_600, symbol: "SetThreadPriority", occurrence: 1 },
-      { sequence: 18_601, symbol: "InitializeCriticalSection", occurrence: 16_394 },
+      {
+        sequence: 18_601,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_394,
+      },
       { sequence: 18_602, symbol: "HeapAlloc", occurrence: 154 },
       { sequence: 18_603, symbol: "HeapAlloc", occurrence: 155 },
-      { sequence: 18_604, symbol: "InitializeCriticalSection", occurrence: 16_395 },
+      {
+        sequence: 18_604,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_395,
+      },
       { sequence: 18_605, symbol: "GetSystemDefaultLangID", occurrence: 2 },
       { sequence: 18_606, symbol: "HeapAlloc", occurrence: 156 },
       { sequence: 18_607, symbol: "HeapAlloc", occurrence: 157 },
@@ -16283,10 +17983,10 @@ function validateSetThreadPriorityResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "GetDC");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c155);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
-    0x1002_c155,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 2),
+    [0x1002_c155, 0],
+  );
 }
 
 function validateOutlineTextMetricsResult(result) {
@@ -16295,7 +17995,11 @@ function validateOutlineTextMetricsResult(result) {
   const calls = result.supportedCalls.filter(
     (call) => call.symbol === "GetOutlineTextMetricsA",
   );
-  assert.equal(calls.length, 2, "expected size and output outline metrics calls");
+  assert.equal(
+    calls.length,
+    2,
+    "expected size and output outline metrics calls",
+  );
   const [size, output] = calls;
   assert.deepEqual(size.arguments, [0x4701_0004, 0, 0]);
   assert.equal(
@@ -16308,7 +18012,10 @@ function validateOutlineTextMetricsResult(result) {
   assert.equal(size.lastError, 0);
   assert.deepEqual(size.guestWrites, []);
   assert.equal(size.gdi.action, "outline-text-metrics-read");
-  assert.equal(size.gdi.profileId, "primary-cp932-ms-gothic-outline-metrics-v1");
+  assert.equal(
+    size.gdi.profileId,
+    "primary-cp932-ms-gothic-outline-metrics-v1",
+  );
   assert.equal(size.gdi.requestedByteLength, 0);
   assert.equal(size.gdi.returnedByteLength, 269);
   assert.equal(size.gdi.outputAddress, 0);
@@ -16342,8 +18049,8 @@ function validateOutlineTextMetricsResult(result) {
     [212, 226, 240, 245],
   );
   const msGothic = [
-    0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
-    0x83, 0x4e,
+    0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83,
+    0x4e,
   ];
   assert.deepEqual([...bytes.subarray(212, 225)], msGothic);
   assert.equal(bytes[225], 0);
@@ -16365,21 +18072,14 @@ function validateOutlineTextMetricsResult(result) {
 function validateTextRasterResult(result) {
   validateOutlineTextMetricsResult(result);
   assert.equal(result.supportedCalls.length, 18_637);
-  const calls = result.supportedCalls.filter((call) => call.symbol === "TextOutA");
+  const calls = result.supportedCalls.filter(
+    (call) => call.symbol === "TextOutA",
+  );
   assert.equal(calls.length, 1, "expected one primary TextOutA raster call");
   const [call] = calls;
   assert.equal(call.sequence, 18_623);
-  assert.deepEqual(call.arguments, [
-    0x4701_0004,
-    0,
-    0,
-    0x006f_fd6c,
-    1,
-  ]);
-  assert.equal(
-    call.implementationId,
-    "gdi32.text-out-a.cp932-8bpp-raster.v1",
-  );
+  assert.deepEqual(call.arguments, [0x4701_0004, 0, 0, 0x006f_fd6c, 1]);
+  assert.equal(call.implementationId, "gdi32.text-out-a.cp932-8bpp-raster.v1");
   assert.deepEqual(call.result, { action: "set", value: 1 });
   assert.equal(call.returnAddress, 0x1002_cab1);
   assert.equal(call.stackPointerAfter - call.stackPointerBefore, 24);
@@ -16390,10 +18090,7 @@ function validateTextRasterResult(result) {
   const writtenBytes = Buffer.from(write.bytes);
   assert.equal(writtenBytes.length, 4_384);
   assert.equal(call.gdi.action, "text-raster-written");
-  assert.equal(
-    call.gdi.profileId,
-    "primary-cp932-ms-gothic-a-8bpp-raster-v1",
-  );
+  assert.equal(call.gdi.profileId, "primary-cp932-ms-gothic-a-8bpp-raster-v1");
   assert.equal(call.gdi.x, 0);
   assert.equal(call.gdi.y, 0);
   assert.equal(call.gdi.textAddress, call.arguments[3]);
@@ -16406,10 +18103,7 @@ function validateTextRasterResult(result) {
   assert.equal(call.gdi.deviceContext.handle, 0x4701_0004);
   assert.equal(call.gdi.selectedFont.handle, 0x4702_0002);
   assert.equal(call.gdi.selectedDibSection.object.kind, "dib-section");
-  assert.equal(
-    call.gdi.selectedDibSection.object.backing.contentGeneration,
-    1,
-  );
+  assert.equal(call.gdi.selectedDibSection.object.backing.contentGeneration, 1);
 
   const descriptor = call.gdi.selectedDibSection.object.descriptor;
   const backing = call.gdi.selectedDibSection.object.backing;
@@ -16419,10 +18113,7 @@ function validateTextRasterResult(result) {
   assert.equal(descriptor.strideBytes, 128);
   assert.equal(descriptor.pixelByteLength, 12_288);
   assert.equal(write.address - backing.range.start, 20 * 128);
-  assert.equal(
-    writtenBytes.filter((byte) => byte !== 0).length,
-    476,
-  );
+  assert.equal(writtenBytes.filter((byte) => byte !== 0).length, 476);
   assert(
     writtenBytes.every((byte) => byte === 0 || byte === 255),
     "TextOutA raster contains an unexpected palette index",
@@ -16436,11 +18127,13 @@ function validateTextRasterResult(result) {
   assert.equal(fnv1a32, call.gdi.expectedOutputFnv1a32);
 
   assert.deepEqual(
-    result.supportedCalls.slice(-14).map(({ sequence, symbol, occurrence }) => ({
-      sequence,
-      symbol,
-      occurrence,
-    })),
+    result.supportedCalls
+      .slice(-14)
+      .map(({ sequence, symbol, occurrence }) => ({
+        sequence,
+        symbol,
+        occurrence,
+      })),
     [
       { sequence: 18_624, symbol: "SelectObject", occurrence: 3 },
       { sequence: 18_625, symbol: "SelectObject", occurrence: 4 },
@@ -16521,7 +18214,11 @@ function validateGdiplusStartupResult(result) {
       call.module.toLowerCase() === "gdiplus.dll" &&
       call.symbol === "GdiplusStartup",
   );
-  assert.equal(calls.length, 1, "expected one primary GdiplusStartup completion");
+  assert.equal(
+    calls.length,
+    1,
+    "expected one primary GdiplusStartup completion",
+  );
   const [call] = calls;
   assert.equal(call.sequence, 18_638);
   assert.equal(call.trapInstructionCount, 12_073_229);
@@ -16557,14 +18254,14 @@ function validateGdiplusStartupResult(result) {
     nativeTokenImported: false,
   });
   assert.deepEqual(
-    result.supportedCalls.slice(-3).map(
-      ({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+    result.supportedCalls
+      .slice(-3)
+      .map(({ sequence, symbol, occurrence, trapInstructionCount }) => ({
         sequence,
         symbol,
         occurrence,
         trapInstructionCount,
-      }),
-    ),
+      })),
     [
       {
         sequence: 18_638,
@@ -16612,13 +18309,10 @@ function validateGdiplusStartupResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "VirtualAlloc");
   assert.equal(result.terminal.terminal.returnAddress, 0x1008_fba8);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 5), [
-    0x1008_fba8,
-    0,
-    0x0600_0000,
-    0x0010_2000,
-    4,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 5),
+    [0x1008_fba8, 0, 0x0600_0000, 0x0010_2000, 4],
+  );
 }
 
 function validateVirtualAllocResult(result) {
@@ -16647,7 +18341,8 @@ function validateVirtualAllocResult(result) {
   assert.equal(result.sourceReads.length, 2);
   assert.equal(result.finalGeneration, 36_588);
   const calls = result.supportedCalls.filter(
-    (call) => call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
+    (call) =>
+      call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
   );
   assert.equal(calls.length, 1, "expected one primary VirtualAlloc completion");
   const call = calls[0];
@@ -16655,7 +18350,10 @@ function validateVirtualAllocResult(result) {
   assert.equal(call.occurrence, 1);
   assert.equal(call.trapInstructionCount, 12_073_370);
   assert.deepEqual(call.arguments, [0, 0x0600_0000, 0x0010_2000, 4]);
-  assert.equal(call.implementationId, "kernel32.virtual-alloc.reserve-top-down.v1");
+  assert.equal(
+    call.implementationId,
+    "kernel32.virtual-alloc.reserve-top-down.v1",
+  );
   assert.deepEqual(call.result, { action: "set", value: 0x7900_0000 });
   assert.equal(call.stackPointerAfter - call.stackPointerBefore, 20);
   assert.equal(call.lastError, 0);
@@ -16687,7 +18385,9 @@ function validateVirtualAllocResult(result) {
     reserveOnly: true,
     topDown: true,
   });
-  const delta = result.hostDeltas.find((candidate) => candidate.sequence === call.sequence);
+  const delta = result.hostDeltas.find(
+    (candidate) => candidate.sequence === call.sequence,
+  );
   assert(delta, "VirtualAlloc completion has no host memory delta");
   assert.equal(delta.fromGeneration, 36_584);
   assert.equal(delta.generation, 36_585);
@@ -16705,14 +18405,14 @@ function validateVirtualAllocResult(result) {
     invalidateGeneratedCode: false,
   });
   assert.deepEqual(
-    result.supportedCalls.slice(-5).map(
-      ({ sequence, symbol, occurrence, trapInstructionCount }) => ({
+    result.supportedCalls
+      .slice(-5)
+      .map(({ sequence, symbol, occurrence, trapInstructionCount }) => ({
         sequence,
         symbol,
         occurrence,
         trapInstructionCount,
-      }),
-    ),
+      })),
     [
       {
         sequence: 18_638,
@@ -16775,10 +18475,10 @@ function validateVirtualAllocResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "IMM32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "ImmGetDefaultIMEWnd");
   assert.equal(result.terminal.terminal.returnAddress, 0x1008_73da);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
-    0x1008_73da,
-    0x4801_0001,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 2),
+    [0x1008_73da, 0x4801_0001],
+  );
 }
 
 function validateImm32ContextResult(result) {
@@ -16797,7 +18497,10 @@ function validateImm32ContextResult(result) {
   );
   assert.equal(query.imm32?.action, "default-window-resolved");
   assert.notEqual(query.result.value, 0);
-  assert(result.fault !== null, "IMM32 checkpoint did not reach a structured stop");
+  assert(
+    result.fault !== null,
+    "IMM32 checkpoint did not reach a structured stop",
+  );
 }
 
 function validateSetWaitableTimerResult(result) {
@@ -16809,19 +18512,16 @@ function validateSetWaitableTimerResult(result) {
       call.implementationId ===
       "kernel32.set-waitable-timer.relative-one-shot.v1",
   );
-  assert.equal(calls.length, 1, "SetWaitableTimer checkpoint requires one completion");
+  assert.equal(
+    calls.length,
+    1,
+    "SetWaitableTimer checkpoint requires one completion",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_681);
   assert.equal(call.occurrence, 1);
   assert.equal(call.trapInstructionCount, 11_973_553);
-  assert.deepEqual(call.arguments, [
-    0x5701_0002,
-    0x500f_ff98,
-    0,
-    0,
-    0,
-    0,
-  ]);
+  assert.deepEqual(call.arguments, [0x5701_0002, 0x500f_ff98, 0, 0, 0, 0]);
   assert.deepEqual(call.result, { action: "set", value: 1 });
   assert.equal(call.returnAddress, 0x1005_0607);
   assert.equal(call.stackPointerAfter - call.stackPointerBefore, 28);
@@ -16855,7 +18555,10 @@ function validateSetWaitableTimerResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 122);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0790);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "WaitForSingleObjectEx",
@@ -16901,14 +18604,7 @@ function validateWaitForSingleObjectExResult(result) {
   for (const [index, call] of armCalls.entries()) {
     const generation = index + 1;
     assert.equal(call.occurrence, generation);
-    assert.deepEqual(call.arguments, [
-      0x5701_0002,
-      0x500f_ff98,
-      0,
-      0,
-      0,
-      0,
-    ]);
+    assert.deepEqual(call.arguments, [0x5701_0002, 0x500f_ff98, 0, 0, 0, 0]);
     assert.deepEqual(call.result, { action: "set", value: 1 });
     assert.equal(call.returnAddress, 0x1005_0607);
     assert.equal(call.stackPointerAfter - call.stackPointerBefore, 28);
@@ -17002,14 +18698,14 @@ function validateWaitForSingleObjectExResult(result) {
       implementationId: result.checkpointCompletion.implementationId,
       requiredCompletions: result.checkpointCompletion.requiredCompletions,
       completionCount: result.checkpointCompletion.completionCount,
-      lastCompletionSequence: result.checkpointCompletion.lastCompletionSequence,
+      lastCompletionSequence:
+        result.checkpointCompletion.lastCompletionSequence,
       lastCompletionInstructionCount:
         result.checkpointCompletion.lastCompletionInstructionCount,
     },
     {
       capability: "kernel32-wait-for-single-object-ex",
-      implementationId:
-        "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       requiredCompletions: 3,
       completionCount: 3,
       lastCompletionSequence: 18_698,
@@ -17017,7 +18713,10 @@ function validateWaitForSingleObjectExResult(result) {
     },
   );
   assert.equal(result.checkpointCompletion.instructionCount, 11_973_878);
-  assert.equal(result.checkpointCompletion.instructionCount, result.terminal.instructionCount);
+  assert.equal(
+    result.checkpointCompletion.instructionCount,
+    result.terminal.instructionCount,
+  );
   assert.deepEqual(result.checkpointCompletion.nextEndpoint, {
     id: 144,
     address: 0x7f00_08f0,
@@ -17056,12 +18755,10 @@ function validateEnterCriticalSectionResult(result) {
   assert.equal(result.heapPageMaterializations.length, 31);
   assert.equal(result.sourceReads.length, 2);
   const enterCalls = result.supportedCalls.filter(
-    (call) =>
-      call.implementationId === "kernel32.enter-critical-section.v1",
+    (call) => call.implementationId === "kernel32.enter-critical-section.v1",
   );
   const leaveCalls = result.supportedCalls.filter(
-    (call) =>
-      call.implementationId === "kernel32.leave-critical-section.v1",
+    (call) => call.implementationId === "kernel32.leave-critical-section.v1",
   );
   assert.equal(enterCalls.length, 34);
   assert.equal(leaveCalls.length, 33);
@@ -17078,9 +18775,8 @@ function validateEnterCriticalSectionResult(result) {
     {
       address: 0x1014_c8d0,
       bytes: [
-        0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
-        0x01, 0x00, 0x00, 0x00, 0x01, 0x20, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+        0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
       ],
       result: {
         bytesWritten: 24,
@@ -17107,9 +18803,8 @@ function validateEnterCriticalSectionResult(result) {
     {
       address: 0x1014_c8d0,
       bytes: [
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
       ],
       result: {
         bytesWritten: 24,
@@ -17125,7 +18820,8 @@ function validateEnterCriticalSectionResult(result) {
   ]);
   assert.deepEqual(
     result.hostDeltas.filter(
-      ({ sequence }) => sequence >= enter.sequence && sequence <= leave.sequence,
+      ({ sequence }) =>
+        sequence >= enter.sequence && sequence <= leave.sequence,
     ),
     [
       {
@@ -17265,7 +18961,10 @@ function validateMainLoopProgressionResult(result) {
   assert.equal(result.heapPageMaterializations.length, 31);
   assert.equal(result.sourceReads.length, 2);
   assert.equal(result.fault, null);
-  assert.equal(result.checkpointCompletion.capability, "primary-main-loop-progression");
+  assert.equal(
+    result.checkpointCompletion.capability,
+    "primary-main-loop-progression",
+  );
   assert.equal(
     result.checkpointCompletion.implementationId,
     "runtime.scheduler.api-boundary-round-robin.v1",
@@ -17296,10 +18995,7 @@ function validateMainLoopProgressionResult(result) {
       state: { state: "runnable" },
     },
   ]);
-  assert.equal(
-    result.checkpointCompletion.instructionCount,
-    11_974_687,
-  );
+  assert.equal(result.checkpointCompletion.instructionCount, 11_974_687);
   assert.deepEqual(result.checkpointCompletion.nextEndpoint, {
     id: 145,
     address: 0x7f00_0900,
@@ -17405,9 +19101,9 @@ function validateLeaveCriticalSectionResult(result) {
       {
         address: 0x100f_d9cc,
         bytes: [
-          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07,
+          0x00, 0x02,
         ],
         result: {
           bytesWritten: 24,
@@ -17535,9 +19231,9 @@ function validateEnterCriticalSectionContinuationResult(result) {
       {
         address: 0x100f_d9cc,
         bytes: [
-          0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
-          0x01, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+          0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00,
+          0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07,
+          0x00, 0x02,
         ],
         result: {
           bytesWritten: 24,
@@ -17667,9 +19363,9 @@ function validateLeaveCriticalSectionContinuationResult(result) {
       {
         address: 0x100f_d9cc,
         bytes: [
-          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-          0x00, 0x00, 0x00, 0x00, 0xd0, 0x07, 0x00, 0x02,
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07,
+          0x00, 0x02,
         ],
         result: {
           bytesWritten: 24,
@@ -17822,7 +19518,8 @@ function validateSleepZeroResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 107_756);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     107_756,
   );
   assert.equal(result.callbackEvents.length, 48);
@@ -17830,7 +19527,8 @@ function validateSleepZeroResult(result) {
   assert.equal(result.heapPageMaterializations.length, 31);
   assert.equal(result.sourceReads.length, 5);
   const sleepCalls = result.supportedCalls.filter(
-    (call) => call.implementationId === "kernel32.sleep-zero.yield-current-thread.v1",
+    (call) =>
+      call.implementationId === "kernel32.sleep-zero.yield-current-thread.v1",
   );
   assert.equal(sleepCalls.length, 240, "Sleep(0) completion count changed");
   const sleep = sleepCalls[0];
@@ -17852,7 +19550,10 @@ function validateSleepZeroResult(result) {
   assert.equal(lastSleep.returnAddress, 0x1006_a2f5);
   assert.equal(lastSleep.executionBoundary, "yield-current-thread");
   assert.equal(result.schedulerContinuation.selectionCount, 1_512);
-  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.selectionCount,
+    240,
+  );
   assert.equal(
     result.schedulerContinuation.yieldCurrentThread.firstSelection.sequence,
     89_430,
@@ -17884,7 +19585,10 @@ function validateSleepZeroResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 16_384_108);
   assert.equal(result.terminal.terminal.returnAddress, 0x1008_1fae);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f674]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 2),
+    [0x006f_f674],
+  );
 }
 
 function validateGlobalMemoryStatusResult(result) {
@@ -17892,7 +19596,8 @@ function validateGlobalMemoryStatusResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 107_787);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     107_787,
   );
   assert.equal(result.callbackEvents.length, 48);
@@ -17917,16 +19622,14 @@ function validateGlobalMemoryStatusResult(result) {
   assert.equal(call.lastError, 0);
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, 0x006f_f674);
-  assert.deepEqual(call.guestWrites[0].bytes, [
-    0x20, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0xff, 0xff, 0xff, 0x7f,
-    0xff, 0xff, 0xff, 0x7f,
-    0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff,
-    0x00, 0x00, 0xfe, 0x7f,
-    0x00, 0x00, 0x00, 0x60,
-  ]);
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    [
+      0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x7f,
+      0xff, 0xff, 0xff, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0x00, 0x00, 0xfe, 0x7f, 0x00, 0x00, 0x00, 0x60,
+    ],
+  );
   assert.deepEqual(call.guestWrites[0].result, {
     bytesWritten: 32,
     dirtyPages: 1,
@@ -17938,7 +19641,10 @@ function validateGlobalMemoryStatusResult(result) {
     },
   });
   assert.equal(result.schedulerContinuation.selectionCount, 1_512);
-  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.selectionCount,
+    240,
+  );
   assert.deepEqual(result.threadExecution, {
     registeredThreadIds: [8192, 8193],
     executedThreadIds: [8192, 8193],
@@ -17962,7 +19668,10 @@ function validateGlobalMemoryStatusResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 16_396_079);
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_1c80);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0x006f_f048]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 2),
+    [0x006f_f048],
+  );
 }
 
 function validateGetFileAttributesAResult(result) {
@@ -17970,7 +19679,8 @@ function validateGetFileAttributesAResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 108_205);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     108_205,
   );
   assert.equal(result.callbackEvents.length, 48);
@@ -17979,17 +19689,15 @@ function validateGetFileAttributesAResult(result) {
   assert.equal(result.sourceReads.length, 5);
   const calls = result.supportedCalls.filter(
     (call) =>
-      call.implementationId ===
-      "kernel32.get-file-attributes-a.runtime-vfs.v1",
+      call.implementationId === "kernel32.get-file-attributes-a.runtime-vfs.v1",
   );
   assert.equal(calls.length, 23, "GetFileAttributesA completion count changed");
   assert.deepEqual(
     calls.map((call) => call.sequence),
     [
-      107_788, 107_797, 107_806, 107_888, 107_897, 107_906, 107_915,
-      107_924, 107_933, 107_942, 108_024, 108_033, 108_042, 108_051,
-      108_060, 108_069, 108_078, 108_160, 108_169, 108_178, 108_187,
-      108_196, 108_205,
+      107_788, 107_797, 107_806, 107_888, 107_897, 107_906, 107_915, 107_924,
+      107_933, 107_942, 108_024, 108_033, 108_042, 108_051, 108_060, 108_069,
+      108_078, 108_160, 108_169, 108_178, 108_187, 108_196, 108_205,
     ],
   );
   assert.deepEqual(
@@ -18031,7 +19739,10 @@ function validateGetFileAttributesAResult(result) {
   assert.equal(last.stackPointerBefore, 0x006f_f688);
   assert.equal(last.lastError, 2);
   assert.equal(result.schedulerContinuation.selectionCount, 1_518);
-  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.selectionCount,
+    240,
+  );
   assert.deepEqual(result.threadExecution, {
     registeredThreadIds: [8192, 8193],
     executedThreadIds: [8192, 8193],
@@ -18066,7 +19777,8 @@ function validateCreateDirectoryAResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 108_717);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     108_717,
   );
   assert.equal(result.callbackEvents.length, 48);
@@ -18092,10 +19804,9 @@ function validateCreateDirectoryAResult(result) {
   assert.equal(result.writableDirectoryCreates.length, 1);
   assert.equal(result.writableDirectoryCreates[0].sequence, call.sequence);
   assert.equal(result.writableDirectoryCreates[0].directoryId, 1);
-  assert.deepEqual(
-    result.writableDirectoryCreates[0].relativePathA,
-    [...Buffer.from("UserData", "ascii")],
-  );
+  assert.deepEqual(result.writableDirectoryCreates[0].relativePathA, [
+    ...Buffer.from("UserData", "ascii"),
+  ]);
   assert.equal(result.writableDirectoryCreates[0].baseGeneration, 0);
   assert.equal(result.writableDirectoryCreates[0].committedGeneration, 1);
   assert.equal(result.writableDirectoryCreates[0].duplicate, false);
@@ -18103,7 +19814,10 @@ function validateCreateDirectoryAResult(result) {
   assert.equal(call.writableDirectoryCreate.committedGeneration, 1);
   assert.equal(call.writableDirectoryCreate.win32Error, 0);
   assert.equal(result.schedulerContinuation.selectionCount, 1_526);
-  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.selectionCount,
+    240,
+  );
   assert.deepEqual(result.threadExecution, {
     registeredThreadIds: [8192, 8193],
     executedThreadIds: [8192, 8193],
@@ -18132,15 +19846,10 @@ function validateCreateDirectoryAResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 28_273_977);
   assert.equal(result.terminal.terminal.returnAddress, 0x1005_cb4b);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
-    0x4801_0001,
-    0xffff_fffe,
-    0,
-    0,
-    1_286,
-    749,
-    266,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 8),
+    [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 266],
+  );
 }
 
 function validateSetWindowPosRepeatActivationResult(result) {
@@ -18148,7 +19857,8 @@ function validateSetWindowPosRepeatActivationResult(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 108_736);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     108_736,
   );
   assert.equal(result.callbackEvents.length, 50);
@@ -18157,7 +19867,7 @@ function validateSetWindowPosRepeatActivationResult(result) {
   assert.equal(result.sourceReads.length, 10);
   assert.equal(result.writableDirectoryCreates.length, 1);
   const calls = result.supportedCalls.filter(
-    (call) => call.implementationId === "user32.set-window-pos.v4",
+    (call) => call.implementationId === "user32.set-window-pos.v5",
   );
   assert.equal(calls.length, 5, "SetWindowPos completion count changed");
   assert.deepEqual(
@@ -18168,15 +19878,10 @@ function validateSetWindowPosRepeatActivationResult(result) {
   assert.equal(repeat.symbol, "SetWindowPos");
   assert.equal(repeat.occurrence, 5);
   assert.equal(repeat.trapInstructionCount, 28_273_977);
-  assert.deepEqual(repeat.arguments, [
-    0x4801_0001,
-    0xffff_fffe,
-    0,
-    0,
-    1_286,
-    749,
-    266,
-  ]);
+  assert.deepEqual(
+    repeat.arguments,
+    [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 266],
+  );
   assert.deepEqual(repeat.result, { action: "set", value: 1 });
   assert.equal(repeat.returnAddress, 0x1005_cb4b);
   assert.equal(repeat.stackPointerBefore, 0x006f_f5e0);
@@ -18224,7 +19929,10 @@ function validateSetWindowPosRepeatActivationResult(result) {
     },
   ]);
   assert.equal(result.schedulerContinuation.selectionCount, 1_526);
-  assert.equal(result.schedulerContinuation.yieldCurrentThread.selectionCount, 240);
+  assert.equal(
+    result.schedulerContinuation.yieldCurrentThread.selectionCount,
+    240,
+  );
   assert.deepEqual(result.threadExecution, {
     registeredThreadIds: [8192, 8193],
     executedThreadIds: [8192, 8193],
@@ -18250,12 +19958,10 @@ function validateSetWindowPosRepeatActivationResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 28_274_916);
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_6b0d);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 5), [
-    0x4801_0001,
-    0x100d_cba0,
-    0x100d_cbe0,
-    0x1010,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 5),
+    [0x4801_0001, 0x100d_cba0, 0x100d_cbe0, 0x1010],
+  );
 }
 
 function validateD3d9RecreatedTexturesResult(result) {
@@ -18266,7 +19972,8 @@ function validateD3d9RecreatedTexturesResult(result) {
     "recreated textures did not advance beyond the frozen MessageBoxA branch",
   );
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback === true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback === true)
+      .length,
     0,
   );
   const recreatedTextureCalls = result.supportedCalls.filter(
@@ -18348,12 +20055,54 @@ function validateD3d9RecreatedTexturesResult(result) {
   );
 }
 
+function validateSetWindowPosFrameChangeMoveResult(result) {
+  validateD3d9RecreatedTexturesResult(result);
+  const calls = result.supportedCalls.filter(
+    (call) => call.implementationId === "user32.set-window-pos.v5",
+  );
+  assert.equal(
+    calls.length,
+    6,
+    "frame-change move must be the sixth SetWindowPos completion",
+  );
+  const frameChange = calls.at(-1);
+  assert.deepEqual(
+    frameChange.arguments,
+    [0x4801_0001, 0, 317, 154, 0, 0, 0x25],
+  );
+  assert.deepEqual(frameChange.result, { action: "set", value: 1 });
+  assert.equal(frameChange.returnAddress, 0x1009_38c2);
+  assert.equal(frameChange.lastError, 0);
+  assert.deepEqual(frameChange.guestWrites, []);
+  assert.equal(
+    result.callbackEvents.filter(
+      (event) => event.sequence === frameChange.sequence,
+    ).length,
+    6,
+    "frame-change move requires three balanced SetWindowPos callbacks",
+  );
+  const nestedMoveEvents = result.callbackEvents.filter(
+    (event) => event.sequence === frameChange.sequence + 3,
+  );
+  assert.equal(
+    nestedMoveEvents.length,
+    2,
+    "frame-change move must emit one nested WM_MOVE",
+  );
+  assert.deepEqual(
+    nestedMoveEvents[0].arguments,
+    [0x4801_0001, 0x0003, 0, 0x00b4_0140],
+  );
+  assert.equal(nestedMoveEvents[1].result, 0);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 89_429);
   assert.equal(
-    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
     89_429,
   );
   assert.equal(result.callbackEvents.length, 48);
@@ -18402,7 +20151,10 @@ function validateArchiveSourceReadResult(result) {
   for (const call of createFileCalls) {
     assert.equal(call.implementationId, "kernel32.create-file-a.source.v1");
     assert.equal(call.returnAddress, 0x1002_bc00);
-    assert.deepEqual(call.arguments.slice(1), [0x8000_0000, 1, 0, 3, 0x0800_0020, 0]);
+    assert.deepEqual(
+      call.arguments.slice(1),
+      [0x8000_0000, 1, 0, 3, 0x0800_0020, 0],
+    );
   }
   const looseProbe = createFileCalls[2];
   assert.equal(looseProbe.sequence, 89_259);
@@ -18492,7 +20244,7 @@ function validateArchiveSourceReadResult(result) {
     [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 0x0000_010a],
   );
   assert.deepEqual(completedResize.result, { action: "set", value: 1 });
-  assert.equal(completedResize.implementationId, "user32.set-window-pos.v4");
+  assert.equal(completedResize.implementationId, "user32.set-window-pos.v5");
   assert.equal(completedResize.returnAddress, 0x1005_cb4b);
   assert.equal(completedResize.lastError, 0);
   assert.deepEqual(completedResize.guestWrites, []);
@@ -18582,7 +20334,10 @@ function validateArchiveSourceReadResult(result) {
       symbol: call.symbol,
       arguments: call.arguments,
       result: call.result,
-      guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
+      guestWrites: call.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
     })),
     [
       {
@@ -18635,8 +20390,7 @@ function validateArchiveSourceReadResult(result) {
     ],
   );
   const liveSystemMenuCalls = result.supportedCalls.filter(
-    (call) =>
-      call.sequence === 89_390 || call.sequence === 89_391,
+    (call) => call.sequence === 89_390 || call.sequence === 89_391,
   );
   assert.deepEqual(
     liveSystemMenuCalls.map((call) => ({
@@ -18695,10 +20449,7 @@ function validateArchiveSourceReadResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 15_953_766);
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_a2f5);
-  assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, 2),
-    [0],
-  );
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 2), [0]);
 }
 
 function validateDragAcceptFilesResult(result) {
@@ -18838,21 +20589,22 @@ function validateDibLifecycleResult(result) {
   assert.equal(result.finalGeneration, 36_547);
 
   const createCalls = result.supportedCalls.filter(
-    (call) => call.symbol === "CreateDIBSection" && call.returnAddress === 0x1002_c8c5,
+    (call) =>
+      call.symbol === "CreateDIBSection" && call.returnAddress === 0x1002_c8c5,
   );
-  assert.equal(createCalls.length, 1, "unexpected primary DIB creation completion count");
+  assert.equal(
+    createCalls.length,
+    1,
+    "unexpected primary DIB creation completion count",
+  );
   const create = createCalls[0];
   assert.equal(create.sequence, 18_614);
   assert.equal(create.occurrence, 1);
   assert.equal(create.trapInstructionCount, 11_960_150);
-  assert.deepEqual(create.arguments, [
-    0x4701_0004,
-    0x2013_a250,
-    0,
-    0x006f_fef4,
-    0,
-    0,
-  ]);
+  assert.deepEqual(
+    create.arguments,
+    [0x4701_0004, 0x2013_a250, 0, 0x006f_fef4, 0, 0],
+  );
   assert.equal(
     create.implementationId,
     "gdi32.create-dib-section.primary-8bpp.v1",
@@ -18920,7 +20672,9 @@ function validateDibLifecycleResult(result) {
   });
   assert.equal(create.gdi.addressAllocation.id, 59);
   assert.equal(create.gdi.addressAllocation.parentId, 39);
-  assert.deepEqual(create.gdi.addressAllocation.purpose, { kind: "gdi-resource" });
+  assert.deepEqual(create.gdi.addressAllocation.purpose, {
+    kind: "gdi-resource",
+  });
   assert.equal(create.gdi.addressAllocation.owner, "runtime-gdi-resource");
   assert.deepEqual(create.gdi.addressAllocation.range, {
     base: 0x4400_1000,
@@ -18962,7 +20716,11 @@ function validateDibLifecycleResult(result) {
   const getObjectCalls = result.supportedCalls.filter(
     (call) => call.symbol === "GetObjectA",
   );
-  assert.equal(getObjectCalls.length, 1, "unexpected primary GetObjectA completion count");
+  assert.equal(
+    getObjectCalls.length,
+    1,
+    "unexpected primary GetObjectA completion count",
+  );
   const getObject = getObjectCalls[0];
   assert.equal(getObject.sequence, 18_616);
   assert.equal(getObject.occurrence, 1);
@@ -18977,12 +20735,8 @@ function validateDibLifecycleResult(result) {
     {
       address: 0x006f_fd78,
       bytes: [
-        0, 0, 0, 0,
-        128, 0, 0, 0,
-        96, 0, 0, 0,
-        128, 0, 0, 0,
-        1, 0, 8, 0,
-        0, 0x10, 0, 0x44,
+        0, 0, 0, 0, 128, 0, 0, 0, 96, 0, 0, 0, 128, 0, 0, 0, 1, 0, 8, 0, 0,
+        0x10, 0, 0x44,
       ],
       result: {
         bytesWritten: 24,
@@ -19005,7 +20759,11 @@ function validateDibLifecycleResult(result) {
   const selections = result.supportedCalls.filter(
     (call) => call.symbol === "SelectObject",
   );
-  assert.equal(selections.length, 2, "unexpected primary SelectObject completion count");
+  assert.equal(
+    selections.length,
+    2,
+    "unexpected primary SelectObject completion count",
+  );
   assert.deepEqual(
     selections.map((call) => ({
       sequence: call.sequence,
@@ -19109,16 +20867,10 @@ function validateDibLifecycleResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "GetOutlineTextMetricsA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c51f);
-  assert.deepEqual(result.terminal.terminal.stackWords, [
-    0x1002_c51f,
-    0x4701_0004,
-    0,
-    0,
-    0,
-    1,
-    0,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords,
+    [0x1002_c51f, 0x4701_0004, 0, 0, 0, 1, 0, 0],
+  );
 }
 
 function validateCompatibleDcResult(result) {
@@ -19148,9 +20900,14 @@ function validateCompatibleDcResult(result) {
   assert.equal(result.finalGeneration, 36_537);
   const calls = result.supportedCalls.filter(
     (call) =>
-      call.symbol === "CreateCompatibleDC" && call.returnAddress === 0x1002_c8ad,
+      call.symbol === "CreateCompatibleDC" &&
+      call.returnAddress === 0x1002_c8ad,
   );
-  assert.equal(calls.length, 1, "unexpected primary compatible DC completion count");
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected primary compatible DC completion count",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_613);
   assert.equal(call.occurrence, 1);
@@ -19241,15 +20998,10 @@ function validateCompatibleDcResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "CreateDIBSection");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c8c5);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 7), [
-    0x1002_c8c5,
-    0x4701_0004,
-    0x2013_a250,
-    0,
-    0x006f_fef4,
-    0,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 7),
+    [0x1002_c8c5, 0x4701_0004, 0x2013_a250, 0, 0x006f_fef4, 0, 0],
+  );
 }
 
 function validateFontCreationResult(result) {
@@ -19278,29 +21030,22 @@ function validateFontCreationResult(result) {
   assert.equal(result.sourceReads.length, 2);
   assert.equal(result.finalGeneration, 36_536);
   const calls = result.supportedCalls.filter(
-    (call) => call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
+    (call) =>
+      call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
   );
-  assert.equal(calls.length, 1, "unexpected primary font creation completion count");
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected primary font creation completion count",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_611);
   assert.equal(call.occurrence, 1);
   assert.equal(call.trapInstructionCount, 11_958_023);
-  assert.deepEqual(call.arguments, [
-    64,
-    32,
-    0,
-    0,
-    100,
-    0,
-    0,
-    0,
-    128,
-    4,
-    0,
-    2,
-    0,
-    0x100d_ce7c,
-  ]);
+  assert.deepEqual(
+    call.arguments,
+    [64, 32, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0, 0x100d_ce7c],
+  );
   assert.equal(
     call.implementationId,
     "gdi32.create-font-a.cp932-logical-object.v1",
@@ -19380,10 +21125,10 @@ function validateFontCreationResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "CreateCompatibleDC");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c8ad);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
-    0x1002_c8ad,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 2),
+    [0x1002_c8ad, 0],
+  );
 }
 
 function validateFontEnumerationResult(result) {
@@ -19413,20 +21158,22 @@ function validateFontEnumerationResult(result) {
   assert.equal(result.finalGeneration, 36_533);
   const calls = result.supportedCalls.filter(
     (call) =>
-      call.symbol === "EnumFontFamiliesExA" && call.returnAddress === 0x1002_c16a,
+      call.symbol === "EnumFontFamiliesExA" &&
+      call.returnAddress === 0x1002_c16a,
   );
-  assert.equal(calls.length, 1, "unexpected primary font enumeration completion count");
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected primary font enumeration completion count",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_609);
   assert.equal(call.occurrence, 1);
   assert.equal(call.trapInstructionCount, 11_957_745);
-  assert.deepEqual(call.arguments, [
-    0x4701_0003,
-    0x006f_fd00,
-    0x1002_d2e0,
-    0x100d_ce7c,
-    0,
-  ]);
+  assert.deepEqual(
+    call.arguments,
+    [0x4701_0003, 0x006f_fd00, 0x1002_d2e0, 0x100d_ce7c, 0],
+  );
   assert.equal(
     call.implementationId,
     "gdi32.enum-font-families-ex-a.cp932-screen.v1",
@@ -19459,9 +21206,13 @@ function validateFontEnumerationResult(result) {
     "primary-cp932-ms-gothic-regular-v1",
   );
   assert.equal(call.gdi.enumeration.inputCharacterSet, 128);
-  assert.deepEqual(call.gdi.enumeration.inputFaceNameWindows932, [
-    0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83, 0x4e,
-  ]);
+  assert.deepEqual(
+    call.gdi.enumeration.inputFaceNameWindows932,
+    [
+      0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62, 0x83,
+      0x4e,
+    ],
+  );
   assert.equal(call.gdi.enumeration.flags, 0);
   assert.equal(call.gdi.enumeration.record.fontType, 4);
   assert.equal(call.gdi.enumeration.record.enumLogFontExA.length, 188);
@@ -19481,7 +21232,10 @@ function validateFontEnumerationResult(result) {
     ],
   );
   assert.equal(result.supportedCalls.at(-1).result.value, 1);
-  assert.equal(result.supportedCalls.at(-1).gdi.action, "device-context-released");
+  assert.equal(
+    result.supportedCalls.at(-1).gdi.action,
+    "device-context-released",
+  );
   assert.equal(result.supportedCalls.at(-1).gdi.liveDeviceContexts, 0);
   assert.equal(result.fault.capabilityCluster, "gdi32-api-contract");
   assert.equal(result.fault.fault.class, "unsupported");
@@ -19509,16 +21263,10 @@ function validateFontEnumerationResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "CreateFontA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c838);
-  assert.deepEqual(result.terminal.terminal.stackWords, [
-    0x1002_c838,
-    64,
-    32,
-    0,
-    0,
-    100,
-    0,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords,
+    [0x1002_c838, 64, 32, 0, 0, 100, 0, 0],
+  );
 }
 
 function validateScreenDcResult(result) {
@@ -19549,13 +21297,20 @@ function validateScreenDcResult(result) {
   const calls = result.supportedCalls.filter(
     (call) => call.symbol === "GetDC" && call.returnAddress === 0x1002_c155,
   );
-  assert.equal(calls.length, 1, "unexpected primary screen GetDC completion count");
+  assert.equal(
+    calls.length,
+    1,
+    "unexpected primary screen GetDC completion count",
+  );
   const call = calls[0];
   assert.equal(call.sequence, 18_608);
   assert.equal(call.occurrence, 2);
   assert.equal(call.trapInstructionCount, 11_957_736);
   assert.deepEqual(call.arguments, [0]);
-  assert.equal(call.implementationId, "user32.get-dc.window-or-screen-acquisition.v2");
+  assert.equal(
+    call.implementationId,
+    "user32.get-dc.window-or-screen-acquisition.v2",
+  );
   assert.deepEqual(call.result, { action: "set", value: 0x4701_0003 });
   assert.equal(call.returnAddress, 0x1002_c155);
   assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
@@ -19582,10 +21337,18 @@ function validateScreenDcResult(result) {
     })),
     [
       { sequence: 18_600, symbol: "SetThreadPriority", occurrence: 1 },
-      { sequence: 18_601, symbol: "InitializeCriticalSection", occurrence: 16_394 },
+      {
+        sequence: 18_601,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_394,
+      },
       { sequence: 18_602, symbol: "HeapAlloc", occurrence: 154 },
       { sequence: 18_603, symbol: "HeapAlloc", occurrence: 155 },
-      { sequence: 18_604, symbol: "InitializeCriticalSection", occurrence: 16_395 },
+      {
+        sequence: 18_604,
+        symbol: "InitializeCriticalSection",
+        occurrence: 16_395,
+      },
       { sequence: 18_605, symbol: "GetSystemDefaultLangID", occurrence: 2 },
       { sequence: 18_606, symbol: "HeapAlloc", occurrence: 156 },
       { sequence: 18_607, symbol: "HeapAlloc", occurrence: 157 },
@@ -19618,16 +21381,13 @@ function validateScreenDcResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "GDI32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "EnumFontFamiliesExA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1002_c16a);
-  assert.deepEqual(result.terminal.terminal.stackWords, [
-    0x1002_c16a,
-    0x4701_0003,
-    0x006f_fd00,
-    0x1002_d2e0,
-    0x100d_ce7c,
-    0,
-    0x100d_ce7c,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords,
+    [
+      0x1002_c16a, 0x4701_0003, 0x006f_fd00, 0x1002_d2e0, 0x100d_ce7c, 0,
+      0x100d_ce7c, 0,
+    ],
+  );
 }
 
 function validateCreateThreadResult(result) {
@@ -19658,13 +21418,20 @@ function validateCreateThreadResult(result) {
   const createCalls = result.supportedCalls.filter(
     (call) => call.symbol === "CreateThread",
   );
-  assert.equal(createCalls.length, 1, "unexpected CreateThread completion count");
+  assert.equal(
+    createCalls.length,
+    1,
+    "unexpected CreateThread completion count",
+  );
   const create = createCalls[0];
   assert.equal(create.sequence, 18_598);
   assert.equal(create.occurrence, 1);
   assert.equal(create.trapInstructionCount, 11_945_954);
   assert.equal(create.implementationId, "kernel32.create-thread.v1");
-  assert.deepEqual(create.arguments, [0, 0, 0x100a_1ee8, 0x2013_9940, 4, 0x2013_9940]);
+  assert.deepEqual(
+    create.arguments,
+    [0, 0, 0x100a_1ee8, 0x2013_9940, 4, 0x2013_9940],
+  );
   assert.deepEqual(create.result, { action: "set", value: 0x5401_0002 });
   assert.equal(create.returnAddress, 0x100a_1fad);
   assert.equal(create.stackPointerAfter - create.stackPointerBefore, 28);
@@ -19685,7 +21452,10 @@ function validateCreateThreadResult(result) {
       },
     },
   ]);
-  assert(create.createdThread, "CreateThread completion has no thread bootstrap metadata");
+  assert(
+    create.createdThread,
+    "CreateThread completion has no thread bootstrap metadata",
+  );
   assert.equal(create.createdThread.handle, 0x5401_0002);
   assert.deepEqual(create.createdThread.object, {
     id: 25,
@@ -19732,7 +21502,11 @@ function validateCreateThreadResult(result) {
   const resumeCalls = result.supportedCalls.filter(
     (call) => call.symbol === "ResumeThread",
   );
-  assert.equal(resumeCalls.length, 1, "unexpected ResumeThread completion count");
+  assert.equal(
+    resumeCalls.length,
+    1,
+    "unexpected ResumeThread completion count",
+  );
   const resume = resumeCalls[0];
   assert.equal(resume.sequence, 18_599);
   assert.equal(resume.occurrence, 1);
@@ -19804,11 +21578,10 @@ function validateCreateThreadResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "SetThreadPriority");
   assert.equal(result.terminal.terminal.returnAddress, 0x1009_1b77);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 3), [
-    0x1009_1b77,
-    0x5401_0002,
-    1,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 3),
+    [0x1009_1b77, 0x5401_0002, 1],
+  );
 }
 
 function validateSetTimerResult(result) {
@@ -19907,16 +21680,10 @@ function validateSetTimerResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "KERNEL32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "CreateThread");
   assert.equal(result.terminal.terminal.returnAddress, 0x100a_1fad);
-  assert.deepEqual(result.terminal.terminal.stackWords, [
-    0x100a_1fad,
-    0,
-    0,
-    0x100a_1ee8,
-    0x2013_9940,
-    4,
-    0x2013_9940,
-    1,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords,
+    [0x100a_1fad, 0, 0, 0x100a_1ee8, 0x2013_9940, 4, 0x2013_9940, 1],
+  );
 }
 
 function validateQueryPerformanceFrequencyResult(result) {
@@ -19928,16 +21695,16 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
-      0
+      0,
     ),
-    36_650
+    36_650,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
-      0
+      0,
     ),
-    1_816_818
+    1_816_818,
   );
   assert.equal(result.hostDeltas.length, 17_145);
   assert.equal(result.stackGrowths.length, 4);
@@ -19946,12 +21713,12 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.finalGeneration, 36_069);
 
   const frequencyCalls = result.supportedCalls.filter(
-    (call) => call.symbol === "QueryPerformanceFrequency"
+    (call) => call.symbol === "QueryPerformanceFrequency",
   );
   assert.equal(
     frequencyCalls.length,
     1,
-    "unexpected performance-frequency call count"
+    "unexpected performance-frequency call count",
   );
 
   const first = frequencyCalls[0];
@@ -19962,17 +21729,14 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.deepEqual(first.result, { action: "set", value: 1 });
   assert.equal(
     first.implementationId,
-    "kernel32.query-performance-frequency.v1"
+    "kernel32.query-performance-frequency.v1",
   );
   assert.equal(first.returnAddress, 0x1009_1fd7);
   assert.equal(first.stackPointerAfter - first.stackPointerBefore, 8);
   assert.equal(first.lastError, 0);
   assert.equal(first.guestWrites.length, 1);
   assert.equal(first.guestWrites[0].address, 0x006f_fcf0);
-  assert.deepEqual(
-    first.guestWrites[0].bytes,
-    [128, 150, 152, 0, 0, 0, 0, 0]
-  );
+  assert.deepEqual(first.guestWrites[0].bytes, [128, 150, 152, 0, 0, 0, 0, 0]);
   assert.equal(first.guestWrites[0].result.bytesWritten, 8);
   assert.equal(first.guestWrites[0].result.dirtyPages, 1);
   assert.deepEqual(first.guestWrites[0].result.invalidation, {
@@ -19983,7 +21747,7 @@ function validateQueryPerformanceFrequencyResult(result) {
   });
 
   const counterCalls = result.supportedCalls.filter(
-    (call) => call.symbol === "QueryPerformanceCounter"
+    (call) => call.symbol === "QueryPerformanceCounter",
   );
   assert.equal(counterCalls.length, 301);
   for (const [index, call] of counterCalls.entries()) {
@@ -19991,7 +21755,7 @@ function validateQueryPerformanceFrequencyResult(result) {
     assert.deepEqual(call.result, { action: "set", value: 1 });
     assert.equal(
       call.implementationId,
-      "kernel32.query-performance-counter.v1"
+      "kernel32.query-performance-counter.v1",
     );
     assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
     assert.equal(call.guestWrites.length, 1);
@@ -19999,7 +21763,7 @@ function validateQueryPerformanceFrequencyResult(result) {
     assert.equal(call.guestWrites[0].result.dirtyPages, 1);
     assert.equal(
       Buffer.from(call.guestWrites[0].bytes).readBigUInt64LE(),
-      12_345_678_901n + BigInt(index) * 10_000n
+      12_345_678_901n + BigInt(index) * 10_000n,
     );
   }
   assert.equal(counterCalls[0].sequence, 5);
@@ -20018,7 +21782,10 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(lastCounter.trapInstructionCount, 11_824_434);
   assert.deepEqual(lastCounter.arguments, [0x006f_fd48]);
   assert.equal(lastCounter.returnAddress, 0x1009_2017);
-  assert.equal(lastCounter.guestWrites[0].result.invalidation.generation, 36_067);
+  assert.equal(
+    lastCounter.guestWrites[0].result.invalidation.generation,
+    36_067,
+  );
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "runtime-system-export");
@@ -20039,7 +21806,7 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(result.fault.memory.generation, result.finalGeneration);
   assert.equal(
     result.fault.memoryContentSha256,
-    "7028e80eae6c2bfcfd7ffaed6c7ce9fa8ae98e7fbe338e3db98aa5b79ce3573d"
+    "7028e80eae6c2bfcfd7ffaed6c7ce9fa8ae98e7fbe338e3db98aa5b79ce3573d",
   );
 
   const terminal = result.terminal.terminal;
@@ -20050,16 +21817,13 @@ function validateQueryPerformanceFrequencyResult(result) {
   assert.equal(terminal.thunk.module, "USER32.dll");
   assert.equal(terminal.thunk.name, "GetMonitorInfoA");
   assert.equal(terminal.returnAddress, 0x1005_c913);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_c913,
-    0x4f01_0001,
-    0x006f_fd44,
-    0x1005_ce0c,
-    800,
-    0x7f00_0ef0,
-    2,
-    1920,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [
+      0x1005_c913, 0x4f01_0001, 0x006f_fd44, 0x1005_ce0c, 800, 0x7f00_0ef0, 2,
+      1920,
+    ],
+  );
 }
 
 function validateD3d9RasterStatusResult(result) {
@@ -20071,16 +21835,16 @@ function validateD3d9RasterStatusResult(result) {
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.dirtyPages.length,
-      0
+      0,
     ),
-    36_076
+    36_076,
   );
   assert.equal(
     result.writebacks.reduce(
       (total, writeback) => total + writeback.receipt.changedBytes,
-      0
+      0,
     ),
-    1_807_863
+    1_807_863,
   );
   assert.equal(result.hostDeltas.length, 16_574);
   assert.equal(result.stackGrowths.length, 4);
@@ -20089,12 +21853,12 @@ function validateD3d9RasterStatusResult(result) {
   assert.equal(result.finalGeneration, 34_926);
 
   const calls = result.supportedCalls.filter(
-    (call) => call.symbol === "IDirect3DDevice9.GetRasterStatus"
+    (call) => call.symbol === "IDirect3DDevice9.GetRasterStatus",
   );
   assert.equal(
     calls.length,
     1,
-    "unexpected D3D9 raster-status completion count"
+    "unexpected D3D9 raster-status completion count",
   );
 
   const first = calls[0];
@@ -20138,7 +21902,7 @@ function validateD3d9RasterStatusResult(result) {
   assert.equal(result.fault.memory.generation, result.finalGeneration);
   assert.equal(
     result.fault.memoryContentSha256,
-    "c4650b7a6e94e160f329dd5b4e6973c6b2b186c3ea8ea067db4ee63263fe85f0"
+    "c4650b7a6e94e160f329dd5b4e6973c6b2b186c3ea8ea067db4ee63263fe85f0",
   );
 
   const terminal = result.terminal.terminal;
@@ -20151,7 +21915,7 @@ function validateD3d9RasterStatusResult(result) {
   assert.equal(terminal.returnAddress, 0x1009_1fd7);
   assert.deepEqual(
     terminal.stackWords,
-    [0x1009_1fd7, 0x006f_fcf0, 0x1006_a1f7, 64, 0, 0, 1, 575]
+    [0x1009_1fd7, 0x006f_fcf0, 0x1006_a1f7, 64, 0, 0, 1, 575],
   );
 }
 
@@ -20251,7 +22015,10 @@ function validateD3d9InitialRenderStatesResult(result) {
 
   const endpoint = result.fault.endpoint;
   assert.equal(endpoint.kind, "com-method");
-  assert.equal(endpoint.target.object.classIdentity, "d3d9.idirect3ddevice9.v1");
+  assert.equal(
+    endpoint.target.object.classIdentity,
+    "d3d9.idirect3ddevice9.v1",
+  );
   assert.equal(endpoint.target.object.referenceCount, 5);
   assert.equal(endpoint.target.object.parentInterfaceId, "4");
   assert.equal(endpoint.target.interface.name, "IDirect3DDevice9");
@@ -20265,7 +22032,10 @@ function validateD3d9InitialRenderStatesResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_aedd);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3DDevice9");
   assert.equal(result.fault.fault.target.vtableSlot, 19);
   assert.equal(result.fault.fault.target.method, "GetRasterStatus");
@@ -20283,12 +22053,10 @@ function validateD3d9InitialRenderStatesResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 19);
   assert.equal(terminal.returnAddress, 0x1005_aedd);
-  assert.deepEqual(terminal.stackWords, [
-    0x1005_aedd,
-    0x0101_0004,
-    0,
-    0x006f_fcf0,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords,
+    [0x1005_aedd, 0x0101_0004, 0, 0x006f_fcf0],
+  );
 }
 
 function validateD3d9SurfaceGetDcResult(result) {
@@ -20360,7 +22128,10 @@ function validateD3d9SurfaceGetDcResult(result) {
 
   assert.deepEqual(flow[1].arguments, [4]);
   assert.deepEqual(flow[1].result, { action: "set", value: 0x4702_0001 });
-  assert.equal(flow[1].implementationId, "gdi32.get-stock-object.black-brush.v1");
+  assert.equal(
+    flow[1].implementationId,
+    "gdi32.get-stock-object.black-brush.v1",
+  );
   assert.equal(flow[1].lastError, 0);
   assert.deepEqual(flow[1].guestWrites, []);
   assert.deepEqual(flow[1].gdi, {
@@ -20375,7 +22146,11 @@ function validateD3d9SurfaceGetDcResult(result) {
     liveObjects: 1,
   });
 
-  assert.deepEqual(flow[2].arguments, [deviceContextHandle, 0x006f_fd4c, 0x4702_0001]);
+  assert.deepEqual(flow[2].arguments, [
+    deviceContextHandle,
+    0x006f_fd4c,
+    0x4702_0001,
+  ]);
   assert.deepEqual(flow[2].result, { action: "set", value: 1 });
   assert.equal(flow[2].implementationId, "user32.fill-rect.logical-surface.v1");
   assert.equal(flow[2].lastError, 0);
@@ -20446,7 +22221,8 @@ function validateD3d9SurfaceGetDcResult(result) {
       arguments: secondTexture.arguments,
       result: secondTexture.result,
       returnAddress: secondTexture.returnAddress,
-      stackPointerDelta: secondTexture.stackPointerAfter - secondTexture.stackPointerBefore,
+      stackPointerDelta:
+        secondTexture.stackPointerAfter - secondTexture.stackPointerBefore,
       referenceCount: secondTexture.referenceCount,
       objectRetired: secondTexture.objectRetired,
       guestWrites: secondTexture.guestWrites,
@@ -20499,11 +22275,10 @@ function validateD3d9SurfaceGetDcResult(result) {
   assert.equal(terminal.thunk.module, "WINMM.dll");
   assert.equal(terminal.thunk.name, "timeGetTime");
   assert.equal(terminal.returnAddress, 0x1009_1ebf);
-  assert.deepEqual(terminal.stackWords.slice(1, 4), [
-    0x1009_1f30,
-    0x006f_fd70,
-    0x1006_6ad5,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 4),
+    [0x1009_1f30, 0x006f_fd70, 0x1006_6ad5],
+  );
 }
 
 function validateMonitorFromWindowResult(result) {
@@ -20579,7 +22354,10 @@ function validateMonitorFromWindowResult(result) {
   assert.equal(result.fault.fault.code, "com-method-unsupported");
   assert.equal(result.fault.fault.callSite, 0x1005_9d36);
   assert.equal(result.fault.fault.target.objectId, endpoint.target.object.id);
-  assert.equal(result.fault.fault.target.interfaceId, endpoint.target.interface.id);
+  assert.equal(
+    result.fault.fault.target.interfaceId,
+    endpoint.target.interface.id,
+  );
   assert.equal(result.fault.fault.target.interface, "IDirect3D9");
   assert.equal(result.fault.fault.target.vtableSlot, 4);
   assert.equal(result.fault.fault.target.method, "GetAdapterCount");
@@ -20632,7 +22410,10 @@ function validateLoadLibraryAResult(result) {
   assert.equal(load.symbol, "LoadLibraryA");
   assert.deepEqual(load.arguments, [0x100d_c9c8]);
   assert.deepEqual(load.result, { action: "set", value: 0x4d01_0010 });
-  assert.equal(load.implementationId, "kernel32.load-library-a.runtime-system.v1");
+  assert.equal(
+    load.implementationId,
+    "kernel32.load-library-a.runtime-system.v1",
+  );
   assert.equal(load.lastError, 0);
   assert.deepEqual(load.guestWrites, []);
   assert.equal(load.runtimeModule.module.handle, 0x4d01_0010);
@@ -20674,7 +22455,10 @@ function validateLoadLibraryAResult(result) {
   assert.equal(result.fault.endpoint.endpoint.id, 199);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0c60);
   assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_13f4);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetClientRect",
@@ -20694,10 +22478,10 @@ function validateLoadLibraryAResult(result) {
   assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
   assert.equal(result.terminal.terminal.thunk.name, "GetClientRect");
   assert.equal(result.terminal.terminal.returnAddress, 0x1005_c997);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 3), [
-    0x4801_0001,
-    0x006f_fdc4,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 3),
+    [0x4801_0001, 0x006f_fdc4],
+  );
 }
 
 function validateD3d9GetAdapterIdentifierResult(result) {
@@ -20739,7 +22523,10 @@ function validateD3d9GetAdapterIdentifierResult(result) {
   assert.equal(call.objectRetired, false);
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, 0x1010_3410);
-  assert.deepEqual(call.guestWrites[0].bytes, expectedD3d9AdapterIdentifierBytes());
+  assert.deepEqual(
+    call.guestWrites[0].bytes,
+    expectedD3d9AdapterIdentifierBytes(),
+  );
   assert.deepEqual(call.guestWrites[0].result, {
     bytesWritten: 1_100,
     dirtyPages: 1,
@@ -20792,12 +22579,10 @@ function validateD3d9GetAdapterIdentifierResult(result) {
   assert.equal(terminal.interfaceIndex, 1);
   assert.equal(terminal.vtableSlot, 14);
   assert.equal(terminal.returnAddress, 0x1005_b949);
-  assert.deepEqual(terminal.stackWords.slice(1, 5), [
-    0x0100_0004,
-    0,
-    1,
-    0x006f_fe18,
-  ]);
+  assert.deepEqual(
+    terminal.stackWords.slice(1, 5),
+    [0x0100_0004, 0, 1, 0x006f_fe18],
+  );
 }
 
 function validateSetWindowPosInitialPlacementResult(result) {
@@ -20865,14 +22650,10 @@ function validateGetSystemMetricsSmallIconWidthResult(result) {
   assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0c00);
   assert.equal(result.terminal.terminal.thunk.name, "LoadImageA");
   assert.equal(result.terminal.terminal.returnAddress, 0x1006_7f43);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 7), [
-    0x1000_0000,
-    101,
-    1,
-    16,
-    16,
-    0x0000_8000,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 7),
+    [0x1000_0000, 101, 1, 16, 16, 0x0000_8000],
+  );
 }
 
 function validateGetSystemMetricsSmallIconHeightResult(result) {
@@ -21003,28 +22784,20 @@ function validateCreateWindowExAResult(result) {
   });
 
   assert.deepEqual(
-    result.supportedCalls.slice(-7).map((call) => [
-      call.symbol,
-      call.arguments,
-      call.result,
-      call.lastError,
-    ]),
+    result.supportedCalls
+      .slice(-7)
+      .map((call) => [
+        call.symbol,
+        call.arguments,
+        call.result,
+        call.lastError,
+      ]),
     [
       [
         "CreateWindowExA",
         [
-          0x0004_0000,
-          0x100f_ba4c,
-          0x006f_fb48,
-          0x80ca_0000,
-          317,
-          154,
-          806,
-          629,
-          0,
-          0,
-          0x1000_0000,
-          0,
+          0x0004_0000, 0x100f_ba4c, 0x006f_fb48, 0x80ca_0000, 317, 154, 806,
+          629, 0, 0, 0x1000_0000, 0,
         ],
         { action: "set", value: 0x4801_0001 },
         0,
@@ -21041,12 +22814,7 @@ function validateCreateWindowExAResult(result) {
         { action: "set", value: 0 },
         0,
       ],
-      [
-        "GetSystemMenu",
-        [0, 0],
-        { action: "set", value: 0 },
-        1400,
-      ],
+      ["GetSystemMenu", [0, 0], { action: "set", value: 0 }, 1400],
       [
         "EnableMenuItem",
         [0, 0x0000_f060, 0],
@@ -21150,7 +22918,8 @@ function validateLargeHeapAllocationResult(result) {
       materializedPages: 1,
       fromGeneration: 1470,
       generation: 1472,
-      payloadSha256: "f600eca824e84a43f0691b267bd620e462c50da165c5b80e17aecb7a924f1fa8",
+      payloadSha256:
+        "f600eca824e84a43f0691b267bd620e462c50da165c5b80e17aecb7a924f1fa8",
     },
   ]);
   assert.equal(result.fault.capabilityCluster, "kernel32-api-contract");
@@ -21169,15 +22938,10 @@ function validateLargeHeapAllocationResult(result) {
   );
   assert.equal(result.terminal.instructionCount, 51614);
   assert.equal(result.terminal.terminal.returnAddress, 0x1002bc00);
-  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 8), [
-    0x006ff45c,
-    0x80000000,
-    1,
-    0,
-    3,
-    0x08000020,
-    0,
-  ]);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 8),
+    [0x006ff45c, 0x80000000, 1, 0, 3, 0x08000020, 0],
+  );
 }
 
 function validateGetSystemMetricsResult(result) {
@@ -21273,11 +23037,17 @@ function validateGetSystemMetricsResult(result) {
     assert.deepEqual(call.guestWrites, []);
   }
   assert.equal(result.fault.fault.code, "heap-alloc-variant-unsupported");
-  assert.equal(result.fault.capabilityCluster, "kernel32-private-heap-allocation");
+  assert.equal(
+    result.fault.capabilityCluster,
+    "kernel32-private-heap-allocation",
+  );
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 75);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f0004a0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "HeapAlloc",
@@ -21320,7 +23090,9 @@ function validateLoadCursorAResult(result) {
   );
   assert.equal(result.hostDeltas.length, 85);
   assert.equal(result.finalGeneration, 1460);
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "LoadCursorA");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "LoadCursorA",
+  );
   assert.equal(calls.length, 1);
   for (const call of calls) {
     assert.equal(call.sequence, 1340);
@@ -21350,7 +23122,10 @@ function validateLoadCursorAResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 191);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000be0);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "RegisterClassExA",
@@ -21419,7 +23194,10 @@ function validateTimeBeginPeriodResult(result) {
   assert.deepEqual(continuation.result, { action: "set", value: 0x20000a18 });
   assert.equal(continuation.implementationId, "kernel32.heap-alloc.v2");
   assert.equal(continuation.returnAddress, 0x100a4a33);
-  assert.equal(continuation.stackPointerAfter, continuation.stackPointerBefore + 16);
+  assert.equal(
+    continuation.stackPointerAfter,
+    continuation.stackPointerBefore + 16,
+  );
   assert.equal(continuation.lastError, 0);
   assert.deepEqual(continuation.guestWrites, []);
   assert.equal(result.fault.fault.code, "endpoint-contract-missing");
@@ -21427,7 +23205,10 @@ function validateTimeBeginPeriodResult(result) {
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, 117);
   assert.equal(result.fault.endpoint.endpoint.address, 0x7f000740);
-  assert.equal(result.fault.endpoint.endpoint.module.toLowerCase(), "kernel32.dll");
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
   assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
     kind: "name",
     name: "GetVersionExA",
@@ -21471,7 +23252,9 @@ function validateGetSystemInfoResult(result) {
   assert.equal(result.hostDeltas.length, expected.hostDeltaBatches);
   assert.equal(result.finalGeneration, expected.finalGeneration);
 
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetSystemInfo");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetSystemInfo",
+  );
   assert.equal(calls.length, 1);
   const call = calls[0];
   assert.equal(call.sequence, expected.call.sequence);
@@ -21532,11 +23315,20 @@ function validateGetSystemInfoResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -21573,7 +23365,10 @@ function validateSetThreadAffinityMaskResult(result) {
     assert.equal(call.occurrence, expectedCall.occurrence);
     assert.equal(call.trapInstructionCount, expectedCall.instructionCount);
     assert.deepEqual(call.arguments, expectedCall.arguments);
-    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expectedCall.result,
+    });
     assert.equal(call.implementationId, "kernel32.set-thread-affinity-mask.v1");
     assert.equal(call.returnAddress, expectedCall.returnAddress);
     assert.equal(
@@ -21612,7 +23407,10 @@ function validateSetThreadAffinityMaskResult(result) {
     assert.equal(call.symbol, "GetTickCount");
     assert.equal(call.occurrence, expectedCall.occurrence);
     assert.equal(call.trapInstructionCount, expectedCall.instructionCount);
-    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expectedCall.result,
+    });
     assert.equal(call.tickCount.nextTickCount, expectedCall.next);
     assert.equal(call.returnAddress, expected.tickCount.returnAddress);
     assert.equal(
@@ -21637,11 +23435,20 @@ function validateSetThreadAffinityMaskResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -21702,11 +23509,20 @@ function validateGetCurrentThreadResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -21767,11 +23583,20 @@ function validateSetCurrentDirectoryAResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -21803,12 +23628,18 @@ function validateMultiByteToWideCharCpAcpResult(result) {
   );
   assert(initialization, "InitializeCriticalSection prefix call is missing");
   assert.equal(initialization.symbol, "InitializeCriticalSection");
-  assert.deepEqual(initialization.arguments, expected.initializationCall.arguments);
+  assert.deepEqual(
+    initialization.arguments,
+    expected.initializationCall.arguments,
+  );
   assert.equal(
     initialization.implementationId,
     "kernel32.initialize-critical-section.v1",
   );
-  assert.deepEqual(initialization.guestWrites[0].bytes, expected.initializationCall.bytes);
+  assert.deepEqual(
+    initialization.guestWrites[0].bytes,
+    expected.initializationCall.bytes,
+  );
 
   assert.equal(result.stackGrowths.length, expected.stackGrowths.length);
   for (const [index, expectedGrowth] of expected.stackGrowths.entries()) {
@@ -21858,7 +23689,8 @@ function validateMultiByteToWideCharCpAcpResult(result) {
 
   const outputDelta = result.hostDeltas.find(
     ({ sequence, generation }) =>
-      sequence === expected.call.sequence && generation === expected.call.delta.generation,
+      sequence === expected.call.sequence &&
+      generation === expected.call.delta.generation,
   );
   assert(outputDelta, "MultiByteToWideChar CP_ACP output delta is missing");
   assert.equal(outputDelta.fromGeneration, expected.call.delta.fromGeneration);
@@ -21876,7 +23708,10 @@ function validateMultiByteToWideCharCpAcpResult(result) {
     const consumer = result.supportedCalls.find(
       ({ sequence }) => sequence === expectedCall.sequence,
     );
-    assert(consumer, `post-conversion call ${expectedCall.sequence} is missing`);
+    assert(
+      consumer,
+      `post-conversion call ${expectedCall.sequence} is missing`,
+    );
     assert.equal(consumer.symbol, expectedCall.symbol);
     assert.equal(consumer.occurrence, expectedCall.occurrence);
     assert.equal(consumer.trapInstructionCount, expectedCall.instructionCount);
@@ -21914,11 +23749,20 @@ function validateMultiByteToWideCharCpAcpResult(result) {
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
   assert.equal(result.terminal.terminal.thunk.id, unsupported.endpointId);
-  assert.equal(result.terminal.terminal.thunk.address, unsupported.endpointAddress);
+  assert.equal(
+    result.terminal.terminal.thunk.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.terminal.terminal.thunk.name, unsupported.symbol);
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -21957,7 +23801,10 @@ function validatePrivateHeapSize16Result(result) {
   assert.equal(allocation.implementationId, "kernel32.heap-alloc.v2");
   assert.equal(allocation.lastError, 0);
   assert.deepEqual(allocation.guestWrites, []);
-  assert.equal(allocation.stackPointerAfter, allocation.stackPointerBefore + 16);
+  assert.equal(
+    allocation.stackPointerAfter,
+    allocation.stackPointerBefore + 16,
+  );
   assert.equal(
     allocation.trapInstructionCount,
     expected.allocationInstructionCount,
@@ -22031,13 +23878,20 @@ function validatePrivateHeapSize16Result(result) {
     expected.consumerWriteback.changedBytes,
   );
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
         candidate.trapInstructionCount === instructionCount,
     );
-    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert(
+      followup,
+      `${symbol} follow-up call at ${instructionCount} is missing`,
+    );
     assert.equal(followup.returnAddress, returnAddress);
   }
 
@@ -22045,18 +23899,30 @@ function validatePrivateHeapSize16Result(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -22110,7 +23976,10 @@ function validateGetModuleFileNameAResult(result) {
   const delta = result.hostDeltas.find(
     ({ sequence }) => sequence === expected.call.delta.sequence,
   );
-  assert(delta, `GetModuleFileNameA delta ${expected.call.delta.sequence} is missing`);
+  assert(
+    delta,
+    `GetModuleFileNameA delta ${expected.call.delta.sequence} is missing`,
+  );
   assert.equal(delta.fromGeneration, expected.call.delta.fromGeneration);
   assert.equal(delta.generation, expected.call.delta.generation);
   assert.equal(delta.mappingOperations, 0);
@@ -22123,13 +23992,20 @@ function validateGetModuleFileNameAResult(result) {
   assert.equal(delta.payloadBytes, page.size);
   assert.equal(delta.payloadSha256, expected.call.delta.payloadSha256);
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
         candidate.trapInstructionCount === instructionCount,
     );
-    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert(
+      followup,
+      `${symbol} follow-up call at ${instructionCount} is missing`,
+    );
     assert.equal(followup.returnAddress, returnAddress);
   }
 
@@ -22137,18 +24013,30 @@ function validateGetModuleFileNameAResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -22163,15 +24051,15 @@ function validateInterlockedDecrementResult(result) {
   assert.equal(result.writebacks.length, expected.writebackBatches);
   assert.equal(
     result.writebacks.reduce(
-        (total, writeback) => total + writeback.dirtyPages.length,
-        0,
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
     ),
     expected.dirtyPages,
   );
   assert.equal(
     result.writebacks.reduce(
-        (total, writeback) => total + writeback.receipt.changedBytes,
-        0,
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
     ),
     expected.changedBytes,
   );
@@ -22181,7 +24069,10 @@ function validateInterlockedDecrementResult(result) {
   for (const [index, expectedCall] of expected.calls.entries()) {
     const call = calls[index];
     assert.deepEqual(call.arguments, expectedCall.arguments);
-    assert.deepEqual(call.result, { action: "set", value: expectedCall.result });
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expectedCall.result,
+    });
     assert.equal(call.implementationId, "kernel32.interlocked-decrement.v1");
     assert.equal(call.lastError, 87);
     assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
@@ -22194,10 +24085,9 @@ function validateInterlockedDecrementResult(result) {
     });
     assert.equal(call.guestWrites.length, 1);
     assert.equal(call.guestWrites[0].address, expectedCall.arguments[0]);
-    assert.deepEqual(
-      call.guestWrites[0].bytes,
-      [...Buffer.from(Uint32Array.of(expectedCall.result).buffer)],
-    );
+    assert.deepEqual(call.guestWrites[0].bytes, [
+      ...Buffer.from(Uint32Array.of(expectedCall.result).buffer),
+    ]);
     assert.deepEqual(call.guestWrites[0].result, {
       bytesWritten: 4,
       dirtyPages: 1,
@@ -22211,7 +24101,10 @@ function validateInterlockedDecrementResult(result) {
     const delta = result.hostDeltas.find(
       ({ sequence }) => sequence === expectedCall.delta.sequence,
     );
-    assert(delta, `InterlockedDecrement delta ${expectedCall.delta.sequence} is missing`);
+    assert(
+      delta,
+      `InterlockedDecrement delta ${expectedCall.delta.sequence} is missing`,
+    );
     assert.equal(delta.fromGeneration, expectedCall.delta.fromGeneration);
     assert.equal(delta.generation, expectedCall.delta.generation);
     assert.equal(delta.mappingOperations, 0);
@@ -22225,13 +24118,20 @@ function validateInterlockedDecrementResult(result) {
     assert.equal(delta.payloadSha256, expectedCall.delta.payloadSha256);
   }
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
         candidate.trapInstructionCount === instructionCount,
     );
-    assert(followup, `${symbol} follow-up call at ${instructionCount} is missing`);
+    assert(
+      followup,
+      `${symbol} follow-up call at ${instructionCount} is missing`,
+    );
     assert.equal(followup.returnAddress, returnAddress);
   }
 
@@ -22239,25 +24139,39 @@ function validateInterlockedDecrementResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
 
 function validateGetCpInfoResult(result) {
   const expected = getCpInfoExpected;
-  const calls = result.supportedCalls.filter(({ symbol }) => symbol === "GetCPInfo");
+  const calls = result.supportedCalls.filter(
+    ({ symbol }) => symbol === "GetCPInfo",
+  );
   assert.equal(result.frozenSemanticCalls, expected.frozenSemanticCalls);
   assert.equal(result.supportedCalls.length, expected.supportedCalls);
   assert.equal(result.writebacks.length, expected.writebackBatches);
@@ -22350,7 +24264,11 @@ function validateGetCpInfoResult(result) {
     expected.consumerWriteback.changedBytes,
   );
 
-  for (const [symbol, instructionCount, returnAddress] of expected.followupCalls) {
+  for (const [
+    symbol,
+    instructionCount,
+    returnAddress,
+  ] of expected.followupCalls) {
     const followup = result.supportedCalls.find(
       (candidate) =>
         candidate.symbol === symbol &&
@@ -22364,18 +24282,30 @@ function validateGetCpInfoResult(result) {
   assert.equal(result.fault.capabilityCluster, unsupported.capabilityCluster);
   assert.equal(result.fault.endpoint.kind, "runtime-system-export");
   assert.equal(result.fault.endpoint.endpoint.id, unsupported.endpointId);
-  assert.equal(result.fault.endpoint.endpoint.address, unsupported.endpointAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.address,
+    unsupported.endpointAddress,
+  );
   assert.equal(result.fault.endpoint.endpoint.module, unsupported.module);
   assert.equal(result.fault.endpoint.endpoint.symbol.kind, "name");
   assert.equal(result.fault.endpoint.endpoint.symbol.name, unsupported.symbol);
-  assert.equal(result.fault.endpoint.endpoint.iatAddress, unsupported.iatAddress);
+  assert.equal(
+    result.fault.endpoint.endpoint.iatAddress,
+    unsupported.iatAddress,
+  );
   assert.equal(result.fault.fault.code, unsupported.faultCode);
   assert.equal(result.fault.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(result.terminal.instructionCount, unsupported.instructionCount);
   assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
-  assert.equal(result.terminal.terminal.returnAddress, unsupported.returnAddress);
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    unsupported.returnAddress,
+  );
   assert.deepEqual(
-    result.terminal.terminal.stackWords.slice(1, unsupported.arguments.length + 1),
+    result.terminal.terminal.stackWords.slice(
+      1,
+      unsupported.arguments.length + 1,
+    ),
     unsupported.arguments,
   );
 }
@@ -22407,10 +24337,14 @@ function buildGenericRuntimeReentryReport({
     0,
   );
   const createThreadCall = createThreadEnabled
-    ? genericResult.supportedCalls.find((call) => call.symbol === "CreateThread")
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "CreateThread",
+      )
     : null;
   const resumeThreadCall = createThreadEnabled
-    ? genericResult.supportedCalls.find((call) => call.symbol === "ResumeThread")
+    ? genericResult.supportedCalls.find(
+        (call) => call.symbol === "ResumeThread",
+      )
     : null;
   const createThreadDelta = createThreadEnabled
     ? genericResult.hostDeltas.find(
@@ -22418,17 +24352,25 @@ function buildGenericRuntimeReentryReport({
       )
     : null;
   if (createThreadEnabled) {
-    assert(createThreadCall, "CreateThread report summary has no creation call");
+    assert(
+      createThreadCall,
+      "CreateThread report summary has no creation call",
+    );
     assert(resumeThreadCall, "CreateThread report summary has no resume call");
     assert(createThreadDelta, "CreateThread report summary has no host delta");
   }
   const setThreadPriorityCall = setThreadPriorityEnabled
     ? genericResult.supportedCalls.find(
-        (call) => call.symbol === "SetThreadPriority" && call.returnAddress === 0x1009_1b77,
+        (call) =>
+          call.symbol === "SetThreadPriority" &&
+          call.returnAddress === 0x1009_1b77,
       )
     : null;
   if (setThreadPriorityEnabled) {
-    assert(setThreadPriorityCall, "SetThreadPriority report summary has no primary call");
+    assert(
+      setThreadPriorityCall,
+      "SetThreadPriority report summary has no primary call",
+    );
   }
   const screenDcCall = screenDcEnabled
     ? genericResult.supportedCalls.find(
@@ -22441,32 +24383,46 @@ function buildGenericRuntimeReentryReport({
   const fontEnumerationCall = fontEnumerationEnabled
     ? genericResult.supportedCalls.find(
         (call) =>
-          call.symbol === "EnumFontFamiliesExA" && call.returnAddress === 0x1002_c16a,
+          call.symbol === "EnumFontFamiliesExA" &&
+          call.returnAddress === 0x1002_c16a,
       )
     : null;
   if (fontEnumerationEnabled) {
-    assert(fontEnumerationCall, "font enumeration report summary has no primary call");
+    assert(
+      fontEnumerationCall,
+      "font enumeration report summary has no primary call",
+    );
   }
   const fontCreationCall = fontCreationEnabled
     ? genericResult.supportedCalls.find(
-        (call) => call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
+        (call) =>
+          call.symbol === "CreateFontA" && call.returnAddress === 0x1002_c838,
       )
     : null;
   if (fontCreationEnabled) {
-    assert(fontCreationCall, "font creation report summary has no primary call");
+    assert(
+      fontCreationCall,
+      "font creation report summary has no primary call",
+    );
   }
   const compatibleDcCall = compatibleDcEnabled
     ? genericResult.supportedCalls.find(
         (call) =>
-          call.symbol === "CreateCompatibleDC" && call.returnAddress === 0x1002_c8ad,
+          call.symbol === "CreateCompatibleDC" &&
+          call.returnAddress === 0x1002_c8ad,
       )
     : null;
   if (compatibleDcEnabled) {
-    assert(compatibleDcCall, "compatible DC report summary has no primary call");
+    assert(
+      compatibleDcCall,
+      "compatible DC report summary has no primary call",
+    );
   }
   const dibCreateCall = dibLifecycleEnabled
     ? genericResult.supportedCalls.find(
-        (call) => call.symbol === "CreateDIBSection" && call.returnAddress === 0x1002_c8c5,
+        (call) =>
+          call.symbol === "CreateDIBSection" &&
+          call.returnAddress === 0x1002_c8c5,
       )
     : null;
   const dibGetObjectCall = dibLifecycleEnabled
@@ -22478,12 +24434,20 @@ function buildGenericRuntimeReentryReport({
       )
     : null;
   const dibSelectionCalls = dibLifecycleEnabled
-    ? genericResult.supportedCalls.filter((call) => call.symbol === "SelectObject")
+    ? genericResult.supportedCalls.filter(
+        (call) => call.symbol === "SelectObject",
+      )
     : [];
   if (dibLifecycleEnabled) {
     assert(dibCreateCall, "DIB lifecycle report summary has no creation call");
-    assert(dibGetObjectCall, "DIB lifecycle report summary has no GetObjectA call");
-    assert(dibCreateDelta, "DIB lifecycle report summary has no creation delta");
+    assert(
+      dibGetObjectCall,
+      "DIB lifecycle report summary has no GetObjectA call",
+    );
+    assert(
+      dibCreateDelta,
+      "DIB lifecycle report summary has no creation delta",
+    );
     assert.equal(
       dibSelectionCalls.length,
       outlineTextMetricsEnabled ? 4 : 2,
@@ -22506,7 +24470,11 @@ function buildGenericRuntimeReentryReport({
     ? genericResult.supportedCalls.filter((call) => call.symbol === "TextOutA")
     : [];
   if (textRasterEnabled) {
-    assert.equal(textRasterCalls.length, 1, "text raster summary requires one call");
+    assert.equal(
+      textRasterCalls.length,
+      1,
+      "text raster summary requires one call",
+    );
   }
   const gdiplusStartupCalls = gdiplusStartupEnabled
     ? genericResult.supportedCalls.filter(
@@ -22524,7 +24492,8 @@ function buildGenericRuntimeReentryReport({
   }
   const virtualAllocCall = virtualAllocEnabled
     ? genericResult.supportedCalls.find(
-        (call) => call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
+        (call) =>
+          call.symbol === "VirtualAlloc" && call.returnAddress === 0x1008_fba8,
       )
     : null;
   const virtualAllocDelta = virtualAllocEnabled
@@ -22534,7 +24503,10 @@ function buildGenericRuntimeReentryReport({
     : null;
   if (virtualAllocEnabled) {
     assert(virtualAllocCall, "VirtualAlloc report summary has no primary call");
-    assert(virtualAllocDelta, "VirtualAlloc report summary has no reserve delta");
+    assert(
+      virtualAllocDelta,
+      "VirtualAlloc report summary has no reserve delta",
+    );
   }
   const imm32Calls = imm32ContextEnabled
     ? genericResult.supportedCalls.filter(
@@ -22567,10 +24539,10 @@ function buildGenericRuntimeReentryReport({
             d3d9RecreatedTexturesCheckpointEnabled
               ? 9_187
               : createDirectoryACheckpointEnabled
-              ? 6_974
-              : getFileAttributesACheckpointEnabled
-                ? 6_937
-                : 6_910,
+                ? 6_974
+                : getFileAttributesACheckpointEnabled
+                  ? 6_937
+                  : 6_910,
           );
         } else {
           assert.equal(
@@ -22605,10 +24577,10 @@ function buildGenericRuntimeReentryReport({
             d3d9RecreatedTexturesCheckpointEnabled
               ? 9_186
               : createDirectoryACheckpointEnabled
-              ? 6_974
-              : getFileAttributesACheckpointEnabled
-                ? 6_937
-                : 6_910,
+                ? 6_974
+                : getFileAttributesACheckpointEnabled
+                  ? 6_937
+                  : 6_910,
           );
         } else {
           assert.equal(
@@ -22648,13 +24620,14 @@ function buildGenericRuntimeReentryReport({
       "WaitForSingleObjectEx pacing request identities are not unique",
     );
   }
-  const dragAcceptFilesCalls = dragAcceptFilesEnabled || archiveSourceReadEnabled
-    ? genericResult.supportedCalls.filter(
-        (call) =>
-          call.implementationId ===
-          "shell32.drag-accept-files.logical-window-style-v1",
-      )
-    : [];
+  const dragAcceptFilesCalls =
+    dragAcceptFilesEnabled || archiveSourceReadEnabled
+      ? genericResult.supportedCalls.filter(
+          (call) =>
+            call.implementationId ===
+            "shell32.drag-accept-files.logical-window-style-v1",
+        )
+      : [];
   if (dragAcceptFilesEnabled || archiveSourceReadEnabled) {
     assert.equal(
       dragAcceptFilesCalls.length,
@@ -22726,7 +24699,8 @@ function buildGenericRuntimeReentryReport({
   const createDirectoryACalls = createDirectoryACheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
-          call.implementationId === "kernel32.create-directory-a.runtime-vfs.v1",
+          call.implementationId ===
+          "kernel32.create-directory-a.runtime-vfs.v1",
       )
     : [];
   if (createDirectoryACheckpointEnabled) {
@@ -22741,19 +24715,20 @@ function buildGenericRuntimeReentryReport({
       "CreateDirectoryA report summary requires one storage commit",
     );
   }
-  const setWindowPosRepeatActivationCalls =
-    setWindowPosRepeatActivationCheckpointEnabled
-      ? genericResult.supportedCalls.filter(
-          (call) => call.implementationId === "user32.set-window-pos.v4",
-        )
-      : [];
+  const setWindowPosCalls = setWindowPosRepeatActivationCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) => call.implementationId === "user32.set-window-pos.v5",
+      )
+    : [];
+  const setWindowPosRepeatActivationCalls = setWindowPosCalls.slice(0, 5);
   const setWindowPosRepeatActivationCall =
     setWindowPosRepeatActivationCalls.at(-1) ?? null;
   const setWindowPosRepeatActivationCallbackEvents =
     setWindowPosRepeatActivationCall === null
       ? []
       : genericResult.callbackEvents.filter(
-          (event) => event.sequence === setWindowPosRepeatActivationCall.sequence,
+          (event) =>
+            event.sequence === setWindowPosRepeatActivationCall.sequence,
         );
   if (setWindowPosRepeatActivationCheckpointEnabled) {
     assert.equal(
@@ -22767,13 +24742,50 @@ function buildGenericRuntimeReentryReport({
       "SetWindowPos repeat activation requires one balanced callback",
     );
   }
+  const setWindowPosFrameChangeMoveCall =
+    setWindowPosFrameChangeMoveCheckpointEnabled
+      ? (setWindowPosCalls.at(-1) ?? null)
+      : null;
+  const setWindowPosFrameChangeMoveCallbackEvents =
+    setWindowPosFrameChangeMoveCall === null
+      ? []
+      : genericResult.callbackEvents.filter(
+          (event) =>
+            event.sequence === setWindowPosFrameChangeMoveCall.sequence,
+        );
+  const setWindowPosFrameChangeMoveNestedMoveEvents =
+    setWindowPosFrameChangeMoveCall === null
+      ? []
+      : genericResult.callbackEvents.filter(
+          (event) =>
+            event.sequence === setWindowPosFrameChangeMoveCall.sequence + 3,
+        );
+  if (setWindowPosFrameChangeMoveCheckpointEnabled) {
+    assert.equal(
+      setWindowPosCalls.length,
+      6,
+      "frame-change move report summary requires the five frozen calls and one move",
+    );
+    assert.equal(
+      setWindowPosFrameChangeMoveCallbackEvents.length,
+      6,
+      "frame-change move requires three balanced SetWindowPos callbacks",
+    );
+    assert.equal(
+      setWindowPosFrameChangeMoveNestedMoveEvents.length,
+      2,
+      "frame-change move requires one balanced nested WM_MOVE callback",
+    );
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
       )
     : [];
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
-    ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
+    ? genericResult.supportedCalls.filter(
+        (call) => call.symbol === "CreateFileA",
+      )
     : [];
   const archiveSourceCheckpointCreateFileCalls =
     archiveSourceCreateFileCalls.slice(0, 5);
@@ -22782,7 +24794,7 @@ function buildGenericRuntimeReentryReport({
     : [];
   const archiveSourceReads = allArchiveSourceReads.slice(0, 3);
   const archiveSourceLooseProbeCall = archiveSourceReadEnabled
-    ? archiveSourceCheckpointCreateFileCalls[2] ?? null
+    ? (archiveSourceCheckpointCreateFileCalls[2] ?? null)
     : null;
   const archiveSourceOpenCalls = archiveSourceReadEnabled
     ? archiveSourceCheckpointCreateFileCalls.slice(3)
@@ -22838,253 +24850,256 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9RecreatedTexturesCheckpointEnabled
-        ? "vine.v86-bgi-d3d9-recreated-textures"
-        : setWindowPosRepeatActivationCheckpointEnabled
-        ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
-        : createDirectoryACheckpointEnabled
-        ? "vine.v86-bgi-kernel32-create-directory-a"
-        : getFileAttributesACheckpointEnabled
-        ? "vine.v86-bgi-kernel32-get-file-attributes-a"
-        : globalMemoryStatusCheckpointEnabled
-        ? "vine.v86-bgi-kernel32-global-memory-status"
-        : sleepZeroCheckpointEnabled
-        ? "vine.v86-bgi-kernel32-sleep-zero"
-        : archiveSourceReadEnabled
-        ? "vine.v86-bgi-kernel32-archive-source-read"
-        : dragAcceptFilesEnabled
-        ? "vine.v86-bgi-shell32-drag-accept-files"
-        : primaryMainLoopContinuationEnabled
-        ? "vine.v86-bgi-primary-main-loop-continuation"
-        : leaveCriticalSectionContinuationEnabled
-        ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
-        : enterCriticalSectionContinuationEnabled
-        ? "vine.v86-bgi-kernel32-enter-critical-section-continuation"
-        : leaveCriticalSectionCheckpointEnabled
-        ? "vine.v86-bgi-kernel32-leave-critical-section"
-        : mainLoopProgressionEnabled
-        ? "vine.v86-bgi-primary-main-loop-progression"
-        : enterCriticalSectionEnabled
-        ? "vine.v86-bgi-kernel32-enter-critical-section"
-        : waitForSingleObjectExEnabled
-        ? "vine.v86-bgi-kernel32-wait-for-single-object-ex"
-        : setWaitableTimerEnabled
-        ? "vine.v86-bgi-kernel32-set-waitable-timer"
-        : imm32ContextEnabled
-        ? "vine.v86-bgi-imm32-default-ime-context"
-        : virtualAllocEnabled
-        ? "vine.v86-bgi-kernel32-virtual-alloc"
-        : gdiplusStartupEnabled
-        ? "vine.v86-bgi-gdiplus-startup"
-        : textRasterEnabled
-        ? "vine.v86-bgi-gdi-text-raster"
-        : outlineTextMetricsEnabled
-        ? "vine.v86-bgi-gdi-outline-text-metrics"
-        : dibLifecycleEnabled
-        ? "vine.v86-bgi-gdi-dib-lifecycle"
-        : compatibleDcEnabled
-        ? "vine.v86-bgi-gdi-compatible-dc"
-        : fontCreationEnabled
-        ? "vine.v86-bgi-gdi-font-creation"
-        : fontEnumerationEnabled
-        ? "vine.v86-bgi-gdi-font-enumeration"
-        : screenDcEnabled
-        ? "vine.v86-bgi-gdi-screen-dc"
-        : setThreadPriorityEnabled
-        ? "vine.v86-bgi-kernel32-set-thread-priority"
-        : createThreadEnabled
-        ? "vine.v86-bgi-kernel32-create-thread"
-        : setTimerEnabled
-        ? "vine.v86-bgi-user32-set-timer"
-        : dsoundBufferTransferEnabled
-        ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
-        : dsoundInitialBuffersEnabled
-        ? "vine.v86-bgi-dsound-initial-buffers"
-        : dsoundRootEnabled
-        ? "vine.v86-bgi-dsound-root-and-cooperative-level"
-        : dinput8EnumDevicesEnabled
-        ? "vine.v86-bgi-dinput8-enum-devices"
-        : dinput8FactoryEnabled
-        ? "vine.v86-bgi-dinput8-api-contract"
-        : getMonitorInfoAEnabled
-        ? "vine.v86-bgi-get-monitor-info-a"
-        : queryPerformanceFrequencyEnabled
-        ? "vine.v86-bgi-query-performance-frequency"
-        : d3d9RasterStatusEnabled
-        ? "vine.v86-bgi-d3d9-raster-status"
-        : d3d9InitialRenderStatesEnabled
-          ? "vine.v86-bgi-d3d9-initial-render-states"
-        : d3d9InitialVertexBufferEnabled
-          ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
-        : d3d9InitialTexturesEnabled
-          ? "vine.v86-bgi-d3d9-initial-textures"
-        : timeGetTimeEnabled
-          ? "vine.v86-bgi-time-get-time"
-        : d3d9SurfaceGetDcEnabled
-          ? "vine.v86-bgi-d3d9-surface-get-dc"
-        : d3d9GetSurfaceLevelEnabled
-          ? "vine.v86-bgi-d3d9-get-surface-level"
-        : d3d9CreateTextureEnabled
-          ? "vine.v86-bgi-d3d9-create-texture"
-        : d3d9CreateDeviceEnabled
-          ? "vine.v86-bgi-d3d9-create-device"
-        : d3d9GetAdapterMonitorEnabled
-          ? "vine.v86-bgi-d3d9-get-adapter-monitor"
-        : d3d9GetAdapterCountEnabled
-          ? "vine.v86-bgi-d3d9-get-adapter-count"
-        : monitorFromWindowEnabled
-          ? "vine.v86-bgi-monitor-from-window"
-        : setWindowPosActivationEnabled
-          ? "vine.v86-bgi-set-window-pos-activation"
-        : setWindowLongAEnabled
-          ? "vine.v86-bgi-set-window-long-a"
-        : windowDcFillEnabled
-          ? "vine.v86-bgi-window-dc-fill"
-        : getClientRectEnabled
-          ? "vine.v86-bgi-get-client-rect"
-        : loadLibraryAEnabled
-          ? "vine.v86-bgi-load-library-a"
-        : d3d9CheckDeviceFormatEnabled
-          ? "vine.v86-bgi-d3d9-check-device-format"
-        : d3d9CheckDeviceTypeEnabled
-          ? "vine.v86-bgi-d3d9-check-device-type"
-        : d3d9GetDeviceCapsEnabled
-          ? "vine.v86-bgi-d3d9-get-device-caps"
-        : d3d9GetAdapterIdentifierEnabled
-          ? "vine.v86-bgi-d3d9-get-adapter-identifier"
-        : d3d9GetAdapterDisplayModeEnabled
-          ? "vine.v86-bgi-d3d9-get-adapter-display-mode"
-        : d3d9RootFactoryEnabled
-          ? "vine.v86-bgi-d3d9-root-factory-and-identity"
-        : setWindowPosInitialPlacementEnabled
-          ? "vine.v86-bgi-set-window-pos-initial-placement"
-        : sendMessageASmallIconEnabled
-          ? "vine.v86-bgi-send-message-a-small-icon"
-        : loadImageASmallIconEnabled
-          ? "vine.v86-bgi-load-image-a-small-icon"
-        : getSystemMetricsSmallIconWidthEnabled
-          ? "vine.v86-bgi-get-system-metrics-small-icon-width"
-        : getSystemMetricsSmallIconHeightEnabled
-          ? "vine.v86-bgi-get-system-metrics-small-icon-height"
-        : createWindowExAEnabled
-          ? "vine.v86-bgi-create-window-ex-a"
-        : sourceFileReadEnabled
-          ? "vine.v86-bgi-source-file-read"
-        : largeHeapAllocationEnabled
-          ? "vine.v86-bgi-large-heap-allocation"
-        : getSystemMetricsEnabled
-          ? "vine.v86-bgi-get-system-metrics"
-        : registerClassExAEnabled
-          ? "vine.v86-bgi-register-class-ex-a"
-        : loadCursorAEnabled
-          ? "vine.v86-bgi-load-cursor-a"
-        : loadIconAEnabled
-          ? "vine.v86-bgi-load-icon-a"
-        : createWaitableTimerAEnabled
-          ? "vine.v86-bgi-create-waitable-timer-a"
-        : getVersionExAEnabled
-          ? "vine.v86-bgi-get-version-ex-a"
-        : timeBeginPeriodEnabled
-          ? "vine.v86-bgi-time-begin-period"
-        : timeGetDevCapsEnabled
-          ? "vine.v86-bgi-time-get-dev-caps"
-        : swapMouseButtonEnabled
-          ? "vine.v86-bgi-swap-mouse-button"
-        : getDriveTypeAEnabled
-          ? "vine.v86-bgi-get-drive-type-a"
-        : getSystemDefaultLangIdEnabled
-          ? "vine.v86-bgi-get-system-default-lang-id"
-        : coInitializeEnabled
-          ? "vine.v86-bgi-co-initialize"
-        : enumDisplayMonitorsEnabled
-          ? "vine.v86-bgi-enum-display-monitors"
-        : getSystemInfoEnabled
-          ? "vine.v86-bgi-get-system-info"
-        : setThreadAffinityMaskEnabled
-          ? "vine.v86-bgi-set-thread-affinity-mask"
-          : getCurrentThreadEnabled
-          ? "vine.v86-bgi-get-current-thread"
-          : createMutexAEnabled
-          ? "vine.v86-bgi-create-mutex-a"
-          : setCurrentDirectoryAEnabled
-          ? "vine.v86-bgi-set-current-directory-a"
-          : multiByteToWideCharCpAcpEnabled
-          ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
-          : initializeCriticalSectionEnabled
-          ? "vine.v86-bgi-initialize-critical-section"
-          : heapSizeEnabled
-          ? "vine.v86-bgi-heap-size"
-          : setUnhandledExceptionFilterEnabled
-          ? "vine.v86-bgi-set-unhandled-exception-filter"
-          : isProcessorFeaturePresentEnabled
-          ? "vine.v86-bgi-is-processor-feature-present"
-          : privateHeapSize128Enabled
-          ? "vine.v86-bgi-private-heap-size-128"
-          : privateHeapFreeSize1Enabled
-          ? "vine.v86-bgi-private-heap-free-size-1"
-          : privateHeapSize4Enabled
-          ? "vine.v86-bgi-private-heap-size-4"
-          : privateHeapSize16Enabled
-          ? "vine.v86-bgi-private-heap-size-16"
-          : getModuleFileNameAEnabled
-          ? "vine.v86-bgi-get-module-file-name-a"
-          : interlockedDecrementEnabled
-          ? "vine.v86-bgi-interlocked-decrement"
-          : lcMapStringWEnabled
-          ? "vine.v86-bgi-lc-map-string-w"
-          : getStringTypeWEnabled
-          ? "vine.v86-bgi-get-string-type-w"
-          : multiByteToWideCharEnabled
-          ? "vine.v86-bgi-multi-byte-to-wide-char"
-          : getCpInfoEnabled
-          ? "vine.v86-bgi-get-cp-info"
-          : privateHeapSize544Enabled
-          ? "vine.v86-bgi-private-heap-size-544"
-          : getAcpEnabled
-          ? "vine.v86-bgi-get-acp"
-          : setLastErrorEnabled
-          ? "vine.v86-bgi-set-last-error"
-          : flsGetValueEnabled
-          ? "vine.v86-bgi-fls-get-value"
-          : tlsGetValueEnabled
-          ? "vine.v86-bgi-tls-get-value"
-          : getLastErrorEnabled
-          ? "vine.v86-bgi-get-last-error"
-          : privateHeapSize1Enabled
-          ? "vine.v86-bgi-private-heap-size-1"
-          : wideCharToMultiByteEnabled
-          ? "vine.v86-bgi-wide-char-to-multi-byte"
-          : environmentStringsWEnabled
-          ? "vine.v86-bgi-environment-strings-w"
-          : commandLineAEnabled
-          ? "vine.v86-bgi-command-line-a"
-          : setHandleCountEnabled
-          ? "vine.v86-bgi-set-handle-count"
-          : standardErrorFileTypeEnabled
-          ? "vine.v86-bgi-standard-error-file-type"
-          : standardErrorHandleEnabled
-          ? "vine.v86-bgi-standard-error-handle"
-          : standardOutputFileTypeEnabled
-          ? "vine.v86-bgi-standard-output-file-type"
-          : standardOutputHandleEnabled
-          ? "vine.v86-bgi-standard-output-handle"
-          : fileTypeEnabled
-          ? "vine.v86-bgi-file-type"
-          : standardInputHandleEnabled
-          ? "vine.v86-bgi-standard-input-handle"
-          : privateHeapSecondAllocationEnabled
-          ? "vine.v86-bgi-private-heap-second-allocation"
-          : interlockedIncrementEnabled
-          ? "vine.v86-bgi-interlocked-increment"
-          : fiberLocalStorageValueEnabled
-          ? "vine.v86-bgi-fiber-local-storage-value"
-          : privateHeapAllocationEnabled
-          ? "vine.v86-bgi-private-heap-allocation"
-          : fiberLocalStorageAllocationEnabled
-          ? "vine.v86-bgi-fiber-local-storage-allocation"
-          : genericRuntimeCapability === "kernel32-pointer-decoding"
-            ? "vine.v86-bgi-pointer-decoding"
-            : "vine.v86-bgi-critical-section-synchronization",
+        : setWindowPosFrameChangeMoveCheckpointEnabled
+          ? "vine.v86-bgi-user32-set-window-pos-frame-change-move"
+          : d3d9RecreatedTexturesCheckpointEnabled
+            ? "vine.v86-bgi-d3d9-recreated-textures"
+            : setWindowPosRepeatActivationCheckpointEnabled
+              ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
+              : createDirectoryACheckpointEnabled
+                ? "vine.v86-bgi-kernel32-create-directory-a"
+                : getFileAttributesACheckpointEnabled
+                  ? "vine.v86-bgi-kernel32-get-file-attributes-a"
+                  : globalMemoryStatusCheckpointEnabled
+                    ? "vine.v86-bgi-kernel32-global-memory-status"
+                    : sleepZeroCheckpointEnabled
+                      ? "vine.v86-bgi-kernel32-sleep-zero"
+                      : archiveSourceReadEnabled
+                        ? "vine.v86-bgi-kernel32-archive-source-read"
+                        : dragAcceptFilesEnabled
+                          ? "vine.v86-bgi-shell32-drag-accept-files"
+                          : primaryMainLoopContinuationEnabled
+                            ? "vine.v86-bgi-primary-main-loop-continuation"
+                            : leaveCriticalSectionContinuationEnabled
+                              ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
+                              : enterCriticalSectionContinuationEnabled
+                                ? "vine.v86-bgi-kernel32-enter-critical-section-continuation"
+                                : leaveCriticalSectionCheckpointEnabled
+                                  ? "vine.v86-bgi-kernel32-leave-critical-section"
+                                  : mainLoopProgressionEnabled
+                                    ? "vine.v86-bgi-primary-main-loop-progression"
+                                    : enterCriticalSectionEnabled
+                                      ? "vine.v86-bgi-kernel32-enter-critical-section"
+                                      : waitForSingleObjectExEnabled
+                                        ? "vine.v86-bgi-kernel32-wait-for-single-object-ex"
+                                        : setWaitableTimerEnabled
+                                          ? "vine.v86-bgi-kernel32-set-waitable-timer"
+                                          : imm32ContextEnabled
+                                            ? "vine.v86-bgi-imm32-default-ime-context"
+                                            : virtualAllocEnabled
+                                              ? "vine.v86-bgi-kernel32-virtual-alloc"
+                                              : gdiplusStartupEnabled
+                                                ? "vine.v86-bgi-gdiplus-startup"
+                                                : textRasterEnabled
+                                                  ? "vine.v86-bgi-gdi-text-raster"
+                                                  : outlineTextMetricsEnabled
+                                                    ? "vine.v86-bgi-gdi-outline-text-metrics"
+                                                    : dibLifecycleEnabled
+                                                      ? "vine.v86-bgi-gdi-dib-lifecycle"
+                                                      : compatibleDcEnabled
+                                                        ? "vine.v86-bgi-gdi-compatible-dc"
+                                                        : fontCreationEnabled
+                                                          ? "vine.v86-bgi-gdi-font-creation"
+                                                          : fontEnumerationEnabled
+                                                            ? "vine.v86-bgi-gdi-font-enumeration"
+                                                            : screenDcEnabled
+                                                              ? "vine.v86-bgi-gdi-screen-dc"
+                                                              : setThreadPriorityEnabled
+                                                                ? "vine.v86-bgi-kernel32-set-thread-priority"
+                                                                : createThreadEnabled
+                                                                  ? "vine.v86-bgi-kernel32-create-thread"
+                                                                  : setTimerEnabled
+                                                                    ? "vine.v86-bgi-user32-set-timer"
+                                                                    : dsoundBufferTransferEnabled
+                                                                      ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
+                                                                      : dsoundInitialBuffersEnabled
+                                                                        ? "vine.v86-bgi-dsound-initial-buffers"
+                                                                        : dsoundRootEnabled
+                                                                          ? "vine.v86-bgi-dsound-root-and-cooperative-level"
+                                                                          : dinput8EnumDevicesEnabled
+                                                                            ? "vine.v86-bgi-dinput8-enum-devices"
+                                                                            : dinput8FactoryEnabled
+                                                                              ? "vine.v86-bgi-dinput8-api-contract"
+                                                                              : getMonitorInfoAEnabled
+                                                                                ? "vine.v86-bgi-get-monitor-info-a"
+                                                                                : queryPerformanceFrequencyEnabled
+                                                                                  ? "vine.v86-bgi-query-performance-frequency"
+                                                                                  : d3d9RasterStatusEnabled
+                                                                                    ? "vine.v86-bgi-d3d9-raster-status"
+                                                                                    : d3d9InitialRenderStatesEnabled
+                                                                                      ? "vine.v86-bgi-d3d9-initial-render-states"
+                                                                                      : d3d9InitialVertexBufferEnabled
+                                                                                        ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
+                                                                                        : d3d9InitialTexturesEnabled
+                                                                                          ? "vine.v86-bgi-d3d9-initial-textures"
+                                                                                          : timeGetTimeEnabled
+                                                                                            ? "vine.v86-bgi-time-get-time"
+                                                                                            : d3d9SurfaceGetDcEnabled
+                                                                                              ? "vine.v86-bgi-d3d9-surface-get-dc"
+                                                                                              : d3d9GetSurfaceLevelEnabled
+                                                                                                ? "vine.v86-bgi-d3d9-get-surface-level"
+                                                                                                : d3d9CreateTextureEnabled
+                                                                                                  ? "vine.v86-bgi-d3d9-create-texture"
+                                                                                                  : d3d9CreateDeviceEnabled
+                                                                                                    ? "vine.v86-bgi-d3d9-create-device"
+                                                                                                    : d3d9GetAdapterMonitorEnabled
+                                                                                                      ? "vine.v86-bgi-d3d9-get-adapter-monitor"
+                                                                                                      : d3d9GetAdapterCountEnabled
+                                                                                                        ? "vine.v86-bgi-d3d9-get-adapter-count"
+                                                                                                        : monitorFromWindowEnabled
+                                                                                                          ? "vine.v86-bgi-monitor-from-window"
+                                                                                                          : setWindowPosActivationEnabled
+                                                                                                            ? "vine.v86-bgi-set-window-pos-activation"
+                                                                                                            : setWindowLongAEnabled
+                                                                                                              ? "vine.v86-bgi-set-window-long-a"
+                                                                                                              : windowDcFillEnabled
+                                                                                                                ? "vine.v86-bgi-window-dc-fill"
+                                                                                                                : getClientRectEnabled
+                                                                                                                  ? "vine.v86-bgi-get-client-rect"
+                                                                                                                  : loadLibraryAEnabled
+                                                                                                                    ? "vine.v86-bgi-load-library-a"
+                                                                                                                    : d3d9CheckDeviceFormatEnabled
+                                                                                                                      ? "vine.v86-bgi-d3d9-check-device-format"
+                                                                                                                      : d3d9CheckDeviceTypeEnabled
+                                                                                                                        ? "vine.v86-bgi-d3d9-check-device-type"
+                                                                                                                        : d3d9GetDeviceCapsEnabled
+                                                                                                                          ? "vine.v86-bgi-d3d9-get-device-caps"
+                                                                                                                          : d3d9GetAdapterIdentifierEnabled
+                                                                                                                            ? "vine.v86-bgi-d3d9-get-adapter-identifier"
+                                                                                                                            : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                              ? "vine.v86-bgi-d3d9-get-adapter-display-mode"
+                                                                                                                              : d3d9RootFactoryEnabled
+                                                                                                                                ? "vine.v86-bgi-d3d9-root-factory-and-identity"
+                                                                                                                                : setWindowPosInitialPlacementEnabled
+                                                                                                                                  ? "vine.v86-bgi-set-window-pos-initial-placement"
+                                                                                                                                  : sendMessageASmallIconEnabled
+                                                                                                                                    ? "vine.v86-bgi-send-message-a-small-icon"
+                                                                                                                                    : loadImageASmallIconEnabled
+                                                                                                                                      ? "vine.v86-bgi-load-image-a-small-icon"
+                                                                                                                                      : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                        ? "vine.v86-bgi-get-system-metrics-small-icon-width"
+                                                                                                                                        : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                          ? "vine.v86-bgi-get-system-metrics-small-icon-height"
+                                                                                                                                          : createWindowExAEnabled
+                                                                                                                                            ? "vine.v86-bgi-create-window-ex-a"
+                                                                                                                                            : sourceFileReadEnabled
+                                                                                                                                              ? "vine.v86-bgi-source-file-read"
+                                                                                                                                              : largeHeapAllocationEnabled
+                                                                                                                                                ? "vine.v86-bgi-large-heap-allocation"
+                                                                                                                                                : getSystemMetricsEnabled
+                                                                                                                                                  ? "vine.v86-bgi-get-system-metrics"
+                                                                                                                                                  : registerClassExAEnabled
+                                                                                                                                                    ? "vine.v86-bgi-register-class-ex-a"
+                                                                                                                                                    : loadCursorAEnabled
+                                                                                                                                                      ? "vine.v86-bgi-load-cursor-a"
+                                                                                                                                                      : loadIconAEnabled
+                                                                                                                                                        ? "vine.v86-bgi-load-icon-a"
+                                                                                                                                                        : createWaitableTimerAEnabled
+                                                                                                                                                          ? "vine.v86-bgi-create-waitable-timer-a"
+                                                                                                                                                          : getVersionExAEnabled
+                                                                                                                                                            ? "vine.v86-bgi-get-version-ex-a"
+                                                                                                                                                            : timeBeginPeriodEnabled
+                                                                                                                                                              ? "vine.v86-bgi-time-begin-period"
+                                                                                                                                                              : timeGetDevCapsEnabled
+                                                                                                                                                                ? "vine.v86-bgi-time-get-dev-caps"
+                                                                                                                                                                : swapMouseButtonEnabled
+                                                                                                                                                                  ? "vine.v86-bgi-swap-mouse-button"
+                                                                                                                                                                  : getDriveTypeAEnabled
+                                                                                                                                                                    ? "vine.v86-bgi-get-drive-type-a"
+                                                                                                                                                                    : getSystemDefaultLangIdEnabled
+                                                                                                                                                                      ? "vine.v86-bgi-get-system-default-lang-id"
+                                                                                                                                                                      : coInitializeEnabled
+                                                                                                                                                                        ? "vine.v86-bgi-co-initialize"
+                                                                                                                                                                        : enumDisplayMonitorsEnabled
+                                                                                                                                                                          ? "vine.v86-bgi-enum-display-monitors"
+                                                                                                                                                                          : getSystemInfoEnabled
+                                                                                                                                                                            ? "vine.v86-bgi-get-system-info"
+                                                                                                                                                                            : setThreadAffinityMaskEnabled
+                                                                                                                                                                              ? "vine.v86-bgi-set-thread-affinity-mask"
+                                                                                                                                                                              : getCurrentThreadEnabled
+                                                                                                                                                                                ? "vine.v86-bgi-get-current-thread"
+                                                                                                                                                                                : createMutexAEnabled
+                                                                                                                                                                                  ? "vine.v86-bgi-create-mutex-a"
+                                                                                                                                                                                  : setCurrentDirectoryAEnabled
+                                                                                                                                                                                    ? "vine.v86-bgi-set-current-directory-a"
+                                                                                                                                                                                    : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                      ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
+                                                                                                                                                                                      : initializeCriticalSectionEnabled
+                                                                                                                                                                                        ? "vine.v86-bgi-initialize-critical-section"
+                                                                                                                                                                                        : heapSizeEnabled
+                                                                                                                                                                                          ? "vine.v86-bgi-heap-size"
+                                                                                                                                                                                          : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                            ? "vine.v86-bgi-set-unhandled-exception-filter"
+                                                                                                                                                                                            : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                              ? "vine.v86-bgi-is-processor-feature-present"
+                                                                                                                                                                                              : privateHeapSize128Enabled
+                                                                                                                                                                                                ? "vine.v86-bgi-private-heap-size-128"
+                                                                                                                                                                                                : privateHeapFreeSize1Enabled
+                                                                                                                                                                                                  ? "vine.v86-bgi-private-heap-free-size-1"
+                                                                                                                                                                                                  : privateHeapSize4Enabled
+                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-size-4"
+                                                                                                                                                                                                    : privateHeapSize16Enabled
+                                                                                                                                                                                                      ? "vine.v86-bgi-private-heap-size-16"
+                                                                                                                                                                                                      : getModuleFileNameAEnabled
+                                                                                                                                                                                                        ? "vine.v86-bgi-get-module-file-name-a"
+                                                                                                                                                                                                        : interlockedDecrementEnabled
+                                                                                                                                                                                                          ? "vine.v86-bgi-interlocked-decrement"
+                                                                                                                                                                                                          : lcMapStringWEnabled
+                                                                                                                                                                                                            ? "vine.v86-bgi-lc-map-string-w"
+                                                                                                                                                                                                            : getStringTypeWEnabled
+                                                                                                                                                                                                              ? "vine.v86-bgi-get-string-type-w"
+                                                                                                                                                                                                              : multiByteToWideCharEnabled
+                                                                                                                                                                                                                ? "vine.v86-bgi-multi-byte-to-wide-char"
+                                                                                                                                                                                                                : getCpInfoEnabled
+                                                                                                                                                                                                                  ? "vine.v86-bgi-get-cp-info"
+                                                                                                                                                                                                                  : privateHeapSize544Enabled
+                                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-size-544"
+                                                                                                                                                                                                                    : getAcpEnabled
+                                                                                                                                                                                                                      ? "vine.v86-bgi-get-acp"
+                                                                                                                                                                                                                      : setLastErrorEnabled
+                                                                                                                                                                                                                        ? "vine.v86-bgi-set-last-error"
+                                                                                                                                                                                                                        : flsGetValueEnabled
+                                                                                                                                                                                                                          ? "vine.v86-bgi-fls-get-value"
+                                                                                                                                                                                                                          : tlsGetValueEnabled
+                                                                                                                                                                                                                            ? "vine.v86-bgi-tls-get-value"
+                                                                                                                                                                                                                            : getLastErrorEnabled
+                                                                                                                                                                                                                              ? "vine.v86-bgi-get-last-error"
+                                                                                                                                                                                                                              : privateHeapSize1Enabled
+                                                                                                                                                                                                                                ? "vine.v86-bgi-private-heap-size-1"
+                                                                                                                                                                                                                                : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                                  ? "vine.v86-bgi-wide-char-to-multi-byte"
+                                                                                                                                                                                                                                  : environmentStringsWEnabled
+                                                                                                                                                                                                                                    ? "vine.v86-bgi-environment-strings-w"
+                                                                                                                                                                                                                                    : commandLineAEnabled
+                                                                                                                                                                                                                                      ? "vine.v86-bgi-command-line-a"
+                                                                                                                                                                                                                                      : setHandleCountEnabled
+                                                                                                                                                                                                                                        ? "vine.v86-bgi-set-handle-count"
+                                                                                                                                                                                                                                        : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                          ? "vine.v86-bgi-standard-error-file-type"
+                                                                                                                                                                                                                                          : standardErrorHandleEnabled
+                                                                                                                                                                                                                                            ? "vine.v86-bgi-standard-error-handle"
+                                                                                                                                                                                                                                            : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                              ? "vine.v86-bgi-standard-output-file-type"
+                                                                                                                                                                                                                                              : standardOutputHandleEnabled
+                                                                                                                                                                                                                                                ? "vine.v86-bgi-standard-output-handle"
+                                                                                                                                                                                                                                                : fileTypeEnabled
+                                                                                                                                                                                                                                                  ? "vine.v86-bgi-file-type"
+                                                                                                                                                                                                                                                  : standardInputHandleEnabled
+                                                                                                                                                                                                                                                    ? "vine.v86-bgi-standard-input-handle"
+                                                                                                                                                                                                                                                    : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                      ? "vine.v86-bgi-private-heap-second-allocation"
+                                                                                                                                                                                                                                                      : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                        ? "vine.v86-bgi-interlocked-increment"
+                                                                                                                                                                                                                                                        : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                          ? "vine.v86-bgi-fiber-local-storage-value"
+                                                                                                                                                                                                                                                          : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                            ? "vine.v86-bgi-private-heap-allocation"
+                                                                                                                                                                                                                                                            : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                              ? "vine.v86-bgi-fiber-local-storage-allocation"
+                                                                                                                                                                                                                                                              : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                                  "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                                ? "vine.v86-bgi-pointer-decoding"
+                                                                                                                                                                                                                                                                : "vine.v86-bgi-critical-section-synchronization",
     schemaVersion: 2,
     source: offer.source,
     sourceSnapshot: {
@@ -23157,8 +25172,10 @@ function buildGenericRuntimeReentryReport({
             creationDelta: createThreadDelta,
             schedulingPolicy:
               "synchronous-resume-preserves-caller-until-runnable-contention-api-boundary-quantum-64-expires",
-            nodeRegisteredThreadIds: genericResult.threadExecution.registeredThreadIds,
-            nodeExecutedThreadIds: genericResult.threadExecution.executedThreadIds,
+            nodeRegisteredThreadIds:
+              genericResult.threadExecution.registeredThreadIds,
+            nodeExecutedThreadIds:
+              genericResult.threadExecution.executedThreadIds,
             nodeContextSwitches: genericResult.threadExecution.contextSwitches,
             nodeThreadExits: genericResult.threadExecution.threadExits,
           },
@@ -23168,7 +25185,8 @@ function buildGenericRuntimeReentryReport({
       ? {
           threadPriority: {
             call: setThreadPriorityCall,
-            schedulerPolicy: "logical-state-only-cooperative-selection-unchanged",
+            schedulerPolicy:
+              "logical-state-only-cooperative-selection-unchanged",
           },
         }
       : {}),
@@ -23176,7 +25194,8 @@ function buildGenericRuntimeReentryReport({
       ? {
           screenDeviceContext: {
             call: screenDcCall,
-            targetAuthority: "runtime-displays-primary-monitor-non-owning-relation",
+            targetAuthority:
+              "runtime-displays-primary-monitor-non-owning-relation",
             acquisitionIdentity: "distinct-monotonic-logical-hdc",
             rendererResourceCreated: false,
           },
@@ -23296,7 +25315,8 @@ function buildGenericRuntimeReentryReport({
               genericResult.schedulerContinuation.yieldCurrentThread,
             noCompetitorCompletions:
               sleepZeroCalls.length -
-              genericResult.schedulerContinuation.yieldCurrentThread.selectionCount,
+              genericResult.schedulerContinuation.yieldCurrentThread
+                .selectionCount,
             hostWaitCreated: false,
           },
         }
@@ -23374,6 +25394,25 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
+    ...(setWindowPosFrameChangeMoveCheckpointEnabled
+      ? {
+          setWindowPosFrameChangeMove: {
+            callCount: setWindowPosCalls.length,
+            call: setWindowPosFrameChangeMoveCall,
+            callbackEvents: setWindowPosFrameChangeMoveCallbackEvents,
+            nestedMoveCallbackEvents:
+              setWindowPosFrameChangeMoveNestedMoveEvents,
+            windowAuthority: "rust-runtime-user32-logical-window",
+            relationAuthority:
+              "rust-runtime-user32-thread-and-process-window-relations",
+            geometryCommit: "nccalcsize-completion-targeted-commit",
+            relationMutation: false,
+            gdiResourceMutation: false,
+            browserResourceCreated: false,
+            nonClientPaintAndEraseModeled: false,
+          },
+        }
+      : {}),
     ...(archiveSourceReadEnabled
       ? {
           archiveSourceRead: {
@@ -23429,7 +25468,8 @@ function buildGenericRuntimeReentryReport({
             logicalCompletionAuthority: "rust-runtime",
             nodeTimerCreated: false,
             browserTimerRequired: true,
-            pageLifecyclePolicy: "freeze-resume-preserve-remaining-bounded-catch-up",
+            pageLifecyclePolicy:
+              "freeze-resume-preserve-remaining-bounded-catch-up",
             hostClockImported: false,
           },
         }
@@ -23451,7 +25491,8 @@ function buildGenericRuntimeReentryReport({
     supportedCallCount: completedSupportedCalls.length,
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256,
-    supportedContinuation: evidenceLevel === "full" ? completedSupportedCalls : [],
+    supportedContinuation:
+      evidenceLevel === "full" ? completedSupportedCalls : [],
     firstUnsupported:
       genericResult.fault === null
         ? null
@@ -23478,24 +25519,24 @@ function buildGenericRuntimeReentryReport({
             code: "capability-checkpoint-complete",
             message:
               genericResult.checkpointCompletion.capability ===
-                "kernel32-leave-critical-section"
+              "kernel32-leave-critical-section"
                 ? "BGI completed the main-thread critical-section release and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
-                      "kernel32-leave-critical-section-continuation"
+                    "kernel32-leave-critical-section-continuation"
                   ? "BGI completed the LeaveCriticalSection continuation after the main-thread reacquisition and stopped before the next owned endpoint"
-                : genericResult.checkpointCompletion.capability ===
-                      "kernel32-enter-critical-section-continuation"
-                  ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"
-                : genericResult.checkpointCompletion.capability ===
-                      "primary-main-loop-continuation"
-                  ? "BGI completed the next scheduler quantum and stopped before the next owned endpoint"
-                : genericResult.checkpointCompletion.capability ===
-                    "primary-main-loop-progression"
-                  ? "BGI completed one API-boundary scheduler roundtrip and stopped before dispatching the reselected main thread"
                   : genericResult.checkpointCompletion.capability ===
-                      "kernel32-enter-critical-section"
-                    ? "BGI completed the next three balanced primary critical-section acquisitions and stopped at the idle-cycle boundary"
-                    : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
+                      "kernel32-enter-critical-section-continuation"
+                    ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"
+                    : genericResult.checkpointCompletion.capability ===
+                        "primary-main-loop-continuation"
+                      ? "BGI completed the next scheduler quantum and stopped before the next owned endpoint"
+                      : genericResult.checkpointCompletion.capability ===
+                          "primary-main-loop-progression"
+                        ? "BGI completed one API-boundary scheduler roundtrip and stopped before dispatching the reselected main thread"
+                        : genericResult.checkpointCompletion.capability ===
+                            "kernel32-enter-critical-section"
+                          ? "BGI completed the next three balanced primary critical-section acquisitions and stopped at the idle-cycle boundary"
+                          : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
           },
   };
 }
@@ -23506,7 +25547,10 @@ function createProtocolReader(stream) {
   const fill = async (byteLength, label) => {
     while (buffered.length < byteLength) {
       const next = await iterator.next();
-      assert(!next.done, `${label} ended with ${byteLength - buffered.length} bytes missing`);
+      assert(
+        !next.done,
+        `${label} ended with ${byteLength - buffered.length} bytes missing`,
+      );
       buffered = Buffer.concat([buffered, Buffer.from(next.value)]);
     }
   };
@@ -23521,7 +25565,10 @@ function createProtocolReader(stream) {
       while (true) {
         const newline = buffered.indexOf(0x0a);
         if (newline !== -1) {
-          assert(newline <= maximumBytes, `${label} exceeds the protocol line limit`);
+          assert(
+            newline <= maximumBytes,
+            `${label} exceeds the protocol line limit`,
+          );
           let result = buffered.subarray(0, newline);
           buffered = buffered.subarray(newline + 1);
           if (result.at(-1) === 0x0d) {
@@ -23529,7 +25576,10 @@ function createProtocolReader(stream) {
           }
           return result;
         }
-        assert(buffered.length <= maximumBytes, `${label} exceeds the protocol line limit`);
+        assert(
+          buffered.length <= maximumBytes,
+          `${label} exceeds the protocol line limit`,
+        );
         const next = await iterator.next();
         assert(!next.done, `${label} was not emitted`);
         buffered = Buffer.concat([buffered, Buffer.from(next.value)]);
@@ -23565,7 +25615,12 @@ async function readRuntimeJsonFrame(reader, expectedKind, label) {
 }
 
 async function writeRuntimeJsonFrame(stream, kind, value) {
-  await writeRuntimeFrame(stream, kind, Buffer.from(JSON.stringify(value)), Buffer.alloc(0));
+  await writeRuntimeFrame(
+    stream,
+    kind,
+    Buffer.from(JSON.stringify(value)),
+    Buffer.alloc(0),
+  );
 }
 
 async function writeRuntimeFrame(stream, kind, control, payload) {
@@ -23593,7 +25648,10 @@ function dataView(bytes) {
 }
 
 function safeNumber(value, label) {
-  assert(value <= BigInt(Number.MAX_SAFE_INTEGER), `${label} exceeds safe integer range`);
+  assert(
+    value <= BigInt(Number.MAX_SAFE_INTEGER),
+    `${label} exceeds safe integer range`,
+  );
   return Number(value);
 }
 
@@ -23664,7 +25722,8 @@ function validateOffer(offer, offerLineBytes) {
     expected.imports.declared,
   );
   assert.equal(
-    offer.thunks.filter(({ disposition }) => disposition === "unsupported-trap").length,
+    offer.thunks.filter(({ disposition }) => disposition === "unsupported-trap")
+      .length,
     expected.imports.unsupported,
   );
   for (let index = 0; index < offer.thunks.length; index += 1) {
@@ -23675,9 +25734,15 @@ function validateOffer(offer, offerLineBytes) {
   }
 
   assert.equal(offer.callbackReturnSentinel.id, expected.control.callbackId);
-  assert.equal(offer.callbackReturnSentinel.address, expected.control.callbackAddress);
+  assert.equal(
+    offer.callbackReturnSentinel.address,
+    expected.control.callbackAddress,
+  );
   assert.equal(offer.callbackReturnSentinel.owner, expected.control.owner);
-  assert.equal(offer.processEntryReturnSentinel.id, expected.control.processEntryId);
+  assert.equal(
+    offer.processEntryReturnSentinel.id,
+    expected.control.processEntryId,
+  );
   assert.equal(
     offer.processEntryReturnSentinel.address,
     expected.control.processEntryAddress,
@@ -23692,8 +25757,14 @@ function validateOffer(offer, offerLineBytes) {
     offer.initialThreadStack.stackRange.byteLength,
     genericRuntimeReentry ? expected.stack.reserveBytes : page.size,
   );
-  assert.equal(offer.initialThreadStack.committedRange.start, expected.stack.commitBase);
-  assert.equal(offer.initialThreadStack.committedRange.byteLength, expected.stack.commitBytes);
+  assert.equal(
+    offer.initialThreadStack.committedRange.start,
+    expected.stack.commitBase,
+  );
+  assert.equal(
+    offer.initialThreadStack.committedRange.byteLength,
+    expected.stack.commitBytes,
+  );
   assert.deepEqual(
     offer.initialThreadStack.guardPage,
     genericRuntimeReentry
@@ -23709,8 +25780,14 @@ function validateOffer(offer, offerLineBytes) {
   assert.equal(environment.pebOwner, expected.processEnvironment.pebOwner);
   assert.equal(environment.tebAddress, expected.processEnvironment.tebBase);
   assert.equal(environment.pebAddress, expected.processEnvironment.pebBase);
-  assert.equal(parameters.processParametersOwner, expected.processEnvironment.processParametersOwner);
-  assert.equal(parameters.commandLineOwner, expected.processEnvironment.commandLineOwner);
+  assert.equal(
+    parameters.processParametersOwner,
+    expected.processEnvironment.processParametersOwner,
+  );
+  assert.equal(
+    parameters.commandLineOwner,
+    expected.processEnvironment.commandLineOwner,
+  );
   assert.equal(
     parameters.processParametersAddress,
     expected.processEnvironment.processParametersBase,
@@ -23755,7 +25832,8 @@ function validateOffer(offer, offerLineBytes) {
   }
   if (environmentStringsWEnabled) {
     assert.deepEqual(parameters.environmentStrings, {
-      authorityBufferAddress: expected.processEnvironment.environmentAuthorityBuffer,
+      authorityBufferAddress:
+        expected.processEnvironment.environmentAuthorityBuffer,
       copyBufferAddress: expected.processEnvironment.environmentCopyBuffer,
       byteLengthWithDoubleNul:
         expected.processEnvironment.environmentByteLengthWithDoubleNul,
@@ -23787,9 +25865,14 @@ function validateOffer(offer, offerLineBytes) {
   assert.equal(reflected.pages.length, expected.memory.reflectedPages);
   assert.deepEqual(
     reflected.invalidation,
-    dispatchGetProcAddress ? expected.dynamicExport.invalidation : environment.invalidation,
+    dispatchGetProcAddress
+      ? expected.dynamicExport.invalidation
+      : environment.invalidation,
   );
-  assert.equal(reflectionContentSha256(reflected.pages), reflected.contentSha256);
+  assert.equal(
+    reflectionContentSha256(reflected.pages),
+    reflected.contentSha256,
+  );
   if (expected.reflectionContentSha256 !== null) {
     assert.equal(reflected.contentSha256, expected.reflectionContentSha256);
   }
@@ -23815,14 +25898,23 @@ function validateThunk(thunk, identity, unsupported) {
 
 function validateReflectedLayout(pages) {
   let index = 0;
-  assertReflectedPage(pages[index], expected.stack.base, expected.stack.owner, true, false);
+  assertReflectedPage(
+    pages[index],
+    expected.stack.base,
+    expected.stack.owner,
+    true,
+    false,
+  );
   index += 1;
   let imageReadable = 0;
   let imageWritable = 0;
   let imageExecutable = 0;
   for (let pageIndex = 0; pageIndex < expected.image.pages; pageIndex += 1) {
     const reflected = pages[index];
-    assert.equal(reflected.address, expected.image.loadBase + pageIndex * page.size);
+    assert.equal(
+      reflected.address,
+      expected.image.loadBase + pageIndex * page.size,
+    );
     assert.equal(reflected.owner, expected.image.owner);
     imageReadable += Number(reflected.protection.read);
     imageWritable += Number(reflected.protection.write);
@@ -23832,11 +25924,29 @@ function validateReflectedLayout(pages) {
   assert.equal(imageReadable, expected.image.readablePages);
   assert.equal(imageWritable, expected.image.writablePages);
   assert.equal(imageExecutable, expected.image.executablePages);
-  assertReflectedPage(pages[index], 0x7f000000, expected.imports.owner, false, true);
+  assertReflectedPage(
+    pages[index],
+    0x7f000000,
+    expected.imports.owner,
+    false,
+    true,
+  );
   index += 1;
-  assertReflectedPage(pages[index], 0x7f001000, expected.imports.owner, false, true);
+  assertReflectedPage(
+    pages[index],
+    0x7f001000,
+    expected.imports.owner,
+    false,
+    true,
+  );
   index += 1;
-  assertReflectedPage(pages[index], expected.control.page, expected.control.owner, false, true);
+  assertReflectedPage(
+    pages[index],
+    expected.control.page,
+    expected.control.owner,
+    false,
+    true,
+  );
   index += 1;
   if (dispatchGetProcAddress) {
     assertReflectedPage(
@@ -23886,7 +25996,11 @@ function validateReflectedLayout(pages) {
 function assertReflectedPage(reflected, address, owner, writable, executable) {
   assert.equal(reflected.address, address);
   assert.equal(reflected.owner, owner);
-  assert.deepEqual(reflected.protection, { read: true, write: writable, execute: executable });
+  assert.deepEqual(reflected.protection, {
+    read: true,
+    write: writable,
+    execute: executable,
+  });
 }
 
 async function prepareV86(offer) {
@@ -23925,14 +26039,18 @@ async function prepareV86(offer) {
 
   const hostImportCalls = {};
   const environment = {
-    __indirect_function_table: new WebAssembly.Table({ element: "anyfunc", initial: 1_924 }),
+    __indirect_function_table: new WebAssembly.Table({
+      element: "anyfunc",
+      initial: 1_924,
+    }),
   };
   for (const imported of imports) {
     if (imported.kind !== "function") {
       continue;
     }
     environment[imported.name] = (...args) => {
-      hostImportCalls[imported.name] = (hostImportCalls[imported.name] ?? 0) + 1;
+      hostImportCalls[imported.name] =
+        (hostImportCalls[imported.name] ?? 0) + 1;
       assert.equal(
         imported.name,
         "microtick",
@@ -23943,7 +26061,9 @@ async function prepareV86(offer) {
     };
   }
 
-  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: environment });
+  const { instance } = await WebAssembly.instantiate(wasmBytes, {
+    env: environment,
+  });
   const wasm = instance.exports;
   wasm.rust_init();
   assert.equal(wasm.vine_adapter_abi_version(), 1);
@@ -23969,13 +26089,18 @@ async function prepareV86(offer) {
     const reusable = freePhysicalPages.pop();
     if (reusable !== undefined) {
       physicalMemory.fill(0, reusable, reusable + page.size);
-      const allocation = allocations.find(({ address }) => address === reusable);
+      const allocation = allocations.find(
+        ({ address }) => address === reusable,
+      );
       assert(allocation, "reusable physical page has no allocation record");
       allocation.role = role;
       return reusable;
     }
     for (const excluded of guest.excludedPhysicalRanges) {
-      if (nextPhysicalPage >= excluded.start && nextPhysicalPage < excluded.end) {
+      if (
+        nextPhysicalPage >= excluded.start &&
+        nextPhysicalPage < excluded.end
+      ) {
         nextPhysicalPage = excluded.end;
       }
     }
@@ -24019,7 +26144,10 @@ async function prepareV86(offer) {
   ) => {
     checkedGuestEnd(virtualBase, page.size, role);
     assert.equal(virtualBase & (page.size - 1), 0);
-    assert(!mappings.has(virtualBase), `duplicate mapping 0x${virtualBase.toString(16)}`);
+    assert(
+      !mappings.has(virtualBase),
+      `duplicate mapping 0x${virtualBase.toString(16)}`,
+    );
     assert.equal(bytes.length, page.size, `${role} is not one guest page`);
     const table = ensurePageTable(virtualBase);
     const tableIndex = (virtualBase >>> 12) & 0x3ff;
@@ -24048,8 +26176,17 @@ async function prepareV86(offer) {
       `${role} execute permission was rejected`,
     );
   };
-  const requireRuntimeMapping = (virtualBase, owner, addressAllocationId, label) => {
-    assert.equal(virtualBase & (page.size - 1), 0, `${label} address is not page aligned`);
+  const requireRuntimeMapping = (
+    virtualBase,
+    owner,
+    addressAllocationId,
+    label,
+  ) => {
+    assert.equal(
+      virtualBase & (page.size - 1),
+      0,
+      `${label} address is not page aligned`,
+    );
     const mapping = mappings.get(virtualBase);
     assert(mapping, `${label} targets an unmapped page`);
     assert.equal(mapping.owner, owner, `${label} owner mismatch`);
@@ -24092,7 +26229,12 @@ async function prepareV86(offer) {
     freePhysicalPages.push(physicalBase);
   };
   const unmapRuntimePage = (virtualBase, owner, addressAllocationId, label) => {
-    const mapping = requireRuntimeMapping(virtualBase, owner, addressAllocationId, label);
+    const mapping = requireRuntimeMapping(
+      virtualBase,
+      owner,
+      addressAllocationId,
+      label,
+    );
     writePhysicalU32(mapping.pteAddress, 0, `${label} page table entry`);
     assert.equal(
       wasm.vine_set_page_executable(virtualBase, 0),
@@ -24102,7 +26244,9 @@ async function prepareV86(offer) {
     mappings.delete(virtualBase);
     releasePhysicalPage(mapping.physicalBase);
     const directoryIndex = virtualBase >>> 22;
-    if (![...mappings.keys()].some((address) => address >>> 22 === directoryIndex)) {
+    if (
+      ![...mappings.keys()].some((address) => address >>> 22 === directoryIndex)
+    ) {
       const table = pageTables.get(directoryIndex);
       assert(table !== undefined, `${label} empty directory has no page table`);
       writePhysicalU32(
@@ -24129,13 +26273,16 @@ async function prepareV86(offer) {
     checkedGuestEnd(address, 1, label);
     const virtualBase = (address & ~(page.size - 1)) >>> 0;
     const mapping = mappings.get(virtualBase);
-    assert(mapping, `${label} uses unmapped guest address 0x${address.toString(16)}`);
+    assert(
+      mapping,
+      `${label} uses unmapped guest address 0x${address.toString(16)}`,
+    );
     return mapping;
   };
   const preflightVirtualRange = (address, size, access, label) => {
     const end = checkedGuestEnd(address, size, label);
     const pages = [];
-    for (let current = address; current < end; ) {
+    for (let current = address; current < end;) {
       const virtualBase = (current & ~(page.size - 1)) >>> 0;
       const mapping = mappingFor(current, label);
       assert(mapping.protection[access], `${label} is not guest-${access}able`);
@@ -24154,18 +26301,16 @@ async function prepareV86(offer) {
     for (let index = 0; index < size; index += 1) {
       const current = (address + index) >>> 0;
       const mapping = mappingFor(current, label);
-      bytes[index] = physicalMemory[mapping.physicalBase + (current & (page.size - 1))];
+      bytes[index] =
+        physicalMemory[mapping.physicalBase + (current & (page.size - 1))];
     }
     return bytes;
   };
   const readVirtualU32 = (address, label) => {
     const bytes = readVirtualBytes(address, 4, label);
     return (
-      bytes[0] |
-      (bytes[1] << 8) |
-      (bytes[2] << 16) |
-      (bytes[3] << 24)
-    ) >>> 0;
+      (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24)) >>> 0
+    );
   };
   const readableVirtualByteLength = (address, maximumBytes) => {
     checkedGuestEnd(address, 0, "readable virtual prefix");
@@ -24192,16 +26337,31 @@ async function prepareV86(offer) {
     return readableBytes;
   };
   const applyDirtyPage = (dirty, label) => {
-    assert.equal(dirty.address & (page.size - 1), 0, `${label} address is not page aligned`);
-    assert.equal(dirty.bytes.length, page.size, `${label} is not one guest page`);
+    assert.equal(
+      dirty.address & (page.size - 1),
+      0,
+      `${label} address is not page aligned`,
+    );
+    assert.equal(
+      dirty.bytes.length,
+      page.size,
+      `${label} is not one guest page`,
+    );
     const mapping = mappingFor(dirty.address, label);
     assert.equal(mapping.owner, dirty.owner, `${label} owner changed`);
-    assert.deepEqual(mapping.protection, dirty.protection, `${label} protection changed`);
+    assert.deepEqual(
+      mapping.protection,
+      dirty.protection,
+      `${label} protection changed`,
+    );
     physicalMemory.set(Uint8Array.from(dirty.bytes), mapping.physicalBase);
   };
 
   assert.equal(
-    readVirtualU32(offer.initialThreadStack.initialEsp, "entry return sentinel"),
+    readVirtualU32(
+      offer.initialThreadStack.initialEsp,
+      "entry return sentinel",
+    ),
     expected.control.processEntryAddress,
   );
   wasm.reset_cpu();
@@ -24245,7 +26405,8 @@ async function prepareV86(offer) {
   for (const allocation of allocations) {
     for (const excluded of guest.excludedPhysicalRanges) {
       assert(
-        allocation.address + page.size <= excluded.start || allocation.address >= excluded.end,
+        allocation.address + page.size <= excluded.start ||
+          allocation.address >= excluded.end,
         `${allocation.role} overlaps excluded physical range ${excluded.role}`,
       );
     }
@@ -24287,81 +26448,109 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.equal(receipt.stats.generation, expected.memory.generation);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   assert.equal(receipt.iatValue, expected.imports.first.address);
-  assert.deepEqual(
-    receipt.entryBytes,
-    [...context.readVirtualBytes(expected.image.entry, 16, "entry receipt bytes")],
-  );
-  assert.deepEqual(receipt.thunkBytes, [
-    0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
-    0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+  assert.deepEqual(receipt.entryBytes, [
+    ...context.readVirtualBytes(
+      expected.image.entry,
+      16,
+      "entry receipt bytes",
+    ),
   ]);
+  assert.deepEqual(
+    receipt.thunkBytes,
+    [
+      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      0xf4, 0xf4, 0xf4, 0xf4,
+    ],
+  );
   assert.deepEqual(receipt.callbackReturnBytes, receipt.thunkBytes);
   assert.deepEqual(receipt.processEntryReturnBytes, receipt.thunkBytes);
   if (dispatchGetProcAddress) {
     assert.deepEqual(receipt.dynamicExportBytes, receipt.thunkBytes);
-    assert.deepEqual(
-      receipt.dynamicExportBytes,
-      [...context.readVirtualBytes(expected.dynamicExport.address, 16, "dynamic export bytes")],
-    );
+    assert.deepEqual(receipt.dynamicExportBytes, [
+      ...context.readVirtualBytes(
+        expected.dynamicExport.address,
+        16,
+        "dynamic export bytes",
+      ),
+    ]);
   } else {
     assert.equal(receipt.dynamicExportBytes, undefined);
   }
   if (dispatchGetProcAddressSecond) {
     const expectedPrefix = [
-      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
-      0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
-      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+      0xf4, 0xf4, 0xf4, 0xf4, 0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
       0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
     ];
     if (dispatchGetProcAddressThird) {
       expectedPrefix.push(
-        0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
-        0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+        0x0f,
+        0x0b,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
       );
     }
     if (dispatchGetProcAddressFourth) {
       expectedPrefix.push(
-        0x0f, 0x0b, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
-        0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4, 0xf4,
+        0x0f,
+        0x0b,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
+        0xf4,
       );
     }
     assert.deepEqual(receipt.dynamicExportPagePrefixBytes, expectedPrefix);
   } else {
     assert.equal(receipt.dynamicExportPagePrefixBytes, undefined);
   }
-  assert.deepEqual(receipt.initialStackTopBytes, [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x00, 0x01, 0x7f,
+  assert.deepEqual(
+    receipt.initialStackTopBytes,
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x00, 0x01, 0x7f],
+  );
+  assert.deepEqual(receipt.tebBytes, [
+    ...context.readVirtualBytes(
+      expected.processEnvironment.tebBase,
+      64,
+      "TEB receipt bytes",
+    ),
   ]);
-  assert.deepEqual(
-    receipt.tebBytes,
-    [
-      ...context.readVirtualBytes(
-        expected.processEnvironment.tebBase,
-        64,
-        "TEB receipt bytes",
-      ),
-    ],
-  );
-  assert.deepEqual(
-    receipt.pebBytes,
-    [
-      ...context.readVirtualBytes(
-        expected.processEnvironment.pebBase,
-        64,
-        "PEB receipt bytes",
-      ),
-    ],
-  );
-  assert.deepEqual(
-    receipt.processParametersBytes,
-    [
-      ...context.readVirtualBytes(
-        expected.processEnvironment.processParametersBase,
-        0x48,
-        "process parameters receipt bytes",
-      ),
-    ],
-  );
+  assert.deepEqual(receipt.pebBytes, [
+    ...context.readVirtualBytes(
+      expected.processEnvironment.pebBase,
+      64,
+      "PEB receipt bytes",
+    ),
+  ]);
+  assert.deepEqual(receipt.processParametersBytes, [
+    ...context.readVirtualBytes(
+      expected.processEnvironment.processParametersBase,
+      0x48,
+      "process parameters receipt bytes",
+    ),
+  ]);
   const expectedCommandLineBytes = Buffer.concat([
     Buffer.from(expected.processEnvironment.commandLine, "utf16le"),
     Buffer.from([0, 0]),
@@ -24369,7 +26558,10 @@ function validateReceipt(receipt, offer, context, receiptLineBytes) {
   assert.deepEqual(receipt.commandLineBytes, [...expectedCommandLineBytes]);
   assert.equal(receipt.stop.stage, "adapter-execution");
   assert.equal(receipt.stop.code, "entry-to-first-owned-thunk-pending");
-  assert.equal(offer.reflection.invalidation.generation, receipt.acknowledgedGeneration);
+  assert.equal(
+    offer.reflection.invalidation.generation,
+    receipt.acknowledgedGeneration,
+  );
   assert.equal(receiptLineBytes, expected.receiptLineBytes);
 }
 
@@ -24408,7 +26600,11 @@ async function dispatchFirstSystemTimeCall({
     "GetSystemTimeAsFileTime indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
   assert.equal(callView.getUint32(2, true), expected.terminal.thunk.iatAddress);
   assert.equal(
     context.readVirtualU32(
@@ -24443,7 +26639,10 @@ async function dispatchFirstSystemTimeCall({
   const stackPageContentSha256 = sha256(stackPageBytes);
   const fileTimeBytes = Buffer.alloc(8);
   fileTimeBytes.writeBigUInt64LE(controlledClock.fileTimeTicks);
-  assert.equal(Number(controlledClock.fileTimeTicks & 0xffff_ffffn), controlledClock.fileTimeLow);
+  assert.equal(
+    Number(controlledClock.fileTimeTicks & 0xffff_ffffn),
+    controlledClock.fileTimeLow,
+  );
   assert.equal(
     Number((controlledClock.fileTimeTicks >> 32n) & 0xffff_ffffn),
     controlledClock.fileTimeHigh,
@@ -24470,10 +26669,15 @@ async function dispatchFirstSystemTimeCall({
   };
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
-  assert.equal(Buffer.byteLength(requestLine) - 1, expected.firstCall.requestLineBytes);
+  assert.equal(
+    Buffer.byteLength(requestLine) - 1,
+    expected.firstCall.requestLineBytes,
+  );
   child.stdin.write(requestLine);
 
-  const deltaMessage = await nextMessage("GetSystemTimeAsFileTime memory delta");
+  const deltaMessage = await nextMessage(
+    "GetSystemTimeAsFileTime memory delta",
+  );
   const delta = deltaMessage.message;
   assert.equal(delta.schema, "vine.v86-system-time-delta");
   assert.equal(delta.schemaVersion, 1);
@@ -24514,7 +26718,10 @@ async function dispatchFirstSystemTimeCall({
     instructionFetch: false,
     generatedCode: false,
   });
-  assert.equal(delta.delta.fromGeneration, offer.reflection.invalidation.generation);
+  assert.equal(
+    delta.delta.fromGeneration,
+    offer.reflection.invalidation.generation,
+  );
   assert.equal(delta.delta.generation, expected.firstCall.deltaGeneration);
   assert.equal(delta.delta.pageSize, page.size);
   assert.deepEqual(delta.delta.mappingOperations, []);
@@ -24523,7 +26730,11 @@ async function dispatchFirstSystemTimeCall({
   assert.equal(dirty.address, stackPageAddress);
   assert.equal(dirty.owner, expected.stack.owner);
   assert.equal(dirty.ownerSealed, true);
-  assert.deepEqual(dirty.protection, { read: true, write: true, execute: false });
+  assert.deepEqual(dirty.protection, {
+    read: true,
+    write: true,
+    execute: false,
+  });
   assert.equal(dirty.bytes.length, page.size);
   const expectedStackPage = Uint8Array.from(stackPageBytes);
   expectedStackPage.set(fileTimeBytes, outputOffset);
@@ -24536,7 +26747,10 @@ async function dispatchFirstSystemTimeCall({
   });
   assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
   if (expected.firstCall.deltaContentSha256 !== null) {
-    assert.equal(delta.delta.contentSha256, expected.firstCall.deltaContentSha256);
+    assert.equal(
+      delta.delta.contentSha256,
+      expected.firstCall.deltaContentSha256,
+    );
   }
   if (expected.firstCall.deltaLineBytes !== null) {
     assert.equal(deltaMessage.lineBytes, expected.firstCall.deltaLineBytes);
@@ -24560,7 +26774,9 @@ async function dispatchFirstSystemTimeCall({
   } else {
     child.stdin.end(deltaAcknowledgement);
   }
-  const receiptMessage = await nextMessage("GetSystemTimeAsFileTime delta receipt");
+  const receiptMessage = await nextMessage(
+    "GetSystemTimeAsFileTime delta receipt",
+  );
   const receipt = receiptMessage.message;
   assert.equal(receipt.schema, "vine.v86-system-time-delta-receipt");
   assert.equal(receipt.schemaVersion, 1);
@@ -24572,7 +26788,10 @@ async function dispatchFirstSystemTimeCall({
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.firstCall.deltaReceiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.firstCall.deltaReceiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.firstCall.deltaReceiptLineBytes,
+    );
   }
 
   const resume = resumeVoidStdcall(
@@ -24582,7 +26801,11 @@ async function dispatchFirstSystemTimeCall({
     4,
     "GetSystemTimeAsFileTime",
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.firstCall.nextThunk !== null) {
     validateThunk(
@@ -24590,14 +26813,20 @@ async function dispatchFirstSystemTimeCall({
       expected.firstCall.nextThunk.identity,
       !dispatchProcessId,
     );
-    assert.equal(continuation.instructionCount, expected.firstCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.firstCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.firstCall.executeStops);
     assert.equal(continuation.budgetStops, expected.firstCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.firstCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.firstCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.firstCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -24680,8 +26909,15 @@ async function dispatchSecondProcessIdCall({
     "GetCurrentProcessId indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.firstCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.firstCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.firstCall.nextThunk.identity.iatAddress,
@@ -24716,7 +26952,10 @@ async function dispatchSecondProcessIdCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.secondCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.secondCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.secondCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -24724,7 +26963,9 @@ async function dispatchSecondProcessIdCall({
     child.stdin.end(requestLine);
   }
 
-  const receiptMessage = await nextMessage("GetCurrentProcessId return receipt");
+  const receiptMessage = await nextMessage(
+    "GetCurrentProcessId return receipt",
+  );
   const receipt = receiptMessage.message;
   assert.equal(receipt.schema, "vine.v86-process-id-return-receipt");
   assert.equal(receipt.schemaVersion, 1);
@@ -24749,14 +26990,23 @@ async function dispatchSecondProcessIdCall({
       receipt.stackReconciliation.changedBytes,
       expected.secondCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.secondCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.secondCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.firstCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.firstCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.secondCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.secondCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.secondCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeStdcallResult(
@@ -24766,21 +27016,31 @@ async function dispatchSecondProcessIdCall({
     0,
     controlledProcess.processId,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   if (expected.secondCall.nextThunk !== null) {
     validateThunk(
       continuation.terminal.thunk,
       expected.secondCall.nextThunk.identity,
       !dispatchThreadId,
     );
-    assert.equal(continuation.instructionCount, expected.secondCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.secondCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.secondCall.executeStops);
     assert.equal(continuation.budgetStops, expected.secondCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.secondCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.secondCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.secondCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -24837,8 +27097,15 @@ async function dispatchThirdThreadIdCall({
     "GetCurrentThreadId indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.secondCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.secondCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.secondCall.nextThunk.identity.iatAddress,
@@ -24873,7 +27140,10 @@ async function dispatchThirdThreadIdCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.thirdCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.thirdCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.thirdCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -24906,10 +27176,16 @@ async function dispatchThirdThreadIdCall({
       receipt.stackReconciliation.changedBytes,
       expected.thirdCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.thirdCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.thirdCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.firstCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.firstCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.thirdCall.receiptLineBytes !== null) {
@@ -24922,7 +27198,11 @@ async function dispatchThirdThreadIdCall({
     returnAddress,
     controlledThread.threadId,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.thirdCall.nextThunk !== null) {
     validateThunk(
@@ -24930,14 +27210,20 @@ async function dispatchThirdThreadIdCall({
       expected.thirdCall.nextThunk.identity,
       !dispatchTickCount,
     );
-    assert.equal(continuation.instructionCount, expected.thirdCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.thirdCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.thirdCall.executeStops);
     assert.equal(continuation.budgetStops, expected.thirdCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.thirdCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.thirdCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.thirdCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -24982,7 +27268,10 @@ async function dispatchFourthTickCountCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "GetTickCount return address");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetTickCount return address",
+  );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   const callSite = returnAddress - 6;
   const callBytes = context.readVirtualBytes(
@@ -24991,8 +27280,15 @@ async function dispatchFourthTickCountCall({
     "GetTickCount indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.thirdCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.thirdCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.thirdCall.nextThunk.identity.iatAddress,
@@ -25029,7 +27325,10 @@ async function dispatchFourthTickCountCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.fourthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fourthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.fourthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -25067,14 +27366,23 @@ async function dispatchFourthTickCountCall({
       receipt.stackReconciliation.changedBytes,
       expected.fourthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.fourthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.fourthCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.firstCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.firstCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.firstCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.fourthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.fourthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.fourthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeTickCountStdcallResult(
@@ -25083,7 +27391,11 @@ async function dispatchFourthTickCountCall({
     returnAddress,
     controlledMonotonicClock.tickCount,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.fourthCall.nextThunk !== null) {
     validateThunk(
@@ -25091,14 +27403,20 @@ async function dispatchFourthTickCountCall({
       expected.fourthCall.nextThunk.identity,
       !dispatchPerformanceCounter,
     );
-    assert.equal(continuation.instructionCount, expected.fourthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.fourthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.fourthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.fourthCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.fourthCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.fourthCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.fourthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -25163,8 +27481,15 @@ async function dispatchFifthPerformanceCounterCall({
     "QueryPerformanceCounter indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.fourthCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.fourthCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.fourthCall.nextThunk.identity.iatAddress,
@@ -25229,11 +27554,16 @@ async function dispatchFifthPerformanceCounterCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.fifthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fifthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.fifthCall.requestLineBytes,
+    );
   }
   child.stdin.write(requestLine);
 
-  const deltaMessage = await nextMessage("QueryPerformanceCounter memory delta");
+  const deltaMessage = await nextMessage(
+    "QueryPerformanceCounter memory delta",
+  );
   const delta = deltaMessage.message;
   assert.equal(delta.schema, "vine.v86-performance-counter-delta");
   assert.equal(delta.schemaVersion, 1);
@@ -25245,7 +27575,10 @@ async function dispatchFifthPerformanceCounterCall({
   assert.equal(delta.outputAddress, outputAddress);
   assert.equal(delta.monotonicClockOwner, controlledPerformanceCounter.owner);
   assert.equal(delta.sampleId, controlledPerformanceCounter.sampleId);
-  assert.equal(delta.pairedTickSampleId, controlledPerformanceCounter.pairedTickSampleId);
+  assert.equal(
+    delta.pairedTickSampleId,
+    controlledPerformanceCounter.pairedTickSampleId,
+  );
   assert.equal(delta.counterTicks, String(controlledPerformanceCounter.ticks));
   assert.equal(delta.counterLow, controlledPerformanceCounter.low);
   assert.equal(delta.counterHigh, controlledPerformanceCounter.high);
@@ -25263,7 +27596,10 @@ async function dispatchFifthPerformanceCounterCall({
       delta.stackReconciliation.changedBytes,
       expected.fifthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.fifthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.fifthCall.stackPageContentSha256,
+    );
   }
   assert.equal(delta.write.bytesWritten, 8);
   assert.equal(delta.write.dirtyPages, 1);
@@ -25282,7 +27618,11 @@ async function dispatchFifthPerformanceCounterCall({
   assert.equal(dirty.address, stackPageAddress);
   assert.equal(dirty.owner, expected.stack.owner);
   assert.equal(dirty.ownerSealed, true);
-  assert.deepEqual(dirty.protection, { read: true, write: true, execute: false });
+  assert.deepEqual(dirty.protection, {
+    read: true,
+    write: true,
+    execute: false,
+  });
   assert.equal(dirty.bytes.length, page.size);
   const expectedStackPage = Uint8Array.from(stackPageBytes);
   expectedStackPage.set(counterBytes, outputOffset);
@@ -25295,7 +27635,10 @@ async function dispatchFifthPerformanceCounterCall({
   });
   assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
   if (expected.fifthCall.deltaContentSha256 !== null) {
-    assert.equal(delta.delta.contentSha256, expected.fifthCall.deltaContentSha256);
+    assert.equal(
+      delta.delta.contentSha256,
+      expected.fifthCall.deltaContentSha256,
+    );
   }
   if (expected.fifthCall.deltaLineBytes !== null) {
     assert.equal(deltaMessage.lineBytes, expected.fifthCall.deltaLineBytes);
@@ -25303,7 +27646,13 @@ async function dispatchFifthPerformanceCounterCall({
 
   context.applyDirtyPage(dirty, "QueryPerformanceCounter stack delta");
   assert.deepEqual(
-    [...context.readVirtualBytes(outputAddress, 8, "applied performance-counter output")],
+    [
+      ...context.readVirtualBytes(
+        outputAddress,
+        8,
+        "applied performance-counter output",
+      ),
+    ],
     [...counterBytes],
   );
   const deltaAcknowledgement = `${JSON.stringify({
@@ -25320,7 +27669,9 @@ async function dispatchFifthPerformanceCounterCall({
     child.stdin.end(deltaAcknowledgement);
   }
 
-  const receiptMessage = await nextMessage("QueryPerformanceCounter delta receipt");
+  const receiptMessage = await nextMessage(
+    "QueryPerformanceCounter delta receipt",
+  );
   const receipt = receiptMessage.message;
   assert.equal(receipt.schema, "vine.v86-performance-counter-delta-receipt");
   assert.equal(receipt.schemaVersion, 1);
@@ -25332,7 +27683,10 @@ async function dispatchFifthPerformanceCounterCall({
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.fifthCall.deltaReceiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.fifthCall.deltaReceiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.fifthCall.deltaReceiptLineBytes,
+    );
   }
 
   const resume = resumePerformanceCounterStdcallResult(
@@ -25341,7 +27695,11 @@ async function dispatchFifthPerformanceCounterCall({
     returnAddress,
     1,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.fifthCall.nextThunk !== null) {
     validateThunk(
@@ -25349,14 +27707,20 @@ async function dispatchFifthPerformanceCounterCall({
       expected.fifthCall.nextThunk.identity,
       expected.fifthCall.nextThunk.unsupported,
     );
-    assert.equal(continuation.instructionCount, expected.fifthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.fifthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.fifthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.fifthCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.fifthCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.fifthCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.fifthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -25468,8 +27832,15 @@ async function dispatchSixthStartupInfoCall({
     "GetStartupInfoW indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.fifthCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.fifthCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.fifthCall.nextThunk.identity.iatAddress,
@@ -25502,7 +27873,9 @@ async function dispatchSixthStartupInfoCall({
     "current v86 stack page before STARTUPINFOW write",
   );
   const stackPageContentSha256 = sha256(stackPageBytes);
-  const startupInfoBytes = encodeX86StartupInfoW(controlledProcessStartup.fields);
+  const startupInfoBytes = encodeX86StartupInfoW(
+    controlledProcessStartup.fields,
+  );
   assert.equal(startupInfoBytes.length, controlledProcessStartup.structureSize);
   assert.equal(sha256(startupInfoBytes), expected.sixthCall.outputBytesSha256);
 
@@ -25526,7 +27899,10 @@ async function dispatchSixthStartupInfoCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.sixthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.sixthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.sixthCall.requestLineBytes,
+    );
   }
   child.stdin.write(requestLine);
 
@@ -25559,9 +27935,15 @@ async function dispatchSixthStartupInfoCall({
       delta.stackReconciliation.changedBytes,
       expected.sixthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.sixthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.sixthCall.stackPageContentSha256,
+    );
   }
-  assert.equal(delta.write.bytesWritten, controlledProcessStartup.structureSize);
+  assert.equal(
+    delta.write.bytesWritten,
+    controlledProcessStartup.structureSize,
+  );
   assert.equal(delta.write.dirtyPages, 1);
   assert.deepEqual(delta.write.invalidation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -25578,7 +27960,11 @@ async function dispatchSixthStartupInfoCall({
   assert.equal(dirty.address, stackPageAddress);
   assert.equal(dirty.owner, expected.stack.owner);
   assert.equal(dirty.ownerSealed, true);
-  assert.deepEqual(dirty.protection, { read: true, write: true, execute: false });
+  assert.deepEqual(dirty.protection, {
+    read: true,
+    write: true,
+    execute: false,
+  });
   assert.equal(dirty.bytes.length, page.size);
   const expectedStackPage = Uint8Array.from(stackPageBytes);
   expectedStackPage.set(startupInfoBytes, outputOffset);
@@ -25591,7 +27977,10 @@ async function dispatchSixthStartupInfoCall({
   });
   assert.match(delta.delta.contentSha256, /^[0-9a-f]{64}$/);
   if (expected.sixthCall.deltaContentSha256 !== null) {
-    assert.equal(delta.delta.contentSha256, expected.sixthCall.deltaContentSha256);
+    assert.equal(
+      delta.delta.contentSha256,
+      expected.sixthCall.deltaContentSha256,
+    );
   }
   if (expected.sixthCall.deltaLineBytes !== null) {
     assert.equal(deltaMessage.lineBytes, expected.sixthCall.deltaLineBytes);
@@ -25634,7 +28023,10 @@ async function dispatchSixthStartupInfoCall({
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.sixthCall.deltaReceiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.sixthCall.deltaReceiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.sixthCall.deltaReceiptLineBytes,
+    );
   }
 
   const resume = resumeVoidStdcall(
@@ -25644,7 +28036,11 @@ async function dispatchSixthStartupInfoCall({
     4,
     "GetStartupInfoW",
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.sixthCall.nextThunk !== null) {
     validateThunk(
@@ -25652,14 +28048,20 @@ async function dispatchSixthStartupInfoCall({
       expected.sixthCall.nextThunk.identity,
       expected.sixthCall.nextThunk.unsupported,
     );
-    assert.equal(continuation.instructionCount, expected.sixthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.sixthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.sixthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.sixthCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.sixthCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.sixthCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.sixthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -25755,8 +28157,15 @@ async function dispatchSeventhHeapSetInformationCall({
     "HeapSetInformation indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.sixthCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.sixthCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.sixthCall.nextThunk.identity.iatAddress,
@@ -25796,7 +28205,10 @@ async function dispatchSeventhHeapSetInformationCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.seventhCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.seventhCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.seventhCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -25817,13 +28229,22 @@ async function dispatchSeventhHeapSetInformationCall({
   assert.equal(receipt.policyId, controlledHeapPolicy.policyId);
   assert.equal(receipt.heapHandle, controlledHeapPolicy.heapHandle);
   assert.equal(receipt.informationClass, controlledHeapPolicy.informationClass);
-  assert.equal(receipt.informationAddress, controlledHeapPolicy.informationAddress);
-  assert.equal(receipt.informationLength, controlledHeapPolicy.informationLength);
+  assert.equal(
+    receipt.informationAddress,
+    controlledHeapPolicy.informationAddress,
+  );
+  assert.equal(
+    receipt.informationLength,
+    controlledHeapPolicy.informationLength,
+  );
   assert.equal(
     receipt.terminationOnCorruptionEnabled,
     controlledHeapPolicy.terminationOnCorruptionEnabled,
   );
-  assert.equal(receipt.preserveLastError, controlledHeapPolicy.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledHeapPolicy.preserveLastError,
+  );
   assert.equal(receipt.result, controlledHeapPolicy.result);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -25839,14 +28260,23 @@ async function dispatchSeventhHeapSetInformationCall({
       receipt.stackReconciliation.changedBytes,
       expected.seventhCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.seventhCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.seventhCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.seventhCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.seventhCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.seventhCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeHeapSetInformationStdcallResult(
@@ -25855,7 +28285,11 @@ async function dispatchSeventhHeapSetInformationCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.seventhCall.nextThunk !== null) {
     validateThunk(
@@ -25863,14 +28297,20 @@ async function dispatchSeventhHeapSetInformationCall({
       expected.seventhCall.nextThunk.identity,
       expected.seventhCall.nextThunk.unsupported,
     );
-    assert.equal(continuation.instructionCount, expected.seventhCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.seventhCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.seventhCall.executeStops);
     assert.equal(continuation.budgetStops, expected.seventhCall.budgetStops);
     assert.equal(
       continuation.terminal.returnAddress,
       expected.seventhCall.nextThunk.returnAddress,
     );
-    assert.deepEqual(continuation.terminal.stackWords, expected.seventhCall.nextThunk.stackWords);
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.seventhCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -25925,7 +28365,10 @@ async function dispatchEighthHeapCreateCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "HeapCreate return address");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "HeapCreate return address",
+  );
   const arguments_ = Array.from({ length: 3 }, (_, index) =>
     context.readVirtualU32(
       trapped.esp + 4 + index * 4,
@@ -25940,10 +28383,21 @@ async function dispatchEighthHeapCreateCall({
   ]);
 
   const callSite = returnAddress - 6;
-  const callBytes = context.readVirtualBytes(callSite, 6, "HeapCreate indirect IAT call");
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "HeapCreate indirect IAT call",
+  );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.seventhCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.seventhCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.seventhCall.nextThunk.identity.iatAddress,
@@ -25982,7 +28436,10 @@ async function dispatchEighthHeapCreateCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.eighthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.eighthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.eighthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -26012,7 +28469,10 @@ async function dispatchEighthHeapCreateCall({
     backingMaterialization: controlledPrivateHeap.backingMaterialization,
     liveAllocations: controlledPrivateHeap.liveAllocations,
   });
-  assert.equal(receipt.preserveLastError, controlledPrivateHeap.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledPrivateHeap.preserveLastError,
+  );
   assert.equal(receipt.result, controlledPrivateHeap.handle.value);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -26028,14 +28488,23 @@ async function dispatchEighthHeapCreateCall({
       receipt.stackReconciliation.changedBytes,
       expected.eighthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.eighthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.eighthCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.eighthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.eighthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.eighthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeHeapCreateStdcallResult(
@@ -26044,7 +28513,11 @@ async function dispatchEighthHeapCreateCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.eighthCall.nextThunk !== null) {
     validateThunk(
@@ -26052,11 +28525,20 @@ async function dispatchEighthHeapCreateCall({
       expected.eighthCall.nextThunk.identity,
       expected.eighthCall.nextThunk.unsupported,
     );
-    assert.equal(continuation.instructionCount, expected.eighthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.eighthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.eighthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.eighthCall.budgetStops);
-    assert.equal(continuation.terminal.returnAddress, expected.eighthCall.nextThunk.returnAddress);
-    assert.deepEqual(continuation.terminal.stackWords, expected.eighthCall.nextThunk.stackWords);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.eighthCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.eighthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -26113,7 +28595,8 @@ async function dispatchNinthGetModuleHandleWCall({
     "GetModuleHandleW module name address",
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
-  const moduleNameByteLength = (controlledLoadedModule.requestedName.length + 1) * 2;
+  const moduleNameByteLength =
+    (controlledLoadedModule.requestedName.length + 1) * 2;
   const moduleNamePages = context.preflightVirtualRange(
     moduleNameAddress,
     moduleNameByteLength,
@@ -26128,7 +28611,9 @@ async function dispatchNinthGetModuleHandleWCall({
     "GetModuleHandleW UTF-16 module name bytes",
   );
   assert.deepEqual([...moduleNameBytes.subarray(-2)], [0, 0]);
-  const moduleName = Buffer.from(moduleNameBytes.subarray(0, -2)).toString("utf16le");
+  const moduleName = Buffer.from(moduleNameBytes.subarray(0, -2)).toString(
+    "utf16le",
+  );
   assert.equal(moduleName, controlledLoadedModule.requestedName);
   const moduleNameBytesSha256 = sha256(moduleNameBytes);
 
@@ -26139,8 +28624,15 @@ async function dispatchNinthGetModuleHandleWCall({
     "GetModuleHandleW indirect IAT call",
   );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), expected.eighthCall.nextThunk.identity.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.eighthCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       expected.eighthCall.nextThunk.identity.iatAddress,
@@ -26178,7 +28670,10 @@ async function dispatchNinthGetModuleHandleWCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.ninthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.ninthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.ninthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -26211,7 +28706,10 @@ async function dispatchNinthGetModuleHandleWCall({
     guestImageMaterialization: controlledLoadedModule.guestImageMaterialization,
     exportResolution: controlledLoadedModule.exportResolution,
   });
-  assert.equal(receipt.preserveLastError, controlledLoadedModule.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledLoadedModule.preserveLastError,
+  );
   assert.equal(receipt.result, controlledLoadedModule.handle.value);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -26227,11 +28725,20 @@ async function dispatchNinthGetModuleHandleWCall({
       receipt.stackReconciliation.changedBytes,
       expected.ninthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.ninthCall.stackPageContentSha256);
-    assert.equal(moduleNameBytesSha256, expected.ninthCall.moduleNameBytesSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.ninthCall.stackPageContentSha256,
+    );
+    assert.equal(
+      moduleNameBytesSha256,
+      expected.ninthCall.moduleNameBytesSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.ninthCall.receiptLineBytes !== null) {
@@ -26244,7 +28751,11 @@ async function dispatchNinthGetModuleHandleWCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.ninthCall.nextThunk !== null) {
     validateThunk(
@@ -26252,11 +28763,20 @@ async function dispatchNinthGetModuleHandleWCall({
       expected.ninthCall.nextThunk.identity,
       expected.ninthCall.nextThunk.unsupported,
     );
-    assert.equal(continuation.instructionCount, expected.ninthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.ninthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.ninthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.ninthCall.budgetStops);
-    assert.equal(continuation.terminal.returnAddress, expected.ninthCall.nextThunk.returnAddress);
-    assert.deepEqual(continuation.terminal.stackWords, expected.ninthCall.nextThunk.stackWords);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.ninthCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.ninthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -26308,7 +28828,10 @@ async function dispatchTenthGetProcAddressCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "GetProcAddress return address");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "GetProcAddress return address",
+  );
   const moduleHandle = context.readVirtualU32(
     trapped.esp + 4,
     "GetProcAddress module handle",
@@ -26319,8 +28842,12 @@ async function dispatchTenthGetProcAddressCall({
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(moduleHandle, controlledDynamicExport.moduleHandle.value);
-  assert(procedureNameAddress > 0xffff, "controlled GetProcAddress lookup must be by name");
-  const procedureNameByteLength = controlledDynamicExport.requestedName.length + 1;
+  assert(
+    procedureNameAddress > 0xffff,
+    "controlled GetProcAddress lookup must be by name",
+  );
+  const procedureNameByteLength =
+    controlledDynamicExport.requestedName.length + 1;
   const procedureNamePages = context.preflightVirtualRange(
     procedureNameAddress,
     procedureNameByteLength,
@@ -26335,7 +28862,9 @@ async function dispatchTenthGetProcAddressCall({
     "GetProcAddress ASCII procedure name bytes",
   );
   assert.equal(procedureNameBytes.at(-1), 0);
-  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  const procedureName = Buffer.from(
+    procedureNameBytes.subarray(0, -1),
+  ).toString("ascii");
   assert.equal(procedureName, controlledDynamicExport.requestedName);
   const procedureNameBytesSha256 = sha256(procedureNameBytes);
 
@@ -26351,7 +28880,10 @@ async function dispatchTenthGetProcAddressCall({
     callSequence.byteLength,
   );
   assert.deepEqual([...callSequence.subarray(0, 2)], [0x8b, 0x35]);
-  assert.equal(callView.getUint32(2, true), expected.ninthCall.nextThunk.identity.iatAddress);
+  assert.equal(
+    callView.getUint32(2, true),
+    expected.ninthCall.nextThunk.identity.iatAddress,
+  );
   assert.equal(callSequence[6], 0x68);
   assert.equal(callView.getUint32(7, true), procedureNameAddress);
   assert.equal(callSequence[11], 0x57);
@@ -26396,7 +28928,10 @@ async function dispatchTenthGetProcAddressCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 64 * 1024);
   if (expected.tenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.tenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.tenthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -26429,7 +28964,10 @@ async function dispatchTenthGetProcAddressCall({
     hostAddressImported: controlledDynamicExport.hostAddressImported,
   });
   assert.deepEqual(receipt.endpoint, offer.dynamicExportThunk);
-  assert.equal(receipt.preserveLastError, controlledDynamicExport.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledDynamicExport.preserveLastError,
+  );
   assert.equal(receipt.result, controlledDynamicExport.endpoint.address);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -26445,11 +28983,20 @@ async function dispatchTenthGetProcAddressCall({
       receipt.stackReconciliation.changedBytes,
       expected.tenthCall.reconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.tenthCall.stackPageContentSha256);
-    assert.equal(procedureNameBytesSha256, expected.tenthCall.procedureNameBytesSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.tenthCall.stackPageContentSha256,
+    );
+    assert.equal(
+      procedureNameBytesSha256,
+      expected.tenthCall.procedureNameBytesSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.tenthCall.receiptLineBytes !== null) {
@@ -26462,7 +29009,11 @@ async function dispatchTenthGetProcAddressCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   validateThunk(
     continuation.terminal.thunk,
@@ -26470,11 +29021,20 @@ async function dispatchTenthGetProcAddressCall({
     expected.tenthCall.nextThunk.unsupported,
   );
   if (expected.tenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.tenthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.tenthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.tenthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.tenthCall.budgetStops);
-    assert.equal(continuation.terminal.returnAddress, expected.tenthCall.nextThunk.returnAddress);
-    assert.deepEqual(continuation.terminal.stackWords, expected.tenthCall.nextThunk.stackWords);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.tenthCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.tenthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -26543,8 +29103,12 @@ async function dispatchEleventhGetProcAddressCall({
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(moduleHandle, controlledSecondDynamicExport.moduleHandle.value);
-  assert(procedureNameAddress > 0xffff, "second GetProcAddress lookup must be by name");
-  const procedureNameByteLength = controlledSecondDynamicExport.requestedName.length + 1;
+  assert(
+    procedureNameAddress > 0xffff,
+    "second GetProcAddress lookup must be by name",
+  );
+  const procedureNameByteLength =
+    controlledSecondDynamicExport.requestedName.length + 1;
   const procedureNamePages = context.preflightVirtualRange(
     procedureNameAddress,
     procedureNameByteLength,
@@ -26559,7 +29123,9 @@ async function dispatchEleventhGetProcAddressCall({
     "second GetProcAddress ASCII procedure name bytes",
   );
   assert.equal(procedureNameBytes.at(-1), 0);
-  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  const procedureName = Buffer.from(
+    procedureNameBytes.subarray(0, -1),
+  ).toString("ascii");
   assert.equal(procedureName, controlledSecondDynamicExport.requestedName);
   const procedureNameBytesSha256 = sha256(procedureNameBytes);
 
@@ -26579,7 +29145,10 @@ async function dispatchEleventhGetProcAddressCall({
   assert.equal(callSequence[5], 0x57);
   assert.equal(callSequence[6], 0xa3);
   const firstEndpointStoreAddress = callView.getUint32(7, true);
-  assert.equal(firstEndpointStoreAddress, controlledSecondDynamicExport.firstEndpointStoreAddress);
+  assert.equal(
+    firstEndpointStoreAddress,
+    controlledSecondDynamicExport.firstEndpointStoreAddress,
+  );
   assert.deepEqual([...callSequence.subarray(11, 13)], [0xff, 0xd6]);
   assert.equal(trapped.esi, expected.tenthCall.nextThunk.identity.address);
   assert.equal(
@@ -26603,7 +29172,10 @@ async function dispatchEleventhGetProcAddressCall({
     firstEndpointStoreAddress,
     "stored first dynamic endpoint",
   );
-  assert.equal(firstEndpointStoreValue, controlledDynamicExport.endpoint.address);
+  assert.equal(
+    firstEndpointStoreValue,
+    controlledDynamicExport.endpoint.address,
+  );
   const firstEndpointStorePageAddress =
     (firstEndpointStoreAddress & ~(page.size - 1)) >>> 0;
   const firstEndpointStorePageBytes = context.readVirtualBytes(
@@ -26611,7 +29183,9 @@ async function dispatchEleventhGetProcAddressCall({
     page.size,
     "current v86 first endpoint store page",
   );
-  const firstEndpointStorePageContentSha256 = sha256(firstEndpointStorePageBytes);
+  const firstEndpointStorePageContentSha256 = sha256(
+    firstEndpointStorePageBytes,
+  );
 
   const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
   assert.equal(stackPageAddress, expected.stack.base);
@@ -26652,7 +29226,10 @@ async function dispatchEleventhGetProcAddressCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 96 * 1024);
   if (expected.eleventhCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.eleventhCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.eleventhCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -26660,9 +29237,14 @@ async function dispatchEleventhGetProcAddressCall({
     child.stdin.end(requestLine);
   }
 
-  const receiptMessage = await nextMessage("second GetProcAddress return receipt");
+  const receiptMessage = await nextMessage(
+    "second GetProcAddress return receipt",
+  );
   const receipt = receiptMessage.message;
-  assert.equal(receipt.schema, "vine.v86-get-proc-address-second-return-receipt");
+  assert.equal(
+    receipt.schema,
+    "vine.v86-get-proc-address-second-return-receipt",
+  );
   assert.equal(receipt.schemaVersion, 1);
   validateThunk(receipt.thunk, expected.tenthCall.nextThunk.identity, false);
   assert.equal(receipt.callingConvention, "stdcall");
@@ -26693,7 +29275,10 @@ async function dispatchEleventhGetProcAddressCall({
   assert.equal(receipt.firstEndpointStoreAddress, firstEndpointStoreAddress);
   assert.equal(receipt.firstEndpointStoreValue, firstEndpointStoreValue);
   assert.deepEqual(receipt.endpoint, controlledSecondDynamicExport.endpoint);
-  assert.equal(receipt.preserveLastError, controlledSecondDynamicExport.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledSecondDynamicExport.preserveLastError,
+  );
   assert.equal(receipt.result, controlledSecondDynamicExport.endpoint.address);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -26718,7 +29303,10 @@ async function dispatchEleventhGetProcAddressCall({
       receipt.stackReconciliation.changedBytes,
       expected.eleventhCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.eleventhCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.eleventhCall.stackPageContentSha256,
+    );
     assert.equal(
       receipt.firstEndpointStoreReconciliation.changedBytes,
       expected.eleventhCall.firstEndpointStoreReconciledChangedBytes,
@@ -26733,11 +29321,17 @@ async function dispatchEleventhGetProcAddressCall({
     );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.eleventhCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.eleventhCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.eleventhCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeSecondGetProcAddressStdcallResult(
@@ -26746,7 +29340,11 @@ async function dispatchEleventhGetProcAddressCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   validateThunk(
     continuation.terminal.thunk,
@@ -26757,9 +29355,15 @@ async function dispatchEleventhGetProcAddressCall({
     controlledSecondDynamicExport.endpointStoreAddress,
     "stored second dynamic endpoint",
   );
-  assert.equal(endpointStoreValue, controlledSecondDynamicExport.endpoint.address);
+  assert.equal(
+    endpointStoreValue,
+    controlledSecondDynamicExport.endpoint.address,
+  );
   if (expected.eleventhCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.eleventhCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.eleventhCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.eleventhCall.executeStops);
     assert.equal(continuation.budgetStops, expected.eleventhCall.budgetStops);
     assert.equal(
@@ -26851,8 +29455,12 @@ async function dispatchTwelfthGetProcAddressCall({
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(moduleHandle, controlledThirdDynamicExport.moduleHandle.value);
-  assert(procedureNameAddress > 0xffff, "third GetProcAddress lookup must be by name");
-  const procedureNameByteLength = controlledThirdDynamicExport.requestedName.length + 1;
+  assert(
+    procedureNameAddress > 0xffff,
+    "third GetProcAddress lookup must be by name",
+  );
+  const procedureNameByteLength =
+    controlledThirdDynamicExport.requestedName.length + 1;
   const procedureNamePages = context.preflightVirtualRange(
     procedureNameAddress,
     procedureNameByteLength,
@@ -26867,7 +29475,9 @@ async function dispatchTwelfthGetProcAddressCall({
     "third GetProcAddress ASCII procedure name bytes",
   );
   assert.equal(procedureNameBytes.at(-1), 0);
-  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  const procedureName = Buffer.from(
+    procedureNameBytes.subarray(0, -1),
+  ).toString("ascii");
   assert.equal(procedureName, controlledThirdDynamicExport.requestedName);
   const procedureNameBytesSha256 = sha256(procedureNameBytes);
 
@@ -26918,10 +29528,18 @@ async function dispatchTwelfthGetProcAddressCall({
     controlledThirdDynamicExport.secondEndpointStoreAddress,
     "stored second dynamic endpoint before third lookup",
   );
-  assert.equal(firstEndpointStoreValue, controlledDynamicExport.endpoint.address);
-  assert.equal(secondEndpointStoreValue, controlledSecondDynamicExport.endpoint.address);
+  assert.equal(
+    firstEndpointStoreValue,
+    controlledDynamicExport.endpoint.address,
+  );
+  assert.equal(
+    secondEndpointStoreValue,
+    controlledSecondDynamicExport.endpoint.address,
+  );
   const endpointStorePageAddress =
-    (controlledThirdDynamicExport.firstEndpointStoreAddress & ~(page.size - 1)) >>> 0;
+    (controlledThirdDynamicExport.firstEndpointStoreAddress &
+      ~(page.size - 1)) >>>
+    0;
   const endpointStorePageBytes = context.readVirtualBytes(
     endpointStorePageAddress,
     page.size,
@@ -26963,14 +29581,18 @@ async function dispatchTwelfthGetProcAddressCall({
     procedureName,
     firstEndpointAddress: controlledDynamicExport.endpoint.address,
     secondEndpointAddress: controlledSecondDynamicExport.endpoint.address,
-    firstEndpointStoreAddress: controlledThirdDynamicExport.firstEndpointStoreAddress,
+    firstEndpointStoreAddress:
+      controlledThirdDynamicExport.firstEndpointStoreAddress,
     secondEndpointStoreAddress,
     preserveLastError: controlledThirdDynamicExport.preserveLastError,
   };
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 96 * 1024);
   if (expected.twelfthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.twelfthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.twelfthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -26978,9 +29600,14 @@ async function dispatchTwelfthGetProcAddressCall({
     child.stdin.end(requestLine);
   }
 
-  const receiptMessage = await nextMessage("third GetProcAddress return receipt");
+  const receiptMessage = await nextMessage(
+    "third GetProcAddress return receipt",
+  );
   const receipt = receiptMessage.message;
-  assert.equal(receipt.schema, "vine.v86-get-proc-address-third-return-receipt");
+  assert.equal(
+    receipt.schema,
+    "vine.v86-get-proc-address-third-return-receipt",
+  );
   assert.equal(receipt.schemaVersion, 1);
   validateThunk(receipt.thunk, expected.eleventhCall.nextThunk.identity, false);
   assert.equal(receipt.callingConvention, "stdcall");
@@ -26989,7 +29616,10 @@ async function dispatchTwelfthGetProcAddressCall({
   assert.equal(receipt.returnAddress, returnAddress);
   assert.equal(receipt.procedureNameAddress, procedureNameAddress);
   assert.deepEqual(receipt.procedureNameBytes, [...procedureNameBytes]);
-  assert.equal(receipt.indirectCallRegister, controlledThirdDynamicExport.indirectCallRegister);
+  assert.equal(
+    receipt.indirectCallRegister,
+    controlledThirdDynamicExport.indirectCallRegister,
+  );
   assert.equal(receipt.indirectCallTarget, trapped.esi);
   assert.deepEqual(receipt.resolution, {
     owner: controlledThirdDynamicExport.owner,
@@ -27010,11 +29640,17 @@ async function dispatchTwelfthGetProcAddressCall({
     controlledThirdDynamicExport.firstEndpointStoreAddress,
   );
   assert.equal(receipt.firstEndpointStoreValue, firstEndpointStoreValue);
-  assert.deepEqual(receipt.secondEndpoint, controlledSecondDynamicExport.endpoint);
+  assert.deepEqual(
+    receipt.secondEndpoint,
+    controlledSecondDynamicExport.endpoint,
+  );
   assert.equal(receipt.secondEndpointStoreAddress, secondEndpointStoreAddress);
   assert.equal(receipt.secondEndpointStoreValue, secondEndpointStoreValue);
   assert.deepEqual(receipt.endpoint, controlledThirdDynamicExport.endpoint);
-  assert.equal(receipt.preserveLastError, controlledThirdDynamicExport.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledThirdDynamicExport.preserveLastError,
+  );
   assert.equal(receipt.result, controlledThirdDynamicExport.endpoint.address);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -27039,7 +29675,10 @@ async function dispatchTwelfthGetProcAddressCall({
       receipt.stackReconciliation.changedBytes,
       expected.twelfthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.twelfthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.twelfthCall.stackPageContentSha256,
+    );
     assert.equal(
       receipt.endpointStoreReconciliation.changedBytes,
       expected.twelfthCall.endpointStoreReconciledChangedBytes,
@@ -27048,14 +29687,23 @@ async function dispatchTwelfthGetProcAddressCall({
       endpointStorePageContentSha256,
       expected.twelfthCall.endpointStorePageContentSha256,
     );
-    assert.equal(procedureNameBytesSha256, expected.twelfthCall.procedureNameBytesSha256);
+    assert.equal(
+      procedureNameBytesSha256,
+      expected.twelfthCall.procedureNameBytesSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.twelfthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.twelfthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.twelfthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeThirdGetProcAddressStdcallResult(
@@ -27064,7 +29712,11 @@ async function dispatchTwelfthGetProcAddressCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   validateThunk(
     continuation.terminal.thunk,
@@ -27075,13 +29727,25 @@ async function dispatchTwelfthGetProcAddressCall({
     controlledThirdDynamicExport.endpointStoreAddress,
     "stored third dynamic endpoint",
   );
-  assert.equal(endpointStoreValue, controlledThirdDynamicExport.endpoint.address);
+  assert.equal(
+    endpointStoreValue,
+    controlledThirdDynamicExport.endpoint.address,
+  );
   if (expected.twelfthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.twelfthCall.instructionCount);
+    assert.equal(
+      continuation.instructionCount,
+      expected.twelfthCall.instructionCount,
+    );
     assert.equal(continuation.executeStops, expected.twelfthCall.executeStops);
     assert.equal(continuation.budgetStops, expected.twelfthCall.budgetStops);
-    assert.equal(continuation.terminal.returnAddress, expected.twelfthCall.nextThunk.returnAddress);
-    assert.deepEqual(continuation.terminal.stackWords, expected.twelfthCall.nextThunk.stackWords);
+    assert.equal(
+      continuation.terminal.returnAddress,
+      expected.twelfthCall.nextThunk.returnAddress,
+    );
+    assert.deepEqual(
+      continuation.terminal.stackWords,
+      expected.twelfthCall.nextThunk.stackWords,
+    );
   }
 
   return {
@@ -27167,8 +29831,12 @@ async function dispatchThirteenthGetProcAddressCall({
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(moduleHandle, controlledFourthDynamicExport.moduleHandle.value);
-  assert(procedureNameAddress > 0xffff, "fourth GetProcAddress lookup must be by name");
-  const procedureNameByteLength = controlledFourthDynamicExport.requestedName.length + 1;
+  assert(
+    procedureNameAddress > 0xffff,
+    "fourth GetProcAddress lookup must be by name",
+  );
+  const procedureNameByteLength =
+    controlledFourthDynamicExport.requestedName.length + 1;
   const procedureNamePages = context.preflightVirtualRange(
     procedureNameAddress,
     procedureNameByteLength,
@@ -27183,7 +29851,9 @@ async function dispatchThirteenthGetProcAddressCall({
     "fourth GetProcAddress ASCII procedure name bytes",
   );
   assert.equal(procedureNameBytes.at(-1), 0);
-  const procedureName = Buffer.from(procedureNameBytes.subarray(0, -1)).toString("ascii");
+  const procedureName = Buffer.from(
+    procedureNameBytes.subarray(0, -1),
+  ).toString("ascii");
   assert.equal(procedureName, controlledFourthDynamicExport.requestedName);
   const procedureNameBytesSha256 = sha256(procedureNameBytes);
 
@@ -27238,11 +29908,22 @@ async function dispatchThirteenthGetProcAddressCall({
     controlledFourthDynamicExport.thirdEndpointStoreAddress,
     "stored third dynamic endpoint before fourth lookup",
   );
-  assert.equal(firstEndpointStoreValue, controlledDynamicExport.endpoint.address);
-  assert.equal(secondEndpointStoreValue, controlledSecondDynamicExport.endpoint.address);
-  assert.equal(thirdEndpointStoreValue, controlledThirdDynamicExport.endpoint.address);
+  assert.equal(
+    firstEndpointStoreValue,
+    controlledDynamicExport.endpoint.address,
+  );
+  assert.equal(
+    secondEndpointStoreValue,
+    controlledSecondDynamicExport.endpoint.address,
+  );
+  assert.equal(
+    thirdEndpointStoreValue,
+    controlledThirdDynamicExport.endpoint.address,
+  );
   const endpointStorePageAddress =
-    (controlledFourthDynamicExport.firstEndpointStoreAddress & ~(page.size - 1)) >>> 0;
+    (controlledFourthDynamicExport.firstEndpointStoreAddress &
+      ~(page.size - 1)) >>>
+    0;
   const endpointStorePageBytes = context.readVirtualBytes(
     endpointStorePageAddress,
     page.size,
@@ -27285,15 +29966,20 @@ async function dispatchThirteenthGetProcAddressCall({
     firstEndpointAddress: controlledDynamicExport.endpoint.address,
     secondEndpointAddress: controlledSecondDynamicExport.endpoint.address,
     thirdEndpointAddress: controlledThirdDynamicExport.endpoint.address,
-    firstEndpointStoreAddress: controlledFourthDynamicExport.firstEndpointStoreAddress,
-    secondEndpointStoreAddress: controlledFourthDynamicExport.secondEndpointStoreAddress,
+    firstEndpointStoreAddress:
+      controlledFourthDynamicExport.firstEndpointStoreAddress,
+    secondEndpointStoreAddress:
+      controlledFourthDynamicExport.secondEndpointStoreAddress,
     thirdEndpointStoreAddress,
     preserveLastError: controlledFourthDynamicExport.preserveLastError,
   };
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 96 * 1024);
   if (expected.thirteenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.thirteenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.thirteenthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -27301,9 +29987,14 @@ async function dispatchThirteenthGetProcAddressCall({
     child.stdin.end(requestLine);
   }
 
-  const receiptMessage = await nextMessage("fourth GetProcAddress return receipt");
+  const receiptMessage = await nextMessage(
+    "fourth GetProcAddress return receipt",
+  );
   const receipt = receiptMessage.message;
-  assert.equal(receipt.schema, "vine.v86-get-proc-address-fourth-return-receipt");
+  assert.equal(
+    receipt.schema,
+    "vine.v86-get-proc-address-fourth-return-receipt",
+  );
   assert.equal(receipt.schemaVersion, 1);
   validateThunk(receipt.thunk, expected.twelfthCall.nextThunk.identity, false);
   assert.equal(receipt.callingConvention, "stdcall");
@@ -27312,7 +30003,10 @@ async function dispatchThirteenthGetProcAddressCall({
   assert.equal(receipt.returnAddress, returnAddress);
   assert.equal(receipt.procedureNameAddress, procedureNameAddress);
   assert.deepEqual(receipt.procedureNameBytes, [...procedureNameBytes]);
-  assert.equal(receipt.indirectCallRegister, controlledFourthDynamicExport.indirectCallRegister);
+  assert.equal(
+    receipt.indirectCallRegister,
+    controlledFourthDynamicExport.indirectCallRegister,
+  );
   assert.equal(receipt.indirectCallTarget, trapped.esi);
   assert.deepEqual(receipt.resolution, {
     owner: controlledFourthDynamicExport.owner,
@@ -27333,17 +30027,26 @@ async function dispatchThirteenthGetProcAddressCall({
     controlledFourthDynamicExport.firstEndpointStoreAddress,
   );
   assert.equal(receipt.firstEndpointStoreValue, firstEndpointStoreValue);
-  assert.deepEqual(receipt.secondEndpoint, controlledSecondDynamicExport.endpoint);
+  assert.deepEqual(
+    receipt.secondEndpoint,
+    controlledSecondDynamicExport.endpoint,
+  );
   assert.equal(
     receipt.secondEndpointStoreAddress,
     controlledFourthDynamicExport.secondEndpointStoreAddress,
   );
   assert.equal(receipt.secondEndpointStoreValue, secondEndpointStoreValue);
-  assert.deepEqual(receipt.thirdEndpoint, controlledThirdDynamicExport.endpoint);
+  assert.deepEqual(
+    receipt.thirdEndpoint,
+    controlledThirdDynamicExport.endpoint,
+  );
   assert.equal(receipt.thirdEndpointStoreAddress, thirdEndpointStoreAddress);
   assert.equal(receipt.thirdEndpointStoreValue, thirdEndpointStoreValue);
   assert.deepEqual(receipt.endpoint, controlledFourthDynamicExport.endpoint);
-  assert.equal(receipt.preserveLastError, controlledFourthDynamicExport.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledFourthDynamicExport.preserveLastError,
+  );
   assert.equal(receipt.result, controlledFourthDynamicExport.endpoint.address);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -27368,7 +30071,10 @@ async function dispatchThirteenthGetProcAddressCall({
       receipt.stackReconciliation.changedBytes,
       expected.thirteenthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.thirteenthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.thirteenthCall.stackPageContentSha256,
+    );
     assert.equal(
       receipt.endpointStoreReconciliation.changedBytes,
       expected.thirteenthCall.endpointStoreReconciledChangedBytes,
@@ -27383,11 +30089,17 @@ async function dispatchThirteenthGetProcAddressCall({
     );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.thirteenthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.thirteenthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.thirteenthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeFourthGetProcAddressStdcallResult(
@@ -27396,15 +30108,25 @@ async function dispatchThirteenthGetProcAddressCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   const endpointStoreValue = context.readVirtualU32(
     controlledFourthDynamicExport.endpointStoreAddress,
     "stored fourth dynamic endpoint",
   );
-  assert.equal(endpointStoreValue, controlledFourthDynamicExport.endpoint.address);
+  assert.equal(
+    endpointStoreValue,
+    controlledFourthDynamicExport.endpoint.address,
+  );
   if (expected.thirteenthCall.nextTerminal !== null) {
     if (continueSession) {
-      assert.equal(continuation.terminal.kind, expected.thirteenthCall.nextTerminal.kind);
+      assert.equal(
+        continuation.terminal.kind,
+        expected.thirteenthCall.nextTerminal.kind,
+      );
       const { disposition: _priorDisposition, ...tlsAllocThunkIdentity } =
         expected.thirteenthCall.nextTerminal.thunk;
       validateThunk(continuation.terminal.thunk, tlsAllocThunkIdentity, false);
@@ -27417,12 +30139,21 @@ async function dispatchThirteenthGetProcAddressCall({
         expected.thirteenthCall.nextTerminal.stackWords,
       );
     } else {
-      assert.deepEqual(continuation.terminal, expected.thirteenthCall.nextTerminal);
+      assert.deepEqual(
+        continuation.terminal,
+        expected.thirteenthCall.nextTerminal,
+      );
     }
   }
   if (expected.thirteenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.thirteenthCall.instructionCount);
-    assert.equal(continuation.executeStops, expected.thirteenthCall.executeStops);
+    assert.equal(
+      continuation.instructionCount,
+      expected.thirteenthCall.instructionCount,
+    );
+    assert.equal(
+      continuation.executeStops,
+      expected.thirteenthCall.executeStops,
+    );
     assert.equal(continuation.budgetStops, expected.thirteenthCall.budgetStops);
   }
 
@@ -27499,16 +30230,33 @@ async function dispatchFourteenthTlsAllocCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "TlsAlloc return address");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "TlsAlloc return address",
+  );
   assert.equal(returnAddress, execution.terminal.returnAddress);
 
   const callSite = returnAddress - 6;
-  const callBytes = context.readVirtualBytes(callSite, 6, "TlsAlloc indirect IAT call");
+  const callBytes = context.readVirtualBytes(
+    callSite,
+    6,
+    "TlsAlloc indirect IAT call",
+  );
   assert.deepEqual([...callBytes.subarray(0, 2)], [0xff, 0x15]);
-  const callView = new DataView(callBytes.buffer, callBytes.byteOffset, callBytes.byteLength);
-  assert.equal(callView.getUint32(2, true), execution.terminal.thunk.iatAddress);
+  const callView = new DataView(
+    callBytes.buffer,
+    callBytes.byteOffset,
+    callBytes.byteLength,
+  );
   assert.equal(
-    context.readVirtualU32(execution.terminal.thunk.iatAddress, "TlsAlloc bound IAT"),
+    callView.getUint32(2, true),
+    execution.terminal.thunk.iatAddress,
+  );
+  assert.equal(
+    context.readVirtualU32(
+      execution.terminal.thunk.iatAddress,
+      "TlsAlloc bound IAT",
+    ),
     execution.terminal.thunk.address,
   );
 
@@ -27534,7 +30282,10 @@ async function dispatchFourteenthTlsAllocCall({
     controlledFourthDynamicExport.endpoint.address,
   ];
   const endpointStoreValues = endpointStoreAddresses.map((address, index) => {
-    const value = context.readVirtualU32(address, `stored dynamic endpoint ${index + 1}`);
+    const value = context.readVirtualU32(
+      address,
+      `stored dynamic endpoint ${index + 1}`,
+    );
     assert.equal(value, endpointAddresses[index]);
     return value;
   });
@@ -27588,7 +30339,10 @@ async function dispatchFourteenthTlsAllocCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 96 * 1024);
   if (expected.fourteenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fourteenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.fourteenthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -27616,12 +30370,21 @@ async function dispatchFourteenthTlsAllocCall({
     initializedThreadValues: controlledTlsAllocation.initializedThreadValues,
     backingMaterialization: controlledTlsAllocation.backingMaterialization,
   });
-  assert.equal(receipt.preserveLastError, controlledTlsAllocation.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledTlsAllocation.preserveLastError,
+  );
   assert.equal(receipt.result, controlledTlsAllocation.index.value);
   for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
     const ordinal = ["first", "second", "third", "fourth"][index];
-    assert.equal(receipt[`${ordinal}EndpointStoreAddress`], endpointStoreAddresses[index]);
-    assert.equal(receipt[`${ordinal}EndpointStoreValue`], endpointStoreValues[index]);
+    assert.equal(
+      receipt[`${ordinal}EndpointStoreAddress`],
+      endpointStoreAddresses[index],
+    );
+    assert.equal(
+      receipt[`${ordinal}EndpointStoreValue`],
+      endpointStoreValues[index],
+    );
   }
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -27646,7 +30409,10 @@ async function dispatchFourteenthTlsAllocCall({
       receipt.stackReconciliation.changedBytes,
       expected.fourteenthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.fourteenthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.fourteenthCall.stackPageContentSha256,
+    );
     assert.equal(
       receipt.endpointStoreReconciliation.changedBytes,
       expected.fourteenthCall.endpointStoreReconciledChangedBytes,
@@ -27657,11 +30423,17 @@ async function dispatchFourteenthTlsAllocCall({
     );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.fourteenthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.fourteenthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.fourteenthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeTlsAllocStdcallResult(
@@ -27670,7 +30442,11 @@ async function dispatchFourteenthTlsAllocCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
     assert.equal(
       context.readVirtualU32(
@@ -27682,10 +30458,17 @@ async function dispatchFourteenthTlsAllocCall({
   }
   if (expected.fourteenthCall.nextTerminal !== null) {
     if (continueSession) {
-      assert.equal(continuation.terminal.kind, expected.fourteenthCall.nextTerminal.kind);
+      assert.equal(
+        continuation.terminal.kind,
+        expected.fourteenthCall.nextTerminal.kind,
+      );
       const { disposition: _priorDisposition, ...tlsSetValueThunkIdentity } =
         expected.fourteenthCall.nextTerminal.thunk;
-      validateThunk(continuation.terminal.thunk, tlsSetValueThunkIdentity, false);
+      validateThunk(
+        continuation.terminal.thunk,
+        tlsSetValueThunkIdentity,
+        false,
+      );
       assert.equal(
         continuation.terminal.returnAddress,
         expected.fourteenthCall.nextTerminal.returnAddress,
@@ -27695,12 +30478,21 @@ async function dispatchFourteenthTlsAllocCall({
         expected.fourteenthCall.nextTerminal.stackWords,
       );
     } else {
-      assert.deepEqual(continuation.terminal, expected.fourteenthCall.nextTerminal);
+      assert.deepEqual(
+        continuation.terminal,
+        expected.fourteenthCall.nextTerminal,
+      );
     }
   }
   if (expected.fourteenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.fourteenthCall.instructionCount);
-    assert.equal(continuation.executeStops, expected.fourteenthCall.executeStops);
+    assert.equal(
+      continuation.instructionCount,
+      expected.fourteenthCall.instructionCount,
+    );
+    assert.equal(
+      continuation.executeStops,
+      expected.fourteenthCall.executeStops,
+    );
     assert.equal(continuation.budgetStops, expected.fourteenthCall.budgetStops);
   }
 
@@ -27753,9 +30545,18 @@ async function dispatchFifteenthTlsSetValueCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "TlsSetValue return address");
-  const logicalIndex = context.readVirtualU32(trapped.esp + 4, "TlsSetValue index");
-  const valueAddress = context.readVirtualU32(trapped.esp + 8, "TlsSetValue value");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "TlsSetValue return address",
+  );
+  const logicalIndex = context.readVirtualU32(
+    trapped.esp + 4,
+    "TlsSetValue index",
+  );
+  const valueAddress = context.readVirtualU32(
+    trapped.esp + 8,
+    "TlsSetValue value",
+  );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(logicalIndex, controlledTlsValue.index.value);
   assert.equal(valueAddress, controlledTlsValue.endpoint.address);
@@ -27779,7 +30580,10 @@ async function dispatchFifteenthTlsSetValueCall({
   assert.deepEqual([...callSequence.subarray(7, 9)], [0xff, 0xd6]);
   assert.equal(trapped.esi, execution.terminal.thunk.address);
   assert.equal(
-    context.readVirtualU32(execution.terminal.thunk.iatAddress, "TlsSetValue bound IAT"),
+    context.readVirtualU32(
+      execution.terminal.thunk.iatAddress,
+      "TlsSetValue bound IAT",
+    ),
     execution.terminal.thunk.address,
   );
 
@@ -27811,7 +30615,8 @@ async function dispatchFifteenthTlsSetValueCall({
   const endpointStorePageContentSha256 = sha256(endpointStorePageBytes);
 
   const tlsIndexStoreAddress = 0x100f0764;
-  const tlsIndexStorePageAddress = (tlsIndexStoreAddress & ~(page.size - 1)) >>> 0;
+  const tlsIndexStorePageAddress =
+    (tlsIndexStoreAddress & ~(page.size - 1)) >>> 0;
   const tlsIndexStorePages = context.preflightVirtualRange(
     tlsIndexStoreAddress,
     4,
@@ -27878,7 +30683,10 @@ async function dispatchFifteenthTlsSetValueCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 96 * 1024);
   if (expected.fifteenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.fifteenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.fifteenthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -27947,7 +30755,10 @@ async function dispatchFifteenthTlsSetValueCall({
       receipt.stackReconciliation.changedBytes,
       expected.fifteenthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.fifteenthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.fifteenthCall.stackPageContentSha256,
+    );
     assert.equal(
       receipt.endpointStoreReconciliation.changedBytes,
       expected.fifteenthCall.endpointStoreReconciledChangedBytes,
@@ -27966,11 +30777,17 @@ async function dispatchFifteenthTlsSetValueCall({
     );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.fifteenthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.fifteenthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.fifteenthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeTlsSetValueStdcallResult(
@@ -27979,7 +30796,11 @@ async function dispatchFifteenthTlsSetValueCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
     assert.equal(
       context.readVirtualU32(
@@ -27990,15 +30811,25 @@ async function dispatchFifteenthTlsSetValueCall({
     );
   }
   assert.equal(
-    context.readVirtualU32(tlsIndexStoreAddress, "logical TLS index after TlsSetValue"),
+    context.readVirtualU32(
+      tlsIndexStoreAddress,
+      "logical TLS index after TlsSetValue",
+    ),
     logicalIndex,
   );
   if (expected.fifteenthCall.nextTerminal !== null) {
     if (continueSession) {
-      assert.equal(continuation.terminal.kind, expected.fifteenthCall.nextTerminal.kind);
+      assert.equal(
+        continuation.terminal.kind,
+        expected.fifteenthCall.nextTerminal.kind,
+      );
       const { disposition: _priorDisposition, ...encodePointerThunkIdentity } =
         expected.fifteenthCall.nextTerminal.thunk;
-      validateThunk(continuation.terminal.thunk, encodePointerThunkIdentity, false);
+      validateThunk(
+        continuation.terminal.thunk,
+        encodePointerThunkIdentity,
+        false,
+      );
       assert.equal(
         continuation.terminal.returnAddress,
         expected.fifteenthCall.nextTerminal.returnAddress,
@@ -28008,12 +30839,21 @@ async function dispatchFifteenthTlsSetValueCall({
         expected.fifteenthCall.nextTerminal.stackWords,
       );
     } else {
-      assert.deepEqual(continuation.terminal, expected.fifteenthCall.nextTerminal);
+      assert.deepEqual(
+        continuation.terminal,
+        expected.fifteenthCall.nextTerminal,
+      );
     }
   }
   if (expected.fifteenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.fifteenthCall.instructionCount);
-    assert.equal(continuation.executeStops, expected.fifteenthCall.executeStops);
+    assert.equal(
+      continuation.instructionCount,
+      expected.fifteenthCall.instructionCount,
+    );
+    assert.equal(
+      continuation.executeStops,
+      expected.fifteenthCall.executeStops,
+    );
     assert.equal(continuation.budgetStops, expected.fifteenthCall.budgetStops);
   }
 
@@ -28075,8 +30915,14 @@ async function dispatchSixteenthEncodePointerCall({
   );
   assert.equal(framePages.length, 1);
   assert.equal(framePages[0].owner, expected.stack.owner);
-  const returnAddress = context.readVirtualU32(trapped.esp, "EncodePointer return address");
-  const sourcePointer = context.readVirtualU32(trapped.esp + 4, "EncodePointer source pointer");
+  const returnAddress = context.readVirtualU32(
+    trapped.esp,
+    "EncodePointer return address",
+  );
+  const sourcePointer = context.readVirtualU32(
+    trapped.esp + 4,
+    "EncodePointer source pointer",
+  );
   assert.equal(returnAddress, execution.terminal.returnAddress);
   assert.equal(sourcePointer, controlledEncodedNull.sourcePointer);
 
@@ -28091,9 +30937,15 @@ async function dispatchSixteenthEncodePointerCall({
     callSequence.byteOffset,
     callSequence.byteLength,
   );
-  assert.equal(callView.getUint32(4, true), execution.terminal.thunk.iatAddress);
   assert.equal(
-    context.readVirtualU32(execution.terminal.thunk.iatAddress, "EncodePointer bound IAT"),
+    callView.getUint32(4, true),
+    execution.terminal.thunk.iatAddress,
+  );
+  assert.equal(
+    context.readVirtualU32(
+      execution.terminal.thunk.iatAddress,
+      "EncodePointer bound IAT",
+    ),
     execution.terminal.thunk.address,
   );
 
@@ -28149,7 +31001,10 @@ async function dispatchSixteenthEncodePointerCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 48 * 1024);
   if (expected.sixteenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.sixteenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.sixteenthCall.requestLineBytes,
+    );
   }
   if (continueSession) {
     child.stdin.write(requestLine);
@@ -28176,13 +31031,17 @@ async function dispatchSixteenthEncodePointerCall({
     sourceKind: controlledEncodedNull.sourceKind,
     sourcePointer: controlledEncodedNull.sourcePointer,
     lifetime: controlledEncodedNull.lifetime,
-    processCookieMaterialization: controlledEncodedNull.processCookieMaterialization,
+    processCookieMaterialization:
+      controlledEncodedNull.processCookieMaterialization,
     nativeResultImported: controlledEncodedNull.nativeResultImported,
   };
   assert.deepEqual(receipt.encodedPointer, encodedPointer);
   assert.deepEqual(receipt.preservedTlsSlot, tlsValue.slotAfter);
   assert.deepEqual(receipt.preservedTlsThreadValue, tlsValue.threadValue);
-  assert.equal(receipt.preserveLastError, controlledEncodedNull.preserveLastError);
+  assert.equal(
+    receipt.preserveLastError,
+    controlledEncodedNull.preserveLastError,
+  );
   assert.equal(receipt.result, controlledEncodedNull.value);
   assert.deepEqual(receipt.stackReconciliation, {
     generation: expected.sixthCall.deltaGeneration,
@@ -28197,14 +31056,23 @@ async function dispatchSixteenthEncodePointerCall({
       receipt.stackReconciliation.changedBytes,
       expected.sixteenthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.sixteenthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.sixteenthCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.sixteenthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.sixteenthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.sixteenthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeEncodePointerStdcallResult(
@@ -28213,7 +31081,11 @@ async function dispatchSixteenthEncodePointerCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   for (let index = 0; index < endpointStoreAddresses.length; index += 1) {
     assert.equal(
       context.readVirtualU32(
@@ -28234,11 +31106,20 @@ async function dispatchSixteenthEncodePointerCall({
   assert.deepEqual(receipt.preservedTlsThreadValue, tlsValue.threadValue);
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.sixteenthCall.nextTerminal !== null) {
-    assert.deepEqual(continuation.terminal, expected.sixteenthCall.nextTerminal);
+    assert.deepEqual(
+      continuation.terminal,
+      expected.sixteenthCall.nextTerminal,
+    );
   }
   if (expected.sixteenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.sixteenthCall.instructionCount);
-    assert.equal(continuation.executeStops, expected.sixteenthCall.executeStops);
+    assert.equal(
+      continuation.instructionCount,
+      expected.sixteenthCall.instructionCount,
+    );
+    assert.equal(
+      continuation.executeStops,
+      expected.sixteenthCall.executeStops,
+    );
     assert.equal(continuation.budgetStops, expected.sixteenthCall.budgetStops);
   }
 
@@ -28301,7 +31182,10 @@ async function dispatchSeventeenthEncodePointerCall({
     "second EncodePointer source pointer",
   );
   assert.equal(returnAddress, execution.terminal.returnAddress);
-  assert.equal(sourcePointer, controlledEncodedProcessInitializer.sourcePointer);
+  assert.equal(
+    sourcePointer,
+    controlledEncodedProcessInitializer.sourcePointer,
+  );
 
   const callSequence = context.readVirtualBytes(
     returnAddress - 11,
@@ -28316,7 +31200,10 @@ async function dispatchSeventeenthEncodePointerCall({
   );
   assert.equal(callView.getUint32(1, true), sourcePointer);
   assert.deepEqual([...callSequence.subarray(5, 7)], [0xff, 0x15]);
-  assert.equal(callView.getUint32(7, true), execution.terminal.thunk.iatAddress);
+  assert.equal(
+    callView.getUint32(7, true),
+    execution.terminal.thunk.iatAddress,
+  );
   assert.equal(
     context.readVirtualU32(
       execution.terminal.thunk.iatAddress,
@@ -28332,7 +31219,10 @@ async function dispatchSeventeenthEncodePointerCall({
     "process-initializer source function",
   );
   assert.equal(sourcePages.length, 1);
-  assert.equal(sourcePages[0].address, controlledEncodedProcessInitializer.sourcePageAddress);
+  assert.equal(
+    sourcePages[0].address,
+    controlledEncodedProcessInitializer.sourcePageAddress,
+  );
   assert.equal(sourcePages[0].owner, expected.image.owner);
   assert.equal(sourcePages[0].protection.execute, true);
   const sourceFunctionPrefix = context.readVirtualBytes(
@@ -28371,7 +31261,8 @@ async function dispatchSeventeenthEncodePointerCall({
     controlledTlsValue.index.value,
   );
 
-  const encodedStoreAddress = controlledEncodedProcessInitializer.encodedStoreAddress;
+  const encodedStoreAddress =
+    controlledEncodedProcessInitializer.encodedStoreAddress;
   const encodedStorePages = context.preflightVirtualRange(
     encodedStoreAddress,
     4,
@@ -28384,7 +31275,10 @@ async function dispatchSeventeenthEncodePointerCall({
     encodedStoreAddress,
     "process-initializer encoded pointer before second EncodePointer return",
   );
-  assert.equal(encodedStoreBefore, expected.seventeenthCall.encodedStoreValueBefore);
+  assert.equal(
+    encodedStoreBefore,
+    expected.seventeenthCall.encodedStoreValueBefore,
+  );
 
   const stackPageAddress = (trapped.esp & ~(page.size - 1)) >>> 0;
   assert.equal(stackPageAddress, expected.stack.base);
@@ -28424,15 +31318,24 @@ async function dispatchSeventeenthEncodePointerCall({
   const requestLine = `${JSON.stringify(request)}\n`;
   assert(Buffer.byteLength(requestLine) <= 48 * 1024);
   if (expected.seventeenthCall.requestLineBytes !== null) {
-    assert.equal(Buffer.byteLength(requestLine) - 1, expected.seventeenthCall.requestLineBytes);
+    assert.equal(
+      Buffer.byteLength(requestLine) - 1,
+      expected.seventeenthCall.requestLineBytes,
+    );
   }
   child.stdin.end(requestLine);
 
-  const receiptMessage = await nextMessage("second EncodePointer return receipt");
+  const receiptMessage = await nextMessage(
+    "second EncodePointer return receipt",
+  );
   const receipt = receiptMessage.message;
   assert.equal(receipt.schema, "vine.v86-encode-pointer-second-return-receipt");
   assert.equal(receipt.schemaVersion, 1);
-  validateThunk(receipt.thunk, expected.sixteenthCall.nextTerminal.thunk, false);
+  validateThunk(
+    receipt.thunk,
+    expected.sixteenthCall.nextTerminal.thunk,
+    false,
+  );
   assert.equal(receipt.callingConvention, "stdcall");
   assert.equal(receipt.argumentBytes, argumentBytes);
   assert.equal(receipt.stackPointer, trapped.esp);
@@ -28448,7 +31351,8 @@ async function dispatchSeventeenthEncodePointerCall({
     lifetime: controlledEncodedProcessInitializer.lifetime,
     processCookieMaterialization:
       controlledEncodedProcessInitializer.processCookieMaterialization,
-    nativeResultImported: controlledEncodedProcessInitializer.nativeResultImported,
+    nativeResultImported:
+      controlledEncodedProcessInitializer.nativeResultImported,
   };
   assert.deepEqual(receipt.encodedPointer, encodedPointer);
   assert.deepEqual(receipt.preservedEncodedNull, encodedNull.encodedPointer);
@@ -28472,14 +31376,23 @@ async function dispatchSeventeenthEncodePointerCall({
       receipt.stackReconciliation.changedBytes,
       expected.seventeenthCall.stackReconciledChangedBytes,
     );
-    assert.equal(stackPageContentSha256, expected.seventeenthCall.stackPageContentSha256);
+    assert.equal(
+      stackPageContentSha256,
+      expected.seventeenthCall.stackPageContentSha256,
+    );
   }
   assert.equal(receipt.stats.generation, expected.sixthCall.deltaGeneration);
-  assert.equal(receipt.stats.acknowledgedGeneration, expected.sixthCall.deltaGeneration);
+  assert.equal(
+    receipt.stats.acknowledgedGeneration,
+    expected.sixthCall.deltaGeneration,
+  );
   assert.equal(receipt.stats.dirtyPages, 0);
   assert.equal(receipt.stats.pendingInvalidation, undefined);
   if (expected.seventeenthCall.receiptLineBytes !== null) {
-    assert.equal(receiptMessage.lineBytes, expected.seventeenthCall.receiptLineBytes);
+    assert.equal(
+      receiptMessage.lineBytes,
+      expected.seventeenthCall.receiptLineBytes,
+    );
   }
 
   const resume = resumeSecondEncodePointerStdcallResult(
@@ -28488,7 +31401,11 @@ async function dispatchSeventeenthEncodePointerCall({
     returnAddress,
     receipt.result,
   );
-  const continuation = executeToNextOwnedTrap(offer, context, execution.instructionCount);
+  const continuation = executeToNextOwnedTrap(
+    offer,
+    context,
+    execution.instructionCount,
+  );
   assert.equal(
     context.readVirtualU32(
       encodedStoreAddress,
@@ -28496,7 +31413,8 @@ async function dispatchSeventeenthEncodePointerCall({
     ),
     controlledEncodedProcessInitializer.value,
   );
-  const encodedStorePageAddress = (encodedStoreAddress & ~(page.size - 1)) >>> 0;
+  const encodedStorePageAddress =
+    (encodedStoreAddress & ~(page.size - 1)) >>> 0;
   const encodedStorePageBytes = context.readVirtualBytes(
     encodedStorePageAddress,
     page.size,
@@ -28527,12 +31445,24 @@ async function dispatchSeventeenthEncodePointerCall({
   );
   assert.equal(continuation.terminal.kind, "owned-import-thunk");
   if (expected.seventeenthCall.nextTerminal !== null) {
-    assert.deepEqual(continuation.terminal, expected.seventeenthCall.nextTerminal);
+    assert.deepEqual(
+      continuation.terminal,
+      expected.seventeenthCall.nextTerminal,
+    );
   }
   if (expected.seventeenthCall.instructionCount !== null) {
-    assert.equal(continuation.instructionCount, expected.seventeenthCall.instructionCount);
-    assert.equal(continuation.executeStops, expected.seventeenthCall.executeStops);
-    assert.equal(continuation.budgetStops, expected.seventeenthCall.budgetStops);
+    assert.equal(
+      continuation.instructionCount,
+      expected.seventeenthCall.instructionCount,
+    );
+    assert.equal(
+      continuation.executeStops,
+      expected.seventeenthCall.executeStops,
+    );
+    assert.equal(
+      continuation.budgetStops,
+      expected.seventeenthCall.budgetStops,
+    );
   }
 
   return {
@@ -28659,7 +31589,13 @@ function captureCpuState(context, reason) {
   };
 }
 
-function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes, label) {
+function resumeVoidStdcall(
+  context,
+  trapped,
+  returnAddress,
+  argumentBytes,
+  label,
+) {
   assert.equal(argumentBytes, 4);
   const restored = restoreStdcall(
     context,
@@ -28669,7 +31605,11 @@ function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes, label
     trapped.eax,
     label,
   );
-  assert.equal(restored.resumed.eax, trapped.eax, "void API return must not fabricate EAX");
+  assert.equal(
+    restored.resumed.eax,
+    trapped.eax,
+    "void API return must not fabricate EAX",
+  );
   return {
     callingConvention: "stdcall",
     argumentBytes,
@@ -28682,7 +31622,13 @@ function resumeVoidStdcall(context, trapped, returnAddress, argumentBytes, label
   };
 }
 
-function resumeStdcallResult(context, trapped, returnAddress, argumentBytes, result) {
+function resumeStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  argumentBytes,
+  result,
+) {
   const restored = restoreStdcall(
     context,
     trapped,
@@ -28750,7 +31696,12 @@ function resumeTickCountStdcallResult(context, trapped, returnAddress, result) {
   };
 }
 
-function resumePerformanceCounterStdcallResult(context, trapped, returnAddress, result) {
+function resumePerformanceCounterStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 4;
   const restored = restoreStdcall(
     context,
@@ -28802,7 +31753,12 @@ function resumeHeapSetInformationStdcallResult(
   };
 }
 
-function resumeHeapCreateStdcallResult(context, trapped, returnAddress, result) {
+function resumeHeapCreateStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 12;
   const restored = restoreStdcall(
     context,
@@ -28827,7 +31783,12 @@ function resumeHeapCreateStdcallResult(context, trapped, returnAddress, result) 
   };
 }
 
-function resumeGetModuleHandleWStdcallResult(context, trapped, returnAddress, result) {
+function resumeGetModuleHandleWStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 4;
   const restored = restoreStdcall(
     context,
@@ -28852,7 +31813,12 @@ function resumeGetModuleHandleWStdcallResult(context, trapped, returnAddress, re
   };
 }
 
-function resumeGetProcAddressStdcallResult(context, trapped, returnAddress, result) {
+function resumeGetProcAddressStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 8;
   const restored = restoreStdcall(
     context,
@@ -28993,7 +31959,12 @@ function resumeTlsAllocStdcallResult(context, trapped, returnAddress, result) {
   };
 }
 
-function resumeTlsSetValueStdcallResult(context, trapped, returnAddress, result) {
+function resumeTlsSetValueStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 8;
   const restored = restoreStdcall(
     context,
@@ -29020,7 +31991,12 @@ function resumeTlsSetValueStdcallResult(context, trapped, returnAddress, result)
   };
 }
 
-function resumeEncodePointerStdcallResult(context, trapped, returnAddress, result) {
+function resumeEncodePointerStdcallResult(
+  context,
+  trapped,
+  returnAddress,
+  result,
+) {
   const argumentBytes = 4;
   const restored = restoreStdcall(
     context,
@@ -29042,7 +32018,8 @@ function resumeEncodePointerStdcallResult(context, trapped, returnAddress, resul
     resultSource: controlledEncodedNull.owner,
     encodedPointerNamespace: controlledEncodedNull.namespace,
     sourceKind: controlledEncodedNull.sourceKind,
-    processCookieMaterialization: controlledEncodedNull.processCookieMaterialization,
+    processCookieMaterialization:
+      controlledEncodedNull.processCookieMaterialization,
     lastErrorPolicy: "preserve-existing-thread-last-error-unmodeled",
   };
 }
@@ -29081,7 +32058,14 @@ function resumeSecondEncodePointerStdcallResult(
   };
 }
 
-function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, label) {
+function restoreStdcall(
+  context,
+  trapped,
+  returnAddress,
+  argumentBytes,
+  eax,
+  label,
+) {
   context.wasm.vine_cpu_state_save();
   const words = new Uint32Array(
     context.wasm.memory.buffer,
@@ -29089,10 +32073,17 @@ function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, lab
     context.wasm.vine_cpu_state_size() / 4,
   );
   assert.equal(words[stateWord.instructionPointer], trapped.instructionPointer);
-  assert.equal(words[stateWord.previousInstructionPointer], trapped.previousInstructionPointer);
+  assert.equal(
+    words[stateWord.previousInstructionPointer],
+    trapped.previousInstructionPointer,
+  );
   assert.equal(words[stateWord.esp], trapped.esp);
   assert.equal(words[stateWord.eax], trapped.eax);
-  const resumedEsp = checkedGuestEnd(trapped.esp, 4 + argumentBytes, `${label} stdcall cleanup`);
+  const resumedEsp = checkedGuestEnd(
+    trapped.esp,
+    4 + argumentBytes,
+    `${label} stdcall cleanup`,
+  );
   words[stateWord.eax] = eax >>> 0;
   words[stateWord.esp] = resumedEsp;
   words[stateWord.instructionPointer] = returnAddress;
@@ -29107,9 +32098,15 @@ function restoreStdcall(context, trapped, returnAddress, argumentBytes, eax, lab
 }
 
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
-  const instructionBudget = sourceFileReadEnabled ? 256 : guest.instructionBudget;
-  const maximumExecuteStops = sourceFileReadEnabled ? 39_063 : guest.maximumExecuteStops;
-  const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  const instructionBudget = sourceFileReadEnabled
+    ? 256
+    : guest.instructionBudget;
+  const maximumExecuteStops = sourceFileReadEnabled
+    ? 39_063
+    : guest.maximumExecuteStops;
+  const thunksByAddress = new Map(
+    offer.thunks.map((thunk) => [thunk.address, thunk]),
+  );
   const dynamicExportThunks =
     offer.dynamicExportThunks ??
     (offer.dynamicExportThunk === undefined ? [] : [offer.dynamicExportThunk]);
@@ -29156,7 +32153,8 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     executeStops,
     budgetStops,
     initialInstructionCount,
-    additionalInstructionCount: finalState.instructionCount - initialInstructionCount,
+    additionalInstructionCount:
+      finalState.instructionCount - initialInstructionCount,
     instructionCount: finalState.instructionCount,
     finalState,
     terminal,
@@ -29207,9 +32205,12 @@ function buildFirstSystemTimeReport({
     },
     imports: {
       total: offer.thunks.length,
-      declared: offer.thunks.filter(({ disposition }) => disposition === undefined).length,
-      unsupported: offer.thunks.filter(({ disposition }) => disposition === "unsupported-trap")
-        .length,
+      declared: offer.thunks.filter(
+        ({ disposition }) => disposition === undefined,
+      ).length,
+      unsupported: offer.thunks.filter(
+        ({ disposition }) => disposition === "unsupported-trap",
+      ).length,
       first: offer.thunks[0],
       supportedSystemTime: offer.thunks[expected.terminal.thunk.id - 1],
       last: offer.thunks.at(-1),
@@ -29220,7 +32221,10 @@ function buildFirstSystemTimeReport({
       excludedPhysicalRanges: guest.excludedPhysicalRanges,
       pageDirectory: context.pageDirectory,
       pageTables: [...context.pageTables.entries()].map(
-        ([directoryIndex, physicalAddress]) => ({ directoryIndex, physicalAddress }),
+        ([directoryIndex, physicalAddress]) => ({
+          directoryIndex,
+          physicalAddress,
+        }),
       ),
       allocatedPages: context.allocations.length,
       reflectedPageAllocations: context.allocations.filter(({ role }) =>
@@ -29259,9 +32263,13 @@ function buildFirstSystemTimeReport({
   };
 }
 
-function buildSecondProcessIdReport({ processIdentity, ...firstCallArguments }) {
+function buildSecondProcessIdReport({
+  processIdentity,
+  ...firstCallArguments
+}) {
   const firstCall = buildFirstSystemTimeReport(firstCallArguments);
-  const { oneSupportedServiceDispatch: _firstCallOnly, ...sharedContract } = firstCall.contract;
+  const { oneSupportedServiceDispatch: _firstCallOnly, ...sharedContract } =
+    firstCall.contract;
   return {
     schema: "vine.v86-bgi-second-win32-call",
     schemaVersion: 1,
@@ -29276,7 +32284,9 @@ function buildSecondProcessIdReport({ processIdentity, ...firstCallArguments }) 
     imports: {
       ...firstCall.imports,
       supportedProcessId:
-        firstCallArguments.offer.thunks[expected.firstCall.nextThunk.identity.id - 1],
+        firstCallArguments.offer.thunks[
+          expected.firstCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: firstCall.adapter,
     reflection: firstCall.reflection,
@@ -29315,7 +32325,9 @@ function buildThirdThreadIdReport({ threadIdentity, ...secondCallArguments }) {
     imports: {
       ...secondCall.imports,
       supportedThreadId:
-        secondCallArguments.offer.thunks[expected.secondCall.nextThunk.identity.id - 1],
+        secondCallArguments.offer.thunks[
+          expected.secondCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: secondCall.adapter,
     reflection: secondCall.reflection,
@@ -29357,7 +32369,9 @@ function buildFourthTickCountReport({ monotonicClock, ...thirdCallArguments }) {
     imports: {
       ...thirdCall.imports,
       supportedTickCount:
-        thirdCallArguments.offer.thunks[expected.thirdCall.nextThunk.identity.id - 1],
+        thirdCallArguments.offer.thunks[
+          expected.thirdCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: thirdCall.adapter,
     reflection: thirdCall.reflection,
@@ -29384,7 +32398,10 @@ function buildFourthTickCountReport({ monotonicClock, ...thirdCallArguments }) {
   };
 }
 
-function buildFifthPerformanceCounterReport({ performanceCounter, ...fourthCallArguments }) {
+function buildFifthPerformanceCounterReport({
+  performanceCounter,
+  ...fourthCallArguments
+}) {
   const fourthCall = buildFourthTickCountReport(fourthCallArguments);
   return {
     schema: "vine.v86-bgi-fifth-win32-call",
@@ -29400,7 +32417,9 @@ function buildFifthPerformanceCounterReport({ performanceCounter, ...fourthCallA
     imports: {
       ...fourthCall.imports,
       supportedPerformanceCounter:
-        fourthCallArguments.offer.thunks[expected.fourthCall.nextThunk.identity.id - 1],
+        fourthCallArguments.offer.thunks[
+          expected.fourthCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: fourthCall.adapter,
     reflection: fourthCall.reflection,
@@ -29430,7 +32449,10 @@ function buildFifthPerformanceCounterReport({ performanceCounter, ...fourthCallA
   };
 }
 
-function buildSixthStartupInfoReport({ processStartup, ...fifthCallArguments }) {
+function buildSixthStartupInfoReport({
+  processStartup,
+  ...fifthCallArguments
+}) {
   const fifthCall = buildFifthPerformanceCounterReport(fifthCallArguments);
   return {
     schema: "vine.v86-bgi-sixth-win32-call",
@@ -29447,7 +32469,9 @@ function buildSixthStartupInfoReport({ processStartup, ...fifthCallArguments }) 
     imports: {
       ...fifthCall.imports,
       supportedStartupInfo:
-        fifthCallArguments.offer.thunks[expected.fifthCall.nextThunk.identity.id - 1],
+        fifthCallArguments.offer.thunks[
+          expected.fifthCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: fifthCall.adapter,
     reflection: fifthCall.reflection,
@@ -29479,7 +32503,10 @@ function buildSixthStartupInfoReport({ processStartup, ...fifthCallArguments }) 
   };
 }
 
-function buildSeventhHeapSetInformationReport({ heapPolicy, ...sixthCallArguments }) {
+function buildSeventhHeapSetInformationReport({
+  heapPolicy,
+  ...sixthCallArguments
+}) {
   const sixthCall = buildSixthStartupInfoReport(sixthCallArguments);
   return {
     schema: "vine.v86-bgi-seventh-win32-call",
@@ -29496,7 +32523,9 @@ function buildSeventhHeapSetInformationReport({ heapPolicy, ...sixthCallArgument
     imports: {
       ...sixthCall.imports,
       supportedHeapSetInformation:
-        sixthCallArguments.offer.thunks[expected.sixthCall.nextThunk.identity.id - 1],
+        sixthCallArguments.offer.thunks[
+          expected.sixthCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: sixthCall.adapter,
     reflection: sixthCall.reflection,
@@ -29530,7 +32559,8 @@ function buildSeventhHeapSetInformationReport({ heapPolicy, ...sixthCallArgument
 }
 
 function buildEighthHeapCreateReport({ privateHeap, ...seventhCallArguments }) {
-  const seventhCall = buildSeventhHeapSetInformationReport(seventhCallArguments);
+  const seventhCall =
+    buildSeventhHeapSetInformationReport(seventhCallArguments);
   return {
     schema: "vine.v86-bgi-eighth-win32-call",
     schemaVersion: 1,
@@ -29546,7 +32576,9 @@ function buildEighthHeapCreateReport({ privateHeap, ...seventhCallArguments }) {
     imports: {
       ...seventhCall.imports,
       supportedHeapCreate:
-        seventhCallArguments.offer.thunks[expected.seventhCall.nextThunk.identity.id - 1],
+        seventhCallArguments.offer.thunks[
+          expected.seventhCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: seventhCall.adapter,
     reflection: seventhCall.reflection,
@@ -29581,7 +32613,10 @@ function buildEighthHeapCreateReport({ privateHeap, ...seventhCallArguments }) {
   };
 }
 
-function buildNinthGetModuleHandleWReport({ loadedModule, ...eighthCallArguments }) {
+function buildNinthGetModuleHandleWReport({
+  loadedModule,
+  ...eighthCallArguments
+}) {
   const eighthCall = buildEighthHeapCreateReport(eighthCallArguments);
   return {
     schema: "vine.v86-bgi-ninth-win32-call",
@@ -29591,14 +32626,17 @@ function buildNinthGetModuleHandleWReport({ loadedModule, ...eighthCallArguments
     contract: {
       ...eighthCall.contract,
       loadedModuleOwner: controlledLoadedModule.owner,
-      logicalLoadedModuleHandleNamespace: controlledLoadedModule.handle.namespace,
+      logicalLoadedModuleHandleNamespace:
+        controlledLoadedModule.handle.namespace,
       supportedServiceDispatches: 9,
     },
     bootstrap: eighthCall.bootstrap,
     imports: {
       ...eighthCall.imports,
       supportedGetModuleHandleW:
-        eighthCallArguments.offer.thunks[expected.eighthCall.nextThunk.identity.id - 1],
+        eighthCallArguments.offer.thunks[
+          expected.eighthCall.nextThunk.identity.id - 1
+        ],
     },
     adapter: eighthCall.adapter,
     reflection: eighthCall.reflection,
@@ -29635,7 +32673,10 @@ function buildNinthGetModuleHandleWReport({ loadedModule, ...eighthCallArguments
   };
 }
 
-function buildTenthGetProcAddressReport({ dynamicExport, ...ninthCallArguments }) {
+function buildTenthGetProcAddressReport({
+  dynamicExport,
+  ...ninthCallArguments
+}) {
   const ninthCall = buildNinthGetModuleHandleWReport(ninthCallArguments);
   return {
     schema: "vine.v86-bgi-tenth-win32-call",
@@ -29645,7 +32686,8 @@ function buildTenthGetProcAddressReport({ dynamicExport, ...ninthCallArguments }
     contract: {
       ...ninthCall.contract,
       dynamicExportOwner: controlledDynamicExport.owner,
-      dynamicExportEndpointNamespace: controlledDynamicExport.endpoint.namespace,
+      dynamicExportEndpointNamespace:
+        controlledDynamicExport.endpoint.namespace,
       hostFunctionAddressImported: false,
       supportedServiceDispatches: 10,
     },
@@ -29653,7 +32695,9 @@ function buildTenthGetProcAddressReport({ dynamicExport, ...ninthCallArguments }
     imports: {
       ...ninthCall.imports,
       supportedGetProcAddress:
-        ninthCallArguments.offer.thunks[expected.ninthCall.nextThunk.identity.id - 1],
+        ninthCallArguments.offer.thunks[
+          expected.ninthCall.nextThunk.identity.id - 1
+        ],
     },
     dynamicExportEndpoint: ninthCallArguments.offer.dynamicExportThunk,
     adapter: ninthCall.adapter,
@@ -29886,8 +32930,13 @@ function buildThirteenthGetProcAddressReport({
   };
 }
 
-function buildFourteenthTlsAllocReport({ tlsAllocation, ...thirteenthCallArguments }) {
-  const thirteenthCall = buildThirteenthGetProcAddressReport(thirteenthCallArguments);
+function buildFourteenthTlsAllocReport({
+  tlsAllocation,
+  ...thirteenthCallArguments
+}) {
+  const thirteenthCall = buildThirteenthGetProcAddressReport(
+    thirteenthCallArguments,
+  );
   return {
     ...thirteenthCall,
     schema: "vine.v86-bgi-fourteenth-win32-call",
@@ -29923,7 +32972,10 @@ function buildFourteenthTlsAllocReport({ tlsAllocation, ...thirteenthCallArgumen
   };
 }
 
-function buildFifteenthTlsSetValueReport({ tlsValue, ...fourteenthCallArguments }) {
+function buildFifteenthTlsSetValueReport({
+  tlsValue,
+  ...fourteenthCallArguments
+}) {
   const fourteenthCall = buildFourteenthTlsAllocReport(fourteenthCallArguments);
   return {
     ...fourteenthCall,
@@ -29963,7 +33015,10 @@ function buildFifteenthTlsSetValueReport({ tlsValue, ...fourteenthCallArguments 
   };
 }
 
-function buildSixteenthEncodePointerReport({ encodedNull, ...fifteenthCallArguments }) {
+function buildSixteenthEncodePointerReport({
+  encodedNull,
+  ...fifteenthCallArguments
+}) {
   const fifteenthCall = buildFifteenthTlsSetValueReport(fifteenthCallArguments);
   return {
     ...fifteenthCall,
@@ -30008,7 +33063,9 @@ function buildSeventeenthEncodePointerReport({
   encodedProcessInitializer,
   ...sixteenthCallArguments
 }) {
-  const sixteenthCall = buildSixteenthEncodePointerReport(sixteenthCallArguments);
+  const sixteenthCall = buildSixteenthEncodePointerReport(
+    sixteenthCallArguments,
+  );
   return {
     ...sixteenthCall,
     schema: "vine.v86-bgi-seventeenth-win32-call",
@@ -30016,7 +33073,8 @@ function buildSeventeenthEncodePointerReport({
       ...sixteenthCall.contract,
       encodedPointerCount: 2,
       encodedProcessInitializerToken: controlledEncodedProcessInitializer.value,
-      processInitializerSourceRole: controlledEncodedProcessInitializer.sourceRole,
+      processInitializerSourceRole:
+        controlledEncodedProcessInitializer.sourceRole,
       executableSourceValidated: true,
       encodedResultGuestStoreObserved: true,
       nativeProcessCookieImported: false,
@@ -30028,7 +33086,8 @@ function buildSeventeenthEncodePointerReport({
       encodedPointer: encodedProcessInitializer.encodedPointer,
       preservedEncodedNull: encodedProcessInitializer.preservedEncodedNull,
       preservedTlsSlot: encodedProcessInitializer.preservedTlsSlot,
-      preservedTlsThreadValue: encodedProcessInitializer.preservedTlsThreadValue,
+      preservedTlsThreadValue:
+        encodedProcessInitializer.preservedTlsThreadValue,
       encodedStore: encodedProcessInitializer.encodedStore,
       nativeObservation: encodedProcessInitializer.nativeObservation,
       receipt: encodedProcessInitializer.receipt,
@@ -30045,7 +33104,9 @@ function buildSeventeenthEncodePointerReport({
 }
 
 function executeToFirstOwnedTrap(offer, context) {
-  const thunksByAddress = new Map(offer.thunks.map((thunk) => [thunk.address, thunk]));
+  const thunksByAddress = new Map(
+    offer.thunks.map((thunk) => [thunk.address, thunk]),
+  );
   const dynamicExportThunks =
     offer.dynamicExportThunks ??
     (offer.dynamicExportThunk === undefined ? [] : [offer.dynamicExportThunk]);
@@ -30113,7 +33174,10 @@ function executeToFirstOwnedTrap(offer, context) {
     );
     break;
   }
-  assert(terminal, "BGI exhausted its bounded execution window without a terminal stop");
+  assert(
+    terminal,
+    "BGI exhausted its bounded execution window without a terminal stop",
+  );
   return {
     instructionBudget: guest.instructionBudget,
     maximumExecuteStops: guest.maximumExecuteStops,
@@ -30153,7 +33217,10 @@ function classifyTerminal(
 ) {
   if (state.reason === stopReason.invalidOpcode) {
     const thunk = thunksByAddress.get(state.instructionPointer);
-    if (thunk !== undefined && state.previousInstructionPointer === thunk.address) {
+    if (
+      thunk !== undefined &&
+      state.previousInstructionPointer === thunk.address
+    ) {
       const stackWords = readTrapStackPrefix(context, state.esp, "trap");
       return {
         kind: "owned-import-thunk",
@@ -30163,8 +33230,15 @@ function classifyTerminal(
       };
     }
     const endpoint = dynamicExportsByAddress.get(state.instructionPointer);
-    if (endpoint !== undefined && state.previousInstructionPointer === endpoint.address) {
-      const stackWords = readTrapStackPrefix(context, state.esp, "dynamic trap");
+    if (
+      endpoint !== undefined &&
+      state.previousInstructionPointer === endpoint.address
+    ) {
+      const stackWords = readTrapStackPrefix(
+        context,
+        state.esp,
+        "dynamic trap",
+      );
       return {
         kind: "owned-dynamic-export-thunk",
         endpoint,
@@ -30198,7 +33272,10 @@ function classifyTerminal(
       }
     }
     const sentinel = sentinelsByAddress.get(state.instructionPointer);
-    if (sentinel !== undefined && state.previousInstructionPointer === state.instructionPointer) {
+    if (
+      sentinel !== undefined &&
+      state.previousInstructionPointer === state.instructionPointer
+    ) {
       return { kind: sentinel, address: state.instructionPointer };
     }
     return {
@@ -30236,11 +33313,17 @@ function classifyTerminal(
 
 function readTrapStackPrefix(context, stackPointer, label) {
   const maximumWords = 8;
-  const readableBytes = context.readableVirtualByteLength(stackPointer, maximumWords * 4);
+  const readableBytes = context.readableVirtualByteLength(
+    stackPointer,
+    maximumWords * 4,
+  );
   const wordCount = Math.floor(readableBytes / 4);
   assert(wordCount >= 1, `${label} has no readable return address`);
   return Array.from({ length: wordCount }, (_, index) =>
-    context.readVirtualU32(stackPointer + index * 4, `${label} stack word ${index}`),
+    context.readVirtualU32(
+      stackPointer + index * 4,
+      `${label} stack word ${index}`,
+    ),
   );
 }
 
