@@ -2027,7 +2027,6 @@
       "nextFaultCode": "com-method-unsupported",
       "nextEndpointAddress": "0x010112e0",
       "nextArguments": [
-        "0x01010004",
         "0x00000000",
         "0x00000000",
         "0x00000001",
@@ -12613,7 +12612,6 @@
       "firstStructuredStopThisPointer": "0x01010004",
       "firstStructuredStopIatAddress": null,
       "firstStructuredStopArguments": [
-        "0x01010004",
         "0x00000000",
         "0x00000000",
         "0x00000001",
@@ -12770,7 +12768,6 @@
     "vtableSlot": 43,
     "method": "Clear",
     "arguments": [
-      "0x01010004",
       "0x00000000",
       "0x00000000",
       "0x00000001",

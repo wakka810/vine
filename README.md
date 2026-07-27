@@ -18,7 +18,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::Clear(0x01010004, 0x00000000, 0x00000000, 0x00000001, 0xff000000, 0x3f800000, 0x00000000)` at instruction 28761128: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::Clear(0x00000000, 0x00000000, 0x00000001, 0xff000000, 0x3f800000, 0x00000000)` at instruction 28761128: `com-method-unsupported` |
 
 The active semantic report is 538,382 bytes with SHA-256
 `1ec6031d0e51fe906320735b9d2791a3be4028d705ed9374651e4a4261e01a24`. The hash identifies the artifact; semantic checks are the gate.
