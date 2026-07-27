@@ -74,7 +74,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const d3d9RecreatedTexturesProfile =
+  bgiProfile === "d3d9-recreated-textures";
 const setWindowPosRepeatActivationProfile =
+  d3d9RecreatedTexturesProfile ||
   bgiProfile === "user32-set-window-pos-repeat-activation";
 const createDirectoryAProfile =
   setWindowPosRepeatActivationProfile ||
@@ -88,7 +91,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v25";
+const runtimeProtocol = "vine.browser-runtime-worker.v26";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -625,6 +628,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
+        "d3d9-recreated-textures",
       ].includes(bgiProfile) &&
         scenario === "success"
         ? [8192, 8193]
@@ -648,6 +652,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
+        "d3d9-recreated-textures",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -670,8 +675,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
+        "d3d9-recreated-textures",
       ].includes(bgiProfile) && scenario === "success"
-        ? createDirectoryAProfile
+        ? d3d9RecreatedTexturesProfile
+          ? 2_010
+          : createDirectoryAProfile
           ? 1_526
           : getFileAttributesAProfile
           ? 1_518
@@ -737,10 +745,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
         || bgiProfile === "kernel32-create-directory-a"
-        || bgiProfile === "user32-set-window-pos-repeat-activation"
+        || setWindowPosRepeatActivationProfile
       ) {
         const pacingCount =
-          createDirectoryAProfile
+          d3d9RecreatedTexturesProfile
+            ? 9_186
+            : createDirectoryAProfile
             ? 6_974
             : getFileAttributesAProfile
             ? 6_937
@@ -774,7 +784,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-global-memory-status"
         || bgiProfile === "kernel32-get-file-attributes-a"
         || bgiProfile === "kernel32-create-directory-a"
-        || bgiProfile === "user32-set-window-pos-repeat-activation"
+        || setWindowPosRepeatActivationProfile
       ) {
         const dragAcceptFiles = evidence.report.dragAcceptFiles;
         assert(dragAcceptFiles !== null, "Chrome Worker omitted DragAcceptFiles evidence");
@@ -878,7 +888,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       ) {
         const sleepZero = evidence.report.sleepZero;
         assert(sleepZero !== null, "Chrome Worker omitted Sleep(0) evidence");
-        assert.equal(sleepZero.callCount, 240);
+        assert.equal(
+          sleepZero.callCount,
+          d3d9RecreatedTexturesProfile ? 480 : 240,
+        );
         assert.equal(sleepZero.firstCall.sequence, 89_430);
         assert.equal(sleepZero.firstCall.occurrence, 1);
         assert.equal(
@@ -895,15 +908,29 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(sleepZero.firstCall.lastError, 0);
         assert.deepEqual(sleepZero.firstCall.guestWrites, []);
         assert.equal(sleepZero.firstCall.executionBoundary, "yield-current-thread");
-        assert.equal(sleepZero.lastCall.sequence, 107_670);
-        assert.equal(sleepZero.lastCall.occurrence, 240);
+        assert.equal(
+          sleepZero.lastCall.sequence,
+          d3d9RecreatedTexturesProfile ? 126_996 : 107_670,
+        );
+        assert.equal(
+          sleepZero.lastCall.occurrence,
+          d3d9RecreatedTexturesProfile ? 480 : 240,
+        );
         assert.equal(
           sleepZero.lastCall.trapInstructionCount,
-          16_290_005 + createDirectoryAInstructionOffset,
+          d3d9RecreatedTexturesProfile
+            ? 28_612_007
+            : 16_290_005 + createDirectoryAInstructionOffset,
         );
-        assert.equal(sleepZero.schedulerSelections.selectionCount, 240);
+        assert.equal(
+          sleepZero.schedulerSelections.selectionCount,
+          d3d9RecreatedTexturesProfile ? 480 : 240,
+        );
         assert.equal(sleepZero.schedulerSelections.firstSelection?.sequence, 89_430);
-        assert.equal(sleepZero.schedulerSelections.lastSelection?.sequence, 107_670);
+        assert.equal(
+          sleepZero.schedulerSelections.lastSelection?.sequence,
+          d3d9RecreatedTexturesProfile ? 126_996 : 107_670,
+        );
         assert.equal(sleepZero.noCompetitorCompletions, 0);
         assert.equal(sleepZero.schedulerAuthority, "rust-runtime-scheduler");
         assert.equal(sleepZero.hostWaitCreated, false);
@@ -1149,6 +1176,82 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(repeat.browserResourceCreated, false);
       } else {
         assert.equal(evidence.report.setWindowPosRepeatActivation, null);
+      }
+      if (d3d9RecreatedTexturesProfile) {
+        const recreated = evidence.report.d3d9RecreatedTextures;
+        assert(
+          recreated !== null,
+          "Chrome Worker omitted D3D9 recreated texture evidence",
+        );
+        assert.equal(
+          recreated.compatibilityPolicyId,
+          "d3d9-primary-virtual-adapter-v17",
+        );
+        assert.equal(
+          recreated.createTextureProfileId,
+          "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+        );
+        assert.equal(
+          recreated.getSurfaceLevelProfileId,
+          "primary-system-memory-texture-level-zero-surfaces-v2",
+        );
+        assert.deepEqual(
+          recreated.calls.map((call) => [call.sequence, call.symbol]),
+          [
+            [108_735, "IDirect3DDevice9.CreateTexture"],
+            [108_736, "IDirect3DTexture9.GetSurfaceLevel"],
+            [108_737, "IDirect3DSurface9.GetDC"],
+            [108_738, "GetStockObject"],
+            [108_739, "FillRect"],
+            [108_740, "IDirect3DSurface9.ReleaseDC"],
+            [108_741, "IDirect3DSurface9.Release"],
+            [108_742, "IDirect3DDevice9.CreateTexture"],
+            [108_743, "IDirect3DDevice9.CreateTexture"],
+          ],
+        );
+        const textureCalls = recreated.calls.filter(
+          (call) => call.symbol === "IDirect3DDevice9.CreateTexture",
+        );
+        assert.deepEqual(
+          textureCalls.map((call) => [
+            call.arguments.slice(1),
+            call.result,
+            call.referenceCount,
+            call.guestWrites,
+          ]),
+          [
+            [
+              [2_048, 1_024, 1, 0, 22, 2, 0x1015_17cc, 0],
+              { kind: "h-result", value: 0 },
+              1,
+              [{ address: 0x1015_17cc, bytes: [4, 0, 2, 1] }],
+            ],
+            [
+              [2_048, 1_024, 1, 0, 22, 0, 0x1015_17d0, 0],
+              { kind: "h-result", value: 0 },
+              2,
+              [{ address: 0x1015_17d0, bytes: [4, 0, 3, 1] }],
+            ],
+            [
+              [2_048, 1_024, 1, 0x200, 22, 0, 0x1015_17d4, 0],
+              { kind: "h-result", value: 0 },
+              3,
+              [{ address: 0x1015_17d4, bytes: [4, 0, 4, 1] }],
+            ],
+          ],
+        );
+        assert.equal(
+          recreated.textureAuthority,
+          "rust-runtime-graphics-logical-texture",
+        );
+        assert.equal(recreated.comAuthority, "rust-runtime-com-object-and-interface");
+        assert.equal(recreated.browserRendererResourceCreated, false);
+        assert.equal(
+          recreated.mutation,
+          "cross-owner-preflight-transactional-commit",
+        );
+      } else {
+        assert.equal(evidence.report.d3d9RecreatedTextures, null);
       }
       assert(evidence.report.maximumSliceMilliseconds > 0);
       assert(evidence.report.wasmBridgeCalls > 0);
@@ -1799,6 +1902,22 @@ function normalizeSetWindowPosRepeatActivation(snapshot) {
   };
 }
 
+function normalizeD3d9RecreatedTextures(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    calls: snapshot.calls.map(normalizeSemanticCall),
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    createTextureProfileId: snapshot.createTextureProfileId,
+    getSurfaceLevelProfileId: snapshot.getSurfaceLevelProfileId,
+    textureAuthority: snapshot.textureAuthority,
+    comAuthority: snapshot.comAuthority,
+    browserRendererResourceCreated: snapshot.browserRendererResourceCreated,
+    mutation: snapshot.mutation,
+  };
+}
+
 function validateBgiEquivalence(browser, oracle) {
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
@@ -1860,6 +1979,11 @@ function validateBgiEquivalence(browser, oracle) {
     ),
     normalizeSetWindowPosRepeatActivation(oracle.setWindowPosRepeatActivation),
     "Chrome Worker SetWindowPos repeat activation differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),
+    normalizeD3d9RecreatedTextures(oracle.d3d9RecreatedTextures),
+    "Chrome Worker D3D9 recreated texture evidence differs from the Node oracle",
   );
   if (fullEvidence) {
     assert.deepEqual(

@@ -201,6 +201,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
         "user32-set-window-pos-repeat-activation",
+        "d3d9-recreated-textures",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -309,6 +310,7 @@ assert(
       "kernel32-get-file-attributes-a",
       "kernel32-create-directory-a",
       "user32-set-window-pos-repeat-activation",
+      "d3d9-recreated-textures",
       "kernel32-leave-critical-section",
     ].includes(
       genericRuntimeCapability,
@@ -318,7 +320,8 @@ assert(
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-create-directory-a" ||
-    genericRuntimeCapability === "user32-set-window-pos-repeat-activation"
+    genericRuntimeCapability === "user32-set-window-pos-repeat-activation" ||
+    genericRuntimeCapability === "d3d9-recreated-textures"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
       ? "kernel32-get-file-attributes-a-v1.json"
@@ -526,7 +529,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const d3d9RecreatedTexturesCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-recreated-textures";
 const setWindowPosRepeatActivationCheckpointEnabled =
+  d3d9RecreatedTexturesCheckpointEnabled ||
   genericRuntimeCapability === "user32-set-window-pos-repeat-activation";
 const createDirectoryACheckpointEnabled =
   setWindowPosRepeatActivationCheckpointEnabled ||
@@ -849,7 +855,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-      ? setWindowPosRepeatActivationCheckpointEnabled
+      ? d3d9RecreatedTexturesCheckpointEnabled
+      ? "v86-bgi-d3d9-recreated-textures"
+      : setWindowPosRepeatActivationCheckpointEnabled
       ? "v86-bgi-set-window-pos-repeat-activation"
       : createDirectoryACheckpointEnabled
       ? "v86-bgi-create-directory-a"
@@ -4986,6 +4994,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9RecreatedTexturesCheckpointEnabled) {
+        validateD3d9RecreatedTexturesResult(genericResult);
       } else if (setWindowPosRepeatActivationCheckpointEnabled) {
         validateSetWindowPosRepeatActivationResult(genericResult);
       } else if (createDirectoryACheckpointEnabled) {
@@ -5233,6 +5243,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9RecreatedTexturesCheckpointEnabled
+          ? "bgi D3D9 recreated texture sequence"
           : setWindowPosRepeatActivationCheckpointEnabled
           ? "bgi SetWindowPos repeat activation"
           : createDirectoryACheckpointEnabled
@@ -18246,6 +18258,96 @@ function validateSetWindowPosRepeatActivationResult(result) {
   ]);
 }
 
+function validateD3d9RecreatedTexturesResult(result) {
+  assert.equal(result.frozenSemanticCalls, 17);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert(
+    result.supportedCalls.length > 108_736,
+    "recreated textures did not advance beyond the frozen MessageBoxA branch",
+  );
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback === true).length,
+    0,
+  );
+  const recreatedTextureCalls = result.supportedCalls.filter(
+    (call) =>
+      call.symbol === "IDirect3DDevice9.CreateTexture" &&
+      call.arguments[1] === 2_048 &&
+      call.arguments[2] === 1_024,
+  );
+  assert.equal(
+    recreatedTextureCalls.length,
+    3,
+    "recreated device must commit exactly three controlled 2048x1024 textures",
+  );
+  assert.deepEqual(
+    recreatedTextureCalls.map((call) => [
+      call.sequence,
+      call.arguments.slice(1),
+      call.result,
+      call.returnAddress,
+      call.stackPointerAfter - call.stackPointerBefore,
+      call.guestWrites.length,
+    ]),
+    [
+      [
+        108_735,
+        [2_048, 1_024, 1, 0, 22, 2, 0x1015_17cc, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a715,
+        40,
+        1,
+      ],
+      [
+        108_742,
+        [2_048, 1_024, 1, 0, 22, 0, 0x1015_17d0, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a7b7,
+        40,
+        1,
+      ],
+      [
+        108_743,
+        [2_048, 1_024, 1, 0x200, 22, 0, 0x1015_17d4, 0],
+        { kind: "h-result", value: 0 },
+        0x1005_a7dc,
+        40,
+        1,
+      ],
+    ],
+  );
+  assert.deepEqual(
+    recreatedTextureCalls.map((call) => [
+      call.referenceCount,
+      call.objectRetired,
+      call.guestWrites[0]?.address,
+      call.guestWrites[0]?.bytes,
+    ]),
+    [
+      [1, false, 0x1015_17cc, [0x04, 0x00, 0x02, 0x01]],
+      [2, false, 0x1015_17d0, [0x04, 0x00, 0x03, 0x01]],
+      [3, false, 0x1015_17d4, [0x04, 0x00, 0x04, 0x01]],
+    ],
+  );
+  const recreatedTextureSequence = result.supportedCalls.filter(
+    (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
+  );
+  assert.deepEqual(
+    recreatedTextureSequence.map((call) => [call.sequence, call.symbol]),
+    [
+      [108_735, "IDirect3DDevice9.CreateTexture"],
+      [108_736, "IDirect3DTexture9.GetSurfaceLevel"],
+      [108_737, "IDirect3DSurface9.GetDC"],
+      [108_738, "GetStockObject"],
+      [108_739, "FillRect"],
+      [108_740, "IDirect3DSurface9.ReleaseDC"],
+      [108_741, "IDirect3DSurface9.Release"],
+      [108_742, "IDirect3DDevice9.CreateTexture"],
+      [108_743, "IDirect3DDevice9.CreateTexture"],
+    ],
+  );
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -22462,7 +22564,9 @@ function buildGenericRuntimeReentryReport({
         if (sleepZeroCheckpointEnabled) {
           assert.equal(
             setWaitableTimerCalls.length,
-            createDirectoryACheckpointEnabled
+            d3d9RecreatedTexturesCheckpointEnabled
+              ? 9_187
+              : createDirectoryACheckpointEnabled
               ? 6_974
               : getFileAttributesACheckpointEnabled
                 ? 6_937
@@ -22498,7 +22602,9 @@ function buildGenericRuntimeReentryReport({
         if (sleepZeroCheckpointEnabled) {
           assert.equal(
             waitForSingleObjectExCalls.length,
-            createDirectoryACheckpointEnabled
+            d3d9RecreatedTexturesCheckpointEnabled
+              ? 9_186
+              : createDirectoryACheckpointEnabled
               ? 6_974
               : getFileAttributesACheckpointEnabled
                 ? 6_937
@@ -22580,7 +22686,11 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   if (sleepZeroCheckpointEnabled) {
-    assert.equal(sleepZeroCalls.length, 240, "Sleep(0) report summary count changed");
+    assert.equal(
+      sleepZeroCalls.length,
+      d3d9RecreatedTexturesCheckpointEnabled ? 480 : 240,
+      "Sleep(0) report summary count changed",
+    );
     assert.equal(
       genericResult.schedulerContinuation.yieldCurrentThread.selectionCount,
       sleepZeroCalls.length,
@@ -22657,6 +22767,11 @@ function buildGenericRuntimeReentryReport({
       "SetWindowPos repeat activation requires one balanced callback",
     );
   }
+  const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
+      )
+    : [];
   const archiveSourceCreateFileCalls = archiveSourceReadEnabled
     ? genericResult.supportedCalls.filter((call) => call.symbol === "CreateFileA")
     : [];
@@ -22723,6 +22838,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9RecreatedTexturesCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-recreated-textures"
         : setWindowPosRepeatActivationCheckpointEnabled
         ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
         : createDirectoryACheckpointEnabled
@@ -23238,6 +23355,22 @@ function buildGenericRuntimeReentryReport({
             callbackDisposition: "validate-only",
             mutation: false,
             browserResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(d3d9RecreatedTexturesCheckpointEnabled
+      ? {
+          d3d9RecreatedTextures: {
+            calls: d3d9RecreatedTextureSequence,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17",
+            createTextureProfileId:
+              "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+            getSurfaceLevelProfileId:
+              "primary-system-memory-texture-level-zero-surfaces-v2",
+            textureAuthority: "rust-runtime-graphics-logical-texture",
+            comAuthority: "rust-runtime-com-object-and-interface",
+            browserRendererResourceCreated: false,
+            mutation: "cross-owner-preflight-transactional-commit",
           },
         }
       : {}),

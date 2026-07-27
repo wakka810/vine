@@ -27,7 +27,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 16;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 17;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -217,6 +217,11 @@ impl D3d9CreateTexturePolicy {
         self.profile_id = "primary-system-memory-x8r8g8b8-texture-v1".to_owned();
         self.variants.truncate(1);
     }
+
+    pub fn restrict_to_initial_textures_v1(&mut self) {
+        self.profile_id = "primary-initial-x8r8g8b8-textures-v1".to_owned();
+        self.variants.truncate(3);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -224,7 +229,7 @@ impl D3d9CreateTexturePolicy {
 pub struct D3d9GetSurfaceLevelPolicy {
     pub profile_id: String,
     pub level: u32,
-    pub source_texture_variant_index: u32,
+    pub source_texture_variant_indices: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -293,11 +298,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v16() -> Self {
+    pub fn controlled_v17() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v16".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v17".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -384,14 +389,14 @@ impl D3d9CompatibilityPolicy {
                 presentation_interval: 0,
             }),
             create_texture: Some(D3d9CreateTexturePolicy {
-                profile_id: "primary-initial-x8r8g8b8-textures-v1".to_owned(),
+                profile_id: "primary-initial-and-recreated-x8r8g8b8-textures-v2".to_owned(),
                 variants: controlled_create_texture_variants().into(),
                 shared_handle_must_be_null: true,
             }),
             get_surface_level: Some(D3d9GetSurfaceLevelPolicy {
-                profile_id: "primary-texture-level-zero-surface-v1".to_owned(),
+                profile_id: "primary-system-memory-texture-level-zero-surfaces-v2".to_owned(),
                 level: 0,
-                source_texture_variant_index: 0,
+                source_texture_variant_indices: vec![0, 3],
             }),
             surface_dc: Some(D3d9SurfaceDcPolicy {
                 profile_id: "primary-surface-gdi-dc-v1".to_owned(),
@@ -417,6 +422,26 @@ impl D3d9CompatibilityPolicy {
                 in_v_blank: false,
                 scan_line: 1,
             }),
+        }
+    }
+
+    pub fn restrict_to_system_memory_v1(&mut self) {
+        if let Some(texture) = self.create_texture.as_mut() {
+            texture.restrict_to_system_memory_v1();
+        }
+        if let Some(surface) = self.get_surface_level.as_mut() {
+            surface.profile_id = "primary-texture-level-zero-surface-v1".to_owned();
+            surface.source_texture_variant_indices = vec![0];
+        }
+    }
+
+    pub fn restrict_to_initial_textures_v1(&mut self) {
+        if let Some(texture) = self.create_texture.as_mut() {
+            texture.restrict_to_initial_textures_v1();
+        }
+        if let Some(surface) = self.get_surface_level.as_mut() {
+            surface.profile_id = "primary-texture-level-zero-surface-v1".to_owned();
+            surface.source_texture_variant_indices = vec![0];
         }
     }
 
@@ -576,20 +601,15 @@ impl D3d9CompatibilityPolicy {
             ));
         }
         if let Some(surface) = self.get_surface_level.as_ref()
-            && (!valid_policy_id(&surface.profile_id)
-                || surface.level != 0
-                || surface.source_texture_variant_index != 0
-                || self.create_texture.as_ref().is_none_or(|texture| {
-                    texture
-                        .variants
-                        .get(surface.source_texture_variant_index as usize)
-                        .is_none_or(|variant| surface.level >= variant.levels)
-                }))
+            && self
+                .create_texture
+                .as_ref()
+                .is_none_or(|texture| !valid_get_surface_level_policy(surface, texture))
         {
             return Err(ApiFault::runtime_defect(
                 "d3d9-compatibility-policy",
                 "d3d9-get-surface-level-profile-invalid",
-                "D3D9 surface-level profile must select the reached texture level zero",
+                "D3D9 surface-level profile must select the reached system-memory texture level-zero variants",
             ));
         }
         if let Some(surface_dc) = self.surface_dc.as_ref()
@@ -714,7 +734,7 @@ impl D3d9CompatibilityPolicy {
     }
 }
 
-fn controlled_create_texture_variants() -> [D3d9CreateTextureVariant; 3] {
+fn controlled_create_texture_variants() -> [D3d9CreateTextureVariant; 6] {
     [
         D3d9CreateTextureVariant {
             width: 1_024,
@@ -734,6 +754,30 @@ fn controlled_create_texture_variants() -> [D3d9CreateTextureVariant; 3] {
         },
         D3d9CreateTextureVariant {
             width: 1_024,
+            height: 1_024,
+            levels: 1,
+            usage: D3D9_D3DUSAGE_DYNAMIC,
+            format: D3D9_D3DFMT_X8R8G8B8,
+            pool: D3D9_D3DPOOL_DEFAULT,
+        },
+        D3d9CreateTextureVariant {
+            width: 2_048,
+            height: 1_024,
+            levels: 1,
+            usage: 0,
+            format: D3D9_D3DFMT_X8R8G8B8,
+            pool: D3D9_D3DPOOL_SYSTEMMEM,
+        },
+        D3d9CreateTextureVariant {
+            width: 2_048,
+            height: 1_024,
+            levels: 1,
+            usage: 0,
+            format: D3D9_D3DFMT_X8R8G8B8,
+            pool: D3D9_D3DPOOL_DEFAULT,
+        },
+        D3d9CreateTextureVariant {
+            width: 2_048,
             height: 1_024,
             levels: 1,
             usage: D3D9_D3DUSAGE_DYNAMIC,
@@ -781,8 +825,67 @@ fn valid_create_texture_policy(policy: &D3d9CreateTexturePolicy) -> bool {
                 .zip(expected.iter())
                 .all(|(actual, expected)| actual == expected)
         }
+        [
+            initial_system_memory,
+            initial_default,
+            initial_dynamic,
+            recreated_system_memory,
+            recreated_default,
+            recreated_dynamic,
+        ] if policy.profile_id == "primary-initial-and-recreated-x8r8g8b8-textures-v2" => [
+            initial_system_memory,
+            initial_default,
+            initial_dynamic,
+            recreated_system_memory,
+            recreated_default,
+            recreated_dynamic,
+        ]
+        .into_iter()
+        .zip(expected.iter())
+        .all(|(actual, expected)| actual == expected),
         _ => false,
     }
+}
+
+fn valid_get_surface_level_policy(
+    surface: &D3d9GetSurfaceLevelPolicy,
+    texture: &D3d9CreateTexturePolicy,
+) -> bool {
+    if !valid_policy_id(&surface.profile_id) || surface.level != 0 {
+        return false;
+    }
+    let expected_indices: &[u32] = match texture.profile_id.as_str() {
+        "primary-system-memory-x8r8g8b8-texture-v1" => {
+            if surface.profile_id != "primary-texture-level-zero-surface-v1" {
+                return false;
+            }
+            &[0]
+        }
+        "primary-initial-x8r8g8b8-textures-v1" => {
+            if surface.profile_id != "primary-texture-level-zero-surface-v1" {
+                return false;
+            }
+            &[0]
+        }
+        "primary-initial-and-recreated-x8r8g8b8-textures-v2" => {
+            if surface.profile_id != "primary-system-memory-texture-level-zero-surfaces-v2" {
+                return false;
+            }
+            &[0, 3]
+        }
+        _ => return false,
+    };
+    surface.source_texture_variant_indices == expected_indices
+        && surface.source_texture_variant_indices.iter().all(|index| {
+            texture
+                .variants
+                .get(*index as usize)
+                .is_some_and(|variant| {
+                    surface.level < variant.levels
+                        && variant.usage == 0
+                        && variant.pool == D3D9_D3DPOOL_SYSTEMMEM
+                })
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1843,15 +1946,22 @@ fn dispatch_get_surface_level(
         return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
     }
 
-    let source_variant = policy
+    let source_variants = policy
         .create_texture
         .as_ref()
-        .and_then(|texture| {
-            texture
-                .variants
-                .get(surface_policy.source_texture_variant_index as usize)
+        .map(|texture| {
+            surface_policy
+                .source_texture_variant_indices
+                .iter()
+                .map(|index| {
+                    texture
+                        .variants
+                        .get(*index as usize)
+                        .expect("validated D3D9 surface policy lost a source texture variant")
+                })
+                .collect::<Vec<_>>()
         })
-        .expect("validated D3D9 surface policy lost its source texture variant");
+        .expect("validated D3D9 surface policy lost its texture profile");
     let texture = match call
         .runtime()
         .graphics_texture_for_com_object(call.frame().object_id)
@@ -1859,7 +1969,10 @@ fn dispatch_get_surface_level(
         Ok(texture) => texture,
         Err(error) => return call.runtime_fault(error),
     };
-    if !logical_texture_matches_variant(&texture.descriptor, source_variant) {
+    if !source_variants
+        .iter()
+        .any(|variant| logical_texture_matches_variant(&texture.descriptor, variant))
+    {
         return call.fault(
             ComFaultClass::Unsupported,
             "d3d9-get-surface-level",

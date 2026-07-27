@@ -129,7 +129,8 @@ semantic equivalence but fails the unchanged minimum-session and session-P95
 thresholds in a valid environment after bounded browser scheduling
 remediation. The earlier external-CPU run is invalid-environment diagnostic
 evidence and is not counted as a confirmation. Downstream primary execution
-remains paused at the manifested `MessageBoxA` endpoint. Exact current artifact,
+has since crossed the recreated D3D9 texture band and is paused at the manifested
+`SetWindowPos(HWND_TOP, ..., SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)` endpoint. Exact current artifact,
 report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:

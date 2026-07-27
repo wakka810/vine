@@ -93,6 +93,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-get-surface-level",
     "d3d9-surface-get-dc",
     "d3d9-initial-textures",
+    "d3d9-recreated-textures",
     "d3d9-initial-vertex-buffer",
     "d3d9-initial-render-states",
     "d3d9-raster-status",

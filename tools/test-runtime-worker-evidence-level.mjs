@@ -11,7 +11,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 25 as const/u);
+assert.match(protocol, /protocolVersion = 26 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -24,6 +24,8 @@ assert.match(protocol, /createDirectoryA:/u);
 assert.match(protocol, /user32-set-window-pos-repeat-activation/u);
 assert.match(protocol, /RuntimeSetWindowPosRepeatActivationCallSnapshot/u);
 assert.match(protocol, /setWindowPosRepeatActivation:/u);
+assert.match(protocol, /d3d9-recreated-textures/u);
+assert.match(protocol, /d3d9RecreatedTextures:/u);
 
 assert.match(worker, /readonly #semanticCallDigest = new SemanticCallDigest\(\)/u);
 assert.doesNotMatch(worker, /completedBgiCallSequences/u);

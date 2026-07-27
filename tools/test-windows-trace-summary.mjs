@@ -1622,6 +1622,89 @@ assert.throws(
   /violates its caller, tuple, or output contract/,
 );
 
+const d3d9RecreatedTextureEvents = structuredClone(d3d9InitialTextureEvents);
+const recreatedTextureStart = d3d9RecreatedTextureEvents.find(
+  (event) => event.kind === "trace-start",
+);
+recreatedTextureStart.arguments.stopOnEvent =
+  "d3d9-recreated-textures-complete";
+recreatedTextureStart.arguments.observations = ["d3d9-recreated-textures"];
+d3d9RecreatedTextureEvents.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-recreated-textures"];
+for (const event of d3d9RecreatedTextureEvents) {
+  if (event.kind === "api-enter" && event.api === "CreateTexture") {
+    event.arguments[0] = "0x800";
+  }
+}
+const recreatedTextureCompletion = d3d9RecreatedTextureEvents.find(
+  (event) => event.kind === "d3d9-initial-textures-complete",
+);
+recreatedTextureCompletion.kind = "d3d9-recreated-textures-complete";
+recreatedTextureCompletion.profile = "x86-bgi-recreated-textures-v1";
+for (const call of recreatedTextureCompletion.calls) {
+  call.arguments[0] = "0x800";
+}
+const recreatedTextureStop = d3d9RecreatedTextureEvents.find(
+  (event) => event.kind === "trace-stop",
+);
+recreatedTextureStop.reason = "event-d3d9-recreated-textures-complete-kill";
+const d3d9RecreatedTextureSummary = summarizeTrace(
+  encode(d3d9RecreatedTextureEvents),
+  "d3d9-recreated-textures-fixture.jsonl",
+);
+assert.equal(d3d9RecreatedTextureSummary.d3d9.createTextures.length, 3);
+assert.equal(
+  d3d9RecreatedTextureSummary.d3d9.recreatedTextureSequences.length,
+  1,
+);
+assert.deepEqual(
+  d3d9RecreatedTextureSummary.d3d9.recreatedTextureSequences[0].calls.map(
+    (call) => ({
+      caller: call.caller,
+      arguments: call.arguments.slice(0, 6),
+      returnedTexture: call.returnedTexture,
+    }),
+  ),
+  [
+    {
+      caller: { module: "BGI.exe", rva: 0x5a715 },
+      arguments: ["0x800", "0x400", "0x1", "0x0", "0x16", "0x2"],
+      returnedTexture: "0x500000",
+    },
+    {
+      caller: { module: "BGI.exe", rva: 0x5a7b7 },
+      arguments: ["0x800", "0x400", "0x1", "0x0", "0x16", "0x0"],
+      returnedTexture: "0x510000",
+    },
+    {
+      caller: { module: "BGI.exe", rva: 0x5a7dc },
+      arguments: ["0x800", "0x400", "0x1", "0x200", "0x16", "0x0"],
+      returnedTexture: "0x520000",
+    },
+  ],
+);
+const missingRecreatedTextureCompletion = d3d9RecreatedTextureEvents.filter(
+  (event) => event.kind !== "d3d9-recreated-textures-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingRecreatedTextureCompletion)),
+  /requires exactly one structured completion/,
+);
+const malformedRecreatedTextureTuple = structuredClone(
+  d3d9RecreatedTextureEvents,
+);
+malformedRecreatedTextureTuple.find(
+  (event) => event.kind === "api-enter" && event.callId === 1,
+).arguments[0] = "0x400";
+malformedRecreatedTextureTuple.find(
+  (event) => event.kind === "d3d9-recreated-textures-complete",
+).calls[0].arguments[0] = "0x400";
+assert.throws(
+  () => summarizeTrace(encode(malformedRecreatedTextureTuple)),
+  /violates its caller, tuple, or output contract/,
+);
+
 const vertexPayload = Array.from({ length: 112 }, (_, index) => index);
 const vertexBufferCreateObservation = {
   vertexBufferOutput: {

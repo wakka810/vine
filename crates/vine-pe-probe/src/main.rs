@@ -246,6 +246,7 @@ enum GenericRuntimeCapability {
     GlobalMemoryStatus,
     GetFileAttributesA,
     CreateDirectoryA,
+    D3d9RecreatedTextures,
 }
 
 struct GenericRuntimeProcess {
@@ -2643,6 +2644,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GlobalMemoryStatus
                     | GenericRuntimeCapability::GetFileAttributesA
                     | GenericRuntimeCapability::CreateDirectoryA
+                    | GenericRuntimeCapability::D3d9RecreatedTextures
             )
         ) {
             let loader = kernel32_policy
@@ -3308,10 +3310,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let create_directory_a_enabled = matches!(
+    let d3d9_recreated_textures_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::CreateDirectoryA)
+        Some(GenericRuntimeCapability::D3d9RecreatedTextures)
     );
+    let create_directory_a_enabled = d3d9_recreated_textures_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::CreateDirectoryA)
+        );
     let get_file_attributes_a_enabled = create_directory_a_enabled
         || matches!(
             enabled_capability,
@@ -3810,7 +3817,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v16();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v17();
     if !matches!(
         requested_capability,
         Some(
@@ -3900,7 +3907,9 @@ fn run_v86_generic_runtime_session(
     ) {
         d3d9_policy.surface_dc = None;
     }
-    if !matches!(
+    if d3d9_recreated_textures_enabled {
+        // The complete v17 texture band is enabled only at its own checkpoint.
+    } else if matches!(
         requested_capability,
         Some(
             GenericRuntimeCapability::D3d9InitialTextures
@@ -3910,9 +3919,10 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::QueryPerformanceFrequency
                 | GenericRuntimeCapability::GetMonitorInfoA
         )
-    ) && let Some(create_texture) = d3d9_policy.create_texture.as_mut()
-    {
-        create_texture.restrict_to_system_memory_v1();
+    ) {
+        d3d9_policy.restrict_to_initial_textures_v1();
+    } else {
+        d3d9_policy.restrict_to_system_memory_v1();
     }
     if !matches!(
         requested_capability,
@@ -13752,6 +13762,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-global-memory-status" => GenericRuntimeCapability::GlobalMemoryStatus,
                 "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
                 "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
+                "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

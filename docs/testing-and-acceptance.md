@@ -1225,8 +1225,19 @@ callback result不一致とstale relation／window planがwindow、active／focu
 部分更新しないこと、success completionも全`RuntimeUser32` snapshotを不変に保つことを比較する。Native二runは
 BOOL 1、LastError 0、geometryと三relation不変、activation／resize／changed／move message不在を固定する。
 Node／Chromeはsequence 108,718、frame 25、scratch `0x00501000`、validate-only disposition、zero writes、
-次の`MessageBoxA` stopを同じsemantic／memory digestで再現する。General idempotent positioning、z-order変更、
+protocol v25 predecessorの`MessageBoxA` stopまでを同じsemantic／memory digestで再現する。General idempotent positioning、z-order変更、
 cross-thread／multi-window activationは実装済みまたはgoldenとしない。
+
+Reached D3D9 recreated-texture bandは、native二runでRVA `0x5A715`／`0x5A7B7`／`0x5A7DC`からの
+`2048x1024`、level 1、format 22、system-memory static／default static／default dynamicの三callを固定する。
+各callは`S_OK`、LastError 0、4-byte output publication、non-NULL distinct texture、HRESULT sign consumerを要求する。
+Rust model／dispatcher testsはversion 17の六descriptor allow-list、system-memory variant indices `0,3`だけの
+`GetSurfaceLevel(0)`、capacity／bad pointer／unsupported descriptorのfailure atomicity、COM／graphics／guest-memoryの
+cross-owner preflightを比較する。Node／Chrome protocol v26はsequence 108,735–108,743の
+`CreateTexture -> GetSurfaceLevel -> GetDC -> GetStockObject -> FillRect -> ReleaseDC -> Release -> CreateTexture -> CreateTexture`
+を完全一致させ、surface `2048x1024`、fill `[0,0,1280,720]`、renderer resourceなし、semantic／memory digest、
+次の`SetWindowPos(HWND_TOP,317,154,0,0,0x25)` structured stopを比較する。General texture dimensions、mip chain、
+device loss、GPU allocation／upload／presentはこのbandのacceptanceへ含めない。
 
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。

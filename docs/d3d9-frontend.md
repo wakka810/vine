@@ -287,16 +287,17 @@ guest identities.
 
 ## Bounded logical texture creation
 
-Version 16 retains the three-variant texture policy with profile
-`primary-initial-x8r8g8b8-textures-v1`. Every accepted variant has width and
-height `1024`, one mip level, `D3DFMT_X8R8G8B8`, and a NULL shared-handle
-pointer. The bounded allow-list is:
+Version 17 expands the texture policy to profile
+`primary-initial-and-recreated-x8r8g8b8-textures-v2`. Every accepted variant
+has height `1024`, one mip level, `D3DFMT_X8R8G8B8`, and a NULL shared-handle
+pointer. Width is either the initial `1024` or the reached recreated `2048`;
+each width admits the same bounded usage／pool band:
 
-| Usage | Pool | Logical usage／pool |
-|---:|---:|---|
-| `0` | `D3DPOOL_SYSTEMMEM` (`2`) | static／system memory |
-| `0` | `D3DPOOL_DEFAULT` (`0`) | static／default |
-| `D3DUSAGE_DYNAMIC` (`0x200`) | `D3DPOOL_DEFAULT` (`0`) | dynamic／default |
+| Width × height | Usage | Pool | Logical usage／pool |
+|---|---:|---:|---|
+| `1024x1024`, `2048x1024` | `0` | `D3DPOOL_SYSTEMMEM` (`2`) | static／system memory |
+| `1024x1024`, `2048x1024` | `0` | `D3DPOOL_DEFAULT` (`0`) | static／default |
+| `1024x1024`, `2048x1024` | `D3DUSAGE_DYNAMIC` (`0x200`) | `D3DPOOL_DEFAULT` (`0`) | dynamic／default |
 
 Width／height zero, NULL output, or a non-NULL shared handle returns
 `D3DERR_INVALIDCALL`; a well-formed shape outside this exact allow-list returns
@@ -323,15 +324,16 @@ and logical device association retire in the same preflighted cascading
 operation. `RuntimeGraphics` owns the non-owning device-to-texture index;
 `RuntimeCom` remains the sole reference-count authority.
 
-Two independent focused native traces each contain the same three successful
-BGI calls from RVAs `0x5A715`, `0x5A7B7`, and `0x5A7DC`, matching the table
-above. All return `S_OK`, use the same device and NULL shared handles, and
-publish three non-NULL distinct native texture pointers. The first caller
-consumes the HRESULT sign and immediately calls texture slot 18
-`GetSurfaceLevel(0, output)`; after that surface DC chain, the next two callers
-consume their HRESULT signs and proceed to device slot 26 `CreateVertexBuffer`.
-Native pointers remain opaque artifact identity. Vine claims the exact shapes,
-ordering, distinctness, and caller use, not broader resource behavior.
+The initial focused evidence contains three successful `1024x1024` calls from
+RVAs `0x5A715`, `0x5A7B7`, and `0x5A7DC`. A second pair of focused traces proves
+the same caller sequence recreates the resources at `2048x1024`: all three calls
+return `S_OK`, preserve observed LastError `0`, write four output bytes, and
+publish non-NULL distinct native texture pointers. Each immediate consumer tests
+the HRESULT sign. The first system-memory texture continues through
+`GetSurfaceLevel -> GetDC -> GetStockObject -> FillRect -> ReleaseDC -> Release`;
+the two default-pool calls then complete. Native pointers remain opaque artifact
+identity. Vine claims the exact six descriptors, ordering, distinctness, and
+caller use, not broader resource behavior.
 
 ## Bounded initial vertex buffer
 
@@ -426,11 +428,11 @@ stable nonblank sample. Node and Chrome both complete call 17,866 at instruction
 
 ## Bounded level-zero surface retrieval
 
-Version 16 retains `primary-texture-level-zero-surface-v1` for the first reached
-`IDirect3DTexture9::GetSurfaceLevel` call. It accepts only level `0` on the
-one-level logical texture created from source variant index `0`, the static
-system-memory descriptor, and a non-NULL writable output pointer. The two
-default-pool variants stop with typed
+Version 17 uses `primary-system-memory-texture-level-zero-surfaces-v2` for the
+reached `IDirect3DTexture9::GetSurfaceLevel` calls. It accepts only level `0` on
+one-level logical textures created from source variant indices `0` and `3`, the
+`1024x1024` and `2048x1024` static system-memory descriptors, with a non-NULL
+writable output pointer. The default-pool variants stop with typed
 `get-surface-level-texture-variant-unsupported` before output validation or
 mutation. A missing output or any other level returns `D3DERR_INVALIDCALL`; an
 unwritable output or resource exhaustion faults before guest bytes, COM
@@ -441,7 +443,7 @@ The first successful lookup publishes one surface interface pointer, one child
 COM object, and one `RuntimeGraphics` logical surface descriptor after the guest
 write, texture association, surface capacity, COM backing, parent identity, and
 process address allocation all preflight. The descriptor records level `0`,
-dimensions `1024x1024`, and format `D3DFMT_X8R8G8B8`; it does not allocate pixel
+source-texture dimensions, and format `D3DFMT_X8R8G8B8`; it does not allocate pixel
 bytes, pitch, lock staging, a DC, or a browser renderer resource. Surface IDs
 use a monotonic namespace with a 4,096-object capacity, and the owner-local
 texture-to-surface index prevents duplicate logical children.
@@ -495,7 +497,8 @@ fill command and advance surface and content generations. The history is capped
 at 16,384 commands. The primary slice records `[0, 0, 800, 600]` with COLORREF
 `0` on the `1024x1024` B8G8R8X8 surface. This command is authoritative semantic
 state; no texel array, pitch, lock staging, upload, or renderer resource is
-created.
+created. The recreated slice applies the same bridge to a `2048x1024` surface
+and records `[0, 0, 1280, 720]` before releasing its HDC and surface identity.
 
 Two focused native traces reproduce the exact ordered chain `GetDC`,
 `GetStockObject(4)`, `FillRect`, `ReleaseDC`, and surface `Release`, with caller
@@ -517,9 +520,11 @@ the `CreateTexture` gateway creates the first device-related logical resource;
 the `GetSurfaceLevel` gateway creates its first logical subresource identity;
 and `CreateVertexBuffer` creates the first guest-backed logical geometry
 resource.
-The active initial-resource slice leaves three logical textures live on one
+The initial-resource slice leaves three logical textures live on one
 device: one system-memory static texture and two default-pool textures, the last
-of which is dynamic. The surface `GetDC` gateway adds a typed GDI acquisition
+of which is dynamic. Version 17 admits the same three descriptors at
+`2048x1024` when the guest recreates the resources; it does not infer a general
+dimension or pool policy. The surface `GetDC` gateway adds a typed GDI acquisition
 relation, and reached
 `FillRect` appends the first `RuntimeGraphics`-owned surface command.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
@@ -538,7 +543,8 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-raster-status
+npm run check:runtime:bgi -- --profile d3d9-recreated-textures
+npm run check:runtime:bgi-browser
 ```
 
 The controlled PE fixture verifies invalid-SDK NULL, non-NULL factory identity,

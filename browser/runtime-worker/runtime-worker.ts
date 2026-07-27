@@ -26,6 +26,7 @@ import {
   type RuntimeCreateDirectoryACallSnapshot,
   type RuntimeGetFileAttributesACallSnapshot,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
+  type RuntimeSupportedCallSnapshot,
   type RuntimeImm32Snapshot,
   type RuntimeThreadSelectionSnapshot,
   type RuntimeVirtualMemorySnapshot,
@@ -73,6 +74,15 @@ const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const yieldChannel = new MessageChannel();
+
+function includesSetWindowPosRepeatActivation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "user32-set-window-pos-repeat-activation" ||
+    profile === "d3d9-recreated-textures"
+  );
+}
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
   const resolve = yieldResolvers.shift();
@@ -694,6 +704,7 @@ class BrowserRuntimeSession {
     createDirectoryA: null as SessionReport["createDirectoryA"],
     setWindowPosRepeatActivation:
       null as SessionReport["setWindowPosRepeatActivation"],
+    d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
   };
@@ -730,8 +741,9 @@ class BrowserRuntimeSession {
               "kernel32-get-file-attributes-a" ||
             this.#configuration.capabilityProfile ===
               "kernel32-create-directory-a" ||
-            this.#configuration.capabilityProfile ===
-              "user32-set-window-pos-repeat-activation"));
+            includesSetWindowPosRepeatActivation(
+              this.#configuration.capabilityProfile,
+            )));
       const profileBackedWorkload = workload === "private-bgi";
       invariant(
         this.#configuration.capabilityProfile === undefined || profileBackedWorkload,
@@ -2255,9 +2267,9 @@ class BrowserRuntimeSession {
             "BGI callback frame reused an active call sequence",
           );
           if (
-            this.#configuration.capabilityProfile ===
-              "user32-set-window-pos-repeat-activation" &&
-            sequence === 108_718
+            includesSetWindowPosRepeatActivation(
+              this.#configuration.capabilityProfile,
+            ) && sequence === 108_718
           ) {
             invariant(
               this.#setWindowPosRepeatActivationCallbackEntry === null,
@@ -2385,7 +2397,7 @@ class BrowserRuntimeSession {
     const completion = metadata.call;
     const frame = completion.frame;
     const sequence = ++this.#nextBgiCallSequence;
-    const call = {
+    const call: RuntimeSupportedCallSnapshot = {
       sequence,
       module: "<com>",
       symbol: `${frame.interface}.${frame.method}`,
@@ -2403,6 +2415,7 @@ class BrowserRuntimeSession {
         bytes,
       })),
     };
+    this.#recordD3d9RecreatedTextureCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -2615,7 +2628,7 @@ class BrowserRuntimeSession {
       "BGI virtual-memory completion metadata mismatch",
     );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
-    const call = {
+    const call: RuntimeSupportedCallSnapshot = {
       sequence,
       module: endpoint.module,
       symbol:
@@ -2672,10 +2685,12 @@ class BrowserRuntimeSession {
         ? {}
         : { virtualMemory: metadata.virtualMemory }),
     };
+    this.#recordD3d9RecreatedTextureCall(call);
     if (
       completion.implementationId === "user32.set-window-pos.v4" &&
-      this.#configuration.capabilityProfile ===
-        "user32-set-window-pos-repeat-activation"
+      includesSetWindowPosRepeatActivation(
+        this.#configuration.capabilityProfile,
+      )
     ) {
       this.#setWindowPosCompletionCount += 1;
       if (this.#setWindowPosCompletionCount === 5) {
@@ -2882,8 +2897,9 @@ class BrowserRuntimeSession {
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
             "kernel32-create-directory-a" ||
-          this.#configuration.capabilityProfile ===
-            "user32-set-window-pos-repeat-activation") &&
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "Sleep",
@@ -2947,8 +2963,9 @@ class BrowserRuntimeSession {
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
             "kernel32-create-directory-a" ||
-          this.#configuration.capabilityProfile ===
-            "user32-set-window-pos-repeat-activation") &&
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
           this.#report.globalMemoryStatus === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -3014,8 +3031,9 @@ class BrowserRuntimeSession {
       invariant(
         (this.#configuration.capabilityProfile ===
           "kernel32-create-directory-a" ||
-          this.#configuration.capabilityProfile ===
-            "user32-set-window-pos-repeat-activation") &&
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
           this.#report.createDirectoryA === null &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
@@ -3080,8 +3098,9 @@ class BrowserRuntimeSession {
           "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
             "kernel32-create-directory-a" ||
-          this.#configuration.capabilityProfile ===
-            "user32-set-window-pos-repeat-activation") &&
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
           endpoint.module.toLowerCase() === "kernel32.dll" &&
           endpoint.symbol.kind === "name" &&
           endpoint.symbol.name === "GetFileAttributesA" &&
@@ -3121,8 +3140,9 @@ class BrowserRuntimeSession {
           directoryExistence:
             this.#configuration.capabilityProfile ===
               "kernel32-create-directory-a" ||
-            this.#configuration.capabilityProfile ===
-              "user32-set-window-pos-repeat-activation"
+            includesSetWindowPosRepeatActivation(
+              this.#configuration.capabilityProfile,
+            )
               ? "registered-path-ancestors-and-writable-directory-state"
               : "registered-path-ancestor-derivation",
           hostFileSystemImported: false,
@@ -3381,6 +3401,39 @@ class BrowserRuntimeSession {
       };
       this.#bgiCheckpointPending = true;
     }
+  }
+
+  #recordD3d9RecreatedTextureCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      this.#configuration.capabilityProfile !== "d3d9-recreated-textures" ||
+      call.sequence < 108_735 ||
+      call.sequence > 108_743
+    ) {
+      return;
+    }
+    if (this.#report.d3d9RecreatedTextures === null) {
+      invariant(
+        call.sequence === 108_735,
+        "D3D9 recreated texture evidence did not start at the first texture",
+      );
+      this.#report.d3d9RecreatedTextures = {
+        calls: [],
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17",
+        createTextureProfileId:
+          "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+        getSurfaceLevelProfileId:
+          "primary-system-memory-texture-level-zero-surfaces-v2",
+        textureAuthority: "rust-runtime-graphics-logical-texture",
+        comAuthority: "rust-runtime-com-object-and-interface",
+        browserRendererResourceCreated: false,
+        mutation: "cross-owner-preflight-transactional-commit",
+      };
+    }
+    invariant(
+      call.sequence === 108_735 + this.#report.d3d9RecreatedTextures.calls.length,
+      "D3D9 recreated texture evidence sequence is not contiguous",
+    );
+    this.#report.d3d9RecreatedTextures.calls.push(structuredClone(call));
   }
 
   #completeStructuredStop(
@@ -3719,8 +3772,9 @@ class BrowserRuntimeSession {
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
             "kernel32-create-directory-a" ||
-          this.#configuration.capabilityProfile ===
-            "user32-set-window-pos-repeat-activation") &&
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
           sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
@@ -3761,8 +3815,9 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile === "kernel32-global-memory-status" ||
       this.#configuration.capabilityProfile === "kernel32-get-file-attributes-a" ||
       this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
-      this.#configuration.capabilityProfile ===
-        "user32-set-window-pos-repeat-activation"
+      includesSetWindowPosRepeatActivation(
+        this.#configuration.capabilityProfile,
+      )
     ) {
       const selectionSnapshot = {
         sequence: this.#nextBgiCallSequence,
@@ -4677,8 +4732,9 @@ class BrowserRuntimeSession {
           "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
           "kernel32-create-directory-a" ||
-        this.#configuration.capabilityProfile ===
-          "user32-set-window-pos-repeat-activation") &&
+        includesSetWindowPosRepeatActivation(
+          this.#configuration.capabilityProfile,
+        )) &&
       terminal.outcome === "structured-stop"
     ) {
       const sleepZero = this.#report.sleepZero;
@@ -4697,8 +4753,9 @@ class BrowserRuntimeSession {
           "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
           "kernel32-create-directory-a" ||
-        this.#configuration.capabilityProfile ===
-          "user32-set-window-pos-repeat-activation") &&
+        includesSetWindowPosRepeatActivation(
+          this.#configuration.capabilityProfile,
+        )) &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4711,8 +4768,9 @@ class BrowserRuntimeSession {
         "kernel32-get-file-attributes-a" ||
         this.#configuration.capabilityProfile ===
           "kernel32-create-directory-a" ||
-        this.#configuration.capabilityProfile ===
-          "user32-set-window-pos-repeat-activation") &&
+        includesSetWindowPosRepeatActivation(
+          this.#configuration.capabilityProfile,
+        )) &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4722,8 +4780,9 @@ class BrowserRuntimeSession {
     }
     if (
       (this.#configuration.capabilityProfile === "kernel32-create-directory-a" ||
-        this.#configuration.capabilityProfile ===
-          "user32-set-window-pos-repeat-activation") &&
+        includesSetWindowPosRepeatActivation(
+          this.#configuration.capabilityProfile,
+        )) &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4733,8 +4792,9 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      this.#configuration.capabilityProfile ===
-        "user32-set-window-pos-repeat-activation" &&
+      includesSetWindowPosRepeatActivation(
+        this.#configuration.capabilityProfile,
+      ) &&
       terminal.outcome === "structured-stop"
     ) {
       invariant(
@@ -4742,6 +4802,22 @@ class BrowserRuntimeSession {
           this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence === 5 &&
           this.#report.setWindowPosRepeatActivation.callbackEvents.length === 2,
         "SetWindowPos report omitted its repeat activation callback completion",
+      );
+    }
+    if (
+      this.#configuration.capabilityProfile === "d3d9-recreated-textures" &&
+      terminal.outcome === "structured-stop"
+    ) {
+      const recreated = this.#report.d3d9RecreatedTextures;
+      invariant(
+        recreated !== null &&
+          recreated.calls.length === 9 &&
+          recreated.calls[0]?.sequence === 108_735 &&
+          recreated.calls.at(-1)?.sequence === 108_743 &&
+          recreated.calls.filter(
+            (call) => call.symbol === "IDirect3DDevice9.CreateTexture",
+          ).length === 3,
+        "D3D9 recreated texture report omitted its transactional call sequence",
       );
     }
     if (this.#configuration.evidenceLevel === "full") {
@@ -4900,6 +4976,7 @@ worker.addEventListener("message", (event: MessageEvent<MainToWorkerMessage>) =>
             getFileAttributesA: null,
             createDirectoryA: null,
             setWindowPosRepeatActivation: null,
+            d3d9RecreatedTextures: null,
             firstUnsupported: null,
             checkpointCompletion: null,
             error: "another runtime session is active",

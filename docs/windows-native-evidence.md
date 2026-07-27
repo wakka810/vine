@@ -5235,3 +5235,36 @@ Canonical Nodeは108,736 calls、semantic digest
 ordered semanticsとmemory digestを再現し、次stopはinstruction 28,274,916の
 `USER32.dll!MessageBoxA(0x48010001,0x100DCBA0,0x100DCBE0,0x00001010)`／`endpoint-contract-missing`である。
 General same-position handling、z-order change、cross-thread／multi-window activationはこのoracleのclaimに含めない。
+
+## 154. BGI recreated D3D9 textures
+
+Focused `d3d9-recreated-textures` traceを同じsource executableから独立に二回取得した。Primary raw traceは
+520,239 bytes／1,175 lines／SHA-256 `b5a1ecbda79c5f59b38d3cfcb3a40c6aeacaadd0925ee515a1a4e73be3714a08`、
+summaryは456,252 bytes／SHA-256 `7cbd49226942b0a332bde07d3a0c3c2bfa8bfab59027a1fd5de705a4e759336f`で、
+547 API pairsがbalancedである。Confirmation raw traceは519,513 bytes／1,173 lines／SHA-256
+`9503f828d4fb971f72fac0b20de60e482e0eda070860ec12fe961f7ac584d377`、summaryは456,367 bytes／SHA-256
+`8bc54d43b9125b3faf469a1e84427f55598c058b7a2053b4bc136152662be569`で、546 API pairsがbalancedである。
+各runは3,633 ms／3,368 msでfocused completion eventにより停止し、sequence contiguous、diagnostics／hook errors 0である。
+Raw trace／summaryは`.work/windows-traces/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+両runは同じdeviceとcaller RVAs `0x0005A715`、`0x0005A7B7`、`0x0005A7DC`から三つの
+`IDirect3DDevice9::CreateTexture`を観測した。Descriptorは順に
+`2048x1024/level 1/usage 0/format 22/pool 2`、同shapeのpool 0、usage `0x200`／pool 0で、shared handleは全てNULLである。
+全callは`S_OK`、LastError 0、output changed bytes 4を返し、各run内のreturned textureはnon-NULLかつdistinctである。
+各return先は直後に`test eax,eax`でHRESULT signを消費する。Native COM pointer値はartifact identityでありgoldenにしない。
+
+Runtime policy version 17は初期`1024x1024`三descriptorとこの`2048x1024`三descriptorだけを許可する。
+System-memory textureだけはvariant indices `0,3`のlevel-zero surface生成へ進める。Canonical Nodeはsequence
+108,735–108,743で`CreateTexture -> GetSurfaceLevel -> GetDC -> GetStockObject -> FillRect -> ReleaseDC -> Release ->
+CreateTexture -> CreateTexture`を完了し、surface `2048x1024`へ`[0,0,1280,720]`のblack fill commandを記録した。
+Three texture resultsは`S_OK`、guest outputは`0x01020004`／`0x01030004`／`0x01040004`、observed reference countは
+1／2／3で、browser renderer resourceは作らない。Publicationはguest memory、`RuntimeCom`、`RuntimeGraphics`を
+cross-owner preflightした一transactionであり、unsupported shape、bad output、capacity failureはmutation前に停止する。
+
+Canonical Node reportは127,345 supported calls、instruction 28,760,801、semantic digest
+`481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b`、memory digest
+`b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973`である。Chrome protocol v26も同じ
+ordered nine-call evidenceとdigestを再現した。次stopはendpoint ID 202／address `0x7F000C90`／IAT `0x100D1400`／
+return `0x100938C2`の`USER32.dll!SetWindowPos(0x48010001,HWND_TOP,317,154,0,0,0x25)`で、faultは
+`set-window-pos-insert-after-unsupported`である。General dimensions／mips／pool、texel backing、upload、present、device lossはclaimしない。

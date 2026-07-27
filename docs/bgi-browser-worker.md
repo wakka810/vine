@@ -79,19 +79,22 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `user32-set-window-pos-repeat-activation` and uses protocol
-`vine.browser-runtime-worker.v25`. It inherits the immutable boot-archive snapshot,
-writable-profile separation, 240 Rust-owned `Sleep(0)` yields, deterministic 32-byte
+The active private profile is `d3d9-recreated-textures` and uses protocol
+`vine.browser-runtime-worker.v26`. It inherits the immutable boot-archive snapshot,
+writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
 publishes directory existence. The fifth reached `SetWindowPos` repeats the already-active
 same geometry and completes exactly one `WM_WINDOWPOSCHANGING` callback without changing
 window geometry, active／focus／foreground relations, or their generations. Node and Chrome
 require the same BOOL／LastError, callback frame and scratch identity, zero guest writes,
-Rust `RuntimeUser32` authority, semantic digest, memory digest, and following
-`MessageBoxA` endpoint stop. Protocol version 24 remains the typed writable-directory
-predecessor; version 25 adds the repeat-activation profile and typed evidence report
-without moving Windows window or relation state to TypeScript.
+and Rust `RuntimeUser32` authority. They then reproduce the three `2048x1024` D3D9
+texture creations and the exact nine-call system-memory surface fill chain with
+`RuntimeGraphics`／`RuntimeCom` authority, no browser renderer resource, and a
+transactional publication boundary. The final semantic and memory digests agree at the
+following `SetWindowPos(HWND_TOP, ..., 0x25)` structured stop. Protocol version 25 is
+the repeat-activation predecessor; version 26 adds the recreated-texture profile and
+typed evidence report without moving COM, graphics, or window state to TypeScript.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

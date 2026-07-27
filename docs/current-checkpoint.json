@@ -185,13 +185,13 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v25",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v26",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 4709030,
-      "sha256": "beb6ca28c10250a96afdb63abc52a2f4e0793cb3959d4c4aec495e3e30f75759"
+      "bytes": 4715002,
+      "sha256": "e84ab3a1b103702791f2c1970ff3159b244154fe406cf17fb98caeb99875112f"
     },
     "browserRuntimeFixture": {
       "bytes": 3584,
@@ -361,16 +361,16 @@
       "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       "nodeRole": "semantic-oracle-only",
       "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
-      "guestInstructions": 28274916,
-      "cpuSlices": 110372,
+      "guestInstructions": 28760801,
+      "cpuSlices": 128981,
       "budgetYields": 1542,
-      "supportedCalls": 108736,
+      "supportedCalls": 127345,
       "evidenceLevel": "summary",
       "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-      "callSemanticsSha256": "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
-      "writebackBatches": 110368,
-      "writebackPages": 153843,
-      "hostDeltaBatches": 92825,
+      "callSemanticsSha256": "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
+      "writebackBatches": 128977,
+      "writebackPages": 179516,
+      "hostDeltaBatches": 106761,
       "callbackEntries": 25,
       "callbackReplacements": 13,
       "maximumCallbackDepth": 3,
@@ -390,16 +390,16 @@
         8192,
         8193
       ],
-      "contextSwitches": 1526,
-      "setWaitableTimerCompletions": 6974,
+      "contextSwitches": 2010,
+      "setWaitableTimerCompletions": 9187,
       "setWaitableTimerSequence": 18681,
       "setWaitableTimerSequences": [
         18681,
-        108706
+        127344
       ],
       "setWaitableTimerInstructionCounts": [
         11974074,
-        28269117
+        28759195
       ],
       "setWaitableTimerInstructionCount": 11974074,
       "setWaitableTimerArguments": [
@@ -431,14 +431,14 @@
       "setWaitableTimerBrowserTimerCreated": false,
       "setWaitableTimerExpirationImplemented": true,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
-      "waitForSingleObjectExCompletions": 6974,
+      "waitForSingleObjectExCompletions": 9186,
       "waitForSingleObjectExSequences": [
         18682,
-        108707
+        127337
       ],
       "waitForSingleObjectExInstructionCounts": [
         11974080,
-        28269123
+        28759054
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -460,24 +460,24 @@
       "waitForSingleObjectExManualReset": true,
       "waitForSingleObjectExArmGenerations": [
         1,
-        6974
+        9186
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        34870000
+        45930000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        34870000
+        45930000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        6974
+        9186
       ],
       "waitForSingleObjectExWaitState": "signaled",
       "waitForSingleObjectExNextRegistrationIds": [
         2,
-        6975
+        9187
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -488,11 +488,11 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "6985"
+        "9197"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "6974"
+        "9186"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
@@ -504,15 +504,15 @@
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "34870000"
+        "45930000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "6973"
+        "9185"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "6974"
+        "9186"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -523,25 +523,25 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerCreated": true,
-      "waitForSingleObjectExBrowserPacingRequests": 6974,
-      "waitForSingleObjectExBrowserPacingCompletions": 6974,
+      "waitForSingleObjectExBrowserPacingRequests": 9186,
+      "waitForSingleObjectExBrowserPacingCompletions": 9186,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
       "waitForSingleObjectExFailureAtomicity": true,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
-      "sleepZeroCompletions": 240,
+      "sleepZeroCompletions": 480,
       "sleepZeroSequences": [
         89430,
-        107670
+        126996
       ],
       "sleepZeroOccurrences": [
         1,
-        240
+        480
       ],
       "sleepZeroInstructionCounts": [
         15954287,
-        16290526
+        28612007
       ],
       "sleepZeroArguments": [
         "0x00000000"
@@ -560,14 +560,14 @@
       "sleepZeroImplementationId": "kernel32.sleep-zero.yield-current-thread.v1",
       "sleepZeroExecutionBoundary": "yield-current-thread",
       "sleepZeroSchedulerAuthority": "rust-runtime-scheduler",
-      "sleepZeroSchedulerSelectionCount": 240,
+      "sleepZeroSchedulerSelectionCount": 480,
       "sleepZeroSchedulerSelectionSequences": [
         89430,
-        107670
+        126996
       ],
       "sleepZeroSchedulerSelectionInstructionCounts": [
         15954287,
-        16290526
+        28612007
       ],
       "sleepZeroSchedulerPreviousThreadId": 8192,
       "sleepZeroSchedulerSelectedThreadId": 8193,
@@ -1240,7 +1240,7 @@
       "virtualAllocNodeCompletions": 1,
       "virtualAllocChromeCompletions": 1,
       "virtualAllocNodeChromeOrderedSemanticsMatched": true,
-      "successExecutionTransitionCount": 353544,
+      "successExecutionTransitionCount": 416491,
       "monitorFromWindowCompletions": 2,
       "monitorFromWindowSequence": 17842,
       "monitorFromWindowArguments": [
@@ -2177,6 +2177,54 @@
       "setWindowPosRepeatBrowserOwnsLogicalWindowState": false,
       "setWindowPosRepeatBrowserResourceCreated": false,
       "setWindowPosRepeatNodeChromeOrderedSemanticsMatched": true,
+      "d3d9RecreatedTexturesCompletions": 9,
+      "d3d9RecreatedTexturesSequences": [
+        108735,
+        108736,
+        108737,
+        108738,
+        108739,
+        108740,
+        108741,
+        108742,
+        108743
+      ],
+      "d3d9RecreatedTextureCreateSequences": [
+        108735,
+        108742,
+        108743
+      ],
+      "d3d9RecreatedTextureCreateInstructionCounts": [
+        28274782,
+        28274850,
+        28274866
+      ],
+      "d3d9RecreatedTexturePointers": [
+        "0x01020004",
+        "0x01030004",
+        "0x01040004"
+      ],
+      "d3d9RecreatedTextureReferenceCounts": [
+        1,
+        2,
+        3
+      ],
+      "d3d9RecreatedTextureSurfaceGeometry": [
+        2048,
+        1024
+      ],
+      "d3d9RecreatedTextureFillRect": [
+        0,
+        0,
+        1280,
+        720
+      ],
+      "d3d9RecreatedTextureCompatibilityPolicyId": "d3d9-primary-virtual-adapter-v17",
+      "d3d9RecreatedTextureCreateProfileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+      "d3d9RecreatedTextureGetSurfaceLevelProfileId": "primary-system-memory-texture-level-zero-surfaces-v2",
+      "d3d9RecreatedTextureBrowserRendererResourceCreated": false,
+      "d3d9RecreatedTextureMutation": "cross-owner-preflight-transactional-commit",
+      "d3d9RecreatedTextureNodeChromeOrderedSemanticsMatched": true,
       "systemMenuCompletions": 2,
       "systemMenuSequences": [
         89390,
@@ -2267,8 +2315,8 @@
         "decommit": 0,
         "release": 12
       },
-      "mappingDeltas": 92825,
-      "mappingDirtyPages": 95902,
+      "mappingDeltas": 106761,
+      "mappingDirtyPages": 109847,
       "mappingAtomicRejections": 0,
       "mappingStaleAccessStops": 0,
       "mappingCacheEffects": {
@@ -2298,19 +2346,22 @@
       "initialStackCommittedPagesAfterGrowth": 7,
       "initialStackFinalGuardPage": "0x006f8000",
       "initialGeneration": 27,
-      "finalGeneration": 204207,
-      "nodeFinalGeneration": 202769,
+      "finalGeneration": 236918,
+      "nodeFinalGeneration": 235480,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
-      "memoryContentSha256": "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+      "memoryContentSha256": "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
       "nextCapabilityCluster": "user32-api-contract",
-      "nextEndpoint": "user32.dll!MessageBoxA",
-      "nextFaultCode": "endpoint-contract-missing",
-      "nextEndpointAddress": "0x7f000dc0",
+      "nextEndpoint": "user32.dll!SetWindowPos",
+      "nextFaultCode": "set-window-pos-insert-after-unsupported",
+      "nextEndpointAddress": "0x7f000c90",
       "nextArguments": [
         "0x48010001",
-        "0x100dcba0",
-        "0x100dcbe0",
-        "0x00001010"
+        "0x00000000",
+        "0x0000013d",
+        "0x0000009a",
+        "0x00000000",
+        "0x00000000",
+        "0x00000025"
       ],
       "initialCurrentDirectoryBytesWithNul": [
         67,
@@ -2324,15 +2375,15 @@
       ],
       "initialCurrentDirectoryGeneration": 0,
       "setCurrentDirectoryGeneration": 1,
-      "wasmBridgeCalls": 319616,
-      "runtimeCoreLinearMemoryBytes": 19136512,
+      "wasmBridgeCalls": 373251,
+      "runtimeCoreLinearMemoryBytes": 19202048,
       "executionEngineLinearMemoryBytes": 18219008,
-      "maximumSliceMilliseconds": 3.6949999928474426,
-      "elapsedMilliseconds": 20209.65000000596,
-      "heartbeatSamples": 3847,
-      "maximumHeartbeatGapMilliseconds": 14.439999997615814,
-      "usedJsHeapBytesBefore": 635063,
-      "usedJsHeapBytesAfter": 3777207,
+      "maximumSliceMilliseconds": 2.5,
+      "elapsedMilliseconds": 19375.564999999944,
+      "heartbeatSamples": 3877,
+      "maximumHeartbeatGapMilliseconds": 25.920000000158325,
+      "usedJsHeapBytesBefore": 635232,
+      "usedJsHeapBytesAfter": 4709168,
       "cancelInstructions": 19,
       "watchdogInstructions": 4,
       "pendingHostCallsAfterCleanup": 0,
@@ -2342,10 +2393,10 @@
       "sourceReadCompletions": 10,
       "sourceReadPayloadSha256": "6dba2f3ade90d3706b45ccf37e490a56c97e74511a0eae0c4ab5546f34ce1cd6",
       "sourceReadPendingAfterCleanup": 0,
-      "nodeOracleReportBytes": 479626,
-      "nodeOracleReportSha256": "cdc3a39f0b94a5d5502cb33286a18726bbc57bf3babdbbb331b2655b9d71c502",
-      "browserReportBytes": 1425070,
-      "browserReportSha256": "cbb110b452c4ee2b249ca40ebc3142218ca68e08208fb99d94e44888dac53195",
+      "nodeOracleReportBytes": 489860,
+      "nodeOracleReportSha256": "3f4b358e0eef435fb165648313d37ded05bbbaf474217c5cc66c948714abb168",
+      "browserReportBytes": 1856984,
+      "browserReportSha256": "0ba58c0064afe7a0ec68b2ff71155d4507af4ecf0198a8a368b89d35e902d000",
       "archiveSourceReadCompletions": 3,
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceReadOffsets": [
@@ -2531,9 +2582,9 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "user32-set-window-pos-repeat-activation",
+    "runtimeKernelCheckpoint": "d3d9-recreated-textures",
     "status": "structured-stop",
-    "profile": "user32-set-window-pos-repeat-activation",
+    "profile": "d3d9-recreated-textures",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -2629,7 +2680,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 115,
     "genericDispatcherContractCount": 117,
-    "genericDispatcherCallOccurrenceCount": 108736,
+    "genericDispatcherCallOccurrenceCount": 127345,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -2954,7 +3005,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "user32-message-box-a"
+      "capabilityExpansionPausedAt": "user32-set-window-pos-frame-change-move"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -3070,7 +3121,7 @@
     },
     "d3d9Frontend": {
       "schema": "vine.d3d9-frontend.v1",
-      "status": "raster-status-gateway-verified",
+      "status": "recreated-texture-band-verified",
       "stateOwner": "crates/vine-core/src/d3d9.rs",
       "comAuthority": "runtime/com.rs::RuntimeCom",
       "sdkVersion": 32,
@@ -3107,8 +3158,8 @@
       "frontendDispatchBoundary": "version-neutral-com-gateway-to-versioned-d3d9-handler",
       "compatibilityPolicy": {
         "schema": "vine.d3d9-compatibility-policy",
-        "schemaVersion": 16,
-        "id": "d3d9-primary-virtual-adapter-v16",
+        "schemaVersion": 17,
+        "id": "d3d9-primary-virtual-adapter-v17",
         "displayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
         "surfaceDcProfileId": "primary-surface-gdi-dc-v1",
         "rasterStatusProfileId": "primary-stable-nonblank-scanline-v1"
@@ -3853,7 +3904,7 @@
         "slot": 23,
         "explicitArgumentWords": 8,
         "returnKind": "h-result",
-        "profileId": "primary-initial-x8r8g8b8-textures-v1",
+        "profileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         "variants": [
           {
             "width": 1024,
@@ -3879,6 +3930,39 @@
           },
           {
             "width": 1024,
+            "height": 1024,
+            "levels": 1,
+            "usage": 512,
+            "usageName": "dynamic",
+            "format": 22,
+            "formatName": "D3DFMT_X8R8G8B8",
+            "pool": 0,
+            "poolName": "D3DPOOL_DEFAULT"
+          },
+          {
+            "width": 2048,
+            "height": 1024,
+            "levels": 1,
+            "usage": 0,
+            "usageName": "none",
+            "format": 22,
+            "formatName": "D3DFMT_X8R8G8B8",
+            "pool": 2,
+            "poolName": "D3DPOOL_SYSTEMMEM"
+          },
+          {
+            "width": 2048,
+            "height": 1024,
+            "levels": 1,
+            "usage": 0,
+            "usageName": "none",
+            "format": 22,
+            "formatName": "D3DFMT_X8R8G8B8",
+            "pool": 0,
+            "poolName": "D3DPOOL_DEFAULT"
+          },
+          {
+            "width": 2048,
             "height": 1024,
             "levels": 1,
             "usage": 512,
@@ -4175,6 +4259,211 @@
         "deviceReferenceCountAtStop": 4,
         "browserRendererCreated": false,
         "pixelStorageCreated": false,
+        "nodeChromeOrderedSemanticsMatched": true
+      },
+      "nativeRecreatedTextureEvidence": {
+        "traceSchema": "vine.win32-trace.v2",
+        "profileId": "x86-bgi-recreated-textures-v1",
+        "primaryTraceBytes": 520239,
+        "primaryTraceLines": 1175,
+        "primaryTraceSha256": "b5a1ecbda79c5f59b38d3cfcb3a40c6aeacaadd0925ee515a1a4e73be3714a08",
+        "primaryBalancedApiPairs": 547,
+        "primarySummaryBytes": 456252,
+        "primarySummarySha256": "7cbd49226942b0a332bde07d3a0c3c2bfa8bfab59027a1fd5de705a4e759336f",
+        "primaryDurationMilliseconds": 3633,
+        "confirmationTraceBytes": 519513,
+        "confirmationTraceLines": 1173,
+        "confirmationTraceSha256": "9503f828d4fb971f72fac0b20de60e482e0eda070860ec12fe961f7ac584d377",
+        "confirmationBalancedApiPairs": 546,
+        "confirmationSummaryBytes": 456367,
+        "confirmationSummarySha256": "8bc54d43b9125b3faf469a1e84427f55598c058b7a2053b4bc136152662be569",
+        "confirmationDurationMilliseconds": 3368,
+        "diagnostics": 0,
+        "callsPerTrace": 3,
+        "callerRvas": [
+          "0x0005a715",
+          "0x0005a7b7",
+          "0x0005a7dc"
+        ],
+        "variants": [
+          [
+            2048,
+            1024,
+            1,
+            0,
+            22,
+            2
+          ],
+          [
+            2048,
+            1024,
+            1,
+            0,
+            22,
+            0
+          ],
+          [
+            2048,
+            1024,
+            1,
+            512,
+            22,
+            0
+          ]
+        ],
+        "sharedHandlesNull": true,
+        "results": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "lastErrors": [
+          0,
+          0,
+          0
+        ],
+        "outputAddresses": [
+          "0x008f17cc",
+          "0x008f17d0",
+          "0x008f17d4"
+        ],
+        "outputBytesWrittenPerCall": 4,
+        "returnedTexturesNonNullAndDistinctPerTrace": true,
+        "hresultSignConsumedPerCall": true,
+        "sourceExecutableHashUnchanged": true
+      },
+      "privateRuntimeRecreatedTextureEvidence": {
+        "nodeSequences": [
+          108735,
+          108736,
+          108737,
+          108738,
+          108739,
+          108740,
+          108741,
+          108742,
+          108743
+        ],
+        "chromeSequences": [
+          108735,
+          108736,
+          108737,
+          108738,
+          108739,
+          108740,
+          108741,
+          108742,
+          108743
+        ],
+        "orderedMethods": [
+          "IDirect3DDevice9.CreateTexture",
+          "IDirect3DTexture9.GetSurfaceLevel",
+          "IDirect3DSurface9.GetDC",
+          "GetStockObject",
+          "FillRect",
+          "IDirect3DSurface9.ReleaseDC",
+          "IDirect3DSurface9.Release",
+          "IDirect3DDevice9.CreateTexture",
+          "IDirect3DDevice9.CreateTexture"
+        ],
+        "createTextureSequences": [
+          108735,
+          108742,
+          108743
+        ],
+        "createTextureOccurrences": [
+          7,
+          8,
+          9
+        ],
+        "createTextureInstructionCounts": [
+          28274782,
+          28274850,
+          28274866
+        ],
+        "createTextureArguments": [
+          [
+            "0x01010004",
+            "0x00000800",
+            "0x00000400",
+            "0x00000001",
+            "0x00000000",
+            "0x00000016",
+            "0x00000002",
+            "0x101517cc",
+            "0x00000000"
+          ],
+          [
+            "0x01010004",
+            "0x00000800",
+            "0x00000400",
+            "0x00000001",
+            "0x00000000",
+            "0x00000016",
+            "0x00000000",
+            "0x101517d0",
+            "0x00000000"
+          ],
+          [
+            "0x01010004",
+            "0x00000800",
+            "0x00000400",
+            "0x00000001",
+            "0x00000200",
+            "0x00000016",
+            "0x00000000",
+            "0x101517d4",
+            "0x00000000"
+          ]
+        ],
+        "createTextureResults": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "createTextureReturnAddresses": [
+          "0x1005a715",
+          "0x1005a7b7",
+          "0x1005a7dc"
+        ],
+        "textureOutputAddresses": [
+          "0x101517cc",
+          "0x101517d0",
+          "0x101517d4"
+        ],
+        "texturePointers": [
+          "0x01020004",
+          "0x01030004",
+          "0x01040004"
+        ],
+        "referenceCounts": [
+          1,
+          2,
+          3
+        ],
+        "guestWriteBytes": [
+          4,
+          4,
+          4
+        ],
+        "surfaceGeometry": [
+          2048,
+          1024
+        ],
+        "fillRect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v17",
+        "createTextureProfileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+        "getSurfaceLevelProfileId": "primary-system-memory-texture-level-zero-surfaces-v2",
+        "textureAuthority": "runtime/graphics.rs::RuntimeGraphics",
+        "comAuthority": "runtime/com.rs::RuntimeCom",
+        "browserRendererCreated": false,
+        "mutation": "cross-owner-preflight-transactional-commit",
+        "failureAtomicity": true,
         "nodeChromeOrderedSemanticsMatched": true
       },
       "createVertexBuffer": {
@@ -4628,9 +4917,12 @@
         "slot": 18,
         "explicitArgumentWords": 2,
         "returnKind": "h-result",
-        "profileId": "primary-texture-level-zero-surface-v1",
+        "profileId": "primary-system-memory-texture-level-zero-surfaces-v2",
         "level": 0,
-        "sourceTextureVariantIndex": 0,
+        "sourceTextureVariantIndices": [
+          0,
+          3
+        ],
         "otherTextureVariantFault": "get-surface-level-texture-variant-unsupported",
         "surfaceOutputWriteBytes": 4,
         "repeatReturnsSameIdentityAndAddsReference": true,
@@ -5366,7 +5658,7 @@
         8193
       ],
       "privateNodeChromeContextSwitches": 1,
-      "privateSleepZeroNodeChromeSelectionCount": 240,
+      "privateSleepZeroNodeChromeSelectionCount": 480,
       "privateSleepZeroNodeChromeOrderedSemanticsMatched": true,
       "wholeRuntimeStateClone": false
     },
@@ -7552,7 +7844,7 @@
       "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-user32-set-window-pos-repeat-activation",
+      "schema": "vine.v86-bgi-d3d9-recreated-textures",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -9103,9 +9395,9 @@
       "nativeEnableMenuItemLastError": 1401,
       "nativeInvalidMenuConsumer": "result-ignored-global-flag-set-and-continue",
       "nativeCreateWindowExAExecutableHashUnchanged": true,
-      "implementation": "Rust-owned same-active-window repeated SetWindowPos validation-only callback over RuntimeUser32 authority",
+      "implementation": "Rust-owned D3D9 recreated-texture band over transactional RuntimeGraphics and RuntimeCom authority",
       "implementedApiContractCount": 117,
-      "genericSupportedCallCount": 108736,
+      "genericSupportedCallCount": 127345,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -9422,11 +9714,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 108830,
-      "writebackDirtyPages": 150285,
-      "writebackChangedBytes": 6369334,
-      "hostDeltaBatches": 92825,
-      "finalMemoryGeneration": 202769,
+      "writebackBatches": 127439,
+      "writebackDirtyPages": 175958,
+      "writebackChangedBytes": 6619474,
+      "hostDeltaBatches": 106761,
+      "finalMemoryGeneration": 235480,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -9578,7 +9870,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+      "memoryContentSha256": "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -9742,8 +10034,8 @@
       "d3d9GetAdapterCountLastError": 0,
       "d3d9GetAdapterCountGuestWriteBytes": 0,
       "d3d9GetAdapterCountPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetAdapterCountPolicyVersion": 16,
-      "d3d9GetAdapterCountPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetAdapterCountPolicyVersion": 17,
+      "d3d9GetAdapterCountPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetAdapterCountProfileId": "single-logical-adapter-v1",
       "d3d9GetAdapterCountDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetAdapterCountCapabilityAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -9821,8 +10113,8 @@
       "d3d9GetAdapterMonitorLastError": 0,
       "d3d9GetAdapterMonitorGuestWriteBytes": 0,
       "d3d9GetAdapterMonitorPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetAdapterMonitorPolicyVersion": 16,
-      "d3d9GetAdapterMonitorPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetAdapterMonitorPolicyVersion": 17,
+      "d3d9GetAdapterMonitorPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetAdapterMonitorProfileId": "primary-adapter-monitor-v1",
       "d3d9GetAdapterMonitorDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetAdapterMonitorAdapterMappingAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -10112,17 +10404,17 @@
       "setWaitableTimerHostTimerImported": false,
       "setWaitableTimerBrowserTimerImported": false,
       "setWaitableTimerExpirationImplemented": true,
-      "setWaitableTimerNodeCompletions": 6974,
-      "setWaitableTimerChromeCompletions": 6974,
+      "setWaitableTimerNodeCompletions": 9187,
+      "setWaitableTimerChromeCompletions": 9187,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
       "waitForSingleObjectExImplemented": true,
       "waitForSingleObjectExSequences": [
         18682,
-        108707
+        127337
       ],
       "waitForSingleObjectExInstructionCounts": [
         11974080,
-        28269123
+        28759054
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -10142,19 +10434,19 @@
       "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       "waitForSingleObjectExArmGenerations": [
         1,
-        6974
+        9186
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        34870000
+        45930000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        34870000
+        45930000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        6974
+        9186
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -10165,11 +10457,11 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "6985"
+        "9197"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "6974"
+        "9186"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
@@ -10177,15 +10469,15 @@
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "34870000"
+        "45930000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "6973"
+        "9185"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "6974"
+        "9186"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -10196,29 +10488,29 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerImported": false,
-      "waitForSingleObjectExBrowserPacingRequests": 6974,
-      "waitForSingleObjectExBrowserPacingCompletions": 6974,
+      "waitForSingleObjectExBrowserPacingRequests": 9186,
+      "waitForSingleObjectExBrowserPacingCompletions": 9186,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
-      "waitForSingleObjectExNodeCompletions": 6974,
-      "waitForSingleObjectExChromeCompletions": 6974,
+      "waitForSingleObjectExNodeCompletions": 9186,
+      "waitForSingleObjectExChromeCompletions": 9186,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
       "sleepZeroImplemented": true,
       "sleepZeroPolicyId": "kernel32-create-directory-a-v1",
       "sleepZeroPolicySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-      "sleepZeroCallCount": 240,
+      "sleepZeroCallCount": 480,
       "sleepZeroSequences": [
         89430,
-        107670
+        126996
       ],
       "sleepZeroOccurrences": [
         1,
-        240
+        480
       ],
       "sleepZeroInstructionCounts": [
         15954287,
-        16290526
+        28612007
       ],
       "sleepZeroArguments": [
         "0x00000000"
@@ -10237,14 +10529,14 @@
       "sleepZeroImplementationId": "kernel32.sleep-zero.yield-current-thread.v1",
       "sleepZeroExecutionBoundary": "yield-current-thread",
       "sleepZeroSchedulerAuthority": "runtime/scheduler.rs::RuntimeScheduler",
-      "sleepZeroSchedulerSelectionCount": 240,
+      "sleepZeroSchedulerSelectionCount": 480,
       "sleepZeroSchedulerSelectionSequences": [
         89430,
-        107670
+        126996
       ],
       "sleepZeroSchedulerSelectionInstructionCounts": [
         15954287,
-        16290526
+        28612007
       ],
       "sleepZeroSchedulerPreviousThreadId": 8192,
       "sleepZeroSchedulerSelectedThreadId": 8193,
@@ -10252,8 +10544,8 @@
       "sleepZeroHostWaitCreated": false,
       "sleepZeroNonzeroRejectedBeforeMutation": true,
       "sleepZeroFailureAtomicity": true,
-      "sleepZeroNodeCompletions": 240,
-      "sleepZeroChromeCompletions": 240,
+      "sleepZeroNodeCompletions": 480,
+      "sleepZeroChromeCompletions": 480,
       "sleepZeroNodeChromeOrderedSemanticsMatched": true,
       "globalMemoryStatusImplemented": true,
       "globalMemoryStatusPolicyId": "kernel32-create-directory-a-v1",
@@ -11111,8 +11403,8 @@
       "d3d9GetAdapterDisplayModeRefreshRate": 60,
       "d3d9GetAdapterDisplayModeFormat": 22,
       "d3d9GetAdapterDisplayModePolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetAdapterDisplayModePolicyVersion": 16,
-      "d3d9GetAdapterDisplayModePolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetAdapterDisplayModePolicyVersion": 17,
+      "d3d9GetAdapterDisplayModePolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetAdapterDisplayModeProfileId": "primary-adapter-1920x1080-60-x8r8g8b8-v1",
       "d3d9GetAdapterDisplayModeDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetAdapterDisplayModeGeometryAuthority": "runtime/displays.rs::RuntimeDisplays",
@@ -11172,8 +11464,8 @@
       "d3d9GetAdapterIdentifierDeviceIdentifier": "56494e45-4433-4439-8000-000000000001",
       "d3d9GetAdapterIdentifierWhqlLevel": 0,
       "d3d9GetAdapterIdentifierPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetAdapterIdentifierPolicyVersion": 16,
-      "d3d9GetAdapterIdentifierPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetAdapterIdentifierPolicyVersion": 17,
+      "d3d9GetAdapterIdentifierPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetAdapterIdentifierProfileId": "primary-virtual-adapter-identifier-v1",
       "d3d9GetAdapterIdentifierDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetAdapterIdentifierIdentityAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -11246,8 +11538,8 @@
       "d3d9GetDeviceCapsNumberOfAdaptersInGroup": 1,
       "d3d9GetDeviceCapsOtherFieldsZero": true,
       "d3d9GetDeviceCapsPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetDeviceCapsPolicyVersion": 16,
-      "d3d9GetDeviceCapsPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetDeviceCapsPolicyVersion": 17,
+      "d3d9GetDeviceCapsPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetDeviceCapsProfileId": "primary-hal-readscanline-dynamic-textures-ps3-v1",
       "d3d9GetDeviceCapsDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetDeviceCapsCapabilityAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -11339,8 +11631,8 @@
       "d3d9CheckDeviceTypeNotAvailableResult": "0x8876086a",
       "d3d9CheckDeviceTypeBoolNormalization": "zero-fullscreen-nonzero-windowed",
       "d3d9CheckDeviceTypePolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9CheckDeviceTypePolicyVersion": 16,
-      "d3d9CheckDeviceTypePolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9CheckDeviceTypePolicyVersion": 17,
+      "d3d9CheckDeviceTypePolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9CheckDeviceTypeProfileId": "primary-hal-x8r8g8b8-windowed-fullscreen-v1",
       "d3d9CheckDeviceTypeDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9CheckDeviceTypeCapabilityAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -11417,8 +11709,8 @@
       "d3d9CheckDeviceFormatInvalidCallResult": "0x8876086c",
       "d3d9CheckDeviceFormatNotAvailableResult": "0x8876086a",
       "d3d9CheckDeviceFormatPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9CheckDeviceFormatPolicyVersion": 16,
-      "d3d9CheckDeviceFormatPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9CheckDeviceFormatPolicyVersion": 17,
+      "d3d9CheckDeviceFormatPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9CheckDeviceFormatProfileId": "primary-hal-x8r8g8b8-texture-basic-dynamic-v1",
       "d3d9CheckDeviceFormatDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9CheckDeviceFormatCapabilityAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -11503,8 +11795,8 @@
       "d3d9CreateDevicePresentationPrefixHex": "200300005802000016000000",
       "d3d9CreateDeviceOutputPointer": "0x01010004",
       "d3d9CreateDevicePolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9CreateDevicePolicyVersion": 16,
-      "d3d9CreateDevicePolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9CreateDevicePolicyVersion": 17,
+      "d3d9CreateDevicePolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9CreateDeviceProfileId": "primary-windowed-hal-device-v1",
       "d3d9CreateDeviceDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9CreateDeviceWindowAuthority": "runtime/user32.rs::RuntimeUser32",
@@ -11663,9 +11955,9 @@
       "d3d9CreateTextureGuestWriteBytes": 4,
       "d3d9CreateTextureOutputPointer": "0x01020004",
       "d3d9CreateTexturePolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9CreateTexturePolicyVersion": 16,
-      "d3d9CreateTexturePolicyId": "d3d9-primary-virtual-adapter-v16",
-      "d3d9CreateTextureProfileId": "primary-initial-x8r8g8b8-textures-v1",
+      "d3d9CreateTexturePolicyVersion": 17,
+      "d3d9CreateTexturePolicyId": "d3d9-primary-virtual-adapter-v17",
+      "d3d9CreateTextureProfileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
       "d3d9CreateTextureGraphicsAuthority": "runtime/graphics.rs::RuntimeGraphics",
       "d3d9CreateTextureComAuthority": "runtime/com.rs::RuntimeCom",
       "d3d9CreateTextureClassIdentity": "d3d9.idirect3dtexture9.v1",
@@ -11885,8 +12177,8 @@
       "d3d9CreateVertexBufferGuestWriteBytes": 4,
       "d3d9CreateVertexBufferOutputPointer": "0x01050004",
       "d3d9CreateVertexBufferPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9CreateVertexBufferPolicyVersion": 16,
-      "d3d9CreateVertexBufferPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9CreateVertexBufferPolicyVersion": 17,
+      "d3d9CreateVertexBufferPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9CreateVertexBufferProfileId": "primary-initial-xyzw-diffuse-tex1-quad-v1",
       "d3d9CreateVertexBufferGraphicsAuthority": "runtime/graphics.rs::RuntimeGraphics",
       "d3d9CreateVertexBufferAddressAuthority": "runtime/address_space.rs::ProcessAddressSpaceAllocator",
@@ -12056,8 +12348,8 @@
       ],
       "d3d9SetRenderStateDeviceReferenceCountAtStop": 5,
       "d3d9SetRenderStatePolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9SetRenderStatePolicyVersion": 16,
-      "d3d9SetRenderStatePolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9SetRenderStatePolicyVersion": 17,
+      "d3d9SetRenderStatePolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9SetRenderStateProfileId": "primary-initial-fixed-function-render-states-v1",
       "d3d9SetRenderStateAuthority": "runtime/graphics.rs::RuntimeGraphicsDevice",
       "d3d9SetRenderStateLogicalValues": [
@@ -12136,8 +12428,8 @@
       "d3d9GetRasterStatusDeviceReferenceCount": 5,
       "d3d9GetRasterStatusObjectRetired": false,
       "d3d9GetRasterStatusPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetRasterStatusPolicyVersion": 16,
-      "d3d9GetRasterStatusPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9GetRasterStatusPolicyVersion": 17,
+      "d3d9GetRasterStatusPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9GetRasterStatusProfileId": "primary-stable-nonblank-scanline-v1",
       "d3d9GetRasterStatusDisplayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
       "d3d9GetRasterStatusStateAuthority": "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy",
@@ -12687,7 +12979,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+      "semanticCallDigestSha256": "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -14360,9 +14652,9 @@
       "d3d9GetSurfaceLevelGuestWriteBytes": 4,
       "d3d9GetSurfaceLevelOutputPointer": "0x01030004",
       "d3d9GetSurfaceLevelPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9GetSurfaceLevelPolicyVersion": 16,
-      "d3d9GetSurfaceLevelPolicyId": "d3d9-primary-virtual-adapter-v16",
-      "d3d9GetSurfaceLevelProfileId": "primary-texture-level-zero-surface-v1",
+      "d3d9GetSurfaceLevelPolicyVersion": 17,
+      "d3d9GetSurfaceLevelPolicyId": "d3d9-primary-virtual-adapter-v17",
+      "d3d9GetSurfaceLevelProfileId": "primary-system-memory-texture-level-zero-surfaces-v2",
       "d3d9GetSurfaceLevelGraphicsAuthority": "runtime/graphics.rs::RuntimeGraphics",
       "d3d9GetSurfaceLevelComAuthority": "runtime/com.rs::RuntimeCom",
       "d3d9GetSurfaceLevelClassIdentity": "d3d9.idirect3dsurface9.v1",
@@ -14465,8 +14757,8 @@
       "d3d9SurfaceDcOracleSuccessPreservesLastError": true,
       "d3d9SurfaceDcImplemented": true,
       "d3d9SurfaceDcPolicySchema": "vine.d3d9-compatibility-policy",
-      "d3d9SurfaceDcPolicyVersion": 16,
-      "d3d9SurfaceDcPolicyId": "d3d9-primary-virtual-adapter-v16",
+      "d3d9SurfaceDcPolicyVersion": 17,
+      "d3d9SurfaceDcPolicyId": "d3d9-primary-virtual-adapter-v17",
       "d3d9SurfaceDcProfileId": "primary-surface-gdi-dc-v1",
       "d3d9SurfaceDcNodeSequences": [
         17852,
@@ -14973,23 +15265,55 @@
       "broadHeapVariantsImplemented": false,
       "apiSpecificReconciliationLists": false,
       "apiSpecificRequestsOrReceipts": false,
-      "firstStructuredStopInstructionCount": 28274916,
+      "d3d9RecreatedTexturesImplemented": true,
+      "d3d9RecreatedTexturesEvidenceProfileId": "x86-bgi-recreated-textures-v1",
+      "d3d9RecreatedTexturesNodeSequences": [
+        108735,
+        108736,
+        108737,
+        108738,
+        108739,
+        108740,
+        108741,
+        108742,
+        108743
+      ],
+      "d3d9RecreatedTexturesChromeSequences": [
+        108735,
+        108736,
+        108737,
+        108738,
+        108739,
+        108740,
+        108741,
+        108742,
+        108743
+      ],
+      "d3d9RecreatedTexturesCompatibilityPolicyId": "d3d9-primary-virtual-adapter-v17",
+      "d3d9RecreatedTexturesCreateTextureProfileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
+      "d3d9RecreatedTexturesGetSurfaceLevelProfileId": "primary-system-memory-texture-level-zero-surfaces-v2",
+      "d3d9RecreatedTexturesFailureAtomicity": true,
+      "d3d9RecreatedTexturesNodeChromeOrderedSemanticsMatched": true,
+      "firstStructuredStopInstructionCount": 28760801,
       "firstStructuredStopCapabilityCluster": "user32-api-contract",
-      "firstStructuredStopEndpoint": "user32.dll!MessageBoxA",
+      "firstStructuredStopEndpoint": "user32.dll!SetWindowPos",
       "firstStructuredStopEndpointKind": "runtime-system-export",
-      "firstStructuredStopEndpointId": 221,
-      "firstStructuredStopEndpointAddress": "0x7f000dc0",
-      "firstStructuredStopIatAddress": "0x100d144c",
+      "firstStructuredStopEndpointId": 202,
+      "firstStructuredStopEndpointAddress": "0x7f000c90",
+      "firstStructuredStopIatAddress": "0x100d1400",
       "firstStructuredStopArguments": [
         "0x48010001",
-        "0x100dcba0",
-        "0x100dcbe0",
-        "0x00001010"
+        "0x00000000",
+        "0x0000013d",
+        "0x0000009a",
+        "0x00000000",
+        "0x00000000",
+        "0x00000025"
       ],
-      "firstStructuredStopReturnAddress": "0x10066b0d",
-      "firstStructuredStopFault": "endpoint-contract-missing",
-      "reportBytes": 479626,
-      "reportSha256": "cdc3a39f0b94a5d5502cb33286a18726bbc57bf3babdbbb331b2655b9d71c502",
+      "firstStructuredStopReturnAddress": "0x100938c2",
+      "firstStructuredStopFault": "set-window-pos-insert-after-unsupported",
+      "reportBytes": 489860,
+      "reportSha256": "3f4b358e0eef435fb165648313d37ded05bbbaf474217c5cc66c948714abb168",
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceManifest": "fixtures/source-snapshots/primary-boot-archives-v1.json",
       "archiveSourceMountRoot": "C:\\Vine",
@@ -15170,22 +15494,25 @@
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "api-endpoint",
-    "nextCheckpoint": "user32-message-box-a",
-    "pausedHistoricalCheckpoint": "user32-set-window-pos-repeat-activation",
-    "instructionCount": 28274916,
+    "nextCheckpoint": "user32-set-window-pos-frame-change-move",
+    "pausedHistoricalCheckpoint": "d3d9-recreated-textures",
+    "instructionCount": 28760801,
     "capabilityCluster": "user32-api-contract",
-    "reason": "endpoint-contract-missing",
+    "reason": "set-window-pos-insert-after-unsupported",
     "endpointKind": "runtime-system-export",
-    "endpointId": 221,
-    "api": "USER32.dll!MessageBoxA",
+    "endpointId": 202,
+    "api": "USER32.dll!SetWindowPos",
     "arguments": [
       "0x48010001",
-      "0x100dcba0",
-      "0x100dcbe0",
-      "0x00001010"
+      "0x00000000",
+      "0x0000013d",
+      "0x0000009a",
+      "0x00000000",
+      "0x00000000",
+      "0x00000025"
     ],
-    "endpointAddress": "0x7f000dc0",
-    "iatAddress": "0x100d144c",
-    "returnAddress": "0x10066b0d"
+    "endpointAddress": "0x7f000c90",
+    "iatAddress": "0x100d1400",
+    "returnAddress": "0x100938c2"
   }
 }

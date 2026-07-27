@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 25 as const;
+export const protocolVersion = 26 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -18,7 +18,8 @@ export type BgiCapabilityProfile =
   | "kernel32-global-memory-status"
   | "kernel32-get-file-attributes-a"
   | "kernel32-create-directory-a"
-  | "user32-set-window-pos-repeat-activation";
+  | "user32-set-window-pos-repeat-activation"
+  | "d3d9-recreated-textures";
 
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
@@ -383,6 +384,43 @@ export interface HostRequestMessage {
   arguments: number[];
 }
 
+export interface RuntimeSupportedCallSnapshot {
+  sequence: number;
+  module: string;
+  symbol: string;
+  arguments: number[];
+  result:
+    | { action: "preserve" }
+    | { action: "set"; value: number }
+    | { kind: "h-result" | "u32"; value: number };
+  implementationId?: string;
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError?: number;
+  guestWrites: Array<{ address: number; bytes: number[] }>;
+  executionBoundary?: "yield-current-thread";
+  interface?: string;
+  vtableSlot?: number;
+  referenceCount?: number;
+  objectRetired?: boolean;
+  currentDirectory?: RuntimeCurrentDirectorySnapshot;
+  mutex?: RuntimeMutexSnapshot;
+  waitableTimer?: RuntimeWaitableTimerSnapshot;
+  icon?: RuntimeIconSnapshot;
+  cursor?: RuntimeCursorSnapshot;
+  windowClass?: RuntimeWindowClassSnapshot;
+  window?: RuntimeWindowSnapshot;
+  comApartment?: RuntimeComApartmentSnapshot;
+  sourceRead?: RuntimeSourceReadSnapshot;
+  writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
+  gdi?: RuntimeGdiSnapshot;
+  gdiplus?: RuntimeGdiplusSnapshot;
+  imm32?: RuntimeImm32Snapshot;
+  virtualMemory?: RuntimeVirtualMemorySnapshot;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -498,42 +536,7 @@ export interface SessionReport {
   supportedCallCount: number;
   supportedCallSemanticsAlgorithm: "sha256-canonical-json-v1";
   supportedCallSemanticsSha256: string | null;
-  supportedCalls: Array<{
-    sequence: number;
-    module: string;
-    symbol: string;
-    arguments: number[];
-    result:
-      | { action: "preserve" }
-      | { action: "set"; value: number }
-      | { kind: "h-result" | "u32"; value: number };
-    implementationId?: string;
-    returnAddress: number;
-    stackPointerBefore: number;
-    stackPointerAfter: number;
-    lastError?: number;
-    guestWrites: Array<{ address: number; bytes: number[] }>;
-    executionBoundary?: "yield-current-thread";
-    interface?: string;
-    vtableSlot?: number;
-    referenceCount?: number;
-    objectRetired?: boolean;
-    currentDirectory?: RuntimeCurrentDirectorySnapshot;
-    mutex?: RuntimeMutexSnapshot;
-    waitableTimer?: RuntimeWaitableTimerSnapshot;
-    icon?: RuntimeIconSnapshot;
-    cursor?: RuntimeCursorSnapshot;
-    windowClass?: RuntimeWindowClassSnapshot;
-    window?: RuntimeWindowSnapshot;
-    comApartment?: RuntimeComApartmentSnapshot;
-    sourceRead?: RuntimeSourceReadSnapshot;
-    writableCommit?: RuntimeWritableCommitSnapshot;
-    writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
-    gdi?: RuntimeGdiSnapshot;
-    gdiplus?: RuntimeGdiplusSnapshot;
-    imm32?: RuntimeImm32Snapshot;
-    virtualMemory?: RuntimeVirtualMemorySnapshot;
-  }>;
+  supportedCalls: RuntimeSupportedCallSnapshot[];
   sourceReads: RuntimeSourceReadSnapshot[];
   writableCommits: RuntimeWritableCommitSnapshot[];
   writableDirectoryCreates: RuntimeWritableDirectoryCreateSnapshot[];
@@ -615,6 +618,18 @@ export interface SessionReport {
     callbackDisposition: "validate-only";
     mutation: false;
     browserResourceCreated: false;
+  } | null;
+  d3d9RecreatedTextures: {
+    calls: RuntimeSupportedCallSnapshot[];
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v17";
+    createTextureProfileId:
+      "primary-initial-and-recreated-x8r8g8b8-textures-v2";
+    getSurfaceLevelProfileId:
+      "primary-system-memory-texture-level-zero-surfaces-v2";
+    textureAuthority: "rust-runtime-graphics-logical-texture";
+    comAuthority: "rust-runtime-com-object-and-interface";
+    browserRendererResourceCreated: false;
+    mutation: "cross-owner-preflight-transactional-commit";
   } | null;
   firstUnsupported: {
     capabilityCluster: string;

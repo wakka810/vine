@@ -51,6 +51,9 @@ const focusedD3d9SurfaceGetDcObservation =
 const focusedD3d9InitialTexturesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-textures");
+const focusedD3d9RecreatedTexturesObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-recreated-textures");
 const focusedD3d9InitialVertexBufferObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-vertex-buffer");
@@ -85,6 +88,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9CreateDeviceObservation ||
   focusedD3d9ResourceObservation ||
   focusedD3d9InitialTexturesObservation ||
+  focusedD3d9RecreatedTexturesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
   focusedD3d9InitialRenderStatesObservation ||
   focusedD3d9RasterStatusObservation;
@@ -100,6 +104,10 @@ const focusedD3d9SurfaceDcCalls = [];
 let focusedD3d9InitialTextureDevice = null;
 let focusedD3d9InitialTexturesComplete = false;
 const focusedD3d9InitialTextureCalls = [];
+let focusedD3d9RecreatedTextureDevice = null;
+let focusedD3d9RecreatedTexturesStarted = false;
+let focusedD3d9RecreatedTexturesComplete = false;
+const focusedD3d9RecreatedTextureCalls = [];
 let focusedD3d9InitialVertexBufferDevice = null;
 let focusedD3d9InitialVertexBufferObject = null;
 let focusedD3d9InitialVertexBufferData = null;
@@ -4509,6 +4517,37 @@ function attachIdirect3ddevice9(object) {
               return;
             }
             focusedD3d9InitialTextureDevice ??= objectAddress;
+          } else if (focusedD3d9RecreatedTexturesObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const startsRecreatedSequence =
+              slot === 23 &&
+              caller.module?.toLowerCase() ===
+                Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5a715 &&
+              args[1].toUInt32() === 2_048 &&
+              args[2].toUInt32() === 1_024 &&
+              args[3].toUInt32() === 1 &&
+              args[4].toUInt32() === 0 &&
+              args[5].toUInt32() === 22 &&
+              args[6].toUInt32() === 2 &&
+              args[8].isNull();
+            if (
+              focusedD3d9RecreatedTexturesComplete ||
+              focusedD3d9RecreatedTextureCalls.length >= 3 ||
+              slot !== 23 ||
+              caller.module?.toLowerCase() !==
+                Process.mainModule.name.toLowerCase() ||
+              (!focusedD3d9RecreatedTexturesStarted &&
+                !startsRecreatedSequence) ||
+              (focusedD3d9RecreatedTextureDevice !== null &&
+                objectAddress !== focusedD3d9RecreatedTextureDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9RecreatedTexturesStarted = true;
+            focusedD3d9RecreatedTextureDevice ??= objectAddress;
           } else if (
             focusedD3d9DeviceObservation &&
             focusedD3d9DeviceMethodCaptured
@@ -4523,7 +4562,8 @@ function attachIdirect3ddevice9(object) {
           this.traceArguments = arguments_;
           this.traceD3d9CreateTextureOutput =
             (focusedD3d9ResourceObservation ||
-              focusedD3d9InitialTexturesObservation) &&
+              focusedD3d9InitialTexturesObservation ||
+              focusedD3d9RecreatedTexturesObservation) &&
             slot === 23
               ? args[7]
               : null;
@@ -4657,6 +4697,21 @@ function attachIdirect3ddevice9(object) {
             });
             maybeCompleteFocusedD3d9InitialTexturesObservation();
           }
+          if (focusedD3d9RecreatedTexturesObservation) {
+            focusedD3d9RecreatedTextureCalls.push({
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: result.toString(),
+              lastError,
+              d3d9CreateTexture,
+              caller: this.traceFrame.caller,
+            });
+            maybeCompleteFocusedD3d9RecreatedTexturesObservation();
+          }
           if (focusedD3d9InitialVertexBufferObservation) {
             focusedD3d9InitialVertexBufferCalls.push({
               callId: this.traceFrame.callId,
@@ -4730,6 +4785,7 @@ function attachIdirect3ddevice9(object) {
           if (
             focusedD3d9DeviceObservation &&
             !focusedD3d9InitialTexturesObservation &&
+            !focusedD3d9RecreatedTexturesObservation &&
             !focusedD3d9InitialVertexBufferObservation &&
             !focusedD3d9InitialRenderStatesObservation &&
             !focusedD3d9RasterStatusObservation
@@ -5518,6 +5574,28 @@ function maybeCompleteFocusedD3d9InitialTexturesObservation() {
     calls: focusedD3d9InitialTextureCalls,
   });
   if (stopOnEvent === "d3d9-initial-textures-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function maybeCompleteFocusedD3d9RecreatedTexturesObservation() {
+  if (
+    focusedD3d9RecreatedTexturesComplete ||
+    focusedD3d9RecreatedTextureCalls.length !== 3
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteFocusedD3d9RecreatedTexturesObservation, 10);
+    return;
+  }
+  focusedD3d9RecreatedTexturesComplete = true;
+  emit("d3d9-recreated-textures-complete", {
+    profile: "x86-bgi-recreated-textures-v1",
+    device: focusedD3d9RecreatedTextureDevice,
+    calls: focusedD3d9RecreatedTextureCalls,
+  });
+  if (stopOnEvent === "d3d9-recreated-textures-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
