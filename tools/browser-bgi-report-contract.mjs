@@ -1,2 +1,2 @@
 export const BROWSER_BGI_REPORT_SCHEMA = "vine.browser-bgi-runtime-worker";
-export const BROWSER_BGI_REPORT_SCHEMA_VERSION = 8;
+export const BROWSER_BGI_REPORT_SCHEMA_VERSION = 9;

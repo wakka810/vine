@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-end-scene` and uses protocol
-`vine.browser-runtime-worker.v40`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-post-end-scene-raster-status` and uses protocol
+`vine.browser-runtime-worker.v41`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -222,6 +222,16 @@ COM endpoint `0x01011160`, identified from the stable D3D9 vtable as
 `IDirect3DDevice9::GetRasterStatus` slot 19. This explicit completion prevents
 the following ordinary wait loop from being misclassified as either an
 unsupported endpoint or an unbounded checkpoint run.
+
+Protocol version 41 carries the immediately following slot-19
+`GetRasterStatus(0, 0x006FF280)` sample. Rust preflights the complete eight-byte
+`D3DRASTER_STATUS` write, returns `{ InVBlank: FALSE, ScanLine: 1 }`, preserves
+LastError and COM reference count 5, and does not mutate logical graphics state.
+Node and Chrome agree on sequence 127,376 at instruction 28,761,389 and on the
+cumulative 784 raster-status completions. The capability completes at instruction
+28,761,446 before runtime export 118, `kernel32.dll!SetWaitableTimer` at
+`0x7F000750`. Neither engine imports host／browser scanout state or creates a
+renderer resource or visible pixels.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

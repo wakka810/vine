@@ -340,7 +340,8 @@ function runSession(
           capabilityProfile === "d3d9-set-fvf" ||
           capabilityProfile === "d3d9-set-stream-source" ||
           capabilityProfile === "d3d9-draw-primitive" ||
-          capabilityProfile === "d3d9-end-scene")
+          capabilityProfile === "d3d9-end-scene" ||
+          capabilityProfile === "d3d9-post-end-scene-raster-status")
           ? 35_000_000
           : 20_000_000,
       watchdogWallMilliseconds:
@@ -364,7 +365,8 @@ function runSession(
           capabilityProfile === "d3d9-set-fvf" ||
         capabilityProfile === "d3d9-set-stream-source" ||
         capabilityProfile === "d3d9-draw-primitive" ||
-        capabilityProfile === "d3d9-end-scene")
+        capabilityProfile === "d3d9-end-scene" ||
+        capabilityProfile === "d3d9-post-end-scene-raster-status")
           ? 300_000
           : capabilityProfile === "shell32-drag-accept-files" ||
               capabilityProfile === "kernel32-archive-source-read"
@@ -409,7 +411,8 @@ function parseCapabilityProfile(
       value === "d3d9-set-fvf" ||
       value === "d3d9-set-stream-source" ||
       value === "d3d9-draw-primitive" ||
-      value === "d3d9-end-scene")
+      value === "d3d9-end-scene" ||
+      value === "d3d9-post-end-scene-raster-status")
     ? value
     : undefined;
 }

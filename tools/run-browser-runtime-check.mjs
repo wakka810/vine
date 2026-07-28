@@ -76,7 +76,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
-const d3d9EndSceneProfile = bgiProfile === "d3d9-end-scene";
+const d3d9PostEndSceneRasterStatusProfile =
+  bgiProfile === "d3d9-post-end-scene-raster-status";
+const d3d9EndSceneProfile =
+  d3d9PostEndSceneRasterStatusProfile || bgiProfile === "d3d9-end-scene";
 const d3d9DrawPrimitiveProfile =
   d3d9EndSceneProfile || bgiProfile === "d3d9-draw-primitive";
 const d3d9SetStreamSourceProfile =
@@ -125,7 +128,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v40";
+const runtimeProtocol = "vine.browser-runtime-worker.v41";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -770,6 +773,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-set-stream-source",
         "d3d9-draw-primitive",
         "d3d9-end-scene",
+        "d3d9-post-end-scene-raster-status",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -808,6 +812,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-set-stream-source",
         "d3d9-draw-primitive",
         "d3d9-end-scene",
+        "d3d9-post-end-scene-raster-status",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -846,6 +851,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-set-stream-source",
         "d3d9-draw-primitive",
         "d3d9-end-scene",
+        "d3d9-post-end-scene-raster-status",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -2400,6 +2406,62 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.d3d9EndScene, null);
       }
+      if (d3d9PostEndSceneRasterStatusProfile) {
+        const rasterStatus = evidence.report.d3d9PostEndSceneRasterStatus;
+        assert(
+          rasterStatus !== null,
+          "Chrome Worker omitted post-EndScene D3D9 GetRasterStatus evidence",
+        );
+        const call = rasterStatus.call;
+        assert.equal(call.sequence, 127_376);
+        assert.equal(call.symbol, "IDirect3DDevice9.GetRasterStatus");
+        assert.equal(call.interface, "IDirect3DDevice9");
+        assert.equal(call.vtableSlot, 19);
+        assert.deepEqual(call.arguments, [0x0101_0004, 0, 0x006f_f280]);
+        assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+        assert.equal(call.returnAddress, 0x1005_aedd);
+        assert.equal(call.stackPointerBefore, 0x006f_f268);
+        assert.equal(call.stackPointerAfter, 0x006f_f278);
+        assert.equal(call.referenceCount, 5);
+        assert.equal(call.objectRetired, false);
+        assert.deepEqual(call.guestWrites, [
+          {
+            address: 0x006f_f280,
+            bytes: [0, 0, 0, 0, 1, 0, 0, 0],
+          },
+        ]);
+        assert.equal(call.graphicsDevice, undefined);
+        assert.equal(rasterStatus.cumulativeCompletions, 784);
+        assert.equal(
+          rasterStatus.compatibilityPolicyId,
+          "d3d9-primary-virtual-adapter-v28",
+        );
+        assert.equal(
+          rasterStatus.rasterStatusProfileId,
+          "primary-stable-nonblank-scanline-v1",
+        );
+        assert.equal(
+          rasterStatus.displayProfileId,
+          "single-monitor-1920x1080-work-1920x1032-v2",
+        );
+        assert.equal(
+          rasterStatus.stateAuthority,
+          "rust-d3d9-compatibility-policy",
+        );
+        assert.equal(rasterStatus.outputBytes, 8);
+        assert.equal(rasterStatus.inVBlank, false);
+        assert.equal(rasterStatus.scanLine, 1);
+        assert.equal(rasterStatus.runtimeStateMutation, false);
+        assert.equal(rasterStatus.referenceCountMutation, false);
+        assert.equal(rasterStatus.lastErrorPolicy, "preserve");
+        assert.equal(rasterStatus.guestWriteAtomic, true);
+        assert.equal(rasterStatus.hostScanoutImported, false);
+        assert.equal(rasterStatus.browserScanoutImported, false);
+        assert.equal(rasterStatus.browserRendererResourceCreated, false);
+        assert.equal(rasterStatus.visiblePixelsProduced, false);
+      } else {
+        assert.equal(evidence.report.d3d9PostEndSceneRasterStatus, null);
+      }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
         assert(
@@ -3626,6 +3688,31 @@ function normalizeD3d9EndScene(snapshot) {
   };
 }
 
+function normalizeD3d9PostEndSceneRasterStatus(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: normalizeSemanticCall(snapshot.call),
+    cumulativeCompletions: snapshot.cumulativeCompletions,
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    rasterStatusProfileId: snapshot.rasterStatusProfileId,
+    displayProfileId: snapshot.displayProfileId,
+    stateAuthority: snapshot.stateAuthority,
+    outputBytes: snapshot.outputBytes,
+    inVBlank: snapshot.inVBlank,
+    scanLine: snapshot.scanLine,
+    runtimeStateMutation: snapshot.runtimeStateMutation,
+    referenceCountMutation: snapshot.referenceCountMutation,
+    lastErrorPolicy: snapshot.lastErrorPolicy,
+    guestWriteAtomic: snapshot.guestWriteAtomic,
+    hostScanoutImported: snapshot.hostScanoutImported,
+    browserScanoutImported: snapshot.browserScanoutImported,
+    browserRendererResourceCreated: snapshot.browserRendererResourceCreated,
+    visiblePixelsProduced: snapshot.visiblePixelsProduced,
+  };
+}
+
 function normalizeSetRect(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -3786,6 +3873,15 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9EndScene(browser.report.d3d9EndScene),
     normalizeD3d9EndScene(oracle.d3d9EndScene),
     "Chrome Worker D3D9 EndScene evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeD3d9PostEndSceneRasterStatus(
+      browser.report.d3d9PostEndSceneRasterStatus,
+    ),
+    normalizeD3d9PostEndSceneRasterStatus(
+      oracle.d3d9PostEndSceneRasterStatus,
+    ),
+    "Chrome Worker post-EndScene D3D9 GetRasterStatus evidence differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeSetRect(browser.report.setRect),

@@ -226,6 +226,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-set-stream-source",
         "d3d9-draw-primitive",
         "d3d9-end-scene",
+        "d3d9-post-end-scene-raster-status",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -372,6 +373,7 @@ assert(
       "d3d9-set-stream-source",
       "d3d9-draw-primitive",
       "d3d9-end-scene",
+      "d3d9-post-end-scene-raster-status",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -395,7 +397,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-set-fvf" ||
     genericRuntimeCapability === "d3d9-set-stream-source" ||
     genericRuntimeCapability === "d3d9-draw-primitive" ||
-    genericRuntimeCapability === "d3d9-end-scene"
+    genericRuntimeCapability === "d3d9-end-scene" ||
+    genericRuntimeCapability === "d3d9-post-end-scene-raster-status"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -696,9 +699,14 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const d3d9PostEndSceneRasterStatusCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-post-end-scene-raster-status";
+const d3d9EndSceneEnabled =
+  d3d9PostEndSceneRasterStatusCheckpointEnabled ||
+  genericRuntimeCapability === "d3d9-end-scene";
 const d3d9DrawPrimitiveCheckpointEnabled =
   genericRuntimeCapability === "d3d9-draw-primitive" ||
-  genericRuntimeCapability === "d3d9-end-scene";
+  d3d9EndSceneEnabled;
 const d3d9EndSceneCheckpointEnabled =
   genericRuntimeCapability === "d3d9-end-scene";
 const d3d9SetStreamSourceCheckpointEnabled =
@@ -1103,7 +1111,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9EndSceneCheckpointEnabled
+    ? d3d9PostEndSceneRasterStatusCheckpointEnabled
+      ? "v86-bgi-d3d9-post-end-scene-raster-status"
+      : d3d9EndSceneCheckpointEnabled
       ? "v86-bgi-d3d9-end-scene"
       : d3d9DrawPrimitiveCheckpointEnabled
       ? "v86-bgi-d3d9-draw-primitive"
@@ -5509,6 +5519,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
+        validateD3d9PostEndSceneRasterStatusResult(genericResult);
       } else if (d3d9EndSceneCheckpointEnabled) {
         validateD3d9EndSceneResult(genericResult);
       } else if (d3d9DrawPrimitiveCheckpointEnabled) {
@@ -5788,6 +5800,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9PostEndSceneRasterStatusCheckpointEnabled
+            ? "bgi post-EndScene IDirect3DDevice9::GetRasterStatus completion"
           : d3d9EndSceneCheckpointEnabled
             ? "bgi IDirect3DDevice9::EndScene first-frame lifecycle close"
           : d3d9DrawPrimitiveCheckpointEnabled
@@ -6088,7 +6102,13 @@ async function run() {
                       : genericResult.checkpointCompletion.capability ===
                           "kernel32-enter-critical-section"
                         ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section acquisitions completed`
-                        : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
+                        : genericResult.checkpointCompletion.capability ===
+                            "d3d9-end-scene"
+                          ? `${genericResult.checkpointCompletion.completionCount} scene lifecycle close completed`
+                          : genericResult.checkpointCompletion.capability ===
+                              "d3d9-post-end-scene-raster-status"
+                            ? `${genericResult.checkpointCompletion.completionCount} post-scene raster-status sample completed`
+                            : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -6327,6 +6347,7 @@ async function runGenericRuntimeReentry({
   let enterCriticalSectionAcquisition = null;
   const enterCriticalSectionRoundtrips = [];
   let checkpointCompletion = null;
+  let d3d9PostEndSceneSequence = null;
   let enterCriticalSectionContinuationRelease = null;
   let leaveCriticalSectionContinuationAcquisition = null;
   let primaryMainLoopWorkerCycle = null;
@@ -6561,6 +6582,9 @@ async function runGenericRuntimeReentry({
             ? "kernel32-leave-critical-section-checkpoint-complete"
             : checkpointCompletion.capability === "d3d9-end-scene"
               ? "d3d9-end-scene-checkpoint-complete"
+            : checkpointCompletion.capability ===
+                "d3d9-post-end-scene-raster-status"
+              ? "d3d9-post-end-scene-raster-status-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "kernel32-leave-critical-section-continuation"
               ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
@@ -7461,14 +7485,43 @@ async function runGenericRuntimeReentry({
       }
     }
     if (
-      d3d9EndSceneCheckpointEnabled &&
+      d3d9EndSceneEnabled &&
       call.interface === "IDirect3DDevice9" &&
       call.vtableSlot === 42 &&
       call.symbol === "IDirect3DDevice9.EndScene"
     ) {
+      if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
+        assert.equal(
+          d3d9PostEndSceneSequence,
+          null,
+          "post-EndScene raster-status checkpoint observed multiple scene closes",
+        );
+        d3d9PostEndSceneSequence = sequence;
+      } else {
+        checkpointCompletion = {
+          capability: "d3d9-end-scene",
+          implementationId: "d3d9.end-scene.logical-scene-close.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: continuation.instructionCount,
+          instructionCount: 0,
+          nextEndpoint: null,
+          memoryContentSha256: "",
+        };
+      }
+    }
+    if (
+      d3d9PostEndSceneRasterStatusCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 19 &&
+      call.symbol === "IDirect3DDevice9.GetRasterStatus" &&
+      d3d9PostEndSceneSequence !== null &&
+      sequence === d3d9PostEndSceneSequence + 1
+    ) {
       checkpointCompletion = {
-        capability: "d3d9-end-scene",
-        implementationId: "d3d9.end-scene.logical-scene-close.v1",
+        capability: "d3d9-post-end-scene-raster-status",
+        implementationId: "d3d9.get-raster-status.deterministic-sample.v1",
         requiredCompletions: 1,
         completionCount: 1,
         lastCompletionSequence: sequence,
@@ -21478,7 +21531,7 @@ function validateD3d9DrawPrimitiveResult(result, validateTerminal = true) {
   ]);
 }
 
-function validateD3d9EndSceneResult(result) {
+function validateD3d9EndSceneResult(result, validateCheckpoint = true) {
   validateD3d9DrawPrimitiveResult(result, false);
   const calls = result.supportedCalls.filter(
     (call) =>
@@ -21514,6 +21567,9 @@ function validateD3d9EndSceneResult(result) {
   assert.equal(device.backBuffer.drawSubmissions?.[0]?.sceneSequence, 1);
   assert.equal(device.renderer, undefined);
   assert.equal(result.fault, null);
+  if (!validateCheckpoint) {
+    return;
+  }
   assert.deepEqual(result.checkpointCompletion, {
     capability: "d3d9-end-scene",
     implementationId: "d3d9.end-scene.logical-scene-close.v1",
@@ -21531,6 +21587,61 @@ function validateD3d9EndSceneResult(result) {
     memoryContentSha256:
       "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
   });
+}
+
+function validateD3d9PostEndSceneRasterStatusResult(result) {
+  validateD3d9EndSceneResult(result, false);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 19 &&
+      call.symbol === "IDirect3DDevice9.GetRasterStatus",
+  );
+  assert.equal(
+    calls.at(-1)?.sequence,
+    127_376,
+    "post-EndScene checkpoint did not complete the raster-status call immediately after EndScene",
+  );
+  const call = calls.at(-1);
+  assert(call, "post-EndScene raster-status call is missing");
+  assert.equal(call.occurrence, 785);
+  assert.equal(call.trapInstructionCount, 28_761_389);
+  assert.deepEqual(call.arguments, [0x0101_0004, 0, 0x006f_f280]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_aedd);
+  assert.equal(call.stackPointerBefore, 0x006f_f268);
+  assert.equal(call.stackPointerAfter, 0x006f_f278);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 16);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, call.arguments[2]);
+  assert.deepEqual(call.guestWrites[0].bytes, [0, 0, 0, 0, 1, 0, 0, 0]);
+  assert.equal(call.guestWrites[0].result.bytesWritten, 8);
+  assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+  assert.equal(call.graphicsDevice, undefined);
+  const checkpoint = result.checkpointCompletion;
+  assert(checkpoint, "post-EndScene raster-status checkpoint is missing");
+  assert.equal(checkpoint.capability, "d3d9-post-end-scene-raster-status");
+  assert.equal(
+    checkpoint.implementationId,
+    "d3d9.get-raster-status.deterministic-sample.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, call.sequence);
+  assert.equal(checkpoint.lastCompletionInstructionCount, call.trapInstructionCount);
+  assert.equal(checkpoint.instructionCount, 28_761_446);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 118,
+    address: 0x7f00_0750,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "SetWaitableTimer" },
+  });
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+  );
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -25791,7 +25902,9 @@ function buildGenericRuntimeReentryReport({
   if (createThreadEnabled) {
     assert(
       createThreadCall,
-      "CreateThread report summary has no creation call",
+      `CreateThread report summary has no creation call; completed ${genericResult.supportedCalls.length} calls, ` +
+        `last=${JSON.stringify(genericResult.supportedCalls.at(-1) ?? null)}, ` +
+        `terminal=${JSON.stringify(genericResult.terminal ?? null)}`,
     );
     assert(resumeThreadCall, "CreateThread report summary has no resume call");
     assert(createThreadDelta, "CreateThread report summary has no host delta");
@@ -26484,7 +26597,7 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9DrawPrimitiveCall.graphicsDevice);
   }
-  const d3d9EndSceneCalls = d3d9EndSceneCheckpointEnabled
+  const d3d9EndSceneCalls = d3d9EndSceneEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
           call.interface === "IDirect3DDevice9" &&
@@ -26493,13 +26606,37 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const d3d9EndSceneCall = d3d9EndSceneCalls[0] ?? null;
-  if (d3d9EndSceneCheckpointEnabled) {
+  if (d3d9EndSceneEnabled) {
     assert.equal(
       d3d9EndSceneCalls.length,
       1,
       "D3D9 EndScene report summary requires one completion",
     );
     assert(d3d9EndSceneCall.graphicsDevice);
+  }
+  const d3d9PostEndSceneRasterStatusCalls =
+    d3d9PostEndSceneRasterStatusCheckpointEnabled
+      ? genericResult.supportedCalls.filter(
+          (call) =>
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 19 &&
+            call.symbol === "IDirect3DDevice9.GetRasterStatus",
+        )
+      : [];
+  const d3d9PostEndSceneRasterStatusCall =
+    d3d9PostEndSceneRasterStatusCalls.find(
+      (call) => call.sequence === d3d9EndSceneCall?.sequence + 1,
+    ) ?? null;
+  if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
+    assert.equal(
+      d3d9PostEndSceneRasterStatusCalls.length,
+      784,
+      "post-EndScene raster-status report summary has an unexpected cumulative completion count",
+    );
+    assert(
+      d3d9PostEndSceneRasterStatusCall,
+      "post-EndScene raster-status report summary requires the call immediately after EndScene",
+    );
   }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
@@ -26574,6 +26711,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9PostEndSceneRasterStatusCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-post-end-scene-raster-status"
         : d3d9EndSceneCheckpointEnabled
           ? "vine.v86-bgi-d3d9-end-scene"
         : d3d9DrawPrimitiveCheckpointEnabled
@@ -27225,7 +27364,7 @@ function buildGenericRuntimeReentryReport({
             mutation: "validate-plan-preflight-targeted-commit",
             nestedBeginReturnsInvalidCall: true,
             failureAtomicity: true,
-            endSceneImplemented: d3d9EndSceneCheckpointEnabled,
+            endSceneImplemented: d3d9EndSceneEnabled,
             browserRendererResourceCreated: false,
           },
         }
@@ -27349,7 +27488,7 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    ...(d3d9EndSceneCheckpointEnabled
+    ...(d3d9EndSceneEnabled
       ? {
           d3d9EndScene: {
             call: d3d9EndSceneCall,
@@ -27361,6 +27500,29 @@ function buildGenericRuntimeReentryReport({
             preservesDrawSubmissions: true,
             repeatedEndReturnsInvalidCall: true,
             failureAtomicity: true,
+            browserRendererResourceCreated: false,
+            visiblePixelsProduced: false,
+          },
+        }
+      : {}),
+    ...(d3d9PostEndSceneRasterStatusCheckpointEnabled
+      ? {
+          d3d9PostEndSceneRasterStatus: {
+            call: d3d9PostEndSceneRasterStatusCall,
+            cumulativeCompletions: d3d9PostEndSceneRasterStatusCalls.length,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            rasterStatusProfileId: "primary-stable-nonblank-scanline-v1",
+            displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
+            stateAuthority: "rust-d3d9-compatibility-policy",
+            outputBytes: 8,
+            inVBlank: false,
+            scanLine: 1,
+            runtimeStateMutation: false,
+            referenceCountMutation: false,
+            lastErrorPolicy: "preserve",
+            guestWriteAtomic: true,
+            hostScanoutImported: false,
+            browserScanoutImported: false,
             browserRendererResourceCreated: false,
             visiblePixelsProduced: false,
           },
@@ -27530,6 +27692,9 @@ function buildGenericRuntimeReentryReport({
               genericResult.checkpointCompletion.capability ===
               "d3d9-end-scene"
                 ? "BGI completed the first-frame EndScene lifecycle close and stopped before the next owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
+                    "d3d9-post-end-scene-raster-status"
+                  ? "BGI completed the first post-EndScene raster-status sample and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "kernel32-leave-critical-section"
                 ? "BGI completed the main-thread critical-section release and stopped before the next owned endpoint"

@@ -946,7 +946,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-end-scene
+npm run check:runtime:bgi -- --profile d3d9-post-end-scene-raster-status
 npm run check:runtime:bgi-browser
 ```
 
@@ -989,7 +989,8 @@ and the slot-65 non-owning texture binding, including immutable device
   snapshots and three explicit post-sampler render-state rejections. It then
   records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
   binding, slot-81 immutable triangle-strip draw submission, and slot-42
-  active-to-inactive scene close before the post-scene raster-status checkpoint,
+  active-to-inactive scene close followed by the deterministic post-scene
+  slot-19 raster-status sample,
   without creating a browser renderer resource, visible pixels, or a second
   graphics authority.
 
@@ -1029,14 +1030,17 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   profile additionally enables the exact stage-0 static DEFAULT binding and
   stops at `IDirect3DDevice9::SetFVF` slot 89. The historical `d3d9-set-fvf`
   profile additionally enables only FVF `0x144` and stops at
-  `IDirect3DDevice9::SetStreamSource` slot 100. The active
+  `IDirect3DDevice9::SetStreamSource` slot 100. The historical
   `d3d9-set-stream-source` profile additionally enables only the exact
   stream-0／vertex-buffer／offset-0／stride-28 binding and stops at
-  `IDirect3DDevice9::DrawPrimitive` slot 81. The active
+  `IDirect3DDevice9::DrawPrimitive` slot 81. The historical
   `d3d9-draw-primitive` profile adds the exact first-frame triangle-strip quad
-  submission and stops at `IDirect3DDevice9::EndScene` slot 42. The active
+  submission and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
   `d3d9-end-scene` profile closes that exact scene, preserves its draw content,
-  and completes before the next post-scene slot-19 raster-status query.
+  and completes before the next post-scene slot-19 raster-status query. The active
+  `d3d9-post-end-scene-raster-status` profile completes that deterministic
+  eight-byte query without changing runtime graphics or COM state and stops
+  before `kernel32.dll!SetWaitableTimer`.
 
 ## Non-claims
 
@@ -1047,7 +1051,8 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   initial `CreateTexture` variants, level-zero `GetSurfaceLevel`, and one exact
   surface `GetDC`／black `FillRect`／`ReleaseDC` profile plus the exact initial
   `CreateVertexBuffer`／full-range `Lock`／`Unlock` sequence, the exact four
-  initial `SetRenderState` settings, one bounded `GetRasterStatus` query,
+  initial `SetRenderState` settings, the bounded initial and post-scene
+  `GetRasterStatus` queries,
   one exact full-target black `Clear`, one bounded source-texture
   `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
   exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
@@ -1055,7 +1060,8 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
   source binding at offset 0／stride 28, one exact triangle-strip quad draw
-  submission, and the matching active-to-inactive `EndScene` are
+  submission, the matching active-to-inactive `EndScene`, and its immediate
+  deterministic raster-status sample are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other

@@ -170,7 +170,11 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
+  const d3d9PostEndSceneRasterStatusActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "d3d9-post-end-scene-raster-status";
   const d3d9EndSceneActive =
+    d3d9PostEndSceneRasterStatusActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-end-scene";
   const d3d9DrawPrimitiveActive =
     d3d9EndSceneActive ||
@@ -455,7 +459,24 @@ export function validateCurrentCheckpoint(manifest) {
               : mainLoopContinuationActive
                 ? "2,3,4,5,6,7,8"
                 : "2,3,4";
-  const profileExpectations = d3d9EndSceneActive
+  const profileExpectations = d3d9PostEndSceneRasterStatusActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_770,
+        browserMappingDirtyPages: 109_859,
+        browserSuccessExecutionTransitions: 416_563,
+        latestSchema: "vine.v86-bgi-d3d9-post-end-scene-raster-status",
+        latestWritebackBatches: 127_474,
+        latestWritebackDirtyPages: 175_996,
+        latestWritebackChangedBytes: 6_620_003,
+        latestHostDeltaBatches: 106_770,
+        latestFinalMemoryGeneration: 235_527,
+        semanticCallDigestSha256:
+          "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+        memoryContentSha256:
+          "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+      }
+    : d3d9EndSceneActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_769,
@@ -1297,9 +1318,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v40") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v41") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v40",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v41",
     );
   }
   if (
@@ -3768,6 +3789,62 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9EndSceneNodeChromeOrderedSemanticsMatched !== true)
   ) {
     errors.push("browser BGI D3D9 EndScene evidence is invalid");
+  }
+  if (
+    d3d9PostEndSceneRasterStatusActive &&
+    (bgiBrowserEvidence.d3d9PostEndSceneRasterStatusCompletions !== 1 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusCumulativeCompletions !==
+        784 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusSequence !== 127_376 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusOccurrence !== 785 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusInstructionCount !==
+        28_761_389 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusArguments?.join(",") !==
+        "0x01010004,0x00000000,0x006ff280" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusResult !== "0x00000000" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusReturnAddress !==
+        "0x1005aedd" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusStackPointers?.join(",") !==
+        "0x006ff268,0x006ff278" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusGuestWriteBytes !== 8 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusOutputAddress !==
+        "0x006ff280" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusOutputHex !==
+        "0000000001000000" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDeviceReferenceCount !== 5 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDeviceObjectRetired !==
+        false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusCompatibilityPolicyId !==
+        "d3d9-primary-virtual-adapter-v28" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusProfileId !==
+        "primary-stable-nonblank-scanline-v1" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDisplayProfileId !==
+        "single-monitor-1920x1080-work-1920x1032-v2" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusAuthority !==
+        "rust-d3d9-compatibility-policy" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusInVBlank !== false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusScanLine !== 1 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusRuntimeStateMutation !==
+        false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusReferenceCountMutation !==
+        false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusLastErrorPolicy !==
+        "preserve" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusGuestWriteAtomic !== true ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusHostScanoutImported !==
+        false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusBrowserScanoutImported !==
+        false ||
+      bgiBrowserEvidence
+        .d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !== false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusVisiblePixelsProduced !==
+        false ||
+      bgiBrowserEvidence
+        .d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "browser BGI post-EndScene D3D9 GetRasterStatus evidence is invalid",
+    );
   }
   if (
     bgiBrowserEvidence.setWaitableTimerCompletions !== timerArmCount ||
@@ -19927,6 +20004,66 @@ export function validateCurrentCheckpoint(manifest) {
       );
     }
   }
+  if (
+    d3d9PostEndSceneRasterStatusActive &&
+    (latestEvidence.d3d9PostEndSceneRasterStatusImplemented !== true ||
+      latestEvidence.d3d9PostEndSceneRasterStatusNodeSequence !== 127_376 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusChromeSequence !== 127_376 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusOccurrence !== 785 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusInstructionCount !==
+        28_761_389 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusArguments?.join(",") !==
+        "0x01010004,0x00000000,0x006ff280" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusReturnAddress !==
+        "0x1005aedd" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusStackPointers?.join(",") !==
+        "0x006ff268,0x006ff278" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusResult !== "0x00000000" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusGuestWriteBytes !== 8 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusOutputAddress !==
+        "0x006ff280" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusOutputHex !==
+        "0000000001000000" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusDeviceReferenceCount !== 5 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusObjectRetired !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusPolicySchema !==
+        "vine.d3d9-compatibility-policy" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusPolicyVersion !== 28 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusPolicyId !==
+        "d3d9-primary-virtual-adapter-v28" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusProfileId !==
+        "primary-stable-nonblank-scanline-v1" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusDisplayProfileId !==
+        "single-monitor-1920x1080-work-1920x1032-v2" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusStateAuthority !==
+        "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusInVBlank !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusScanLine !== 1 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusRuntimeStateMutation !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusReferenceCountMutation !==
+        false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusLastErrorPolicy !== "preserve" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusGuestWriteAtomic !== true ||
+      latestEvidence.d3d9PostEndSceneRasterStatusFailureAtomicity !== true ||
+      latestEvidence.d3d9PostEndSceneRasterStatusHostScanoutImported !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusBrowserScanoutImported !==
+        false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusBrowserOwnsGraphicsState !==
+        false ||
+      latestEvidence
+        .d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusVisiblePixelsProduced !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusNodeCumulativeCompletions !==
+        784 ||
+      latestEvidence.d3d9PostEndSceneRasterStatusChromeCumulativeCompletions !==
+        784 ||
+      latestEvidence
+        .d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !== true)
+  ) {
+    errors.push(
+      "latest post-EndScene D3D9 GetRasterStatus evidence is invalid",
+    );
+  }
   requireInteger(
     latestEvidence.finalMemoryGeneration,
     "activeRuntimeCheckpoint.latestEvidence.finalMemoryGeneration",
@@ -20084,6 +20221,42 @@ export function validateCurrentCheckpoint(manifest) {
           "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438"
       ) {
         errors.push(`${label} D3D9 EndScene checkpoint evidence is invalid`);
+      }
+    }
+  }
+  if (active.profile === "d3d9-post-end-scene-raster-status") {
+    if (
+      currentStop.nextEndpoint?.observedModule !== "KERNEL32.dll" ||
+      currentStop.nextEndpoint?.observedSymbol !== "SetWaitableTimer" ||
+      currentStop.nextEndpoint?.iatAddress !== "0x100d1280" ||
+      currentStop.nextEndpoint?.disposition !== "declared-runtime-export"
+    ) {
+      errors.push(
+        "post-EndScene raster-status next endpoint raw identity is invalid",
+      );
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "d3d9-post-end-scene-raster-status" ||
+        completion.implementationId !==
+          "d3d9.get-raster-status.deterministic-sample.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 127_376 ||
+        completion.lastCompletionInstructionCount !== 28_761_389 ||
+        completion.instructionCount !== 28_761_446 ||
+        completion.nextEndpoint?.endpointId !== 118 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000750" ||
+        completion.nextEndpoint?.api !== "kernel32.dll!SetWaitableTimer" ||
+        completion.memoryContentSha256 !==
+          "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
+      ) {
+        errors.push(
+          `${label} post-EndScene raster-status checkpoint evidence is invalid`,
+        );
       }
     }
   }
@@ -21051,7 +21224,12 @@ export function renderReadmeStatus(manifest) {
                   : next.completion.capability ===
                       "kernel32-leave-critical-section-continuation"
                     ? "critical-section continuation release"
-                    : "recurring waits"
+                    : next.completion.capability === "d3d9-end-scene"
+                      ? "scene lifecycle close"
+                      : next.completion.capability ===
+                          "d3d9-post-end-scene-raster-status"
+                        ? "post-scene raster-status sample"
+                        : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +

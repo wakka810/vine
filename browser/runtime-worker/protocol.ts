@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 40 as const;
+export const protocolVersion = 41 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -34,7 +34,8 @@ export type BgiCapabilityProfile =
   | "d3d9-set-fvf"
   | "d3d9-set-stream-source"
   | "d3d9-draw-primitive"
-  | "d3d9-end-scene";
+  | "d3d9-end-scene"
+  | "d3d9-post-end-scene-raster-status";
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -1123,6 +1124,25 @@ export interface SessionReport {
     browserRendererResourceCreated: false;
     visiblePixelsProduced: false;
   } | null;
+  d3d9PostEndSceneRasterStatus: {
+    call: RuntimeSupportedCallSnapshot;
+    cumulativeCompletions: number;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
+    rasterStatusProfileId: "primary-stable-nonblank-scanline-v1";
+    displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2";
+    stateAuthority: "rust-d3d9-compatibility-policy";
+    outputBytes: 8;
+    inVBlank: false;
+    scanLine: 1;
+    runtimeStateMutation: false;
+    referenceCountMutation: false;
+    lastErrorPolicy: "preserve";
+    guestWriteAtomic: true;
+    hostScanoutImported: false;
+    browserScanoutImported: false;
+    browserRendererResourceCreated: false;
+    visiblePixelsProduced: false;
+  } | null;
   setRect: {
     call: RuntimeSupportedCallSnapshot;
     implementationId: "user32.set-rect.v1";
@@ -1162,6 +1182,24 @@ export interface SessionReport {
     | {
         capability: "d3d9-end-scene";
         implementationId: "d3d9.end-scene.logical-scene-close.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "d3d9-post-end-scene-raster-status";
+        implementationId: "d3d9.get-raster-status.deterministic-sample.v1";
         requiredCompletions: 1;
         completionCount: 1;
         lastCompletionSequence: number;

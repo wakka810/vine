@@ -259,6 +259,7 @@ enum GenericRuntimeCapability {
     D3d9SetStreamSource,
     D3d9DrawPrimitive,
     D3d9EndScene,
+    D3d9PostEndSceneRasterStatus,
 }
 
 struct GenericRuntimeProcess {
@@ -2707,6 +2708,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9SetStreamSource
                     | GenericRuntimeCapability::D3d9DrawPrimitive
                     | GenericRuntimeCapability::D3d9EndScene
+                    | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
             )
         ) {
             let loader = kernel32_policy
@@ -3372,10 +3374,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_end_scene_enabled = matches!(
+    let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9EndScene)
+        Some(GenericRuntimeCapability::D3d9PostEndSceneRasterStatus)
     );
+    let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9EndScene)
+        );
     let d3d9_draw_primitive_enabled = d3d9_end_scene_enabled
         || matches!(
             enabled_capability,
@@ -3615,7 +3622,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9SetFvf
             | GenericRuntimeCapability::D3d9SetStreamSource
             | GenericRuntimeCapability::D3d9DrawPrimitive
-            | GenericRuntimeCapability::D3d9EndScene,
+            | GenericRuntimeCapability::D3d9EndScene
+            | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -14162,6 +14170,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-set-stream-source" => GenericRuntimeCapability::D3d9SetStreamSource,
                 "d3d9-draw-primitive" => GenericRuntimeCapability::D3d9DrawPrimitive,
                 "d3d9-end-scene" => GenericRuntimeCapability::D3d9EndScene,
+                "d3d9-post-end-scene-raster-status" => {
+                    GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }
