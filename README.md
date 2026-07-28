@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-set-fvf`: 127371 calls across 122 endpoint contracts / 120 APIs, memory generation 235522 |
+| Runtime diagnostics | `d3d9-set-stream-source`: 127372 calls across 122 endpoint contracts / 120 APIs, memory generation 235523 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::SetStreamSource(0x00000000, 0x01050004, 0x00000000, 0x0000001c)` at instruction 28761315: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::DrawPrimitive(0x00000005, 0x00000000, 0x00000002)` at instruction 28761324: `com-method-unsupported` |
 
-The active semantic report is 574,518 bytes with SHA-256
-`7cd0967145fecf0398de095f5c344e174dd8ac951526a7ed56b2b149cccab307`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 577,641 bytes with SHA-256
+`baf03d79e5246eba02a4cd27034424be34fded841b4b001ed3061dd4ec3ebbda`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

@@ -5617,3 +5617,34 @@ device generation 55、`xyz-rhw-diffuse-texture1`を一致させる。次stopは
 `0x01011670`、caller return `0x1005B3EC`の
 `IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)` slot 100である。他FVF、stream binding、draw／Present、
 pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 167. BGI first `SetStreamSource` and controlled binding lifetime
+
+Focused primary captureは471,325 bytes／1,176 lines／SHA-256
+`81faba4662500ad117c2ffdd8f1ad5024101881514b199900c769df467f007c4`、summaryは298,760 bytes／
+SHA-256 `16c3a48831015c84911a84a275fa737f6e12ef198d466c674397f286a39f56c9`で、1,174 events／548
+API pairsがbalancedである。Independent confirmation captureは470,656 bytes／1,174 lines／SHA-256
+`27577b3a28c4c4473d4d7a05551ab2dbeabc498bddea3d102616fb4e44f3a2a0`、summaryは298,954 bytes／
+SHA-256 `f9623f0123f1262bf906c9c662aac9bd7cba84583a7169636b53fd1671b1a1d9`で、1,172 events／547
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、stream 0、nonzero vertex buffer、
+offset 0、stride 28、`D3D_OK`／LastError 0、caller RVA `0x0005B3EC`、immediate consumer
+`DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2)`を一致させる。Raw trace／summaryは`.work/windows-traces/`に保持しGitへ
+追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Controlled oracle `x86-d3d9-set-get-stream-source-lifetime-v1`はPE32／COFF-i386 executableである。Sourceは
+12,906 bytes／SHA-256 `86181ab127803abe10b601ca4a630085116aae0f038e8f167dba2d8d0e000725`、objectは15,601
+bytes／SHA-256 `3fa1d2c7029bbfb902dd159488258e4bc68771f7de14ea5746668a50251046d4`、executableは8,704
+bytes／SHA-256 `22572f04265e758adfa8e283ad60c98cc7290d2e7e56b889790cb5ef523e92a2`である。独立二runは
+ともにexit 0で、initial NULL binding、target／repeat、offset 4、stride 0、stream 1、NULL unbindの全callを
+`D3D_OK`、全LastError sentinel 23,130 (`0x5A5A`) preserveで一致させる。Vertex-buffer reference countは
+`[1,1,2,1,1,1]`で、SetStreamSourceは所有referenceを追加せず、GetStreamSourceだけが一時AddRefを行う。
+Runtimeはnativeの広いvariant受理を一般化せず、primaryで到達したstream 0、same-device vertex buffer、offset 0、
+stride 28だけを許可する。
+
+Goldenはlive same-device identity、non-owning binding、HRESULT class、LastError preserve、zero guest writes、
+vertex-buffer reference count不変である。Canonical Node／Chromeはsequence 127,373、instruction 28,761,315、
+logical device 3／COM 21、logical vertex buffer 3、device generation 56、offset 0／stride 28を一致させる。次stopは
+9 instructions後、endpoint `0x01011540`、caller return `0x1005B402`の
+`IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81である。他stream／vertex buffer／offset／stride、NULL unbind、
+draw semantics、Present、pixel backing、browser rendererはこのevidenceからclaimしない。

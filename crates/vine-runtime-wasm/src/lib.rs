@@ -92,6 +92,7 @@ struct BgiCheckpointCapabilities {
     d3d9_initial_texture_stage_states: bool,
     d3d9_set_texture: bool,
     d3d9_set_fvf: bool,
+    d3d9_set_stream_source: bool,
 }
 
 impl Bridge {
@@ -480,7 +481,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v25();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v26();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -667,7 +668,7 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v25();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v26();
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
@@ -691,6 +692,9 @@ impl BrowserRuntime {
         }
         if !capabilities.d3d9_set_fvf {
             d3d9_policy.flexible_vertex_format = None;
+        }
+        if !capabilities.d3d9_set_stream_source {
+            d3d9_policy.stream_source = None;
         }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
@@ -1845,6 +1849,7 @@ impl BrowserRuntime {
                             | "SetTextureStageState"
                             | "SetTexture"
                             | "SetFVF"
+                            | "SetStreamSource"
                     ) {
                     self.runtime
                         .graphics_devices()
@@ -4261,6 +4266,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_initial_texture_stage_states_enabled: u32,
     d3d9_set_texture_enabled: u32,
     d3d9_set_fvf_enabled: u32,
+    d3d9_set_stream_source_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4278,6 +4284,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 d3d9_initial_texture_stage_states: d3d9_initial_texture_stage_states_enabled != 0,
                 d3d9_set_texture: d3d9_set_texture_enabled != 0,
                 d3d9_set_fvf: d3d9_set_fvf_enabled != 0,
+                d3d9_set_stream_source: d3d9_set_stream_source_enabled != 0,
             },
         )
     })

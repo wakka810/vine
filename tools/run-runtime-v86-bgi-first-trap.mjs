@@ -223,6 +223,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-initial-texture-stage-states",
         "d3d9-set-texture",
         "d3d9-set-fvf",
+        "d3d9-set-stream-source",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -366,6 +367,7 @@ assert(
       "d3d9-initial-texture-stage-states",
       "d3d9-set-texture",
       "d3d9-set-fvf",
+      "d3d9-set-stream-source",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -386,7 +388,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-initial-sampler-states" ||
     genericRuntimeCapability === "d3d9-initial-texture-stage-states" ||
     genericRuntimeCapability === "d3d9-set-texture" ||
-    genericRuntimeCapability === "d3d9-set-fvf"
+    genericRuntimeCapability === "d3d9-set-fvf" ||
+    genericRuntimeCapability === "d3d9-set-stream-source"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -687,7 +690,10 @@ const primaryMainLoopContinuationEnabled =
   genericRuntimeCapability === "primary-main-loop-continuation";
 const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
+const d3d9SetStreamSourceCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-set-stream-source";
 const d3d9SetFvfCheckpointEnabled =
+  d3d9SetStreamSourceCheckpointEnabled ||
   genericRuntimeCapability === "d3d9-set-fvf";
 const d3d9SetTextureCheckpointEnabled =
   d3d9SetFvfCheckpointEnabled ||
@@ -1085,7 +1091,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9SetFvfCheckpointEnabled
+    ? d3d9SetStreamSourceCheckpointEnabled
+      ? "v86-bgi-d3d9-set-stream-source"
+      : d3d9SetFvfCheckpointEnabled
       ? "v86-bgi-d3d9-set-fvf"
       : d3d9SetTextureCheckpointEnabled
       ? "v86-bgi-d3d9-set-texture"
@@ -5485,6 +5493,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9SetStreamSourceCheckpointEnabled) {
+        validateD3d9SetStreamSourceResult(genericResult);
       } else if (d3d9SetFvfCheckpointEnabled) {
         validateD3d9SetFvfResult(genericResult);
       } else if (d3d9SetTextureCheckpointEnabled) {
@@ -5758,6 +5768,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9SetStreamSourceCheckpointEnabled
+            ? "bgi IDirect3DDevice9::SetStreamSource first-frame stream-zero binding"
           : d3d9SetFvfCheckpointEnabled
             ? "bgi IDirect3DDevice9::SetFVF first-frame flexible vertex format"
           : d3d9SetTextureCheckpointEnabled
@@ -21159,7 +21171,7 @@ function validateD3d9SetTextureResult(result, expectTerminal = true) {
   ]);
 }
 
-function validateD3d9SetFvfResult(result) {
+function validateD3d9SetFvfResult(result, expectTerminal = true) {
   validateD3d9SetTextureResult(result, false);
   const calls = result.supportedCalls.filter(
     (call) =>
@@ -21197,6 +21209,9 @@ function validateD3d9SetFvfResult(result) {
   assert.equal(device.backBuffer.contentGeneration, 1);
   assert.equal(device.backBuffer.uniformClear?.sequence, 1);
   assert.equal(device.renderer, undefined);
+  if (!expectTerminal) {
+    return;
+  }
   assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
   assert.equal(result.fault.endpoint.kind, "com-method");
   assert.equal(result.fault.endpoint.target.object.id, "21");
@@ -21230,6 +21245,82 @@ function validateD3d9SetFvfResult(result) {
     0x0105_0004,
     0,
     28,
+  ]);
+}
+
+function validateD3d9SetStreamSourceResult(result) {
+  validateD3d9SetFvfResult(result, false);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 100 &&
+      call.symbol === "IDirect3DDevice9.SetStreamSource",
+  );
+  assert.equal(
+    calls.length,
+    1,
+    "IDirect3DDevice9::SetStreamSource must bind the reached stream-zero vertex buffer",
+  );
+  const call = calls[0];
+  assert.equal(call.sequence, 127_373);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 28_761_315);
+  assert.deepEqual(call.arguments, [0x0101_0004, 0, 0x0105_0004, 0, 28]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_b3ec);
+  assert.equal(call.stackPointerBefore, 0x006f_f250);
+  assert.equal(call.stackPointerAfter, 0x006f_f268);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.deepEqual(call.guestWrites, []);
+  const device = call.graphicsDevice;
+  assert(device, "SetStreamSource completion omitted its Rust device snapshot");
+  assert.equal(device.id, 3);
+  assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+  assert.equal(device.frontend, "d3d9");
+  assert.equal(device.comObjectId, "21");
+  assert.deepEqual(device.activeScene, { sequence: 1 });
+  assert.deepEqual(device.textureBindings, { stageZero: 8 });
+  assert.equal(device.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+  assert.equal(device.streamSources?.streamZero.offsetInBytes, 0);
+  assert.equal(device.streamSources?.streamZero.stride, 28);
+  assert.equal(device.streamSources?.streamZero.vertexBufferId, 3);
+  assert.equal(device.generation, 56);
+  assert.equal(device.backBuffer.contentGeneration, 1);
+  assert.equal(device.backBuffer.uniformClear?.sequence, 1);
+  assert.equal(device.renderer, undefined);
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.object.id, "21");
+  assert.equal(result.fault.endpoint.target.interface.id, "42");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DDevice9");
+  assert.equal(result.fault.endpoint.target.interface.guestPointer, 0x0101_0004);
+  assert.equal(result.fault.endpoint.target.method.slot, 81);
+  assert.equal(result.fault.endpoint.target.method.name, "DrawPrimitive");
+  assert.equal(result.fault.endpoint.target.method.endpoint, 0x0101_1540);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1005_b402);
+  assert.equal(result.fault.memory.generation, 235_523);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 28_761_315);
+  assert.equal(result.terminal.additionalInstructionCount, 9);
+  assert.equal(result.terminal.instructionCount, 28_761_324);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1540);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 81);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b402);
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1005_b402,
+    0x0101_0004,
+    5,
+    0,
+    2,
   ]);
 }
 
@@ -26150,6 +26241,23 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9SetFvfCall.graphicsDevice);
   }
+  const d3d9SetStreamSourceCalls = d3d9SetStreamSourceCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.interface === "IDirect3DDevice9" &&
+          call.vtableSlot === 100 &&
+          call.symbol === "IDirect3DDevice9.SetStreamSource",
+      )
+    : [];
+  const d3d9SetStreamSourceCall = d3d9SetStreamSourceCalls[0] ?? null;
+  if (d3d9SetStreamSourceCheckpointEnabled) {
+    assert.equal(
+      d3d9SetStreamSourceCalls.length,
+      1,
+      "D3D9 SetStreamSource report summary requires one completion",
+    );
+    assert(d3d9SetStreamSourceCall.graphicsDevice);
+  }
   const d3d9RecreatedTextureSequence = d3d9RecreatedTexturesCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) => call.sequence >= 108_735 && call.sequence <= 108_743,
@@ -26223,6 +26331,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : d3d9SetStreamSourceCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-set-stream-source"
         : d3d9SetFvfCheckpointEnabled
           ? "vine.v86-bgi-d3d9-set-fvf"
         : d3d9SetTextureCheckpointEnabled
@@ -26777,7 +26887,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -26793,7 +26903,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority:
               "rust-runtime-graphics-logical-device-back-buffer",
@@ -26824,7 +26934,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9AddDirtyRect: {
             call: d3d9AddDirtyRectCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             addDirtyRectProfileId:
               "primary-recreated-system-memory-texture-dirty-rect-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -26841,7 +26951,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9UpdateTexture: {
             call: d3d9UpdateTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             updateTextureProfileId:
               "primary-recreated-system-memory-to-static-default-texture-update-v1",
             contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -26861,7 +26971,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9BeginScene: {
             call: d3d9BeginSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             beginSceneProfileId: "primary-first-frame-scene-begin-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device",
             lifecycle: "inactive-to-active",
@@ -26879,7 +26989,7 @@ function buildGenericRuntimeReentryReport({
             calls: d3d9InitialSamplerStateCalls,
             postSamplerRenderStateRejections:
               d3d9PostSamplerRenderStateRejections,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             samplerStateProfileId:
               "primary-first-frame-linear-sampler-states-v1",
             stateAuthority:
@@ -26896,7 +27006,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9InitialTextureStageStates: {
             calls: d3d9InitialTextureStageStateCalls,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             textureStageStateProfileId:
               "primary-first-frame-fixed-function-texture-stage-zero-v1",
             stateAuthority:
@@ -26913,7 +27023,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetTexture: {
             call: d3d9SetTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             textureBindingProfileId:
               "primary-first-frame-static-default-texture-stage-zero-v1",
             stateAuthority:
@@ -26932,13 +27042,35 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetFvf: {
             call: d3d9SetFvfCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v25",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
             flexibleVertexFormatProfileId:
               "primary-first-frame-transformed-diffuse-textured-fvf-v1",
             stateAuthority:
               "rust-runtime-graphics-logical-device-flexible-vertex-format",
             mutation: "validate-plan-preflight-targeted-idempotent-commit",
             sameValueGenerationChange: 0,
+            unsupportedVariantResult: "0x8876086a",
+            failureAtomicity: true,
+            browserRendererResourceCreated: false,
+          },
+        }
+      : {}),
+    ...(d3d9SetStreamSourceCheckpointEnabled
+      ? {
+          d3d9SetStreamSource: {
+            call: d3d9SetStreamSourceCall,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+            streamSourceProfileId:
+              "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
+            stateAuthority:
+              "rust-runtime-graphics-logical-device-stream-sources",
+            bindingOwnership: "non-owning",
+            mutation: "validate-plan-preflight-targeted-idempotent-commit",
+            sameValueGenerationChange: 0,
+            supportedStream: 0,
+            supportedOffsetInBytes: 0,
+            supportedStride: 28,
+            nullUnbindImplemented: false,
             unsupportedVariantResult: "0x8876086a",
             failureAtomicity: true,
             browserRendererResourceCreated: false,

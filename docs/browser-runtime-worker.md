@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-26
+- Date: 2026-07-28
 - Browser: Chrome `150.0.7871.187`
-- Protocol: `vine.browser-runtime-worker` version `15`
+- Protocol: `vine.browser-runtime-worker` version `38`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -391,7 +391,7 @@ to read-only on Unlock. The device then consumes the exact four fixed-function `
 settings through Rust-owned typed state and completes the bounded `GetRasterStatus` output before
 sampling the Rust-owned high-resolution performance frequency and deterministic counter. The
 reached loop repeatedly consumes raster status and counter values before continuing to the next
-User32 contract. Protocol v37 carries the bounded `IDirect3DTexture9::AddDirtyRect`,
+User32 contract. Protocol v38 carries the bounded `IDirect3DTexture9::AddDirtyRect`,
 `IDirect3DDevice9::UpdateTexture`, and `IDirect3DDevice9::BeginScene` completions. Its immutable
 snapshots show the Rust-owned source／destination texture and COM relations, descriptor roles,
 copied logical fill, source dirty-region consumption, exact generations, and the device-local
@@ -399,12 +399,14 @@ inactive-to-active scene transition. It also carries the two reached
 `IDirect3DDevice9::SetSamplerState` completions, immutable sparse sampler-state snapshots, three
 explicit post-sampler render-state rejections, and the six reached
 `IDirect3DDevice9::SetTextureStageState` completions and the reached stage-0
-`IDirect3DDevice9::SetTexture` completion and the reached
-`IDirect3DDevice9::SetFVF(0x144)` completion. The Worker validates the cumulative typed
+`IDirect3DDevice9::SetTexture` completion, the reached
+`IDirect3DDevice9::SetFVF(0x144)` completion, and the reached
+`IDirect3DDevice9::SetStreamSource(0,vertexBuffer,0,28)` completion. The Worker validates the cumulative typed
 color／alpha state, the Rust-owned non-owning relation to logical texture 8, and the
-typed `xyz-rhw-diffuse-texture1` device snapshot before stopping at
-`IDirect3DDevice9::SetStreamSource`; it stores no independent texture content, dirty region,
-scene state, sampler state, texture-stage state, texture binding, vertex format, COM reference,
+typed `xyz-rhw-diffuse-texture1` format plus the Rust-owned non-owning stream-zero
+relation to logical vertex buffer 3 before stopping at
+`IDirect3DDevice9::DrawPrimitive`; it stores no independent texture content, dirty region,
+scene state, sampler state, texture-stage state, texture binding, vertex format, stream binding, COM reference,
 or renderer resource.
 The Worker observes completions and mirrors checked guest bytes, but owns neither
 identity, lock state, protection, resource content, render state, nor a second raster／performance

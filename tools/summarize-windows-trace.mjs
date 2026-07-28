@@ -85,6 +85,7 @@ const supportedObservations = new Set([
   "d3d9-begin-scene",
   "d3d9-set-texture",
   "d3d9-set-fvf",
+  "d3d9-set-stream-source",
   "d3d9-initial-sampler-states",
   "d3d9-initial-texture-stage-states",
   "d3d9-initial-vertex-buffer",
@@ -2754,6 +2755,138 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     };
   });
 
+  const setStreamSourceCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-set-stream-source-complete",
+  );
+  const requiresSetStreamSourceCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-set-stream-source" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-set-stream-source-complete";
+  if (
+    setStreamSourceCompletionEvents.length > 1 ||
+    (requiresSetStreamSourceCompletion &&
+      setStreamSourceCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-set-stream-source observation requires exactly one structured completion",
+    );
+  }
+  const setStreamSourceObservations = setStreamSourceCompletionEvents.map(
+    (completion) => {
+      const snapshot = completion.mainModuleCall;
+      const pair = pairsByCallId.get(snapshot?.callId);
+      const observation = pair?.leave.d3d9SetStreamSource;
+      const instructions = snapshot?.immediateConsumer?.entry?.instructions;
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      if (
+        completion.profile !==
+          "x86-bgi-first-frame-transformed-diffuse-textured-stream-zero-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Number.isInteger(completion.sequence) ||
+        pair === undefined ||
+        observation === undefined ||
+        snapshot.api !== "SetStreamSource" ||
+        snapshot.interface !== "IDirect3DDevice9" ||
+        snapshot.vtableSlot !== 100 ||
+        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        JSON.stringify(snapshot.arguments) !==
+          JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== observation.result ||
+        snapshot.resultU32 !== observation.resultU32 ||
+        snapshot.stream !== observation.stream ||
+        snapshot.vertexBuffer?.toLowerCase() !==
+          observation.vertexBuffer?.toLowerCase() ||
+        snapshot.offset !== observation.offset ||
+        snapshot.stride !== observation.stride ||
+        snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+        snapshot.lastError !== observation.lastErrorAfter ||
+        JSON.stringify(snapshot.immediateConsumer) !==
+          JSON.stringify(observation.immediateConsumer) ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.api !== "SetStreamSource" ||
+        pair.enter.interface !== "IDirect3DDevice9" ||
+        pair.enter.vtableSlot !== 100 ||
+        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== 0x5b3ec ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 4 ||
+        BigInt(pair.enter.arguments[0]) !== 0n ||
+        BigInt(pair.enter.arguments[1]) === 0n ||
+        BigInt(pair.enter.arguments[2]) !== 0n ||
+        BigInt(pair.enter.arguments[3]) !== 28n ||
+        observation.stream !== 0 ||
+        BigInt(observation.vertexBuffer) !== BigInt(pair.enter.arguments[1]) ||
+        observation.offset !== 0 ||
+        observation.stride !== 28 ||
+        BigInt(pair.leave.result) !== 0n ||
+        observation.result !== 0 ||
+        observation.resultU32 !== 0 ||
+        observation.lastErrorBefore !== 0 ||
+        pair.leave.lastError !== 0 ||
+        observation.lastErrorAfter !== 0 ||
+        !Array.isArray(instructions) ||
+        instructions[0]?.mnemonic !== "mov" ||
+        !instructions[0].opStr.startsWith("eax, dword ptr [") ||
+        instructions[1]?.mnemonic !== "mov" ||
+        instructions[1].opStr !== "ecx, dword ptr [eax]" ||
+        instructions[2]?.mnemonic !== "mov" ||
+        instructions[2].opStr !== "edx, dword ptr [ecx + 0x144]" ||
+        instructions[3]?.mnemonic !== "push" ||
+        instructions[3].opStr !== "2" ||
+        instructions[4]?.mnemonic !== "push" ||
+        instructions[4].opStr !== "0" ||
+        instructions[5]?.mnemonic !== "push" ||
+        instructions[5].opStr !== "5" ||
+        instructions[6]?.mnemonic !== "push" ||
+        instructions[6].opStr !== "eax" ||
+        instructions[7]?.mnemonic !== "call" ||
+        instructions[7].opStr !== "edx"
+      ) {
+        throw new Error(
+          "d3d9-set-stream-source completion violates its caller, binding, result, LastError, or immediate DrawPrimitive contract",
+        );
+      }
+      if (
+        completion.threadId !== pair.enter.threadId ||
+        pair.leave.threadId !== pair.enter.threadId ||
+        completion.sequence !== pair.leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-set-stream-source completion violates its thread or contiguous ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pair.enter.threadId,
+        device: completion.device,
+        call: {
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          stream: Number(BigInt(pair.enter.arguments[0])),
+          vertexBuffer: pair.enter.arguments[1],
+          offset: Number(BigInt(pair.enter.arguments[2])),
+          stride: Number(BigInt(pair.enter.arguments[3])),
+          result: pair.leave.result,
+          lastErrorBefore: observation.lastErrorBefore,
+          lastError: pair.leave.lastError,
+          immediateConsumer: observation.immediateConsumer,
+        },
+      };
+    },
+  );
+
   const initialSamplerStateCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-initial-sampler-states-complete",
   );
@@ -4602,6 +4735,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       initialRenderStateSequences,
       setTextureObservations,
       setFvfObservations,
+      setStreamSourceObservations,
       initialSamplerStateSequences,
       initialTextureStageStateSequences,
       rasterStatusObservations,

@@ -95,6 +95,27 @@ impl RuntimeGraphicsTextureBindings {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsStreamSourceBinding {
+    pub vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    pub offset_in_bytes: u32,
+    pub stride: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsStreamSources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_zero: Option<RuntimeGraphicsStreamSourceBinding>,
+}
+
+impl RuntimeGraphicsStreamSources {
+    fn is_pristine(&self) -> bool {
+        self.stream_zero.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSamplerState {
@@ -600,6 +621,8 @@ pub struct RuntimeGraphicsDevice {
     pub texture_bindings: RuntimeGraphicsTextureBindings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flexible_vertex_format: Option<RuntimeGraphicsFlexibleVertexFormat>,
+    #[serde(skip_serializing_if = "RuntimeGraphicsStreamSources::is_pristine")]
+    pub stream_sources: RuntimeGraphicsStreamSources,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -698,6 +721,15 @@ pub(crate) struct RuntimeGraphicsTextureBindingUpdateRequest {
 pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub format: RuntimeGraphicsFlexibleVertexFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsStreamSourceUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub stream: u32,
+    pub vertex_buffer_com_object_id: RuntimeComObjectId,
+    pub offset_in_bytes: u32,
+    pub stride: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -830,6 +862,18 @@ pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdatePlan {
     next_device_generation: u64,
     previous: Option<RuntimeGraphicsFlexibleVertexFormat>,
     format: RuntimeGraphicsFlexibleVertexFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsStreamSourceUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous: Option<RuntimeGraphicsStreamSourceBinding>,
+    binding: RuntimeGraphicsStreamSourceBinding,
+    request: RuntimeGraphicsStreamSourceUpdateRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1016,6 +1060,16 @@ pub struct RuntimeGraphicsFlexibleVertexFormatUpdateResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsStreamSourceUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub stream: u32,
+    pub binding: RuntimeGraphicsStreamSourceBinding,
+    pub changed: bool,
+    pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsBackBufferClearResult {
     pub device_id: RuntimeGraphicsDeviceId,
     pub device_generation: u64,
@@ -1150,12 +1204,21 @@ pub(crate) struct RuntimeGraphicsComRetirementPlan {
     surface_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsSurfaceId)>,
     vertex_buffer_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)>,
     texture_binding_clearances: Vec<RuntimeGraphicsTextureBindingClearance>,
+    stream_source_clearances: Vec<RuntimeGraphicsStreamSourceClearance>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RuntimeGraphicsTextureBindingClearance {
     device_id: RuntimeGraphicsDeviceId,
     texture_id: RuntimeGraphicsTextureId,
+    device_generation: u64,
+    next_device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeGraphicsStreamSourceClearance {
+    device_id: RuntimeGraphicsDeviceId,
+    binding: RuntimeGraphicsStreamSourceBinding,
     device_generation: u64,
     next_device_generation: u64,
 }
@@ -1319,6 +1382,7 @@ impl RuntimeGraphics {
             texture_stage_states: RuntimeGraphicsTextureStageStates::default(),
             texture_bindings: RuntimeGraphicsTextureBindings::default(),
             flexible_vertex_format: None,
+            stream_sources: RuntimeGraphicsStreamSources::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
             renderer: None,
@@ -1808,6 +1872,144 @@ impl RuntimeGraphics {
             changed,
             device_generation: device.generation,
         }
+    }
+
+    pub(super) fn plan_stream_source_update(
+        &self,
+        request: RuntimeGraphicsStreamSourceUpdateRequest,
+    ) -> Result<RuntimeGraphicsStreamSourceUpdatePlan, RuntimeStateError> {
+        validate_stream_source_update_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-stream-source-device-com-object-unknown",
+                    "logical stream-source update requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let binding = self.resolve_stream_source_binding(device_id, request)?;
+        let device = self.device(device_id)?;
+        let previous = device.stream_sources.stream_zero;
+        let changed = previous != Some(binding);
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsStreamSourceUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous,
+            binding,
+            request,
+        })
+    }
+
+    pub(super) fn preflight_stream_source_update(
+        &self,
+        plan: &RuntimeGraphicsStreamSourceUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-stream-source-update-plan-stale"));
+        };
+        let binding = self
+            .resolve_stream_source_binding(plan.device_id, plan.request)
+            .map_err(|_| stale_plan("graphics-stream-source-update-plan-stale"))?;
+        let changed = plan.previous != Some(plan.binding);
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.stream_sources.stream_zero != plan.previous
+            || binding != plan.binding
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan("graphics-stream-source-update-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_stream_source_update(
+        &mut self,
+        plan: RuntimeGraphicsStreamSourceUpdatePlan,
+    ) -> RuntimeGraphicsStreamSourceUpdateResult {
+        debug_assert!(self.preflight_stream_source_update(&plan).is_ok());
+        let changed = plan.previous != Some(plan.binding);
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.stream_sources.stream_zero = Some(plan.binding);
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsStreamSourceUpdateResult {
+            device_id: device.id,
+            stream: plan.request.stream,
+            binding: plan.binding,
+            changed,
+            device_generation: device.generation,
+        }
+    }
+
+    fn resolve_stream_source_binding(
+        &self,
+        device_id: RuntimeGraphicsDeviceId,
+        request: RuntimeGraphicsStreamSourceUpdateRequest,
+    ) -> Result<RuntimeGraphicsStreamSourceBinding, RuntimeStateError> {
+        let vertex_buffer_id = self
+            .vertex_buffer_com_object_index
+            .get(&request.vertex_buffer_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-stream-source-vertex-buffer-com-object-unknown",
+                    "logical stream-source binding requires a live vertex-buffer COM object",
+                )
+            })?;
+        self.validate_vertex_buffer_association(
+            request.vertex_buffer_com_object_id,
+            vertex_buffer_id,
+        )?;
+        let vertex_buffer = self
+            .vertex_buffers
+            .get(&vertex_buffer_id)
+            .expect("validated logical vertex-buffer association disappeared");
+        if vertex_buffer.device_id != device_id {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-stream-source-device-mismatch",
+                "logical stream-source binding requires the device that created the vertex buffer",
+            ));
+        }
+        Ok(RuntimeGraphicsStreamSourceBinding {
+            vertex_buffer_id,
+            offset_in_bytes: request.offset_in_bytes,
+            stride: request.stride,
+        })
     }
 
     fn resolve_texture_binding_target(
@@ -3234,6 +3436,11 @@ impl RuntimeGraphics {
             &device_associations,
             &texture_associations,
         )?;
+        let stream_source_clearances = self.stream_source_clearances_for_retirement(
+            &device_associations,
+            &vertex_buffer_associations,
+            &texture_binding_clearances,
+        )?;
         Ok(Some(RuntimeGraphicsComRetirementPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
@@ -3242,6 +3449,7 @@ impl RuntimeGraphics {
             surface_associations,
             vertex_buffer_associations,
             texture_binding_clearances,
+            stream_source_clearances,
         }))
     }
 
@@ -3271,8 +3479,17 @@ impl RuntimeGraphics {
             &plan.device_associations,
             &plan.texture_associations,
         );
+        let stream_source_clearances = match texture_binding_clearances.as_ref() {
+            Ok(texture_binding_clearances) => self.stream_source_clearances_for_retirement(
+                &plan.device_associations,
+                &plan.vertex_buffer_associations,
+                texture_binding_clearances,
+            ),
+            Err(_) => Err(stale_plan("graphics-com-retirement-plan-stale")),
+        };
         if self.generation != plan.expected_generation
             || texture_binding_clearances.as_ref() != Ok(&plan.texture_binding_clearances)
+            || stream_source_clearances.as_ref() != Ok(&plan.stream_source_clearances)
             || self
                 .validate_retirement_associations(
                     &plan.device_associations,
@@ -3299,6 +3516,16 @@ impl RuntimeGraphics {
                 Some(clearance.texture_id)
             );
             device.texture_bindings.stage_zero = None;
+            device.generation = clearance.next_device_generation;
+        }
+        for clearance in plan.stream_source_clearances {
+            let device = self
+                .devices
+                .get_mut(&clearance.device_id)
+                .expect("preflighted stream-source device disappeared during retirement");
+            debug_assert_eq!(device.stream_sources.stream_zero, Some(clearance.binding));
+            debug_assert_eq!(device.generation, clearance.device_generation);
+            device.stream_sources.stream_zero = None;
             device.generation = clearance.next_device_generation;
         }
         for (com_object_id, surface_id) in plan.surface_associations {
@@ -3388,6 +3615,71 @@ impl RuntimeGraphics {
                     })?,
                 });
             }
+        }
+        Ok(clearances)
+    }
+
+    fn stream_source_clearances_for_retirement(
+        &self,
+        device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
+        vertex_buffer_associations: &[(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)],
+        texture_binding_clearances: &[RuntimeGraphicsTextureBindingClearance],
+    ) -> Result<Vec<RuntimeGraphicsStreamSourceClearance>, RuntimeStateError> {
+        let retiring_devices = device_associations
+            .iter()
+            .map(|(_, device_id)| *device_id)
+            .collect::<BTreeSet<_>>();
+        let mut clearances = Vec::new();
+        for (_, vertex_buffer_id) in vertex_buffer_associations {
+            let vertex_buffer = self.vertex_buffers.get(vertex_buffer_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-stream-source-retirement-vertex-buffer-missing",
+                    "retiring logical vertex buffer is missing while deriving stream-source clearances",
+                )
+            })?;
+            if retiring_devices.contains(&vertex_buffer.device_id) {
+                continue;
+            }
+            let device = self.devices.get(&vertex_buffer.device_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-stream-source-retirement-device-missing",
+                    "retiring bound vertex buffer has no live creating device",
+                )
+            })?;
+            let Some(binding) = device.stream_sources.stream_zero else {
+                continue;
+            };
+            if binding.vertex_buffer_id != *vertex_buffer_id {
+                continue;
+            }
+            let preceding_clearances = texture_binding_clearances
+                .iter()
+                .filter(|clearance| clearance.device_id == device.id)
+                .count() as u64;
+            let device_generation = device
+                .generation
+                .checked_add(preceding_clearances)
+                .ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-device-generation-exhausted",
+                        "logical graphics device generation is exhausted",
+                    )
+                })?;
+            clearances.push(RuntimeGraphicsStreamSourceClearance {
+                device_id: device.id,
+                binding,
+                device_generation,
+                next_device_generation: device_generation.checked_add(1).ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-device-generation-exhausted",
+                        "logical graphics device generation is exhausted",
+                    )
+                })?,
+            });
         }
         Ok(clearances)
     }
@@ -3532,6 +3824,21 @@ impl RuntimeGraphics {
                 "runtime-graphics",
                 "graphics-device-texture-binding-dangling",
                 "logical graphics device texture binding does not resolve to a live owned texture",
+            ));
+        }
+        if let Some(binding) = self
+            .devices
+            .get(&device_id)
+            .and_then(|device| device.stream_sources.stream_zero)
+            && self
+                .vertex_buffers
+                .get(&binding.vertex_buffer_id)
+                .is_none_or(|vertex_buffer| vertex_buffer.device_id != device_id)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-device-stream-source-dangling",
+                "logical graphics device stream source does not resolve to a live owned vertex buffer",
             ));
         }
         Ok(())
@@ -3951,6 +4258,23 @@ fn validate_flexible_vertex_format_update_request(
             "runtime-graphics",
             "graphics-flexible-vertex-format-request-invalid",
             "logical flexible vertex format update requires a live graphics device",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_stream_source_update_request(
+    request: RuntimeGraphicsStreamSourceUpdateRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0
+        || request.stream != 0
+        || request.vertex_buffer_com_object_id.0 == 0
+        || request.stride == 0
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-stream-source-request-invalid",
+            "logical stream-source binding requires stream zero, live COM identities, and a nonzero stride",
         ));
     }
     Ok(())
@@ -4986,6 +5310,184 @@ mod tests {
             "graphics-generation-exhausted"
         );
         assert_eq!(exhausted, before_exhaustion);
+    }
+
+    #[test]
+    fn stream_sources_are_non_owning_idempotent_owner_checked_and_retirement_safe() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
+        let vertex_buffer_plan = graphics
+            .plan_vertex_buffer_creation(
+                RuntimeGraphicsVertexBufferCreateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
+                        byte_length: 112,
+                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                        flexible_vertex_format: 0x144,
+                        pool: RuntimeGraphicsVertexBufferPool::Managed,
+                    },
+                },
+                ProcessAddressAllocationId(41),
+                backing_range,
+            )
+            .unwrap();
+        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+            vertex_buffer_plan,
+            RuntimeComObjectId(8),
+            MemoryOwnerId(23),
+        );
+        assert!(
+            graphics
+                .device(device.id)
+                .unwrap()
+                .stream_sources
+                .is_pristine()
+        );
+
+        let stream_request = RuntimeGraphicsStreamSourceUpdateRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+            stream: 0,
+            vertex_buffer_com_object_id: RuntimeComObjectId(8),
+            offset_in_bytes: 0,
+            stride: 28,
+        };
+        let before_plan = graphics.clone();
+        let plan = graphics.plan_stream_source_update(stream_request).unwrap();
+        let stale = plan.clone();
+        graphics.preflight_stream_source_update(&plan).unwrap();
+        assert_eq!(graphics, before_plan);
+        let result = graphics.commit_stream_source_update(plan);
+        assert_eq!(result.device_id, device.id);
+        assert_eq!(result.stream, 0);
+        assert_eq!(
+            result.binding,
+            RuntimeGraphicsStreamSourceBinding {
+                vertex_buffer_id: vertex_buffer.id,
+                offset_in_bytes: 0,
+                stride: 28,
+            }
+        );
+        assert!(result.changed);
+        assert_eq!(result.device_generation, device.generation + 1);
+        assert_eq!(
+            graphics
+                .device(device.id)
+                .unwrap()
+                .stream_sources
+                .stream_zero,
+            Some(result.binding)
+        );
+        assert_eq!(
+            graphics
+                .preflight_stream_source_update(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-stream-source-update-plan-stale"
+        );
+
+        let before_repeat = graphics.clone();
+        let repeat = graphics.plan_stream_source_update(stream_request).unwrap();
+        assert!(!graphics.commit_stream_source_update(repeat).changed);
+        assert_eq!(graphics, before_repeat);
+
+        let second_device_plan = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(second_device_plan, RuntimeComObjectId(9));
+        let second_backing = GuestRange::new(
+            GuestAddress(
+                RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE
+                    .0
+                    .checked_add(0x1000)
+                    .unwrap(),
+            ),
+            0x1000,
+        )
+        .unwrap();
+        let second_vertex_buffer_plan = graphics
+            .plan_vertex_buffer_creation(
+                RuntimeGraphicsVertexBufferCreateRequest {
+                    device_com_object_id: RuntimeComObjectId(9),
+                    descriptor: vertex_buffer.descriptor,
+                },
+                ProcessAddressAllocationId(42),
+                second_backing,
+            )
+            .unwrap();
+        graphics.commit_vertex_buffer_creation(
+            second_vertex_buffer_plan,
+            RuntimeComObjectId(10),
+            MemoryOwnerId(24),
+        );
+        let before_wrong_owner = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_stream_source_update(RuntimeGraphicsStreamSourceUpdateRequest {
+                    vertex_buffer_com_object_id: RuntimeComObjectId(10),
+                    ..stream_request
+                })
+                .unwrap_err()
+                .code,
+            "graphics-stream-source-device-mismatch"
+        );
+        assert_eq!(graphics, before_wrong_owner);
+
+        for invalid in [
+            RuntimeGraphicsStreamSourceUpdateRequest {
+                stream: 1,
+                ..stream_request
+            },
+            RuntimeGraphicsStreamSourceUpdateRequest {
+                stride: 0,
+                ..stream_request
+            },
+            RuntimeGraphicsStreamSourceUpdateRequest {
+                vertex_buffer_com_object_id: RuntimeComObjectId(0),
+                ..stream_request
+            },
+        ] {
+            let before_invalid = graphics.clone();
+            assert_eq!(
+                graphics
+                    .plan_stream_source_update(invalid)
+                    .unwrap_err()
+                    .code,
+                "graphics-stream-source-request-invalid"
+            );
+            assert_eq!(graphics, before_invalid);
+        }
+
+        let mut exhausted = graphics.clone();
+        exhausted.generation = u64::MAX;
+        let idempotent = exhausted.plan_stream_source_update(stream_request).unwrap();
+        assert_eq!(idempotent.next_generation, u64::MAX);
+        assert!(!exhausted.commit_stream_source_update(idempotent).changed);
+        let before_exhausted_change = exhausted.clone();
+        assert_eq!(
+            exhausted
+                .plan_stream_source_update(RuntimeGraphicsStreamSourceUpdateRequest {
+                    offset_in_bytes: 4,
+                    ..stream_request
+                })
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(exhausted, before_exhausted_change);
+
+        let retirement = graphics
+            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .unwrap()
+            .unwrap();
+        let device_generation = graphics.device(device.id).unwrap().generation;
+        graphics
+            .preflight_com_object_retirement(&retirement)
+            .unwrap();
+        graphics.commit_com_object_retirement(retirement);
+        let device_after_retirement = graphics.device(device.id).unwrap();
+        assert_eq!(device_after_retirement.stream_sources.stream_zero, None);
+        assert_eq!(device_after_retirement.generation, device_generation + 1);
+        assert!(graphics.vertex_buffer(vertex_buffer.id).is_err());
     }
 
     #[test]

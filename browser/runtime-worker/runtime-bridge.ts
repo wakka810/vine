@@ -167,6 +167,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     d3d9InitialTextureStageStatesEnabled: number,
     d3d9SetTextureEnabled: number,
     d3d9SetFvfEnabled: number,
+    d3d9SetStreamSourceEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -281,6 +282,7 @@ export class RuntimeBridge {
     d3d9InitialTextureStageStatesEnabled: boolean,
     d3d9SetTextureEnabled: boolean,
     d3d9SetFvfEnabled: boolean,
+    d3d9SetStreamSourceEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -299,6 +301,7 @@ export class RuntimeBridge {
         Number(d3d9InitialTextureStageStatesEnabled),
         Number(d3d9SetTextureEnabled),
         Number(d3d9SetFvfEnabled),
+        Number(d3d9SetStreamSourceEnabled),
       ),
     );
   }

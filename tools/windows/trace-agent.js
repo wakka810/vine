@@ -80,6 +80,9 @@ const focusedD3d9SetTextureObservation =
 const focusedD3d9SetFvfObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-set-fvf");
+const focusedD3d9SetStreamSourceObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-set-stream-source");
 const focusedD3d9InitialSamplerStatesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-sampler-states");
@@ -126,6 +129,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9BeginSceneObservation ||
   focusedD3d9SetTextureObservation ||
   focusedD3d9SetFvfObservation ||
+  focusedD3d9SetStreamSourceObservation ||
   focusedD3d9InitialSamplerStatesObservation ||
   focusedD3d9InitialTextureStageStatesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
@@ -176,6 +180,9 @@ let focusedD3d9SetTextureComplete = false;
 let focusedD3d9SetFvfDevice = null;
 let focusedD3d9SetFvfMainModuleCall = null;
 let focusedD3d9SetFvfComplete = false;
+let focusedD3d9SetStreamSourceDevice = null;
+let focusedD3d9SetStreamSourceMainModuleCall = null;
+let focusedD3d9SetStreamSourceComplete = false;
 let focusedD3d9InitialSamplerStateDevice = null;
 let focusedD3d9InitialSamplerStatesComplete = false;
 const focusedD3d9InitialSamplerStateCalls = [];
@@ -4882,6 +4889,31 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9SetFvfDevice ??= objectAddress;
             this.traceD3d9SetFvfLastErrorBefore =
               Number(this.lastError) >>> 0;
+          } else if (focusedD3d9SetStreamSourceObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const isPrimarySetStreamSource =
+              slot === 100 &&
+              caller.module?.toLowerCase() ===
+                Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5b3ec &&
+              args[1].toUInt32() === 0 &&
+              !args[2].isNull() &&
+              args[3].toUInt32() === 0 &&
+              args[4].toUInt32() === 28 &&
+              focusedD3d9SetStreamSourceMainModuleCall === null;
+            if (
+              focusedD3d9SetStreamSourceComplete ||
+              !isPrimarySetStreamSource ||
+              (focusedD3d9SetStreamSourceDevice !== null &&
+                objectAddress !== focusedD3d9SetStreamSourceDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9SetStreamSourceDevice ??= objectAddress;
+            this.traceD3d9SetStreamSourceLastErrorBefore =
+              Number(this.lastError) >>> 0;
           } else if (focusedD3d9InitialSamplerStatesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -5136,6 +5168,21 @@ function attachIdirect3ddevice9(object) {
                   ),
                 }
               : null;
+          this.traceD3d9SetStreamSource =
+            focusedD3d9SetStreamSourceObservation && slot === 100
+              ? {
+                  stream: args[1].toUInt32(),
+                  vertexBuffer: args[2].toString(),
+                  offset: args[3].toUInt32(),
+                  stride: args[4].toUInt32(),
+                  lastErrorBefore:
+                    this.traceD3d9SetStreamSourceLastErrorBefore,
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                }
+              : null;
           this.traceD3d9InitialSamplerState =
             focusedD3d9InitialSamplerStatesObservation && slot === 69
               ? {
@@ -5243,6 +5290,15 @@ function attachIdirect3ddevice9(object) {
                   resultU32: result.toUInt32(),
                   lastErrorAfter: lastError,
                 };
+          const d3d9SetStreamSource =
+            this.traceD3d9SetStreamSource === null
+              ? null
+              : {
+                  ...this.traceD3d9SetStreamSource,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           const d3d9InitialSamplerState =
             this.traceD3d9InitialSamplerState === null
               ? null
@@ -5281,6 +5337,9 @@ function attachIdirect3ddevice9(object) {
               ...(d3d9BeginScene === null ? {} : { d3d9BeginScene }),
               ...(d3d9SetTexture === null ? {} : { d3d9SetTexture }),
               ...(d3d9SetFvf === null ? {} : { d3d9SetFvf }),
+              ...(d3d9SetStreamSource === null
+                ? {}
+                : { d3d9SetStreamSource }),
               ...(d3d9InitialSamplerState === null
                 ? {}
                 : { d3d9InitialSamplerState }),
@@ -5401,6 +5460,39 @@ function attachIdirect3ddevice9(object) {
               mainModuleCall: focusedD3d9SetFvfMainModuleCall,
             });
             if (stopOnEvent === "d3d9-set-fvf-complete") {
+              recv("vine-trace-stop", () => {}).wait();
+            }
+          }
+          if (
+            focusedD3d9SetStreamSourceObservation &&
+            d3d9SetStreamSource !== null
+          ) {
+            focusedD3d9SetStreamSourceMainModuleCall = {
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: d3d9SetStreamSource.result,
+              resultU32: d3d9SetStreamSource.resultU32,
+              stream: d3d9SetStreamSource.stream,
+              vertexBuffer: d3d9SetStreamSource.vertexBuffer,
+              offset: d3d9SetStreamSource.offset,
+              stride: d3d9SetStreamSource.stride,
+              lastErrorBefore: d3d9SetStreamSource.lastErrorBefore,
+              lastError: d3d9SetStreamSource.lastErrorAfter,
+              immediateConsumer: d3d9SetStreamSource.immediateConsumer,
+              caller: this.traceFrame.caller,
+            };
+            focusedD3d9SetStreamSourceComplete = true;
+            emit("d3d9-set-stream-source-complete", {
+              profile:
+                "x86-bgi-first-frame-transformed-diffuse-textured-stream-zero-v1",
+              device: focusedD3d9SetStreamSourceDevice,
+              mainModuleCall: focusedD3d9SetStreamSourceMainModuleCall,
+            });
+            if (stopOnEvent === "d3d9-set-stream-source-complete") {
               recv("vine-trace-stop", () => {}).wait();
             }
           }

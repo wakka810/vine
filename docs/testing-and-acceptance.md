@@ -1401,6 +1401,22 @@ instruction 28,761,298、device 3／COM 21、device generation 55、reference co
 `IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)` slot 100である。他FVF、stream binding、EndScene、
 draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
 
+続く`SetStreamSource` leafは、focused primary trace二runが同じdevice、stream 0、non-NULL vertex buffer、offset 0、
+stride 28、caller RVA `0x5B3EC`、`D3D_OK`、LastError 0、結果を分岐へ使わず直後に
+`DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2)`を準備するconsumerを一致させる。Controlled PE32/i386 oracleはinitial
+NULL binding、target／repeat、offset 4、stride 0、stream 1、NULL unbindのnative set／get roundtrip、LastError
+sentinel `0x5A5A` preserve、SetStreamSourceによるvertex-buffer reference count不変、GetStreamSourceの一時AddRefを
+固定する。Active policyはnative permissivenessを一般化せず、到達したstream 0／same-device vertex buffer／offset 0／
+stride 28だけへ狭め、NULL unbindを含む他variantをmutation前に拒否する。
+
+Focused Rust model／dispatcher testsはdevice-owned non-owning stream binding、same-device ownership、generation
+preflight、targeted／idempotent commit、vertex-buffer retirementと同じcommitでのbinding clear、NULL／unknown／
+wrong-class／wrong-owner／unsupported／stale／duplicate／exhaustionのfailure atomicity、zero guest writes、LastError
+preserveを固定する。Node／Chrome protocol v38はsequence 127,373、instruction 28,761,315、device 3／COM 21、
+logical vertex buffer 3、offset 0、stride 28、device generation 56、reference count 5、renderer resourceなしを一致させる。
+Canonical stopはinstruction 28,761,324の`IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81である。他stream、offset、
+stride、NULL unbind、draw semantics、EndScene、Present、pixel backing、browser rendererはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

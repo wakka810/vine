@@ -133,7 +133,8 @@ worker.postMessage({
             capabilityProfile === "d3d9-initial-sampler-states" ||
             (capabilityProfile === "d3d9-initial-texture-stage-states" ||
               capabilityProfile === "d3d9-set-texture" ||
-              capabilityProfile === "d3d9-set-fvf")
+              capabilityProfile === "d3d9-set-fvf" ||
+              capabilityProfile === "d3d9-set-stream-source")
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -154,7 +155,8 @@ worker.postMessage({
       capabilityProfile === "d3d9-initial-sampler-states" ||
       (capabilityProfile === "d3d9-initial-texture-stage-states" ||
         capabilityProfile === "d3d9-set-texture" ||
-        capabilityProfile === "d3d9-set-fvf")
+        capabilityProfile === "d3d9-set-fvf" ||
+        capabilityProfile === "d3d9-set-stream-source")
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -235,7 +237,8 @@ function parseCapabilityProfile(
     value === "d3d9-initial-sampler-states" ||
     (value === "d3d9-initial-texture-stage-states" ||
       value === "d3d9-set-texture" ||
-      value === "d3d9-set-fvf")
+      value === "d3d9-set-fvf" ||
+      value === "d3d9-set-stream-source")
     ? value
     : undefined;
 }

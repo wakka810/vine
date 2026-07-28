@@ -2754,6 +2754,209 @@ assert.throws(
   /violates its caller, format, result, LastError, or consumer contract/,
 );
 
+const setStreamSourceImmediateConsumer = makeInstructionWindow(
+  0x0045_b3ec,
+  128,
+  8,
+);
+setFixtureInstruction(
+  setStreamSourceImmediateConsumer,
+  0,
+  "mov",
+  "eax, dword ptr [0x5517c4]",
+);
+setFixtureInstruction(
+  setStreamSourceImmediateConsumer,
+  1,
+  "mov",
+  "ecx, dword ptr [eax]",
+);
+setFixtureInstruction(
+  setStreamSourceImmediateConsumer,
+  2,
+  "mov",
+  "edx, dword ptr [ecx + 0x144]",
+);
+setFixtureInstruction(setStreamSourceImmediateConsumer, 3, "push", "2");
+setFixtureInstruction(setStreamSourceImmediateConsumer, 4, "push", "0");
+setFixtureInstruction(setStreamSourceImmediateConsumer, 5, "push", "5");
+setFixtureInstruction(setStreamSourceImmediateConsumer, 6, "push", "eax");
+setFixtureInstruction(setStreamSourceImmediateConsumer, 7, "call", "edx");
+const setStreamSourceCaller = {
+  address: "0x45b3ec",
+  module: "BGI.exe",
+  rva: 0x5b3ec,
+};
+const setStreamSourceObservation = {
+  stream: 0,
+  vertexBuffer: "0x4a0000",
+  offset: 0,
+  stride: 28,
+  lastErrorBefore: 0,
+  immediateConsumer: setStreamSourceImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const setStreamSourceCompletionCall = {
+  callId: 1,
+  api: "SetStreamSource",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 100,
+  object: "0x490000",
+  arguments: ["0x0", "0x4a0000", "0x0", "0x1c"],
+  result: 0,
+  resultU32: 0,
+  stream: 0,
+  vertexBuffer: "0x4a0000",
+  offset: 0,
+  stride: 28,
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: setStreamSourceImmediateConsumer,
+  caller: setStreamSourceCaller,
+};
+const d3d9SetStreamSourceEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-set-stream-source-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-set-stream-source"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-set-stream-source"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: setStreamSourceCaller,
+    module: "d3d9.dll",
+    api: "SetStreamSource",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 100,
+    object: "0x490000",
+    arguments: ["0x0", "0x4a0000", "0x0", "0x1c"],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: setStreamSourceCaller,
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "SetStreamSource",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 100,
+    object: "0x490000",
+    result: "0x0",
+    d3d9SetStreamSource: setStreamSourceObservation,
+  },
+  {
+    schema,
+    sequence: 6,
+    threadId: 20,
+    kind: "d3d9-set-stream-source-complete",
+    profile:
+      "x86-bgi-first-frame-transformed-diffuse-textured-stream-zero-v1",
+    device: "0x490000",
+    mainModuleCall: setStreamSourceCompletionCall,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-set-stream-source-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9SetStreamSourceSummary = summarizeTrace(
+  encode(d3d9SetStreamSourceEvents),
+  "d3d9-set-stream-source-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9SetStreamSourceSummary.d3d9.setStreamSourceObservations[0].call,
+  {
+    sequence: 4,
+    caller: { module: "BGI.exe", rva: 0x5b3ec },
+    stream: 0,
+    vertexBuffer: "0x4a0000",
+    offset: 0,
+    stride: 28,
+    result: "0x0",
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer: setStreamSourceImmediateConsumer,
+  },
+);
+const missingSetStreamSourceCompletion = d3d9SetStreamSourceEvents.filter(
+  (event) => event.kind !== "d3d9-set-stream-source-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingSetStreamSourceCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedSetStreamSourceStride = structuredClone(
+  d3d9SetStreamSourceEvents,
+);
+changedSetStreamSourceStride.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+).d3d9SetStreamSource.stride = 24;
+assert.throws(
+  () => summarizeTrace(encode(changedSetStreamSourceStride)),
+  /violates its caller, binding, result, LastError, or immediate DrawPrimitive contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -4934,6 +5137,17 @@ d3d9SetFvfSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-set-fvf"];
 assert.doesNotThrow(() => summarizeTrace(encode(d3d9SetFvfSelection)));
+
+const d3d9SetStreamSourceSelection = structuredClone(events);
+d3d9SetStreamSourceSelection[0].arguments.observations = [
+  "d3d9-set-stream-source",
+];
+d3d9SetStreamSourceSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-set-stream-source"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(d3d9SetStreamSourceSelection)),
+);
 
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];

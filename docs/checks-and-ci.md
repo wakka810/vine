@@ -135,9 +135,9 @@ full-target Clear, the 16-byte presentation `SetRect`, source-texture
 MIN／MAG linear state band. The three following unprofiled render states are
 explicitly rejected and ignored by the caller. Downstream execution now also
 crosses the six exact stage-0 fixed-function texture-stage settings, the
-non-owning static DEFAULT texture binding, and the bounded typed FVF `0x144`;
-the runtime is paused at the manifested `IDirect3DDevice9::SetStreamSource`
-slot-100 endpoint. Exact
+non-owning static DEFAULT texture binding, the bounded typed FVF `0x144`, and
+the non-owning stream-0／offset-0／stride-28 vertex-buffer binding; the runtime is
+paused at the manifested `IDirect3DDevice9::DrawPrimitive` slot-81 endpoint. Exact
 current artifact, report, blocker, and resume-condition identities remain
 manifest-owned.
 

@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-set-fvf` and uses protocol
-`vine.browser-runtime-worker.v37`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-set-stream-source` and uses protocol
+`vine.browser-runtime-worker.v38`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -188,6 +188,15 @@ resource. Node and Chrome agree on sequence 127,372, instruction 28,761,298,
 device generation 55, and the cumulative semantic digest. Both next stop at
 instruction 28,761,315 on `IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)`
 slot 100, endpoint `0x01011670`, return address `0x1005B3EC`.
+Protocol version 38 carries that completion and the immutable Rust-owned stream
+snapshot. Rust resolves logical device 3／COM 21 and the live same-device logical
+vertex buffer 3, then commits a non-owning stream-0 relation at offset 0／stride
+28 without changing reference count 5, writing guest memory, or creating a
+renderer resource. Node and Chrome agree on sequence 127,373, instruction
+28,761,315, device generation 56, and the cumulative semantic and terminal
+memory digests. Both next stop nine instructions later at instruction 28,761,324
+on `IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81, endpoint `0x01011540`,
+return address `0x1005B402`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -232,8 +241,10 @@ fingerprint before and after execution.
   dynamic-destination variant, or upload to a renderer. The following BeginScene creates
   only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
   sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
-  fixed-function state, SetTexture adds one non-owning Rust-owned binding, and SetFVF
-  adds the one reached Rust-owned typed vertex format. EndScene,
+  fixed-function state, SetTexture adds one non-owning Rust-owned binding, SetFVF
+  adds the one reached Rust-owned typed vertex format, and SetStreamSource adds
+  the exact non-owning stream-0／offset-0／stride-28 relation. EndScene,
   other sampler／state／filter variants, the three rejected render states, other
-  texture-stage／binding variants, other vertex formats, stream binding, draw, Present, device loss,
+  texture-stage／binding variants, other vertex formats, other stream bindings,
+  NULL stream unbind, draw, Present, device loss,
   and visible browser output remain unsupported.
