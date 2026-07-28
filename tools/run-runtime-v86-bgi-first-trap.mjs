@@ -233,6 +233,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
         "user32-async-key-state-input-continuation",
+        "user32-async-key-state-initial-scan",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -386,6 +387,7 @@ assert(
       "d3d9-post-present-continuation",
       "user32-async-key-state-input",
       "user32-async-key-state-input-continuation",
+      "user32-async-key-state-initial-scan",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -416,7 +418,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-first-present" ||
     genericRuntimeCapability === "d3d9-post-present-continuation" ||
     genericRuntimeCapability === "user32-async-key-state-input" ||
-    genericRuntimeCapability === "user32-async-key-state-input-continuation"
+    genericRuntimeCapability === "user32-async-key-state-input-continuation" ||
+    genericRuntimeCapability === "user32-async-key-state-initial-scan"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -727,14 +730,24 @@ const user32AsyncKeyStateInputCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-input";
 const user32AsyncKeyStateInputContinuationCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-input-continuation";
+const user32AsyncKeyStateInitialScanCheckpointEnabled =
+  genericRuntimeCapability === "user32-async-key-state-initial-scan";
 const user32AsyncKeyStateInputEnabled =
   user32AsyncKeyStateInputCheckpointEnabled ||
   user32AsyncKeyStateInputContinuationCheckpointEnabled;
+const user32AsyncKeyStateGatewayEnabled =
+  user32AsyncKeyStateInputEnabled ||
+  user32AsyncKeyStateInitialScanCheckpointEnabled;
+const user32AsyncKeyStateInitialScanVirtualKeys = [
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
+  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
+  2, 4, 5, 6,
+];
 const d3d9PostPresentContinuationCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-present-continuation";
 const d3d9PostPresentContinuationEnabled =
   d3d9PostPresentContinuationCheckpointEnabled ||
-  user32AsyncKeyStateInputEnabled;
+  user32AsyncKeyStateGatewayEnabled;
 const d3d9PresentEnabled =
   d3d9PresentCheckpointEnabled || d3d9PostPresentContinuationEnabled;
 const d3d9PostRasterStatusWaitableTimerEnabled =
@@ -816,7 +829,8 @@ const primaryMainLoopContinuationWorkloadEnabled =
   primaryMainLoopContinuationEnabled ||
   dragAcceptFilesEnabled ||
   archiveSourceReadEnabled;
-const primaryMainLoopContinuationTrapLimit = 131_072;
+const primaryMainLoopContinuationTrapLimit =
+  user32AsyncKeyStateInitialScanCheckpointEnabled ? 196_608 : 131_072;
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
   primaryMainLoopContinuationWorkloadEnabled ||
@@ -1155,7 +1169,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? user32AsyncKeyStateInputContinuationCheckpointEnabled
+    ? user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? "v86-bgi-async-key-state-initial-scan"
+      : user32AsyncKeyStateInputContinuationCheckpointEnabled
       ? "v86-bgi-async-key-state-input-continuation"
       : user32AsyncKeyStateInputCheckpointEnabled
         ? "v86-bgi-async-key-state-input"
@@ -5575,6 +5591,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+        validateUser32AsyncKeyStateInitialScanResult(genericResult);
       } else if (user32AsyncKeyStateInputContinuationCheckpointEnabled) {
         validateUser32AsyncKeyStateInputContinuationResult(genericResult);
       } else if (user32AsyncKeyStateInputCheckpointEnabled) {
@@ -5868,6 +5886,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : user32AsyncKeyStateInitialScanCheckpointEnabled
+            ? "bgi GetAsyncKeyState initial no-input scan"
           : user32AsyncKeyStateInputContinuationCheckpointEnabled
             ? "bgi GetAsyncKeyState held-key continuation"
             : user32AsyncKeyStateInputCheckpointEnabled
@@ -6164,6 +6184,9 @@ async function run() {
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
           (genericResult.checkpointCompletion === undefined
             ? `first structured stop cluster ${genericResult.fault.capabilityCluster}`
+            : genericResult.checkpointCompletion.capability ===
+                "user32-async-key-state-initial-scan"
+              ? `${genericResult.checkpointCompletion.completionCount} no-input async-key scan queries completed after ${genericResult.checkpointCompletion.leadingCallCount} leading polls`
             : genericResult.checkpointCompletion.capability ===
                 "user32-async-key-state-input-continuation"
               ? `${genericResult.checkpointCompletion.completionCount} controlled async-key queries completed`
@@ -6671,6 +6694,9 @@ async function runGenericRuntimeReentry({
         reason:
           checkpointCompletion.capability === "kernel32-leave-critical-section"
             ? "kernel32-leave-critical-section-checkpoint-complete"
+            : checkpointCompletion.capability ===
+                "user32-async-key-state-initial-scan"
+              ? "user32-async-key-state-initial-scan-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "user32-async-key-state-input-continuation"
               ? "user32-async-key-state-input-continuation-checkpoint-complete"
@@ -7671,6 +7697,61 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      user32AsyncKeyStateInitialScanCheckpointEnabled &&
+      call.implementationId === "user32.get-async-key-state.v1"
+    ) {
+      const asyncKeyCalls = supportedCalls.filter(
+        (candidate) =>
+          candidate.implementationId === "user32.get-async-key-state.v1",
+      );
+      const scanCallCount = user32AsyncKeyStateInitialScanVirtualKeys.length;
+      const scanCalls = asyncKeyCalls.slice(-scanCallCount);
+      if (
+        scanCalls.length === scanCallCount &&
+        scanCalls.every(
+          (candidate, index) =>
+            candidate.arguments[0] ===
+            user32AsyncKeyStateInitialScanVirtualKeys[index],
+        )
+      ) {
+        const leadingCalls = asyncKeyCalls.slice(0, -scanCallCount);
+        assert(
+          leadingCalls.length > 0,
+          "initial async-key scan omitted its leading control polling phase",
+        );
+        for (const candidate of leadingCalls) {
+          assert.deepEqual(candidate.arguments, [0x11]);
+          assert.deepEqual(candidate.result, { action: "set", value: 0 });
+          assert.equal(candidate.lastError, 0);
+          assert.deepEqual(candidate.guestWrites, []);
+        }
+        for (const candidate of scanCalls) {
+          assert.deepEqual(candidate.result, { action: "set", value: 0 });
+          assert.equal(candidate.lastError, 0);
+          assert.deepEqual(candidate.guestWrites, []);
+        }
+        const firstScanCall = scanCalls[0];
+        checkpointCompletion = {
+          capability: "user32-async-key-state-initial-scan",
+          implementationId: "user32.get-async-key-state.v1",
+          requiredCompletions: scanCallCount,
+          completionCount: scanCallCount,
+          leadingCallCount: leadingCalls.length,
+          firstCompletionSequence: firstScanCall.sequence,
+          firstCompletionInstructionCount: firstScanCall.trapInstructionCount,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: continuation.instructionCount,
+          scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
+          result: structuredClone(call.result),
+          lastError: call.lastError,
+          guestWriteBytes: 0,
+          instructionCount: 0,
+          nextEndpoint: null,
+          memoryContentSha256: "",
+        };
+      }
+    }
+    if (
       user32AsyncKeyStateInputEnabled &&
       call.implementationId === "user32.get-async-key-state.v1"
     ) {
@@ -8643,6 +8724,7 @@ function validateGenericRuntimeReady(ready, offer) {
     ready.implementedApiContracts,
     declaredDispatches.length +
       6 +
+      (user32AsyncKeyStateInitialScanCheckpointEnabled ? 2 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -8830,7 +8912,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+      "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
     );
     assert.equal(
       ready.displayProfileId,
@@ -8891,9 +8973,31 @@ function validateGenericRuntimeReady(ready, offer) {
         },
       ],
     });
+  } else if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+    assert.deepEqual(ready.keyboardState, {
+      profileId: "foreground-focused-virtual-key-state-v1",
+      sourceFocused: true,
+      maximumVirtualKey: 0xff,
+      aggregateModifierKeys: true,
+      clearOnSourceFocusLoss: true,
+      generation: 0,
+      lastEventSequence: 0,
+      downWords: [0, 0, 0, 0, 0, 0, 0, 0],
+      pressedWords: [0, 0, 0, 0, 0, 0, 0, 0],
+    });
+    assert.equal(ready.initialKeyboardEventReceipt, undefined);
+    assert.deepEqual(ready.cursorPosition, {
+      profileId: "primary-display-center-cursor-v1",
+      screenX: 960,
+      screenY: 540,
+      generation: 0,
+    });
   } else {
     assert.equal(ready.keyboardState, undefined);
     assert.equal(ready.initialKeyboardEventReceipt, undefined);
+  }
+  if (!user32AsyncKeyStateInitialScanCheckpointEnabled) {
+    assert.equal(ready.cursorPosition, undefined);
   }
   if (fontEnumerationEnabled) {
     assert.equal(
@@ -22350,6 +22454,104 @@ function validateUser32AsyncKeyStateInputContinuationResult(result) {
   assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
 }
 
+function validateUser32AsyncKeyStateInitialScanResult(result) {
+  validateD3d9PresentResult(result, false);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const getWindowRectCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.get-window-rect.v1" &&
+      call.returnAddress === 0x1008_8558,
+  );
+  const getCursorPosCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.get-cursor-pos.v1" &&
+      call.returnAddress === 0x1008_8563,
+  );
+  assert(getWindowRectCalls.length > 0);
+  assert(getCursorPosCalls.length > 0);
+  const getWindowRectCall = getWindowRectCalls.at(-1);
+  const getCursorPosCall = getCursorPosCalls.at(-1);
+  const rectOutput = getWindowRectCall.arguments[1];
+  const cursorOutput = getCursorPosCall.arguments[0];
+  assert.deepEqual(getWindowRectCall.result, { action: "set", value: 1 });
+  assert.equal(getWindowRectCall.returnAddress, 0x1008_8558);
+  assert.equal(getWindowRectCall.stackPointerAfter, getWindowRectCall.stackPointerBefore + 12);
+  assert.equal(getWindowRectCall.lastError, 0);
+  assert.equal(getWindowRectCall.guestWrites.length, 1);
+  assert.equal(getWindowRectCall.guestWrites[0].address, rectOutput);
+  assert.deepEqual(getWindowRectCall.guestWrites[0].bytes, [
+    0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03,
+    0, 0,
+  ]);
+  assert.deepEqual(getCursorPosCall.result, { action: "set", value: 1 });
+  assert.equal(getCursorPosCall.returnAddress, 0x1008_8563);
+  assert.equal(getCursorPosCall.stackPointerAfter, getCursorPosCall.stackPointerBefore + 8);
+  assert.equal(getCursorPosCall.lastError, 0);
+  assert.equal(getCursorPosCall.guestWrites.length, 1);
+  assert.equal(getCursorPosCall.guestWrites[0].address, cursorOutput);
+  assert.deepEqual(getCursorPosCall.guestWrites[0].bytes, [
+    0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0,
+  ]);
+  const checkpoint = result.checkpointCompletion;
+  assert(checkpoint, "GetAsyncKeyState initial scan checkpoint is missing");
+  const calls = result.supportedCalls.filter(
+    (call) => call.implementationId === "user32.get-async-key-state.v1",
+  );
+  assert.equal(
+    calls.length,
+    checkpoint.leadingCallCount +
+      user32AsyncKeyStateInitialScanVirtualKeys.length,
+  );
+  assert(checkpoint.leadingCallCount > 0);
+  const leadingCalls = calls.slice(0, checkpoint.leadingCallCount);
+  const scanCalls = calls.slice(checkpoint.leadingCallCount);
+  assert.deepEqual(
+    leadingCalls.map((call) => call.arguments[0]),
+    Array(checkpoint.leadingCallCount).fill(0x11),
+  );
+  assert.deepEqual(
+    scanCalls.map((call) => call.arguments[0]),
+    user32AsyncKeyStateInitialScanVirtualKeys,
+  );
+  for (const call of calls) {
+    assert.equal(call.module.toLowerCase(), "user32.dll");
+    assert.equal(call.symbol, "GetAsyncKeyState");
+    assert.deepEqual(call.result, { action: "set", value: 0 });
+    assert.equal(call.returnAddress, 0x1006_8405);
+    assert(Number.isSafeInteger(call.stackPointerBefore));
+    assert.equal(call.stackPointerBefore % 4, 0);
+    assert.equal(call.stackPointerAfter, call.stackPointerBefore + 8);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+  }
+  const firstScanCall = scanCalls[0];
+  const lastScanCall = scanCalls.at(-1);
+  assert(firstScanCall);
+  assert(lastScanCall);
+  assert.deepEqual(checkpoint, {
+    capability: "user32-async-key-state-initial-scan",
+    implementationId: "user32.get-async-key-state.v1",
+    requiredCompletions: user32AsyncKeyStateInitialScanVirtualKeys.length,
+    completionCount: user32AsyncKeyStateInitialScanVirtualKeys.length,
+    leadingCallCount: leadingCalls.length,
+    firstCompletionSequence: firstScanCall.sequence,
+    firstCompletionInstructionCount: firstScanCall.trapInstructionCount,
+    lastCompletionSequence: lastScanCall.sequence,
+    lastCompletionInstructionCount: lastScanCall.trapInstructionCount,
+    scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
+    result: { action: "set", value: 0 },
+    lastError: 0,
+    guestWriteBytes: 0,
+    instructionCount: checkpoint.instructionCount,
+    nextEndpoint: checkpoint.nextEndpoint,
+    memoryContentSha256: checkpoint.memoryContentSha256,
+  });
+  assert(checkpoint.instructionCount > lastScanCall.trapInstructionCount);
+  assert(checkpoint.nextEndpoint !== null);
+  assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -26782,7 +26984,9 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const d3d9PostScenePacingCycleCount =
-    user32AsyncKeyStateInputContinuationCheckpointEnabled
+    user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? setWaitableTimerCalls.length - 9_187
+    : user32AsyncKeyStateInputContinuationCheckpointEnabled
       ? 45
     : d3d9PostPresentContinuationEnabled
       ? 18
@@ -27400,7 +27604,7 @@ function buildGenericRuntimeReentryReport({
       "post-Present report summary requires the following GetForegroundWindow completion",
     );
   }
-  const getAsyncKeyStateCalls = user32AsyncKeyStateInputEnabled
+  const getAsyncKeyStateCalls = user32AsyncKeyStateGatewayEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
           call.implementationId === "user32.get-async-key-state.v1" &&
@@ -27408,7 +27612,29 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const getAsyncKeyStateCall = getAsyncKeyStateCalls[0] ?? null;
-  if (user32AsyncKeyStateInputEnabled) {
+  const getWindowRectCall = user32AsyncKeyStateInitialScanCheckpointEnabled
+    ? (genericResult.supportedCalls
+        .filter(
+          (call) =>
+            call.implementationId === "user32.get-window-rect.v1" &&
+            call.returnAddress === 0x1008_8558,
+        )
+        .at(-1) ?? null)
+    : null;
+  const getCursorPosCall = user32AsyncKeyStateInitialScanCheckpointEnabled
+    ? (genericResult.supportedCalls
+        .filter(
+          (call) =>
+            call.implementationId === "user32.get-cursor-pos.v1" &&
+            call.returnAddress === 0x1008_8563,
+        )
+        .at(-1) ?? null)
+    : null;
+  if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+    assert(getWindowRectCall, "initial-scan report summary has no GetWindowRect call");
+    assert(getCursorPosCall, "initial-scan report summary has no GetCursorPos call");
+  }
+  if (user32AsyncKeyStateGatewayEnabled) {
     assert(
       getAsyncKeyStateCall,
       "async-key report summary requires one GetAsyncKeyState completion",
@@ -27416,8 +27642,25 @@ function buildGenericRuntimeReentryReport({
     assert.equal(
       getAsyncKeyStateCalls.at(-1)?.sequence,
       genericResult.checkpointCompletion?.lastCompletionSequence,
+      `async-key checkpoint did not end at the last query: ${JSON.stringify({
+        checkpoint: genericResult.checkpointCompletion ?? null,
+        virtualKeys: getAsyncKeyStateCalls.map((call) => call.arguments[0]),
+        fault: genericResult.fault,
+      })}`,
     );
   }
+  const getAsyncKeyStateInitialScanLeadingCallCount =
+    user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? genericResult.checkpointCompletion?.leadingCallCount
+      : null;
+  if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+    assert(Number.isSafeInteger(getAsyncKeyStateInitialScanLeadingCallCount));
+    assert(getAsyncKeyStateInitialScanLeadingCallCount > 0);
+  }
+  const getAsyncKeyStateInitialScanCalls =
+    user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? getAsyncKeyStateCalls.slice(getAsyncKeyStateInitialScanLeadingCallCount)
+      : [];
   const d3d9PostEndSceneRasterStatusCalls = d3d9PostEndSceneRasterStatusEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
@@ -27524,6 +27767,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : user32AsyncKeyStateInitialScanCheckpointEnabled
+          ? "vine.v86-bgi-user32-async-key-state-initial-scan"
         : user32AsyncKeyStateInputContinuationCheckpointEnabled
           ? "vine.v86-bgi-user32-async-key-state-input-continuation"
         : user32AsyncKeyStateInputCheckpointEnabled
@@ -28370,11 +28615,53 @@ function buildGenericRuntimeReentryReport({
           getAsyncKeyState: {
             call: getAsyncKeyStateCall,
             compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+              "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
             keyboardProfileId:
               "foreground-focused-virtual-key-state-v1",
             inputEvent: runtimeReady.initialKeyboardEventReceipt,
             initialKeyboardState: runtimeReady.keyboardState,
+            stateAuthority: "rust-runtime-input-keyboard",
+            browserSourceAuthority: "typescript-browser-input-adapter",
+            returnEncoding:
+              "signed-short-high-bit-down-low-bit-pressed-since-query",
+            modifierAggregation: "side-specific-to-generic",
+            pressedBitConsumption: "queried-virtual-key-only",
+            sourceFocusRequired: true,
+            focusedForegroundWindowRequired: true,
+            lastErrorPolicy: "preserve",
+            guestMemoryMutation: false,
+            failureAtomicity: true,
+          },
+        }
+      : {}),
+    ...(user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? {
+          getWindowRect: {
+            call: getWindowRectCall,
+            windowAuthority: "rust-runtime-user32-logical-window",
+            coordinateSpace: "logical-primary-screen-outer-window",
+            browserGeometryImported: false,
+            failureAtomicity: true,
+          },
+          getCursorPos: {
+            call: getCursorPosCall,
+            cursorPosition: runtimeReady.cursorPosition,
+            stateAuthority: "rust-runtime-input-cursor-position",
+            browserPointerImported: false,
+            failureAtomicity: true,
+          },
+          getAsyncKeyStateInitialScan: {
+            leadingCallCount: getAsyncKeyStateInitialScanLeadingCallCount,
+            scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
+            firstCall: getAsyncKeyStateInitialScanCalls[0],
+            lastCall: getAsyncKeyStateInitialScanCalls.at(-1),
+            compatibilityPolicyId:
+              "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+            cursorPosition: runtimeReady.cursorPosition,
+            cursorStateAuthority: "rust-runtime-input-cursor-position",
+            keyboardProfileId:
+              "foreground-focused-virtual-key-state-v1",
+            inputEventCount: 0,
             stateAuthority: "rust-runtime-input-keyboard",
             browserSourceAuthority: "typescript-browser-input-adapter",
             returnEncoding:
@@ -28574,6 +28861,9 @@ function buildGenericRuntimeReentryReport({
             code: "capability-checkpoint-complete",
             message:
               genericResult.checkpointCompletion.capability ===
+              "user32-async-key-state-initial-scan"
+                ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"
+              : genericResult.checkpointCompletion.capability ===
               "user32-async-key-state-input-continuation"
                 ? "BGI observed pressed-bit consumption across two controlled held-key GetAsyncKeyState queries and stopped before the next owned endpoint"
               : genericResult.checkpointCompletion.capability ===
@@ -35172,7 +35462,9 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     ? 256
     : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled
-    ? 39_063
+    ? user32AsyncKeyStateInitialScanCheckpointEnabled
+      ? 156_250
+      : 39_063
     : guest.maximumExecuteStops;
   const thunksByAddress = new Map(
     offer.thunks.map((thunk) => [thunk.address, thunk]),

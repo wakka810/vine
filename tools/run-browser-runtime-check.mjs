@@ -85,9 +85,18 @@ const user32AsyncKeyStateInputContinuationProfile =
 const user32AsyncKeyStateInputProfile =
   bgiProfile === "user32-async-key-state-input" ||
   user32AsyncKeyStateInputContinuationProfile;
+const user32AsyncKeyStateInitialScanProfile =
+  bgiProfile === "user32-async-key-state-initial-scan";
+const user32AsyncKeyStateInitialScanVirtualKeys = [
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52,
+  100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2,
+  4, 5, 6,
+];
+const user32AsyncKeyStateGatewayProfile =
+  user32AsyncKeyStateInputProfile || user32AsyncKeyStateInitialScanProfile;
 const d3d9PostPresentContinuationProfile =
   bgiProfile === "d3d9-post-present-continuation" ||
-  user32AsyncKeyStateInputProfile;
+  user32AsyncKeyStateGatewayProfile;
 const d3d9PresentProfile =
   bgiProfile === "d3d9-first-present" ||
   d3d9PostPresentContinuationProfile;
@@ -145,7 +154,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v45";
+const runtimeProtocol = "vine.browser-runtime-worker.v46";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -734,7 +743,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" && sleepZeroProfile
+      scenario === "success" && user32AsyncKeyStateInitialScanProfile
+        ? 600_000
+        : scenario === "success" && sleepZeroProfile
         ? 300_000
         : scenario === "success" &&
             (bgiProfile === "shell32-drag-accept-files" ||
@@ -799,6 +810,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
         "user32-async-key-state-input-continuation",
+        "user32-async-key-state-initial-scan",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -844,6 +856,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
         "user32-async-key-state-input-continuation",
+        "user32-async-key-state-initial-scan",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -889,8 +902,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
         "user32-async-key-state-input-continuation",
+        "user32-async-key-state-initial-scan",
       ].includes(bgiProfile) && scenario === "success"
-        ? user32AsyncKeyStateInputContinuationProfile
+        ? user32AsyncKeyStateInitialScanProfile
+          ? 2_312
+          : user32AsyncKeyStateInputContinuationProfile
           ? 2_020
           : d3d9PostPresentContinuationProfile
             ? 2_014
@@ -934,7 +950,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-leave-critical-section-continuation" ||
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section" ||
-        user32AsyncKeyStateInputProfile ||
+        user32AsyncKeyStateGatewayProfile ||
         (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);
       assert.equal(
         evidence.report.outcome,
@@ -975,7 +991,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-create-directory-a" ||
         setWindowPosRepeatActivationProfile
       ) {
-        const pacingCount = user32AsyncKeyStateInputContinuationProfile
+        const pacingCount = user32AsyncKeyStateInitialScanProfile
+          ? 10_567
+          : user32AsyncKeyStateInputContinuationProfile
           ? 9_232
           : d3d9PostPresentContinuationProfile
             ? 9_205
@@ -1066,9 +1084,24 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             transferredBytes: read.transferredBytes,
             succeeded: read.succeeded,
           }));
-        assert.deepEqual(
-          archiveReads,
-          [
+        if (user32AsyncKeyStateInitialScanProfile) {
+          assert.equal(
+            archiveReads.length,
+            59,
+            "Chrome Worker initial scan changed the reached archive-read count",
+          );
+          assert(
+            archiveReads.every(
+              (read) =>
+                read.succeeded &&
+                read.requestedBytes === read.transferredBytes,
+            ),
+            "Chrome Worker initial scan returned a partial archive read",
+          );
+        } else {
+          assert.deepEqual(
+            archiveReads,
+            [
             {
               objectId: 1,
               offset: 0,
@@ -1151,9 +1184,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                   },
                 ]
               : []),
-          ],
-          "Chrome Worker primary boot-archive reads differ from the frozen slice",
-        );
+            ],
+            "Chrome Worker primary boot-archive reads differ from the frozen slice",
+          );
+        }
       }
       if (sleepZeroProfile) {
         const sleepZero = evidence.report.sleepZero;
@@ -2755,7 +2789,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         });
         assert.equal(
           asyncKey.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+          "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
         );
         assert.equal(
           asyncKey.keyboardProfileId,
@@ -2791,6 +2825,59 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           receipts: [],
         });
         assert.equal(evidence.report.getAsyncKeyState, null);
+      }
+      if (user32AsyncKeyStateInitialScanProfile) {
+        const getWindowRect = evidence.report.getWindowRect;
+        const getCursorPos = evidence.report.getCursorPos;
+        const scan = evidence.report.getAsyncKeyStateInitialScan;
+        assert(getWindowRect !== null, "Chrome Worker omitted GetWindowRect evidence");
+        assert(getCursorPos !== null, "Chrome Worker omitted GetCursorPos evidence");
+        assert(scan !== null, "Chrome Worker omitted initial async-key scan evidence");
+        assert.deepEqual(getWindowRect.call.arguments.slice(0, 1), [0x4801_0001]);
+        assert.deepEqual(getWindowRect.call.result, { action: "set", value: 1 });
+        assert.equal(getWindowRect.call.implementationId, "user32.get-window-rect.v1");
+        assert.deepEqual(getWindowRect.call.guestWrites[0]?.bytes, [
+          0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03,
+          0, 0,
+        ]);
+        assert.equal(getWindowRect.windowAuthority, "rust-runtime-user32-logical-window");
+        assert.equal(getWindowRect.browserGeometryImported, false);
+        assert.equal(getWindowRect.failureAtomicity, true);
+        assert.deepEqual(getCursorPos.call.result, { action: "set", value: 1 });
+        assert.equal(getCursorPos.call.implementationId, "user32.get-cursor-pos.v1");
+        assert.deepEqual(getCursorPos.call.guestWrites[0]?.bytes, [
+          0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0,
+        ]);
+        assert.deepEqual(getCursorPos.cursorPosition, {
+          profileId: "primary-display-center-cursor-v1",
+          screenX: 960,
+          screenY: 540,
+          generation: 0,
+        });
+        assert.equal(getCursorPos.stateAuthority, "rust-runtime-input-cursor-position");
+        assert.equal(getCursorPos.browserPointerImported, false);
+        assert.equal(getCursorPos.failureAtomicity, true);
+        assert.equal(scan.leadingCallCount, 51);
+        assert.deepEqual(scan.scanVirtualKeys, user32AsyncKeyStateInitialScanVirtualKeys);
+        assert.deepEqual(scan.firstCall.arguments, [14]);
+        assert.deepEqual(scan.lastCall.arguments, [6]);
+        assert.deepEqual(scan.firstCall.result, { action: "set", value: 0 });
+        assert.deepEqual(scan.lastCall.result, { action: "set", value: 0 });
+        assert.equal(
+          scan.compatibilityPolicyId,
+          "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+        );
+        assert.deepEqual(scan.cursorPosition, getCursorPos.cursorPosition);
+        assert.equal(scan.cursorStateAuthority, "rust-runtime-input-cursor-position");
+        assert.equal(scan.inputEventCount, 0);
+        assert.equal(scan.stateAuthority, "rust-runtime-input-keyboard");
+        assert.equal(scan.browserSourceAuthority, "typescript-browser-input-adapter");
+        assert.equal(scan.guestMemoryMutation, false);
+        assert.equal(scan.failureAtomicity, true);
+      } else {
+        assert.equal(evidence.report.getWindowRect, null);
+        assert.equal(evidence.report.getCursorPos, null);
+        assert.equal(evidence.report.getAsyncKeyStateInitialScan, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -3796,6 +3883,94 @@ function normalizeGetAsyncKeyState(snapshot) {
   };
 }
 
+function normalizeGetWindowRect(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      ...normalizeSemanticCall(snapshot.call),
+      implementationId: snapshot.call.implementationId,
+    },
+    windowAuthority: snapshot.windowAuthority,
+    coordinateSpace: snapshot.coordinateSpace,
+    browserGeometryImported: snapshot.browserGeometryImported,
+    failureAtomicity: snapshot.failureAtomicity,
+  };
+}
+
+function normalizeGetCursorPos(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      ...normalizeSemanticCall(snapshot.call),
+      implementationId: snapshot.call.implementationId,
+    },
+    cursorPosition: snapshot.cursorPosition,
+    stateAuthority: snapshot.stateAuthority,
+    browserPointerImported: snapshot.browserPointerImported,
+    failureAtomicity: snapshot.failureAtomicity,
+  };
+}
+
+function normalizeGetAsyncKeyStateInitialScan(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  const normalizeCall = (call) => ({
+    ...normalizeSemanticCall(call),
+    implementationId: call.implementationId,
+  });
+  return {
+    leadingCallCount: snapshot.leadingCallCount,
+    scanVirtualKeys: snapshot.scanVirtualKeys,
+    firstCall: normalizeCall(snapshot.firstCall),
+    lastCall: normalizeCall(snapshot.lastCall),
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    cursorPosition: snapshot.cursorPosition,
+    cursorStateAuthority: snapshot.cursorStateAuthority,
+    keyboardProfileId: snapshot.keyboardProfileId,
+    inputEventCount: snapshot.inputEventCount,
+    stateAuthority: snapshot.stateAuthority,
+    browserSourceAuthority: snapshot.browserSourceAuthority,
+    returnEncoding: snapshot.returnEncoding,
+    modifierAggregation: snapshot.modifierAggregation,
+    pressedBitConsumption: snapshot.pressedBitConsumption,
+    sourceFocusRequired: snapshot.sourceFocusRequired,
+    focusedForegroundWindowRequired:
+      snapshot.focusedForegroundWindowRequired,
+    lastErrorPolicy: snapshot.lastErrorPolicy,
+    guestMemoryMutation: snapshot.guestMemoryMutation,
+    failureAtomicity: snapshot.failureAtomicity,
+  };
+}
+
+function normalizeBrowserSourceRead(read) {
+  return {
+    requestId: String(read.request.requestId),
+    sourceId: read.request.sourceId,
+    objectId: read.request.objectId,
+    offset: String(read.request.offset),
+    requestedBytes: read.request.requestedBytes,
+    transferredBytes: read.transferredBytes,
+    contentSha256: read.contentSha256,
+  };
+}
+
+function normalizeNodeSourceRead(read) {
+  return {
+    requestId: String(read.requestId),
+    sourceId: read.sourceId,
+    objectId: read.objectId,
+    offset: String(read.offset),
+    requestedBytes: read.requestedBytes,
+    transferredBytes: read.transferredBytes,
+    contentSha256: read.payloadSha256,
+  };
+}
+
 function normalizeD3d9RecreatedTextures(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -4213,6 +4388,23 @@ function validateBgiEquivalence(browser, oracle) {
     "Chrome Worker GetAsyncKeyState input evidence differs from the Node oracle",
   );
   assert.deepEqual(
+    normalizeGetWindowRect(browser.report.getWindowRect),
+    normalizeGetWindowRect(oracle.getWindowRect),
+    "Chrome Worker GetWindowRect evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeGetCursorPos(browser.report.getCursorPos),
+    normalizeGetCursorPos(oracle.getCursorPos),
+    "Chrome Worker GetCursorPos evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeGetAsyncKeyStateInitialScan(
+      browser.report.getAsyncKeyStateInitialScan,
+    ),
+    normalizeGetAsyncKeyStateInitialScan(oracle.getAsyncKeyStateInitialScan),
+    "Chrome Worker initial GetAsyncKeyState scan differs from the Node oracle",
+  );
+  assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),
     normalizeD3d9RecreatedTextures(oracle.d3d9RecreatedTextures),
     "Chrome Worker D3D9 recreated texture evidence differs from the Node oracle",
@@ -4330,10 +4522,10 @@ function validateBgiEquivalence(browser, oracle) {
     ),
     "Chrome Worker heap page-materialization semantics differ from the Node oracle",
   );
-  assert.equal(
-    browser.report.sourceReads.length,
-    oracle.synchronization.sourceReads.length,
-    "Chrome Worker source-read completion count differs from the Node oracle",
+  assert.deepEqual(
+    browser.report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+    "Chrome Worker source-read completions differ from the Node oracle",
   );
   const browserStop = browser.report.firstUnsupported;
   const oracleStop = oracle.firstUnsupported;
@@ -4512,6 +4704,40 @@ function validateBgiEquivalence(browser, oracle) {
           inputVirtualKey: oracleCheckpoint.inputVirtualKey,
         },
         "Chrome Worker held-key continuation differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "user32-async-key-state-initial-scan"
+    ) {
+      assert.deepEqual(
+        {
+          leadingCallCount: browserCheckpoint.leadingCallCount,
+          firstCompletionSequence: browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          scanVirtualKeys: browserCheckpoint.scanVirtualKeys,
+          result: browserCheckpoint.result,
+          lastError: browserCheckpoint.lastError,
+          guestWriteBytes: browserCheckpoint.guestWriteBytes,
+        },
+        {
+          leadingCallCount: oracleCheckpoint.leadingCallCount,
+          firstCompletionSequence: oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          scanVirtualKeys: oracleCheckpoint.scanVirtualKeys,
+          result: oracleCheckpoint.result,
+          lastError: oracleCheckpoint.lastError,
+          guestWriteBytes: oracleCheckpoint.guestWriteBytes,
+        },
+        "Chrome Worker initial async-key scan checkpoint differs from the Node oracle",
       );
     }
     return;

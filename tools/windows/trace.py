@@ -60,6 +60,8 @@ SUPPORTED_OBSERVATIONS = (
     "get-system-menu",
     "get-system-metrics",
     "get-client-rect",
+    "get-window-rect",
+    "get-cursor-pos",
     "set-rect",
     "get-monitor-info-a",
     "set-timer",

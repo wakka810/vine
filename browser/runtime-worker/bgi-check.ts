@@ -42,7 +42,8 @@ const d3d9Canvas =
   capabilityProfile === "d3d9-first-present" ||
   capabilityProfile === "d3d9-post-present-continuation" ||
   capabilityProfile === "user32-async-key-state-input" ||
-  capabilityProfile === "user32-async-key-state-input-continuation"
+  capabilityProfile === "user32-async-key-state-input-continuation" ||
+  capabilityProfile === "user32-async-key-state-initial-scan"
     ? requiredElement<HTMLCanvasElement>("#surface").transferControlToOffscreen()
     : undefined;
 const sessionId = 1;
@@ -126,6 +127,8 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
+        : capabilityProfile === "user32-async-key-state-initial-scan"
+          ? 180_000_000
         : capabilityProfile === "kernel32-create-directory-a" ||
             capabilityProfile === "user32-set-window-pos-repeat-activation" ||
             capabilityProfile === "d3d9-recreated-textures" ||
@@ -154,7 +157,9 @@ const startMessage = {
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
-      capabilityProfile === "kernel32-sleep-zero" ||
+      capabilityProfile === "user32-async-key-state-initial-scan"
+        ? 600_000
+        : capabilityProfile === "kernel32-sleep-zero" ||
       capabilityProfile === "kernel32-global-memory-status" ||
       capabilityProfile === "kernel32-get-file-attributes-a" ||
       capabilityProfile === "kernel32-create-directory-a" ||
@@ -290,7 +295,8 @@ function parseCapabilityProfile(
     value === "d3d9-first-present" ||
     value === "d3d9-post-present-continuation" ||
     value === "user32-async-key-state-input" ||
-    value === "user32-async-key-state-input-continuation"
+    value === "user32-async-key-state-input-continuation" ||
+    value === "user32-async-key-state-initial-scan"
     ? value
     : undefined;
 }

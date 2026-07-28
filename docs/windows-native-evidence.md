@@ -5835,3 +5835,55 @@ Canonical Nodeは127,691 calls／instruction 29,325,523、semantic digest
 call、input receipt、result、semantic／memory digestを一致させ、次endpointをID 8／`0x7F000070`の
 `WINMM.dll!timeGetTime`として記録する。これは一件のprimary DOM／Worker／Wasm／Rust input consumptionを示すが、
 gameplay response、message input、pointer consumption、DirectInput keyboard device、IME text inputはclaimしない。
+
+The later zero-input continuation queues no browser event and reaches the same
+38-key order after 51 leading `VK_CONTROL` polls. Node and Chrome complete the
+scan from sequence 148,153／instruction 147,765,769 through sequence 148,195／
+instruction 147,769,226 with every signed SHORT zero, LastError 0, and zero guest
+writes. The checkpoint ends at instruction 147,769,286 before
+`WINMM.dll!timeGetTime`. Both engines agree on semantic digest
+`807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950`
+and memory digest
+`ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86`.
+This is a no-synthesized-input counterfactual, not evidence of visible gameplay
+response.
+
+## 174. BGI `GetWindowRect` logical outer geometry
+
+Focused primary capture is 813,844 bytes／2,523 lines／SHA-256
+`9cbda807d086550c8a33eece80466f301cd9e2f0f13cb52eacb4e7e259d8e32f`.
+Independent confirmation capture is 800,753 bytes／2,479 lines／SHA-256
+`db1a0f368a2f1e373b48a4a52d1b157b0f8ee35f82c6e6893f5f50fbbbe21a08`.
+Both have diagnostics 0 and agree at caller RVA `0x00088558`: the live main
+window returns TRUE, preserves LastError 0, and publishes screen rectangle
+`[317,154,1603,903]`. The controlled invalid-HWND case returns FALSE／1400 and
+preserves the caller's output sentinel. Raw traces remain under
+`.work/windows-traces/`; the source executable hash is unchanged.
+
+The runtime reads live outer geometry from `RuntimeUser32`, preflights the full
+16-byte output, and commits it once. Invalid windows and invalid output spans
+fail before guest or window-state mutation. Node and Chrome record the final
+same-consumer occurrence at sequence 148,186／instruction 147,768,687 with
+implementation `user32.get-window-rect.v1` and the same rectangle. Browser DOM
+geometry, native HWND values, caller RVA, and title hash are not semantic input.
+
+## 175. BGI `GetCursorPos` deterministic screen position
+
+Focused primary capture is 807,003 bytes／2,521 lines／SHA-256
+`9b94ca13d07a0c09fd9363e4d195505a290e4ca7951f091f2d7cec2df0b0b286`.
+Independent confirmation capture is 889,714 bytes／2,776 lines／SHA-256
+`a1f121d1483b1ec8ec6e20b8b94c7afb10142c1770b51dc85b43d9f5e6ffc2fc`.
+Both have diagnostics 0. Caller RVA `0x00088563` observes TRUE, LastError 0,
+and native screen point `[1336,532]`; a NULL output returns FALSE／998. The
+native coordinate is an artifact value because it depends on host pointer
+position. The consumer compares it with window and client geometry, so the
+semantic requirement is a coherent logical screen point, BOOL／LastError, and
+failure-atomic output publication.
+
+The controlled profile configures `RuntimeInput` once at logical primary-display
+center `[960,540]`, generation zero. `GetCursorPos` preflights and publishes the
+complete eight-byte x86 `POINT`; it imports no host or browser pointer. Node and
+Chrome agree on sequence 148,187／instruction 147,768,691, implementation
+`user32.get-cursor-pos.v1`, output `[960,540]`, LastError 0, and zero state
+mutation. This does not claim pointer-event ingestion, cursor movement, capture,
+or general multi-display coordinate behavior.

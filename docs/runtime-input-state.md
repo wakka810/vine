@@ -2,9 +2,9 @@
 
 ## Status
 
-- Status: keyboard input gateway and mouse-button mapping implemented
+- Status: keyboard input gateway, deterministic cursor position, and mouse-button mapping implemented
 - Authority: `runtime/input.rs::RuntimeInput`
-- Reached User32 APIs: `SwapMouseButton`, `GetAsyncKeyState`
+- Reached User32 APIs: `SwapMouseButton`, `GetCursorPos`, `GetAsyncKeyState`
 - DirectInput gateway: root identity and reached empty game-controller enumeration implemented
 
 Logical input state is guest-visible Windows state and therefore belongs to the
@@ -56,8 +56,31 @@ current-down bit remains set across repeated polling. The continuation performs
 three additional immutable reads from source object 3 (`sysgrp.arc`) in both
 runs. Because no zero-input counterfactual was run, this records ordered source
 activity without claiming that the key event caused those reads or produced a
-visible gameplay response. Key-up and DirectInput keyboard-device state also
-remain outside this checkpoint.
+visible gameplay response.
+
+A later zero-input profile provides that counterfactual for input state, but not
+for asset causality. It queues no browser event, completes 51 leading
+`VK_CONTROL` polls, then executes the native-derived 38-key startup scan in the
+exact observed order. Every query returns zero in Node and Chrome. This proves
+that the same Worker／Wasm／Rust path does not synthesize keyboard state in the
+absence of input; it does not prove a visible gameplay response. Key-up and
+DirectInput keyboard-device state also remain outside this checkpoint.
+
+## Cursor position
+
+`RuntimeInput` also owns one configure-once logical screen position under
+profile `primary-display-center-cursor-v1`. The controlled profile begins at
+`[960,540]`, the center of the 1920x1080 logical primary display, with generation
+zero. This is a deterministic compatibility value. It is not copied from the
+host pointer, a DOM pointer event, or browser display state.
+
+`GetCursorPos` reads that owner and preflights the complete eight-byte x86
+`POINT` output before a single guest-memory publication. Success returns TRUE
+and preserves LastError. A NULL output returns FALSE with `ERROR_NOACCESS`
+(`998`) without changing guest memory or input state. Node and Chrome agree on
+the reached `[960,540]` result and generation zero. Future pointer-event ingress
+must update this same owner through versioned input messages; it must not create
+a TypeScript cursor authority.
 
 ## Mouse-button mapping
 
@@ -123,8 +146,9 @@ resources do not participate in the synchronous query transaction.
 
 ## Policy version
 
-`vine.user32-compatibility-policy` version 27 adds the bounded keyboard profile
-and `GetAsyncKeyState` contract to the existing display, window, paint, and
+`vine.user32-compatibility-policy` version 28 retains the bounded keyboard
+profile and adds the configure-once cursor position plus `GetCursorPos` and
+`GetWindowRect` contracts to the existing display, window, paint, and
 mouse-mapping policy. Older versions remain historical evidence; the policy is
 an internal typed runtime profile rather than a persisted user format, so no
 cross-version deserialization or migration is claimed.
@@ -136,8 +160,8 @@ repeat／duplicate behavior, side-to-generic modifier aggregation, per-key
 pressed-bit consumption, key-up, focus loss, and stale commits. Dispatcher
 tests cover x86 stdcall cleanup, signed-SHORT extension, first／repeat queries,
 side-specific state independence, key-up, invalid and unfocused queries,
-LastError preservation, zero guest writes, and policy／authority failure
-atomicity.
+LastError preservation, zero guest writes, configured cursor publication,
+NULL／unmapped cursor outputs, and policy／authority failure atomicity.
 
 The native primary and confirmation traces, controlled two-query Node semantic
 run, and Chrome Worker run are recorded in
@@ -150,9 +174,10 @@ This checkpoint does not claim `GetKeyboardState`, message-queue keyboard or
 mouse translation, capture, raw input, callback-producing DirectInput variants,
 keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
 general device state. Pointer normalization is present at the adapter boundary,
-but primary pointer consumption is not demonstrated. The bounded controlled
-Control event proves transport, one User32 consumer, and pressed-bit consumption
-across two held-key queries only; arbitrary live gameplay input, key release,
-IME text composition, browser shortcut suppression, and game response remain
-future scenario evidence. It does not change host OS input state, and TypeScript
-remains an adapter rather than Windows-state authority.
+but primary pointer-event consumption and cursor movement are not demonstrated.
+The bounded controlled Control event proves transport, one User32 consumer, and
+pressed-bit consumption across two held-key queries; the later zero-input scan
+proves absence of synthesized key state. Arbitrary live gameplay input, key
+release, IME text composition, browser shortcut suppression, and game response
+remain future scenario evidence. It does not change host OS input state, and
+TypeScript remains an adapter rather than Windows-state authority.

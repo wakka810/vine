@@ -26,7 +26,7 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutput = path.join(root, "docs", "private-target-evidence.json");
-const maximumSemanticReportBytes = 2 * 1024 * 1024;
+const maximumSemanticReportBytes = 4 * 1024 * 1024;
 const defaultBgi =
   process.platform === "win32" ? "V:\\softs\\\u30b5\u30af\u30e9\u30ce\u8a69\\BGI.exe" : null;
 const protectedInputs = [

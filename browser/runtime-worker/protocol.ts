@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 47 as const;
+export const protocolVersion = 48 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -41,7 +41,8 @@ export type BgiCapabilityProfile =
   | "d3d9-first-present"
   | "d3d9-post-present-continuation"
   | "user32-async-key-state-input"
-  | "user32-async-key-state-input-continuation";
+  | "user32-async-key-state-input-continuation"
+  | "user32-async-key-state-initial-scan";
 
 export type RuntimeKeyboardSourceEventKind =
   | "focus-gained"
@@ -74,6 +75,13 @@ export interface RuntimeKeyboardInputEvidence {
   receivedMessages: number;
   queuedBeforePrepare: number;
   receipts: RuntimeKeyboardEventReceipt[];
+}
+
+export interface RuntimeCursorPositionSnapshot {
+  profileId: string;
+  screenX: number;
+  screenY: number;
+  generation: number;
 }
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
@@ -1069,9 +1077,44 @@ export interface SessionReport {
   } | null;
   getAsyncKeyState: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-input-v27";
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-input-v28";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
     inputEvent: RuntimeKeyboardEventReceipt;
+    stateAuthority: "rust-runtime-input-keyboard";
+    browserSourceAuthority: "typescript-browser-input-adapter";
+    returnEncoding: "signed-short-high-bit-down-low-bit-pressed-since-query";
+    modifierAggregation: "side-specific-to-generic";
+    pressedBitConsumption: "queried-virtual-key-only";
+    sourceFocusRequired: true;
+    focusedForegroundWindowRequired: true;
+    lastErrorPolicy: "preserve";
+    guestMemoryMutation: false;
+    failureAtomicity: true;
+  } | null;
+  getWindowRect: {
+    call: RuntimeSupportedCallSnapshot;
+    windowAuthority: "rust-runtime-user32-logical-window";
+    coordinateSpace: "logical-primary-screen-outer-window";
+    browserGeometryImported: false;
+    failureAtomicity: true;
+  } | null;
+  getCursorPos: {
+    call: RuntimeSupportedCallSnapshot;
+    cursorPosition: RuntimeCursorPositionSnapshot;
+    stateAuthority: "rust-runtime-input-cursor-position";
+    browserPointerImported: false;
+    failureAtomicity: true;
+  } | null;
+  getAsyncKeyStateInitialScan: {
+    leadingCallCount: number;
+    scanVirtualKeys: number[];
+    firstCall: RuntimeSupportedCallSnapshot;
+    lastCall: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-input-v28";
+    cursorPosition: RuntimeCursorPositionSnapshot;
+    cursorStateAuthority: "rust-runtime-input-cursor-position";
+    keyboardProfileId: "foreground-focused-virtual-key-state-v1";
+    inputEventCount: 0;
     stateAuthority: "rust-runtime-input-keyboard";
     browserSourceAuthority: "typescript-browser-input-adapter";
     returnEncoding: "signed-short-high-bit-down-low-bit-pressed-since-query";
@@ -1429,6 +1472,31 @@ export interface SessionReport {
         lastError: 0;
         inputEventSequence: 1;
         inputVirtualKey: 0xa2;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "user32-async-key-state-initial-scan";
+        implementationId: "user32.get-async-key-state.v1";
+        requiredCompletions: 38;
+        completionCount: 38;
+        leadingCallCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        scanVirtualKeys: number[];
+        result: { action: "set"; value: 0 };
+        lastError: 0;
+        guestWriteBytes: 0;
         instructionCount: number;
         nextEndpoint: {
           id: number;

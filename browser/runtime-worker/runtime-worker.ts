@@ -32,6 +32,7 @@ import {
   type RuntimeBrowserPresentationReceipt,
   type RuntimeKeyboardEventReceipt,
   type RuntimeKeyboardInputEvent,
+  type RuntimeCursorPositionSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -87,6 +88,11 @@ const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const MAX_PENDING_KEYBOARD_EVENTS = 256;
+const USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS = [
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
+  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
+  2, 4, 5, 6,
+] as const;
 const BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES = [
   0x09, 0x00, 0x01, 0x47, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x00,
@@ -326,7 +332,8 @@ function isD3d9Present(
     profile === "d3d9-first-present" ||
     profile === "d3d9-post-present-continuation" ||
     profile === "user32-async-key-state-input" ||
-    profile === "user32-async-key-state-input-continuation"
+    profile === "user32-async-key-state-input-continuation" ||
+    profile === "user32-async-key-state-initial-scan"
   );
 }
 
@@ -336,7 +343,8 @@ function isD3d9PostPresentContinuation(
   return (
     profile === "d3d9-post-present-continuation" ||
     profile === "user32-async-key-state-input" ||
-    profile === "user32-async-key-state-input-continuation"
+    profile === "user32-async-key-state-input-continuation" ||
+    profile === "user32-async-key-state-initial-scan"
   );
 }
 
@@ -353,6 +361,12 @@ function isUser32AsyncKeyStateInputContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "user32-async-key-state-input-continuation";
+}
+
+function isUser32AsyncKeyStateInitialScan(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-async-key-state-initial-scan";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -967,6 +981,10 @@ class BrowserRuntimeSession {
   > | null = null;
   #beginPaintCall: RuntimeBeginPaintCallSnapshot | null = null;
   #postPresentTimeGetTimeCall: RuntimeSupportedCallSnapshot | null = null;
+  readonly #getAsyncKeyStateInitialScanCalls: Array<{
+    call: RuntimeSupportedCallSnapshot;
+    instructionCount: number;
+  }> = [];
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #d3d9PostRasterStatusTimerArm: {
@@ -1079,6 +1097,10 @@ class BrowserRuntimeSession {
     postPresentContinuation:
       null as SessionReport["postPresentContinuation"],
     getAsyncKeyState: null as SessionReport["getAsyncKeyState"],
+    getWindowRect: null as SessionReport["getWindowRect"],
+    getCursorPos: null as SessionReport["getCursorPos"],
+    getAsyncKeyStateInitialScan:
+      null as SessionReport["getAsyncKeyStateInitialScan"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -1261,6 +1283,9 @@ class BrowserRuntimeSession {
               isD3d9DrawPrimitive(this.#configuration.capabilityProfile),
               isD3d9EndScene(this.#configuration.capabilityProfile),
               isD3d9Present(this.#configuration.capabilityProfile),
+              isUser32AsyncKeyStateInitialScan(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -1315,6 +1340,22 @@ class BrowserRuntimeSession {
         directory: initialCurrentDirectory,
         generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
       };
+      if (
+        isUser32AsyncKeyStateInitialScan(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        const cursor = preparedOutput.metadata.runtime.cursorPosition;
+        invariant(
+          preparedOutput.metadata.runtime.user32Policy ===
+            "user32-single-monitor-window-frame-change-show-update-paint-input-v28" &&
+            cursor?.profileId === "primary-display-center-cursor-v1" &&
+            cursor.screenX === 960 &&
+            cursor.screenY === 540 &&
+            cursor.generation === 0,
+          "prepared initial-scan cursor authority changed",
+        );
+      }
       if (this.#configuration.mode !== "watchdog") {
         this.#armWatchdog();
       }
@@ -3404,7 +3445,8 @@ class BrowserRuntimeSession {
           checkpoint.capability === "d3d9-first-present" ||
           checkpoint.capability === "user32-async-key-state-input" ||
           checkpoint.capability ===
-            "user32-async-key-state-input-continuation"
+            "user32-async-key-state-input-continuation" ||
+          checkpoint.capability === "user32-async-key-state-initial-scan"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3463,6 +3505,8 @@ class BrowserRuntimeSession {
       "checkpoint-complete",
       checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
+        : checkpoint.capability === "user32-async-key-state-initial-scan"
+          ? "GetAsyncKeyState initial no-input scan checkpoint completed"
         : checkpoint.capability ===
             "user32-async-key-state-input-continuation"
           ? "GetAsyncKeyState held-key continuation checkpoint completed"
@@ -5910,6 +5954,7 @@ class BrowserRuntimeSession {
     if (!isD3d9PostPresentContinuation(this.#configuration.capabilityProfile)) {
       return;
     }
+    this.#recordUser32AsyncKeyStateInitialScanCall(call);
     if (call.sequence === 127_378) {
       const update = this.#report.updateWindow;
       invariant(
@@ -5990,7 +6035,7 @@ class BrowserRuntimeSession {
         this.#report.getAsyncKeyState = {
           call: structuredClone(call),
           compatibilityPolicyId:
-            "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+            "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
           keyboardProfileId: "foreground-focused-virtual-key-state-v1",
           inputEvent: structuredClone(inputEvent),
           stateAuthority: "rust-runtime-input-keyboard",
@@ -6120,6 +6165,186 @@ class BrowserRuntimeSession {
         "rust-runtime-user32-thread-and-process-window-relations",
       browserResourceCreated: false,
     };
+  }
+
+  #recordUser32AsyncKeyStateInitialScanCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isUser32AsyncKeyStateInitialScan(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
+    if (call.implementationId === "user32.get-window-rect.v1") {
+      if (call.returnAddress !== 0x1008_8558) {
+        return;
+      }
+      const output = call.arguments[1];
+      const expectedBytes = [
+        0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03,
+        0, 0,
+      ];
+      invariant(
+        call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetWindowRect" &&
+          call.arguments.length === 2 &&
+          call.arguments[0] === 0x4801_0001 &&
+          typeof output === "number" &&
+          output !== 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1008_8558 &&
+          call.stackPointerAfter === call.stackPointerBefore + 12 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === output &&
+          byteArraysEqual(call.guestWrites[0].bytes, expectedBytes),
+        `GetWindowRect initial-scan prerequisite changed: ${JSON.stringify(call)}`,
+      );
+      this.#report.getWindowRect = {
+        call: structuredClone(call),
+        windowAuthority: "rust-runtime-user32-logical-window",
+        coordinateSpace: "logical-primary-screen-outer-window",
+        browserGeometryImported: false,
+        failureAtomicity: true,
+      };
+      return;
+    }
+    if (call.implementationId === "user32.get-cursor-pos.v1") {
+      if (call.returnAddress !== 0x1008_8563) {
+        return;
+      }
+      const output = call.arguments[0];
+      const expectedBytes = [0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0];
+      const cursor = this.#requirePrepared().runtime.cursorPosition;
+      invariant(
+        call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetCursorPos" &&
+          call.arguments.length === 1 &&
+          typeof output === "number" &&
+          output !== 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1008_8563 &&
+          call.stackPointerAfter === call.stackPointerBefore + 8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === output &&
+          byteArraysEqual(call.guestWrites[0].bytes, expectedBytes) &&
+          cursor !== undefined,
+        `GetCursorPos initial-scan prerequisite changed: ${JSON.stringify({ call, cursor })}`,
+      );
+      this.#report.getCursorPos = {
+        call: structuredClone(call),
+        cursorPosition: structuredClone(cursor),
+        stateAuthority: "rust-runtime-input-cursor-position",
+        browserPointerImported: false,
+        failureAtomicity: true,
+      };
+      return;
+    }
+    if (call.implementationId !== "user32.get-async-key-state.v1") {
+      return;
+    }
+    invariant(
+      call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "GetAsyncKeyState" &&
+        call.arguments.length === 1 &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1006_8405 &&
+        call.stackPointerBefore % 4 === 0 &&
+        call.stackPointerAfter === call.stackPointerBefore + 8 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0,
+      `GetAsyncKeyState initial-scan call changed: ${JSON.stringify(call)}`,
+    );
+    this.#getAsyncKeyStateInitialScanCalls.push({
+      call: structuredClone(call),
+      instructionCount: this.#report.instructions,
+    });
+    const scanCount = USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS.length;
+    const scanCalls = this.#getAsyncKeyStateInitialScanCalls.slice(-scanCount);
+    if (
+      scanCalls.length !== scanCount ||
+      !scanCalls.every(
+        (candidate, index) =>
+          candidate.call.arguments[0] ===
+          USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS[index],
+      )
+    ) {
+      return;
+    }
+    const leadingCalls = this.#getAsyncKeyStateInitialScanCalls.slice(
+      0,
+      -scanCount,
+    );
+    const firstCall = scanCalls[0];
+    const lastCall = scanCalls.at(-1);
+    const cursor = this.#requirePrepared().runtime.cursorPosition;
+    invariant(
+      this.#report.checkpointCompletion === null &&
+        this.#report.getAsyncKeyStateInitialScan === null &&
+        this.#report.getWindowRect !== null &&
+        this.#report.getCursorPos !== null &&
+        this.#report.keyboardInput.receivedMessages === 0 &&
+        this.#report.keyboardInput.receipts.length === 0 &&
+        leadingCalls.length > 0 &&
+        leadingCalls.every(
+          (candidate) => candidate.call.arguments[0] === 0x11,
+        ) &&
+        firstCall !== undefined &&
+        lastCall !== undefined &&
+        cursor !== undefined,
+      "GetAsyncKeyState initial scan omitted its zero-input preconditions",
+    );
+    this.#report.getAsyncKeyStateInitialScan = {
+      leadingCallCount: leadingCalls.length,
+      scanVirtualKeys: [...USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS],
+      firstCall: structuredClone(firstCall.call),
+      lastCall: structuredClone(lastCall.call),
+      compatibilityPolicyId:
+        "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+      cursorPosition: structuredClone(cursor),
+      cursorStateAuthority: "rust-runtime-input-cursor-position",
+      keyboardProfileId: "foreground-focused-virtual-key-state-v1",
+      inputEventCount: 0,
+      stateAuthority: "rust-runtime-input-keyboard",
+      browserSourceAuthority: "typescript-browser-input-adapter",
+      returnEncoding:
+        "signed-short-high-bit-down-low-bit-pressed-since-query",
+      modifierAggregation: "side-specific-to-generic",
+      pressedBitConsumption: "queried-virtual-key-only",
+      sourceFocusRequired: true,
+      focusedForegroundWindowRequired: true,
+      lastErrorPolicy: "preserve",
+      guestMemoryMutation: false,
+      failureAtomicity: true,
+    };
+    this.#report.checkpointCompletion = {
+      capability: "user32-async-key-state-initial-scan",
+      implementationId: "user32.get-async-key-state.v1",
+      requiredCompletions: 38,
+      completionCount: 38,
+      leadingCallCount: leadingCalls.length,
+      firstCompletionSequence: firstCall.call.sequence,
+      firstCompletionInstructionCount: firstCall.instructionCount,
+      lastCompletionSequence: lastCall.call.sequence,
+      lastCompletionInstructionCount: lastCall.instructionCount,
+      scanVirtualKeys: [...USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS],
+      result: { action: "set", value: 0 },
+      lastError: 0,
+      guestWriteBytes: 0,
+      instructionCount: 0,
+      nextEndpoint: { id: 0, address: 0 },
+      memoryContentSha256: "",
+    };
+    this.#bgiCheckpointPending = true;
   }
 
   #recordSetRectCall(call: RuntimeSupportedCallSnapshot): void {
@@ -8240,6 +8465,60 @@ class BrowserRuntimeSession {
         )}`,
       );
     }
+    if (
+      isUser32AsyncKeyStateInitialScan(
+        this.#configuration.capabilityProfile,
+      ) && terminal.outcome === "checkpoint-complete"
+    ) {
+      const scan = this.#report.getAsyncKeyStateInitialScan;
+      const getWindowRect = this.#report.getWindowRect;
+      const getCursorPos = this.#report.getCursorPos;
+      const checkpoint = this.#report.checkpointCompletion;
+      const pacing = this.#timerPacing.metrics();
+      invariant(
+        this.#report.supportedCallCount === 148_195 &&
+          this.#report.supportedCallSemanticsSha256 ===
+            "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950" &&
+          this.#report.firstUnsupported === null &&
+          this.#report.keyboardInput.receivedMessages === 0 &&
+          this.#report.keyboardInput.receipts.length === 0 &&
+          this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
+          scan?.leadingCallCount === 51 &&
+          scan.firstCall.sequence === 148_153 &&
+          scan.lastCall.sequence === 148_195 &&
+          getWindowRect !== null &&
+          getCursorPos !== null &&
+          checkpoint?.capability ===
+            "user32-async-key-state-initial-scan" &&
+          checkpoint.leadingCallCount === 51 &&
+          checkpoint.firstCompletionSequence === 148_153 &&
+          checkpoint.firstCompletionInstructionCount === 147_765_769 &&
+          checkpoint.lastCompletionSequence === 148_195 &&
+          checkpoint.lastCompletionInstructionCount === 147_769_226 &&
+          checkpoint.instructionCount === 147_769_286 &&
+          checkpoint.nextEndpoint.id === 8 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+          checkpoint.memoryContentSha256 ===
+            "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86" &&
+          this.#waitForSingleObjectExCompletions === pacing.requests &&
+          pacing.requests === pacing.completions &&
+          pacing.pending === 0,
+        `GetAsyncKeyState initial-scan checkpoint report changed: ${JSON.stringify(
+          {
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            scan,
+            getWindowRect,
+            getCursorPos,
+            checkpoint,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          },
+        )}`,
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -8423,6 +8702,9 @@ worker.addEventListener(
               updateWindow: null,
               postPresentContinuation: null,
               getAsyncKeyState: null,
+              getWindowRect: null,
+              getCursorPos: null,
+              getAsyncKeyStateInitialScan: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,

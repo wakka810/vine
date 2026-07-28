@@ -2,9 +2,9 @@ use vine_core::{
     ExecutionSession, GuestAddress, GuestMemory, LOGICAL_ENCODED_POINTER_NAMESPACE, MemoryLimits,
     MemoryOwnerKind, MemoryRegionKind, ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout,
     RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeBootstrap, RuntimeClockState,
-    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeProcessId,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeBootstrap,
+    RuntimeClockState, RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
@@ -32,6 +32,76 @@ fn heap_slot_allocator_ownership_preserves_runtime_serialization_shape() {
         serde_json::json!(heap.handle)
     );
     assert!(allocated["process"].get("nextPrivateHeapSlot").is_none());
+}
+
+#[test]
+fn growable_heap_uses_a_bounded_second_segment_and_tears_both_down_atomically() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 8_192,
+        ..MemoryLimits::default()
+    })
+    .unwrap();
+    let mut runtime = running_runtime();
+    let handle = runtime.allocate_private_heap(0, 0, 0).unwrap().handle;
+    let first_length = RUNTIME_PRIVATE_HEAP_ARENA_STRIDE - 0x1000;
+    let first = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            first_length,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    assert_eq!(first.address, RUNTIME_PRIVATE_HEAP_ARENA_BASE);
+    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
+
+    let extension = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(handle, 0x2000, RuntimeHeapInitialization::Zeroed)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    let extension_slot_base = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
+        + u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
+    assert_eq!(extension.address, GuestAddress(extension_slot_base));
+    let extension_backing = runtime.heap_extension_backing(handle).unwrap().unwrap();
+    let extension_allocation_id = extension_backing.address_allocation_id;
+    assert_eq!(extension_backing.range.start(), extension.address);
+    assert_eq!(extension_backing.committed_bytes, 0x2000);
+    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 2);
+
+    let freed = ExecutionSession::new(&mut memory, &mut runtime)
+        .free_private_heap_block(handle, extension.address)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    assert_eq!(freed, extension);
+    let reused = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(handle, 0x2000, RuntimeHeapInitialization::Zeroed)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    assert_eq!(reused.address, extension.address);
+
+    let primary_allocation_id = runtime
+        .heap_backing(handle)
+        .unwrap()
+        .unwrap()
+        .address_allocation_id;
+    let teardown = ExecutionSession::new(&mut memory, &mut runtime)
+        .destroy_private_heap(handle)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    assert_eq!(
+        teardown.address_allocation_ids,
+        vec![primary_allocation_id, extension_allocation_id]
+    );
+    assert_eq!(teardown.allocations_discarded, 2);
+    assert_eq!(
+        teardown.reserved_bytes_released,
+        u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE) * 2
+    );
+    assert_eq!(memory.stats().owners, 0);
+    assert_eq!(memory.stats().regions, 0);
 }
 
 #[test]

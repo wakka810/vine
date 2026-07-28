@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-async-key-state-input-continuation`: 128117 calls across 124 endpoint contracts / 122 APIs, memory generation 236665 |
+| Runtime diagnostics | `user32-async-key-state-initial-scan`: 148195 calls across 126 endpoint contracts / 124 APIs, memory generation 271166 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-async-key-state-input-continuation` completed 2 held-key async-key queries by instruction 30263849; verification stopped at `KERNEL32.dll!HeapAlloc` on instruction 30263940 (`user32-async-key-state-input-continuation-checkpoint-complete`) |
+| Next structured stop | `user32-async-key-state-initial-scan` completed 38 zero-input startup key queries by instruction 147769226; verification stopped at `WINMM.dll!timeGetTime` on instruction 147769286 (`user32-async-key-state-initial-scan-checkpoint-complete`) |
 
-The active semantic report is 582,673 bytes with SHA-256
-`b69728bc026bcd000b1f793dd18e49935674e8d3e4f7d310b084d559ff11f995`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 1,775,000 bytes with SHA-256
+`345850b8e9c124cf9e3c41ecca5ff57fab01edb2dc3fdddad13c5821eee989ba`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -31,7 +31,7 @@ The active semantic report is 582,673 bytes with SHA-256
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
 | `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded initial and post-scene raster-status queries, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, typed FVF 0x144, the exact non-owning stream-zero binding, one owning immutable triangle-strip draw submission, the first scene lifecycle close, Rust-owned immutable presented-frame publication with discard back-buffer renewal, and synchronous Worker WebGL2 materialization into a non-owning browser resource are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, and the first 1280x720 black browser frame is visible before guest resume, while readable title content, subsequent frames, resize, device loss, and recovery are not yet demonstrated |
-| `user-input-consumption` | User input consumption | `in-progress` | One deterministic ControlLeft key-down traverses the primary browser DOM adapter, versioned Worker protocol, Wasm bridge, and Rust-owned focused virtual-key state; the first primary GetAsyncKeyState(VK_CONTROL) returns signed 0x8001 and a later poll with no additional input returns signed 0x8000, proving one-shot generic pressed-bit consumption while current-down remains set. The continuation also performs three immutable sysgrp.arc reads, but a zero-input counterfactual and visible gameplay response are not demonstrated; key-up, pointer consumption, queued messages, and DirectInput keyboard devices remain outside this checkpoint |
+| `user-input-consumption` | User input consumption | `in-progress` | The primary browser path now covers both controlled input and a zero-input counterfactual: one deterministic ControlLeft key-down produces signed GetAsyncKeyState(VK_CONTROL) results 0x8001 then 0x8000, while a later native-derived 38-key startup scan receives no browser input and returns zero for every query. Rust owns focused keyboard state and a deterministic initial cursor position; the reached GetWindowRect and GetCursorPos consumer writes are Node/Chrome equivalent. Visible gameplay response, key-up, pointer-event ingestion, queued messages, and DirectInput keyboard devices remain outside this checkpoint |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
@@ -119,6 +119,8 @@ The active semantic report is 582,673 bytes with SHA-256
 - `d3d9.dll!Direct3DCreate9`
 - `KERNEL32.dll!LoadLibraryA`
 - `USER32.dll!GetClientRect`
+- `USER32.dll!GetWindowRect`
+- `USER32.dll!GetCursorPos`
 - `USER32.dll!GetDC`
 - `GDI32.dll!GetStockObject`
 - `GDI32.dll!EnumFontFamiliesExA`

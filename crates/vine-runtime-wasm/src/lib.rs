@@ -96,6 +96,7 @@ struct BgiCheckpointCapabilities {
     d3d9_draw_primitive: bool,
     d3d9_end_scene: bool,
     d3d9_present: bool,
+    user32_async_key_state_initial_scan: bool,
 }
 
 impl Bridge {
@@ -495,7 +496,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v27();
+        let user32_policy = User32CompatibilityPolicy::controlled_v28();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -688,7 +689,7 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v27();
+        let user32_policy = User32CompatibilityPolicy::controlled_v28();
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
@@ -820,8 +821,12 @@ impl BrowserRuntime {
             &dynamic_thunks,
             sentinels.callback_return.address,
         )?;
-        let (dispatcher, routes, endpoints) =
-            build_bgi_dispatcher(&process, &kernel32_policy, capabilities.set_rect)?;
+        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(
+            &process,
+            &kernel32_policy,
+            capabilities.set_rect,
+            capabilities.user32_async_key_state_initial_scan,
+        )?;
         let runtime_stack = process
             .runtime
             .thread_stack(process.runtime.current_thread_id())
@@ -833,6 +838,24 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let reflection = memory.pending_reflection().map_err(error_string)?;
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
+        let mut runtime_metadata = json!({
+            "processId": process.runtime.process_id().0,
+            "threadId": process.runtime.current_thread_id().0,
+            "currentDirectoryA": process.runtime.current_directory_a(),
+            "currentDirectoryGeneration": process.runtime.current_directory_generation(),
+            "moduleCount": process.runtime.modules().len(),
+            "dependencyEdges": process.binding.dependency_edges.len(),
+            "attachOrder": process.attach_order,
+            "kernel32Policy": kernel32_policy.id,
+            "user32Policy": user32_policy.id,
+            "gdi32Policy": gdi32_policy.id,
+            "gdiplusPolicy": gdiplus_policy.id,
+            "imm32Policy": imm32_policy.id,
+            "winmmPolicy": winmm_policy.id,
+        });
+        if capabilities.user32_async_key_state_initial_scan {
+            runtime_metadata["cursorPosition"] = json!(process.runtime.cursor_position());
+        }
         let metadata = json!({
             "kind": "prepared",
             "schemaVersion": 2,
@@ -854,21 +877,7 @@ impl BrowserRuntime {
             "maximumPhysicalPages": BGI_MAX_PHYSICAL_PAGES,
             "regions": memory.region_snapshots(),
             "endpoints": endpoints,
-            "runtime": {
-                "processId": process.runtime.process_id().0,
-                "threadId": process.runtime.current_thread_id().0,
-                "currentDirectoryA": process.runtime.current_directory_a(),
-                "currentDirectoryGeneration": process.runtime.current_directory_generation(),
-                "moduleCount": process.runtime.modules().len(),
-                "dependencyEdges": process.binding.dependency_edges.len(),
-                "attachOrder": process.attach_order,
-                "kernel32Policy": kernel32_policy.id,
-                "user32Policy": user32_policy.id,
-                "gdi32Policy": gdi32_policy.id,
-                "gdiplusPolicy": gdiplus_policy.id,
-                "imm32Policy": imm32_policy.id,
-                "winmmPolicy": winmm_policy.id,
-            },
+            "runtime": runtime_metadata,
         });
         Ok((
             Self {
@@ -3085,6 +3094,7 @@ fn build_bgi_dispatcher(
     process: &BgiRuntimeProcess,
     kernel32_policy: &Kernel32CompatibilityPolicy,
     set_rect_enabled: bool,
+    user32_async_key_state_initial_scan_enabled: bool,
 ) -> Result<BgiDispatcher, String> {
     let mut endpoints = process
         .binding
@@ -3115,6 +3125,7 @@ fn build_bgi_dispatcher(
                 "Sleep" => kernel32_policy.allows_sleep_zero(),
                 "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
                 "SetRect" => set_rect_enabled,
+                "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
                 _ => true,
             }
         })
@@ -4312,6 +4323,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_draw_primitive_enabled: u32,
     d3d9_end_scene_enabled: u32,
     d3d9_present_enabled: u32,
+    user32_async_key_state_initial_scan_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4333,6 +4345,8 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 d3d9_draw_primitive: d3d9_draw_primitive_enabled != 0,
                 d3d9_end_scene: d3d9_end_scene_enabled != 0,
                 d3d9_present: d3d9_present_enabled != 0,
+                user32_async_key_state_initial_scan: user32_async_key_state_initial_scan_enabled
+                    != 0,
             },
         )
     })

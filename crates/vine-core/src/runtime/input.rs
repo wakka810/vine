@@ -22,6 +22,15 @@ pub struct RuntimeInputProfile {
     pub id: String,
     pub initial_mouse_buttons_swapped: bool,
     pub keyboard: Option<RuntimeKeyboardProfile>,
+    pub cursor_position: Option<RuntimeCursorPositionProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCursorPositionProfile {
+    pub id: String,
+    pub initial_screen_x: i32,
+    pub initial_screen_y: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -105,6 +114,15 @@ pub struct RuntimeMouseButtonMapping {
     pub generation: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCursorPosition {
+    pub profile_id: String,
+    pub screen_x: i32,
+    pub screen_y: i32,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSwapMouseButtonResult {
@@ -120,12 +138,15 @@ pub(super) struct RuntimeInput {
     mouse_button_mapping: Option<RuntimeMouseButtonMapping>,
     #[serde(skip_serializing_if = "Option::is_none")]
     keyboard: Option<RuntimeKeyboardState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor_position: Option<RuntimeCursorPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeInputConfigurationPlan {
     mapping: RuntimeMouseButtonMapping,
     keyboard: Option<RuntimeKeyboardState>,
+    cursor_position: Option<RuntimeCursorPosition>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +180,10 @@ impl RuntimeInput {
         &self,
         profile: RuntimeInputProfile,
     ) -> Result<RuntimeInputConfigurationPlan, RuntimeStateError> {
-        if self.mouse_button_mapping.is_some() || self.keyboard.is_some() {
+        if self.mouse_button_mapping.is_some()
+            || self.keyboard.is_some()
+            || self.cursor_position.is_some()
+        {
             return Err(RuntimeStateError::conflict(
                 "runtime-input",
                 "input-profile-already-configured",
@@ -181,6 +205,18 @@ impl RuntimeInput {
             .keyboard
             .map(RuntimeKeyboardState::from_profile)
             .transpose()?;
+        let cursor_position = profile
+            .cursor_position
+            .map(|cursor| {
+                validate_profile_id(&cursor.id, "cursor-position-profile-id-invalid")?;
+                Ok(RuntimeCursorPosition {
+                    profile_id: cursor.id,
+                    screen_x: cursor.initial_screen_x,
+                    screen_y: cursor.initial_screen_y,
+                    generation: 0,
+                })
+            })
+            .transpose()?;
         Ok(RuntimeInputConfigurationPlan {
             mapping: RuntimeMouseButtonMapping {
                 profile_id: profile.id,
@@ -189,6 +225,7 @@ impl RuntimeInput {
                 generation: 0,
             },
             keyboard,
+            cursor_position,
         })
     }
 
@@ -196,7 +233,10 @@ impl RuntimeInput {
         &mut self,
         plan: RuntimeInputConfigurationPlan,
     ) -> Result<(), RuntimeStateError> {
-        if self.mouse_button_mapping.is_some() || self.keyboard.is_some() {
+        if self.mouse_button_mapping.is_some()
+            || self.keyboard.is_some()
+            || self.cursor_position.is_some()
+        {
             return Err(RuntimeStateError::conflict(
                 "runtime-input",
                 "input-configuration-plan-stale",
@@ -205,6 +245,7 @@ impl RuntimeInput {
         }
         self.mouse_button_mapping = Some(plan.mapping);
         self.keyboard = plan.keyboard;
+        self.cursor_position = plan.cursor_position;
         Ok(())
     }
 
@@ -273,6 +314,10 @@ impl RuntimeInput {
 
     pub(super) fn keyboard_state(&self) -> Option<&RuntimeKeyboardState> {
         self.keyboard.as_ref()
+    }
+
+    pub(super) fn cursor_position(&self) -> Option<&RuntimeCursorPosition> {
+        self.cursor_position.as_ref()
     }
 
     pub(super) fn plan_keyboard_event(
@@ -654,6 +699,11 @@ mod tests {
                 aggregate_modifier_keys: true,
                 clear_on_source_focus_loss: true,
             }),
+            cursor_position: Some(RuntimeCursorPositionProfile {
+                id: "primary-display-center-cursor-v1".to_owned(),
+                initial_screen_x: 960,
+                initial_screen_y: 540,
+            }),
         }
     }
 
@@ -663,6 +713,15 @@ mod tests {
         let configuration = input.plan_configuration(profile(false)).unwrap();
         let stale_configuration = configuration.clone();
         input.commit_configuration(configuration).unwrap();
+        assert_eq!(
+            input.cursor_position(),
+            Some(&RuntimeCursorPosition {
+                profile_id: "primary-display-center-cursor-v1".to_owned(),
+                screen_x: 960,
+                screen_y: 540,
+                generation: 0,
+            })
+        );
         assert_eq!(
             input
                 .commit_configuration(stale_configuration)
@@ -887,6 +946,14 @@ mod tests {
         assert_eq!(
             input.plan_mouse_button_swap(true).unwrap_err().code,
             "mouse-button-mapping-unconfigured"
+        );
+        assert_eq!(input, before);
+
+        let mut invalid_cursor = profile(false);
+        invalid_cursor.cursor_position.as_mut().unwrap().id.clear();
+        assert_eq!(
+            input.plan_configuration(invalid_cursor).unwrap_err().code,
+            "cursor-position-profile-id-invalid"
         );
         assert_eq!(input, before);
 

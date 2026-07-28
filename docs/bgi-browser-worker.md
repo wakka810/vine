@@ -304,7 +304,7 @@ The profile then stops before `GetAsyncKeyState(VK_CONTROL)` at instruction
 Rust input transition semantics, focus gating, and the high-bit／low-bit return
 contract belong to the following input gateway.
 
-The active input continuation profile
+The held-key input continuation profile
 `user32-async-key-state-input-continuation` keeps browser runtime transport
 `vine.browser-runtime-worker.v45`, advances the main／Worker message protocol to
 version 47, and emits browser BGI report schema version 15. The main adapter
@@ -318,6 +318,27 @@ ordered continuation evidence, not evidence that input caused asset loading or
 a visible gameplay response; no zero-input counterfactual is part of this
 profile. Exact occurrence, instruction, digest, report identity, and next-stop
 values remain in the current manifest.
+
+The current zero-input startup profile
+`user32-async-key-state-initial-scan` advances browser runtime transport to
+`vine.browser-runtime-worker.v46`, the main／Worker message protocol to version
+48, and browser BGI report schema to version 16. The main adapter transfers the
+same `OffscreenCanvas` but queues no keyboard input. Rust extends one growable
+private heap with a second bounded 16 MiB ordinary backing and remains the sole
+authority for both segments. Execution then reaches two same-consumer
+`GetWindowRect`／`GetCursorPos` pairs. Node and Chrome agree on the final logical
+outer window rectangle `[317,154,1603,903]` and the deterministic Rust-owned
+screen cursor `[960,540]`; neither value is imported from browser geometry or a
+host pointer.
+
+After 51 leading zero `VK_CONTROL` polls, both engines complete the exact
+native-derived 38-key scan with no input receipt and a zero signed SHORT for
+every query. The bounded checkpoint completes at instruction 147,769,286 after
+148,195 supported calls and stops before the existing
+`WINMM.dll!timeGetTime` endpoint. Ordered call semantics, all 63 immutable source
+reads, terminal memory content, cursor／rectangle writes, and scan order are
+equivalent. Generations, report hashes, timing, and exact artifact identities
+remain manifest-owned evidence rather than guest semantics.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -339,8 +360,9 @@ fingerprint before and after execution.
 
 - The checkpoint is not readable title rendering, general input, audio,
   complete save/load, or full-play acceptance. It proves one bounded keyboard
-  ingress and held-key User32 query path plus one bounded durable directory
-  mutation, not general gameplay input or writable persistence.
+  ingress and held-key User32 query path, one zero-input startup scan, logical
+  rectangle／initial-cursor reads, and one bounded durable directory mutation,
+  not general gameplay input, pointer movement, or writable persistence.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.
 - `Sleep` intervals greater than zero, no-competitor timing, host wall-clock delay,

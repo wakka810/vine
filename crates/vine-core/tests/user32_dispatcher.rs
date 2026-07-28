@@ -27,14 +27,14 @@ use vine_core::{
     dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy, enable_menu_item_contract,
     end_paint_contract, enum_display_monitors_contract, fill_rect_contract,
     gdi32_contract_for_endpoint, get_async_key_state_contract, get_client_rect_contract,
-    get_dc_contract, get_foreground_window_contract, get_monitor_info_a_contract,
-    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
-    imm_associate_context_contract, imm_get_default_ime_wnd_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
-    send_message_a_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
-    set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
-    update_window_contract, user32_contract_for_endpoint,
+    get_cursor_pos_contract, get_dc_contract, get_foreground_window_contract,
+    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
+    get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
+    imm_get_default_ime_wnd_contract, load_cursor_a_contract, load_icon_a_contract,
+    load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
+    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
+    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
+    swap_mouse_button_contract, update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -131,6 +131,16 @@ const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 3
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
 const GET_CLIENT_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_c997);
 const CLIENT_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e00);
+const GET_WINDOW_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e30);
+const GET_WINDOW_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 108);
+const GET_WINDOW_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22c0;
+const GET_WINDOW_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8558);
+const WINDOW_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e20);
+const GET_CURSOR_POS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bd0);
+const GET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 112);
+const GET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22e0;
+const GET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8563);
+const CURSOR_POSITION_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e30);
 const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
 const GET_STOCK_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_3100);
 const FILL_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e90);
@@ -239,7 +249,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v27();
+        let policy = User32CompatibilityPolicy::controlled_v28();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -330,7 +340,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v27();
+        let mut policy = User32CompatibilityPolicy::controlled_v28();
         policy.input.initial_mouse_buttons_swapped = initial_swapped;
         let mut runtime = controlled_runtime();
         runtime
@@ -423,7 +433,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v27();
+        let policy = User32CompatibilityPolicy::controlled_v28();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -514,7 +524,7 @@ impl SetRectFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v27(),
+            policy: User32CompatibilityPolicy::controlled_v28(),
         }
     }
 
@@ -686,7 +696,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v27(),
+            policy: User32CompatibilityPolicy::controlled_v28(),
         }
     }
 
@@ -932,7 +942,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v27(),
+            policy: User32CompatibilityPolicy::controlled_v28(),
         }
     }
 
@@ -1133,7 +1143,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v27(),
+            policy: User32CompatibilityPolicy::controlled_v28(),
         }
     }
 
@@ -1183,6 +1193,8 @@ struct RegisterClassFixture {
     get_foreground_window_endpoint: ApiEndpointIdentity,
     get_async_key_state_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
+    get_window_rect_endpoint: ApiEndpointIdentity,
+    get_cursor_pos_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
     fill_rect_endpoint: ApiEndpointIdentity,
@@ -1294,6 +1306,11 @@ impl RegisterClassFixture {
                 GET_CLIENT_RECT_IAT_ADDRESS,
                 GET_CLIENT_RECT_ENDPOINT_ADDRESS,
             ),
+            (
+                GET_WINDOW_RECT_IAT_ADDRESS,
+                GET_WINDOW_RECT_ENDPOINT_ADDRESS,
+            ),
+            (GET_CURSOR_POS_IAT_ADDRESS, GET_CURSOR_POS_ENDPOINT_ADDRESS),
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (
                 GET_STOCK_OBJECT_IAT_ADDRESS,
@@ -1797,6 +1814,36 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_window_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(228),
+            address: GET_WINDOW_RECT_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1468),
+            iat_address: GET_WINDOW_RECT_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetWindowRect".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let get_cursor_pos_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(190),
+            address: GET_CURSOR_POS_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13d0),
+            iat_address: GET_CURSOR_POS_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetCursorPos".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(239),
             address: GET_DC_ENDPOINT_ADDRESS,
@@ -1966,6 +2013,8 @@ impl RegisterClassFixture {
                 get_foreground_window_endpoint.clone(),
                 get_async_key_state_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
+                get_window_rect_endpoint.clone(),
+                get_cursor_pos_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
                 fill_rect_endpoint.clone(),
@@ -2005,6 +2054,10 @@ impl RegisterClassFixture {
                     .expect("GetAsyncKeyState contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
                     .expect("client rectangle contract"),
+                get_window_rect_contract(get_window_rect_endpoint.clone())
+                    .expect("window rectangle contract"),
+                get_cursor_pos_contract(get_cursor_pos_endpoint.clone())
+                    .expect("cursor position contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
                 get_stock_object_contract(get_stock_object_endpoint.clone())
                     .expect("GetStockObject contract"),
@@ -2024,7 +2077,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v27();
+        let policy = User32CompatibilityPolicy::controlled_v28();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
@@ -2055,6 +2108,8 @@ impl RegisterClassFixture {
             get_foreground_window_endpoint,
             get_async_key_state_endpoint,
             get_client_rect_endpoint,
+            get_window_rect_endpoint,
+            get_cursor_pos_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
             fill_rect_endpoint,
@@ -2525,6 +2580,44 @@ impl RegisterClassFixture {
             self.get_client_rect_endpoint.clone(),
             GuestAddress(GET_CLIENT_RECT_STACK_POINTER),
             GET_CLIENT_RECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_get_window_rect(&mut self, window_handle: u32, output: GuestAddress) {
+        let words = [GET_WINDOW_RECT_RETURN_ADDRESS.0, window_handle, output.0];
+        self.memory
+            .write(
+                GuestAddress(GET_WINDOW_RECT_STACK_POINTER),
+                &words
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .expect("write GetWindowRect frame");
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_get_window_rect(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.get_window_rect_endpoint.clone(),
+            GuestAddress(GET_WINDOW_RECT_STACK_POINTER),
+            GET_WINDOW_RECT_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_get_cursor_pos(&mut self, output: GuestAddress) {
+        self.write_live_words(
+            GuestAddress(GET_CURSOR_POS_STACK_POINTER),
+            &[GET_CURSOR_POS_RETURN_ADDRESS.0, output.0],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_get_cursor_pos(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.get_cursor_pos_endpoint.clone(),
+            GuestAddress(GET_CURSOR_POS_STACK_POINTER),
+            GET_CURSOR_POS_RETURN_ADDRESS,
         )
     }
 
@@ -3515,6 +3608,92 @@ fn get_client_rect_contract_is_two_argument_stdcall_with_conditional_rect_output
 }
 
 #[test]
+fn get_window_rect_contract_is_two_argument_stdcall_with_conditional_rect_output() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(228),
+        address: GET_WINDOW_RECT_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1468),
+        iat_address: GET_WINDOW_RECT_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetWindowRect".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_window_rect_contract(endpoint).expect("GetWindowRect contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::LogicalHandle { namespace, nullable }
+            if namespace == "vine.logical-window.v1" && *nullable
+    ));
+    assert!(matches!(
+        &contract.abi.arguments[1].value,
+        ApiValueSchema::Pointer { constraint }
+            if !constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == 16
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "RECT"
+                )
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn get_cursor_pos_contract_is_one_argument_stdcall_with_nullable_point_output() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(190),
+        address: GET_CURSOR_POS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_13d0),
+        iat_address: GET_CURSOR_POS_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetCursorPos".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_cursor_pos_contract(endpoint).expect("GetCursorPos contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.arguments[0].direction, ApiDirection::Out);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::Pointer { constraint }
+            if constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == 8
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "POINT"
+                )
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn set_rect_contract_is_five_argument_stdcall_with_nullable_rect_output() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
@@ -4297,6 +4476,161 @@ fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() 
     let pointer_fault = match fixture.dispatch_get_client_rect() {
         DispatchOutcome::Fault(fault) => fault,
         other => panic!("expected client-RECT pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, pointer_fault_runtime);
+    assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn get_window_rect_reads_live_outer_geometry_and_preserves_failure_atomicity() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let expected_bytes = [557_i32, 214, 1_363, 843]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    fixture
+        .memory
+        .write(WINDOW_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
+        .expect("seed window RECT output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_window_rect(window_handle, WINDOW_RECT_OUTPUT_ADDRESS);
+    let windows_before = fixture.runtime.windows().clone();
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetWindowRect LastError");
+    let completion = match fixture.dispatch_get_window_rect() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected GetWindowRect completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, sentinel);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(
+        completion.guest_writes[0].write.address,
+        WINDOW_RECT_OUTPUT_ADDRESS
+    );
+    assert_eq!(completion.guest_writes[0].write.bytes, expected_bytes);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(WINDOW_RECT_OUTPUT_ADDRESS, 16)
+            .expect("read completed window RECT"),
+        expected_bytes
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+
+    fixture
+        .memory
+        .write(WINDOW_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
+        .expect("reset failed window RECT output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_window_rect(0, WINDOW_RECT_OUTPUT_ADDRESS);
+    let memory_before_invalid_handle = fixture.memory.stats();
+    let windows_before_invalid_handle = fixture.runtime.windows().clone();
+    let invalid_handle = match fixture.dispatch_get_window_rect() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND completion, got {other:?}"),
+    };
+    assert_eq!(invalid_handle.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_handle.last_error, 1400);
+    assert!(invalid_handle.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats(), memory_before_invalid_handle);
+    assert_eq!(
+        fixture
+            .memory
+            .read(WINDOW_RECT_OUTPUT_ADDRESS, 16)
+            .expect("read preserved invalid-HWND output"),
+        [0xa5; 16]
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before_invalid_handle);
+
+    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
+    fixture.configure_get_window_rect(window_handle, unmapped_output);
+    let pointer_fault_runtime = fixture.runtime.clone();
+    let pointer_fault_memory = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch_get_window_rect() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected window-RECT pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, pointer_fault_runtime);
+    assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn get_cursor_pos_reads_logical_screen_point_and_preserves_failure_atomicity() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture
+        .memory
+        .write(CURSOR_POSITION_OUTPUT_ADDRESS, &[0xa5; 8])
+        .expect("seed cursor position output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_cursor_pos(CURSOR_POSITION_OUTPUT_ADDRESS);
+    let runtime_before = fixture.runtime.clone();
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetCursorPos LastError");
+    let completion = match fixture.dispatch_get_cursor_pos() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected GetCursorPos completion, got {other:?}"),
+    };
+    let expected_bytes = [960_i32, 540]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, sentinel);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(
+        completion.guest_writes[0].write.address,
+        CURSOR_POSITION_OUTPUT_ADDRESS
+    );
+    assert_eq!(completion.guest_writes[0].write.bytes, expected_bytes);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(CURSOR_POSITION_OUTPUT_ADDRESS, 8)
+            .expect("read completed cursor position"),
+        expected_bytes
+    );
+    assert_eq!(
+        fixture.runtime.cursor_position(),
+        runtime_before.cursor_position()
+    );
+
+    fixture.configure_get_cursor_pos(GuestAddress(0));
+    let null_cursor_before = fixture.runtime.cursor_position().cloned();
+    let null_memory_before = fixture.memory.stats();
+    let null_completion = match fixture.dispatch_get_cursor_pos() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected null GetCursorPos completion, got {other:?}"),
+    };
+    assert_eq!(null_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_completion.last_error, 998);
+    assert!(null_completion.guest_writes.is_empty());
+    assert_eq!(
+        fixture.runtime.cursor_position(),
+        null_cursor_before.as_ref()
+    );
+    assert_eq!(fixture.memory.stats(), null_memory_before);
+
+    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
+    fixture.configure_get_cursor_pos(unmapped_output);
+    let pointer_fault_runtime = fixture.runtime.clone();
+    let pointer_fault_memory = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch_get_cursor_pos() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected cursor POINT pointer fault, got {other:?}"),
     };
     assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
     assert_eq!(pointer_fault.code, "guest-page-fault");
@@ -9099,6 +9433,7 @@ fn swap_mouse_button_policy_and_authority_failures_are_atomic() {
             id: "different-input-profile-v1".to_owned(),
             initial_mouse_buttons_swapped: false,
             keyboard: None,
+            cursor_position: None,
         })
         .expect("configure mismatched input");
     let mapping_before = mismatch.runtime.mouse_button_mapping().cloned();

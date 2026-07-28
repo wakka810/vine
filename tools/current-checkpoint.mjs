@@ -180,11 +180,16 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
+  const user32AsyncKeyStateInitialScanActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-async-key-state-initial-scan";
   const d3d9PostPresentStructuredStopActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-present-continuation";
   const d3d9PostPresentContinuationActive =
-    user32AsyncKeyStateInputActive || d3d9PostPresentStructuredStopActive;
+    user32AsyncKeyStateInitialScanActive ||
+    user32AsyncKeyStateInputActive ||
+    d3d9PostPresentStructuredStopActive;
   const d3d9FirstPresentActive =
     d3d9PostPresentContinuationActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-first-present";
@@ -317,7 +322,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = user32AsyncKeyStateInputContinuationActive
+  const timerCycleCount = user32AsyncKeyStateInitialScanActive
+    ? 10_567
+    : user32AsyncKeyStateInputContinuationActive
     ? 9_232
     : d3d9PostPresentContinuationActive
     ? 9_205
@@ -338,7 +345,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? 7
                   : 3;
-  const timerArmCount = user32AsyncKeyStateInputContinuationActive
+  const timerArmCount = user32AsyncKeyStateInitialScanActive
+    ? 10_567
+    : user32AsyncKeyStateInputContinuationActive
     ? 9_232
     : d3d9PostPresentContinuationActive
     ? 9_205
@@ -347,7 +356,9 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9RecreatedTexturesActive
       ? 9_187
       : timerCycleCount;
-  const timerSetSequences = user32AsyncKeyStateInputContinuationActive
+  const timerSetSequences = user32AsyncKeyStateInitialScanActive
+    ? "18681,148133"
+    : user32AsyncKeyStateInputContinuationActive
     ? "18681,128060"
     : d3d9PostPresentContinuationActive
     ? "18681,127648"
@@ -368,7 +379,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
-  const timerSetInstructionCounts = user32AsyncKeyStateInputContinuationActive
+  const timerSetInstructionCounts = user32AsyncKeyStateInitialScanActive
+    ? "11974074,147757431"
+    : user32AsyncKeyStateInputContinuationActive
     ? "11974074,29403502"
     : d3d9PostPresentContinuationActive
     ? "11974074,28874710"
@@ -389,7 +402,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = user32AsyncKeyStateInputContinuationActive
+  const timerWaitSequences = user32AsyncKeyStateInitialScanActive
+    ? "18682,148134"
+    : user32AsyncKeyStateInputContinuationActive
     ? "18682,128061"
     : d3d9PostPresentContinuationActive
     ? "18682,127649"
@@ -410,7 +425,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = user32AsyncKeyStateInputContinuationActive
+  const timerWaitInstructionCounts = user32AsyncKeyStateInitialScanActive
+    ? "11974080,147757437"
+    : user32AsyncKeyStateInputContinuationActive
     ? "11974080,29403508"
     : d3d9PostPresentContinuationActive
     ? "11974080,28874716"
@@ -431,7 +448,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = user32AsyncKeyStateInputContinuationActive
+  const timerGenerations = user32AsyncKeyStateInitialScanActive
+    ? "1,10567"
+    : user32AsyncKeyStateInputContinuationActive
     ? "1,9232"
     : d3d9PostPresentContinuationActive
     ? "1,9205"
@@ -452,14 +471,18 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = user32AsyncKeyStateInputContinuationActive
+  const timerClockGenerations = user32AsyncKeyStateInitialScanActive
+    ? "1,10567"
+    : user32AsyncKeyStateInputContinuationActive
     ? "1,9232"
     : d3d9PostPresentContinuationActive
     ? "1,9205"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = user32AsyncKeyStateInputContinuationActive
+  const timerDeadlines = user32AsyncKeyStateInitialScanActive
+    ? "5000,52835000"
+    : user32AsyncKeyStateInputContinuationActive
     ? "5000,46160000"
     : d3d9PostPresentContinuationActive
     ? "5000,46025000"
@@ -480,7 +503,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = user32AsyncKeyStateInputContinuationActive
+  const timerPacingRequestIds = user32AsyncKeyStateInitialScanActive
+    ? "3,10631"
+    : user32AsyncKeyStateInputContinuationActive
     ? "3,9247"
     : d3d9PostPresentContinuationActive
     ? "3,9216"
@@ -501,7 +526,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = user32AsyncKeyStateInputContinuationActive
+  const timerPacingRegistrationIds = user32AsyncKeyStateInitialScanActive
+    ? "1,10567"
+    : user32AsyncKeyStateInputContinuationActive
     ? "1,9232"
     : d3d9PostPresentContinuationActive
     ? "1,9205"
@@ -522,7 +549,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = user32AsyncKeyStateInputContinuationActive
+  const timerPacingClockGenerations = user32AsyncKeyStateInitialScanActive
+    ? "0,10566"
+    : user32AsyncKeyStateInputContinuationActive
     ? "0,9231"
     : d3d9PostPresentContinuationActive
     ? "0,9204"
@@ -543,7 +572,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = user32AsyncKeyStateInputContinuationActive
+  const timerNextRegistrationIds = user32AsyncKeyStateInitialScanActive
+    ? "2,10568"
+    : user32AsyncKeyStateInputContinuationActive
     ? "2,9233"
     : d3d9PostPresentContinuationActive
     ? "2,9206"
@@ -564,7 +595,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = user32AsyncKeyStateInputContinuationActive
+  const profileExpectations = user32AsyncKeyStateInitialScanActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 119_273,
+        browserMappingDirtyPages: 130_332,
+        browserSuccessExecutionTransitions: 509_179,
+        latestSchema:
+          "vine.v86-bgi-user32-async-key-state-initial-scan",
+        latestWritebackBatches: 149_916,
+        latestWritebackDirtyPages: 214_431,
+        latestWritebackChangedBytes: 19_882_726,
+        latestHostDeltaBatches: 119_273,
+        latestFinalMemoryGeneration: 271_166,
+        semanticCallDigestSha256:
+          "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950",
+        memoryContentSha256:
+          "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86",
+      }
+    : user32AsyncKeyStateInputContinuationActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 107_148,
@@ -1552,9 +1601,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v45") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v46") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v45",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v46",
     );
   }
   if (
@@ -2338,17 +2387,21 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 16
+        : user32AsyncKeyStateInputContinuationActive
         ? 15
         : user32AsyncKeyStateInputActive
         ? 14
         : d3d9PostPresentStructuredStopActive
           ? 13
           : 12) ||
-    bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
-    bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
+    bgiBrowserEvidence.nodeOracleReportBytes > 4 * 1024 * 1024 ||
+    bgiBrowserEvidence.browserReportBytes > 4 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 90
+        : user32AsyncKeyStateInputContinuationActive
         ? 39
         : setWindowPosFrameChangeMoveActive
           ? 38
@@ -2356,7 +2409,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 29
             : 21) ||
     bgiMappingOperations.commit !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 1_807
+        : user32AsyncKeyStateInputContinuationActive
         ? 149
         : setWindowPosFrameChangeMoveActive
         ? 142
@@ -2368,10 +2423,16 @@ export function validateCurrentCheckpoint(manifest) {
               ? 72
               : 71) ||
     bgiMappingOperations.protect !==
-      (setWindowPosFrameChangeMoveActive ? 62 : sleepZeroActive ? 45 : 28) ||
+      (user32AsyncKeyStateInitialScanActive || setWindowPosFrameChangeMoveActive
+        ? 62
+        : sleepZeroActive
+          ? 45
+          : 28) ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 71
+        : user32AsyncKeyStateInputContinuationActive
         ? 22
         : setWindowPosFrameChangeMoveActive
           ? 21
@@ -2392,7 +2453,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 2_312
+        : user32AsyncKeyStateInputContinuationActive
         ? 2_020
         : d3d9PostPresentContinuationActive
         ? 2_014
@@ -2415,7 +2478,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
-    bgiBrowserEvidence.largeHeapPageMaterializations !== 31 ||
+    bgiBrowserEvidence.largeHeapPageMaterializations !==
+      (user32AsyncKeyStateInitialScanActive ? 1_684 : 31) ||
     bgiBrowserEvidence.largeHeapAllocationAddress !== "0x40000000" ||
     bgiBrowserEvidence.largeHeapAllocationBytes !== 64 * 1024 * 1024 ||
     bgiBrowserEvidence.largeHeapAllocationId !== 12 ||
@@ -2431,7 +2495,9 @@ export function validateCurrentCheckpoint(manifest) {
       1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? 63
+        : user32AsyncKeyStateInputContinuationActive
         ? 14
         : d3d9PostPresentContinuationActive
         ? 11
@@ -5079,7 +5145,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "55c01dbcf3e4a88bf13051924fe61c94f28c9b4801308e77a2b00544cec1e9d1"
           : "db194f8abaf482facc8fdfa18b561dd568dbcb04469ec5818470ed2dc18456c5") ||
     bgiBenchmarkEvidence.executionEngineLinearMemoryBytes !==
-      bgiBrowserEvidence.executionEngineLinearMemoryBytes
+      (user32AsyncKeyStateInitialScanActive
+        ? 18_219_008
+        : bgiBrowserEvidence.executionEngineLinearMemoryBytes)
   ) {
     errors.push("browser BGI benchmark evidence is invalid or inconsistent");
   }
@@ -11557,7 +11625,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    heaps.schema !== "vine.runtime-private-heap-backing.v5" ||
+    heaps.schema !== "vine.runtime-private-heap-backing.v6" ||
     heaps.stateOwner !== "runtime/heaps.rs::RuntimeHeaps" ||
     heaps.mutableCollectionVisibility !== "private" ||
     heaps.readInspection !== "immutable-borrow" ||
@@ -11570,7 +11638,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime-state-borrowed-compatibility-view" ||
     !Array.isArray(heaps.ownedState) ||
     heaps.ownedState.join(",") !==
-      "logical-heap-map,guest-memory-backing-map,private-heap-slot-allocator,per-heap-allocation-id-allocators,process-large-allocation-backing,large-allocation-materialized-page-index" ||
+      "logical-heap-map,guest-memory-backing-map,guest-memory-extension-backing-map,private-heap-slot-allocator,per-heap-allocation-id-allocators,process-large-allocation-backing,large-allocation-materialized-page-index" ||
     heaps.crossSubsystemMutation !==
       "heap-slot-plan-object-memory-preflight-targeted-commit" ||
     heaps.subsystemTests < 7 ||
@@ -11584,6 +11652,23 @@ export function validateCurrentCheckpoint(manifest) {
     heaps.failedCreationPreservesSlotAllocator !== true ||
     heaps.runtimeStateDirectScalarAllocators !== 0 ||
     heaps.wholeRuntimeStateClone !== false ||
+    heaps.arenaBase !== "0x20000000" ||
+    heaps.arenaEndExclusive !== "0x40000000" ||
+    heaps.backingLimit !== 32 ||
+    heaps.capacityBytesPerHeap !== 16 * 1024 * 1024 ||
+    heaps.maximumOrdinarySegmentsPerHeap !== 2 ||
+    heaps.maximumOrdinaryCapacityBytesPerHeap !== 32 * 1024 * 1024 ||
+    heaps.allocationPolicy !==
+      "primary-then-extension-lowest-address-first-fit-per-segment" ||
+    heaps.extensionBackingSelection !==
+      "growable-heap-only-lowest-free-controlled-slot" ||
+    heaps.extensionBackingPublication !==
+      "address-memory-preflight-before-targeted-heap-commit" ||
+    heaps.extensionBackingStalePlanError !==
+      "heap-extension-backing-plan-stale" ||
+    heaps.extensionBackingExhaustionError !==
+      "heap-extension-backing-slot-exhausted" ||
+    heaps.extensionBackingFailuresMutationFree !== true ||
     heaps.largeSlotBase !== "0x40000000" ||
     heaps.largeSlotEndExclusive !== "0x44000000" ||
     heaps.largeSlotBytes !== 64 * 1024 * 1024 ||
@@ -12224,11 +12309,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 27 ||
+    user32Policy.schemaVersion !== 28 ||
     user32Policy.id !==
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v27" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v27" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v28" ||
     user32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
@@ -12293,6 +12378,16 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.browserDisplayTopologyImported !== false ||
     user32Policy.hostMouseButtonMappingImported !== false ||
     user32Policy.browserMouseButtonMappingImported !== false ||
+    user32Policy.cursorPositionProfileId !==
+      "primary-display-center-cursor-v1" ||
+    user32Policy.cursorPositionInitialScreen?.join(",") !== "960,540" ||
+    user32Policy.cursorPositionConfiguration !==
+      "configure-once-plan-commit" ||
+    user32Policy.cursorPositionStateAuthority !==
+      "runtime/input.rs::RuntimeInput" ||
+    user32Policy.cursorPositionHostPointerImported !== false ||
+    user32Policy.cursorPositionBrowserPointerImported !== false ||
+    user32Policy.cursorPositionFailureAtomicity !== true ||
     user32Policy.keyboardProfileId !==
       "foreground-focused-virtual-key-state-v1" ||
     user32Policy.keyboardInitialSourceFocused !== true ||
@@ -12313,6 +12408,24 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.getAsyncKeyStateLastErrorPolicy !== "preserve" ||
     user32Policy.browserKeyboardInputImported !== true ||
     user32Policy.keyboardFailureAtomicity !== true ||
+    user32Policy.getWindowRectVariants?.join(",") !==
+      "created-logical-window-outer-screen-rect" ||
+    user32Policy.getWindowRectStateAuthority !==
+      "runtime/user32.rs::RuntimeUser32" ||
+    user32Policy.getWindowRectLastErrorPolicy !==
+      "preserve-success-invalid-window-1400" ||
+    user32Policy.getWindowRectGuestWrite !==
+      "preflight-before-single-rect-publication" ||
+    user32Policy.getWindowRectFailureAtomicity !== true ||
+    user32Policy.getCursorPosVariants?.join(",") !==
+      "configured-logical-screen-position" ||
+    user32Policy.getCursorPosStateAuthority !==
+      "runtime/input.rs::RuntimeInput" ||
+    user32Policy.getCursorPosLastErrorPolicy !==
+      "preserve-success-null-output-998" ||
+    user32Policy.getCursorPosGuestWrite !==
+      "preflight-before-single-point-publication" ||
+    user32Policy.getCursorPosFailureAtomicity !== true ||
     user32Policy.logicalIconAuthority !== "runtime/user32.rs::RuntimeUser32" ||
     user32Policy.loadIconProfileId !== "module-shared-large-icon-32x32-v1" ||
     user32Policy.loadIconTargetWidth !== 32 ||
@@ -13146,7 +13259,8 @@ export function validateCurrentCheckpoint(manifest) {
       true ||
     latestEvidence.setWaitableTimerImplemented !== true ||
     latestEvidence.setWaitableTimerSequence !== 18_681 ||
-    latestEvidence.setWaitableTimerInstructionCount !== 11_973_553 ||
+    latestEvidence.setWaitableTimerInstructionCount !==
+      (user32AsyncKeyStateInitialScanActive ? 11_974_074 : 11_973_553) ||
     latestEvidence.setWaitableTimerArguments?.join(",") !==
       "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
     latestEvidence.setWaitableTimerReturnAddress !== "0x10050607" ||
@@ -14062,7 +14176,7 @@ export function validateCurrentCheckpoint(manifest) {
       setWindowPosImplementationId ||
     latestEvidence.setWindowPosResizePolicySchemaVersion !== 23 ||
     latestEvidence.setWindowPosResizePolicyId !==
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v27" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
     latestEvidence.setWindowPosResizeProfileId !==
       "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4" ||
     latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !==
@@ -18648,7 +18762,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (user32AsyncKeyStateInputContinuationActive
+      (user32AsyncKeyStateInitialScanActive
+        ? "Rust-owned bounded second ordinary heap backing plus logical window geometry, cursor position, and zero-input GetAsyncKeyState startup scan"
+        : user32AsyncKeyStateInputContinuationActive
         ? "Rust-owned held-key GetAsyncKeyState continuation with one-shot pressed-bit consumption across repeated primary polling"
         : user32AsyncKeyStateInputActive
         ? "Rust-owned focused virtual-key state with versioned browser input ingress and signed-short GetAsyncKeyState query semantics"
@@ -18799,7 +18915,8 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeDragAcceptFilesExecutableHashUnchanged !== true ||
       latestEvidence.dragAcceptFilesImplemented !== true ||
       latestEvidence.dragAcceptFilesSequence !== 89_249 ||
-      latestEvidence.dragAcceptFilesInstructionCount !== 15_601_759 ||
+      latestEvidence.dragAcceptFilesInstructionCount !==
+        (createDirectoryAActive ? 15_602_280 : 15_601_759) ||
       latestEvidence.dragAcceptFilesArguments?.join(",") !==
         "0x48010001,0x00000000" ||
       latestEvidence.dragAcceptFilesReturnAddress !== "0x1005f272" ||
@@ -21356,6 +21473,241 @@ export function validateCurrentCheckpoint(manifest) {
       errors.push("native GetAsyncKeyState evidence is invalid");
     }
   }
+  if (user32AsyncKeyStateInitialScanActive) {
+    const scanVirtualKeys = [
+      14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51,
+      99, 52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96,
+      9, 17, 1, 2, 4, 5, 6,
+    ];
+    const scanVirtualKeyCsv = scanVirtualKeys.join(",");
+    for (const [label, evidence] of [
+      ["browser BGI", bgiBrowserEvidence],
+      ["latest", latestEvidence],
+    ]) {
+      if (
+        (evidence.getWindowRectCompletions ??
+          evidence.getWindowRectNodeCompletions) !== 2 ||
+        evidence.getWindowRectSequence !== 148_186 ||
+        evidence.getWindowRectOccurrence !== 2 ||
+        evidence.getWindowRectInstructionCount !== 147_768_687 ||
+        evidence.getWindowRectArguments?.join(",") !==
+          "0x48010001,0x006ff8b4" ||
+        evidence.getWindowRectResult !== 1 ||
+        evidence.getWindowRectReturnAddress !== "0x10088558" ||
+        evidence.getWindowRectStackPointers?.join(",") !==
+          "0x006ff894,0x006ff8a0" ||
+        evidence.getWindowRectLastError !== 0 ||
+        evidence.getWindowRectGuestWriteBytes !== 16 ||
+        evidence.getWindowRectOutput?.join(",") !== "317,154,1603,903" ||
+        evidence.getWindowRectImplementationId !==
+          "user32.get-window-rect.v1" ||
+        evidence.getWindowRectStateAuthority !==
+          "runtime/user32.rs::RuntimeUser32" ||
+        evidence.getWindowRectCoordinateSpace !==
+          "logical-primary-screen-outer-window" ||
+        evidence.getWindowRectBrowserGeometryImported !== false ||
+        evidence.getWindowRectFailureAtomicity !== true ||
+        (evidence.getCursorPosCompletions ??
+          evidence.getCursorPosNodeCompletions) !== 2 ||
+        evidence.getCursorPosSequence !== 148_187 ||
+        evidence.getCursorPosOccurrence !== 2 ||
+        evidence.getCursorPosInstructionCount !== 147_768_691 ||
+        evidence.getCursorPosArguments?.join(",") !== "0x006ff8ac" ||
+        evidence.getCursorPosResult !== 1 ||
+        evidence.getCursorPosReturnAddress !== "0x10088563" ||
+        evidence.getCursorPosStackPointers?.join(",") !==
+          "0x006ff898,0x006ff8a0" ||
+        evidence.getCursorPosLastError !== 0 ||
+        evidence.getCursorPosGuestWriteBytes !== 8 ||
+        evidence.getCursorPosOutput?.join(",") !== "960,540" ||
+        evidence.getCursorPosImplementationId !== "user32.get-cursor-pos.v1" ||
+        evidence.getCursorPosProfileId !==
+          "primary-display-center-cursor-v1" ||
+        evidence.getCursorPosGeneration !== 0 ||
+        evidence.getCursorPosStateAuthority !==
+          "runtime/input.rs::RuntimeInput" ||
+        evidence.getCursorPosBrowserPointerImported !== false ||
+        evidence.getCursorPosFailureAtomicity !== true
+      ) {
+        errors.push(`${label} initial input geometry evidence is invalid`);
+      }
+    }
+    if (
+      bgiBrowserEvidence.keyboardInputReceivedMessages !== 0 ||
+      bgiBrowserEvidence.keyboardInputQueuedBeforePrepare !== 0 ||
+      bgiBrowserEvidence.keyboardInputReceiptCount !== 0 ||
+      bgiBrowserEvidence.getAsyncKeyStateCompletions !== 89 ||
+      bgiBrowserEvidence.getAsyncKeyStateLeadingPolls !== 51 ||
+      bgiBrowserEvidence.getAsyncKeyStateScanCompletions !== 38 ||
+      bgiBrowserEvidence.getAsyncKeyStateScanVirtualKeys?.join(",") !==
+        scanVirtualKeyCsv ||
+      bgiBrowserEvidence.getAsyncKeyStateFirstScanSequence !== 148_153 ||
+      bgiBrowserEvidence.getAsyncKeyStateFirstScanInstructionCount !==
+        147_765_769 ||
+      bgiBrowserEvidence.getAsyncKeyStateFirstScanArguments?.join(",") !==
+        "0x0000000e" ||
+      bgiBrowserEvidence.getAsyncKeyStateFirstScanResult !== "0x00000000" ||
+      bgiBrowserEvidence.getAsyncKeyStateFirstScanStackPointers?.join(",") !==
+        "0x006ff80c,0x006ff814" ||
+      bgiBrowserEvidence.getAsyncKeyStateLastScanSequence !== 148_195 ||
+      bgiBrowserEvidence.getAsyncKeyStateLastScanInstructionCount !==
+        147_769_226 ||
+      bgiBrowserEvidence.getAsyncKeyStateLastScanArguments?.join(",") !==
+        "0x00000006" ||
+      bgiBrowserEvidence.getAsyncKeyStateLastScanResult !== "0x00000000" ||
+      bgiBrowserEvidence.getAsyncKeyStateLastScanStackPointers?.join(",") !==
+        "0x006ff8c8,0x006ff8d0" ||
+      bgiBrowserEvidence.getAsyncKeyStateReturnAddress !== "0x10068405" ||
+      bgiBrowserEvidence.getAsyncKeyStateLastError !== 0 ||
+      bgiBrowserEvidence.getAsyncKeyStateGuestWriteBytes !== 0 ||
+      bgiBrowserEvidence.getAsyncKeyStateImplementationId !==
+        "user32.get-async-key-state.v1" ||
+      bgiBrowserEvidence.getAsyncKeyStateCompatibilityPolicyId !==
+        "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
+      bgiBrowserEvidence.getAsyncKeyStateStateAuthority !==
+        "runtime/input.rs::RuntimeInput" ||
+      bgiBrowserEvidence.getAsyncKeyStateNodeCompletions !== 89 ||
+      bgiBrowserEvidence.getAsyncKeyStateChromeCompletions !== 89 ||
+      bgiBrowserEvidence.getAsyncKeyStateNodeChromeOrderedSemanticsMatched !==
+        true
+    ) {
+      errors.push("browser initial GetAsyncKeyState scan evidence is invalid");
+    }
+    if (
+      latestEvidence.initialScanKeyboardInputReceivedMessages !== 0 ||
+      latestEvidence.initialScanKeyboardInputQueuedBeforePrepare !== 0 ||
+      latestEvidence.initialScanKeyboardInputReceiptCount !== 0 ||
+      latestEvidence.getAsyncKeyStateInitialScanLeadingPolls !== 51 ||
+      latestEvidence.getAsyncKeyStateInitialScanCompletions !== 38 ||
+      latestEvidence.getAsyncKeyStateInitialScanVirtualKeys?.join(",") !==
+        scanVirtualKeyCsv ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstSequence !== 148_153 ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstInstructionCount !==
+        147_765_769 ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstArgument !== 14 ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstResult !== "0x00000000" ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstStackPointers?.join(",") !==
+        "0x006ff80c,0x006ff814" ||
+      latestEvidence.getAsyncKeyStateInitialScanLastSequence !== 148_195 ||
+      latestEvidence.getAsyncKeyStateInitialScanLastInstructionCount !==
+        147_769_226 ||
+      latestEvidence.getAsyncKeyStateInitialScanLastArgument !== 6 ||
+      latestEvidence.getAsyncKeyStateInitialScanLastResult !== "0x00000000" ||
+      latestEvidence.getAsyncKeyStateInitialScanLastStackPointers?.join(",") !==
+        "0x006ff8c8,0x006ff8d0" ||
+      latestEvidence.getAsyncKeyStateInitialScanLastError !== 0 ||
+      latestEvidence.getAsyncKeyStateInitialScanGuestWriteBytes !== 0 ||
+      latestEvidence.getAsyncKeyStateInitialScanInputEventCount !== 0 ||
+      latestEvidence.getAsyncKeyStateInitialScanNodeCompletions !== 38 ||
+      latestEvidence.getAsyncKeyStateInitialScanChromeCompletions !== 38 ||
+      latestEvidence.getAsyncKeyStateInitialScanNodeChromeOrderedSemanticsMatched !==
+        true ||
+      latestEvidence.getWindowRectNodeChromeOrderedSemanticsMatched !== true ||
+      latestEvidence.getCursorPosNodeChromeOrderedSemanticsMatched !== true
+    ) {
+      errors.push("latest initial GetAsyncKeyState scan evidence is invalid");
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "user32-async-key-state-initial-scan" ||
+        completion.implementationId !== "user32.get-async-key-state.v1" ||
+        completion.requiredCompletions !== 38 ||
+        completion.completionCount !== 38 ||
+        completion.leadingCallCount !== 51 ||
+        completion.firstCompletionSequence !== 148_153 ||
+        completion.firstCompletionInstructionCount !== 147_765_769 ||
+        completion.lastCompletionSequence !== 148_195 ||
+        completion.lastCompletionInstructionCount !== 147_769_226 ||
+        completion.scanVirtualKeys?.join(",") !== scanVirtualKeyCsv ||
+        completion.result !== "0x00000000" ||
+        completion.lastError !== 0 ||
+        completion.guestWriteBytes !== 0 ||
+        completion.instructionCount !== 147_769_286 ||
+        completion.nextEndpoint?.endpointId !== 8 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+        completion.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+        completion.memoryContentSha256 !==
+          "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86"
+      ) {
+        errors.push(`${label} initial scan checkpoint evidence is invalid`);
+      }
+    }
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "user32-async-key-state-initial-scan-continuation" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "user32-async-key-state-initial-scan" ||
+      currentStop.instructionCount !== 147_769_286 ||
+      currentStop.capabilityCluster !==
+        "user32-async-key-state-initial-scan-continuation" ||
+      currentStop.reason !==
+        "user32-async-key-state-initial-scan-checkpoint-complete" ||
+      currentStop.completion?.capability !==
+        "user32-async-key-state-initial-scan" ||
+      currentStop.completion?.completionCount !== 38 ||
+      currentStop.completion?.leadingCallCount !== 51 ||
+      currentStop.completion?.scanVirtualKeys?.join(",") !== scanVirtualKeyCsv ||
+      currentStop.nextEndpoint?.endpointKind !== "runtime-system-export" ||
+      currentStop.nextEndpoint?.endpointId !== 8 ||
+      currentStop.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+      currentStop.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+      currentStop.nextEndpoint?.observedModule !== "WINMM.dll" ||
+      currentStop.nextEndpoint?.observedSymbol !== "timeGetTime"
+    ) {
+      errors.push("initial GetAsyncKeyState scan next checkpoint is invalid");
+    }
+    if (
+      latestEvidence.nativeGetWindowRectPrimaryTraceBytes !== 813_844 ||
+      latestEvidence.nativeGetWindowRectPrimaryTraceLines !== 2_523 ||
+      latestEvidence.nativeGetWindowRectPrimaryTraceSha256 !==
+        "9cbda807d086550c8a33eece80466f301cd9e2f0f13cb52eacb4e7e259d8e32f" ||
+      latestEvidence.nativeGetWindowRectConfirmationTraceBytes !== 800_753 ||
+      latestEvidence.nativeGetWindowRectConfirmationTraceLines !== 2_479 ||
+      latestEvidence.nativeGetWindowRectConfirmationTraceSha256 !==
+        "db1a0f368a2f1e373b48a4a52d1b157b0f8ee35f82c6e6893f5f50fbbbe21a08" ||
+      latestEvidence.nativeGetWindowRectTraceDiagnostics !== 0 ||
+      latestEvidence.nativeGetWindowRectCallerRva !== "0x00088558" ||
+      latestEvidence.nativeGetWindowRectResult !== 1 ||
+      latestEvidence.nativeGetWindowRectOutput?.join(",") !==
+        "317,154,1603,903" ||
+      latestEvidence.nativeGetWindowRectLastError !== 0 ||
+      latestEvidence.nativeGetWindowRectInvalidWindowResult !== 0 ||
+      latestEvidence.nativeGetWindowRectInvalidWindowLastError !== 1_400 ||
+      latestEvidence.nativeGetWindowRectFailurePreservesOutput !== true ||
+      latestEvidence.nativeGetWindowRectExecutableHashUnchanged !== true ||
+      latestEvidence.nativeGetCursorPosPrimaryTraceBytes !== 807_003 ||
+      latestEvidence.nativeGetCursorPosPrimaryTraceLines !== 2_521 ||
+      latestEvidence.nativeGetCursorPosPrimaryTraceSha256 !==
+        "9b94ca13d07a0c09fd9363e4d195505a290e4ca7951f091f2d7cec2df0b0b286" ||
+      latestEvidence.nativeGetCursorPosConfirmationTraceBytes !== 889_714 ||
+      latestEvidence.nativeGetCursorPosConfirmationTraceLines !== 2_776 ||
+      latestEvidence.nativeGetCursorPosConfirmationTraceSha256 !==
+        "a1f121d1483b1ec8ec6e20b8b94c7afb10142c1770b51dc85b43d9f5e6ffc2fc" ||
+      latestEvidence.nativeGetCursorPosTraceDiagnostics !== 0 ||
+      latestEvidence.nativeGetCursorPosCallerRva !== "0x00088563" ||
+      latestEvidence.nativeGetCursorPosResult !== 1 ||
+      latestEvidence.nativeGetCursorPosOutput?.join(",") !== "1336,532" ||
+      latestEvidence.nativeGetCursorPosLastError !== 0 ||
+      latestEvidence.nativeGetCursorPosNullOutputResult !== 0 ||
+      latestEvidence.nativeGetCursorPosNullOutputLastError !== 998 ||
+      latestEvidence.nativeGetCursorPosExecutableHashUnchanged !== true ||
+      latestEvidence.nativeGetAsyncKeyStateProfile !==
+        "x86-bgi-get-async-key-state-initial-scan-v1" ||
+      latestEvidence.nativeGetAsyncKeyStateCallsPerTrace !== 38 ||
+      latestEvidence.nativeGetAsyncKeyStateScanVirtualKeys?.join(",") !==
+        scanVirtualKeyCsv ||
+      latestEvidence.nativeGetAsyncKeyStateCallerRva !== "0x00068405" ||
+      latestEvidence.nativeGetAsyncKeyStateAllResultsZero !== true ||
+      latestEvidence.nativeGetAsyncKeyStateAllPreserveLastError !== true ||
+      latestEvidence.nativeGetAsyncKeyStateExecutableHashUnchanged !== true
+    ) {
+      errors.push("native initial input scan evidence is invalid");
+    }
+  }
   if (active.profile === "d3d9-post-scene-present-gateway") {
     if (
       currentStop.nextEndpoint?.observedModule !== "<com>" ||
@@ -22404,6 +22756,9 @@ export function renderReadmeStatus(manifest) {
                               : next.completion.capability ===
                                   "user32-async-key-state-input-continuation"
                                 ? "held-key async-key queries"
+                                : next.completion.capability ===
+                                    "user32-async-key-state-initial-scan"
+                                  ? "zero-input startup key queries"
                               : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +

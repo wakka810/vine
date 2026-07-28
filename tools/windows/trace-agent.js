@@ -501,6 +501,13 @@ let getClientRectOracleComplete = false;
 let getClientRectOracleEvidence = null;
 let getClientRectCompletionRecorded = false;
 const getClientRectMainModuleCalls = [];
+let getClientRectObservedApi = null;
+let getCursorPosOracleScheduled = false;
+let getCursorPosOracleCall = null;
+let getCursorPosOracleComplete = false;
+let getCursorPosOracleEvidence = null;
+let getCursorPosCompletionRecorded = false;
+const getCursorPosMainModuleCalls = [];
 let setRectOracleScheduled = false;
 let setRectOracleCall = null;
 let setRectOracleComplete = false;
@@ -1601,6 +1608,29 @@ function snapshotRect(pointer) {
     };
   } catch (error) {
     return { profile: "x86-rect-v1", raw, error: error.message };
+  }
+}
+
+function snapshotPoint(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 8);
+  if (raw.error !== undefined) {
+    return { profile: "x86-point-v1", raw };
+  }
+  try {
+    return {
+      profile: "x86-point-v1",
+      raw,
+      fields: {
+        x: pointer.readS32(),
+        y: pointer.add(4).readS32(),
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-point-v1",
+      raw,
+      error: error.message,
+    };
   }
 }
 
@@ -10789,8 +10819,18 @@ function attachGetSystemMetricsHook(module) {
   });
 }
 
-function attachGetClientRectHook(module) {
-  const name = "GetClientRect";
+function attachGetClientRectHook(module, name = "GetClientRect") {
+  const observation =
+    name === "GetWindowRect" ? "get-window-rect" : "get-client-rect";
+  const observationField =
+    name === "GetWindowRect" ? "getWindowRect" : "getClientRect";
+  if (
+    getClientRectObservedApi !== null &&
+    getClientRectObservedApi !== name
+  ) {
+    throw new Error("rectangle query observation selected multiple APIs");
+  }
+  getClientRectObservedApi = name;
   const address = findExport(module, name);
   if (address === null) {
     return;
@@ -10835,7 +10875,7 @@ function attachGetClientRectHook(module) {
           api: name,
           arguments: [this.windowHandle.toString(), this.output.toString()],
           lastErrorBefore: this.lastErrorBefore,
-          getClientRect: {
+          [observationField]: {
             windowHandle: this.windowHandle.toString(),
             outputBefore: this.outputBefore,
             immediateConsumer: this.immediateConsumer,
@@ -10862,7 +10902,7 @@ function attachGetClientRectHook(module) {
           module: module.name,
           api: name,
           result: result.toString(),
-          getClientRect: {
+          [observationField]: {
             result: resultValue,
             succeeded: resultValue !== 0,
             outputAfter,
@@ -10884,23 +10924,25 @@ function attachGetClientRectHook(module) {
           lastError,
           immediateConsumer: this.immediateConsumer,
         });
-        scheduleGetClientRectOracle(module, this.windowHandle);
+        scheduleGetClientRectOracle(module, this.windowHandle, name);
         setImmediate(maybeCompleteGetClientRectObservation);
       }
     },
   });
 }
 
-function scheduleGetClientRectOracle(module, liveWindowHandle) {
+function scheduleGetClientRectOracle(module, liveWindowHandle, name) {
   if (getClientRectOracleScheduled) {
     return;
   }
   getClientRectOracleScheduled = true;
+  const observation =
+    name === "GetWindowRect" ? "get-window-rect" : "get-client-rect";
   setImmediate(() => {
     try {
-      const address = findExport(module, "GetClientRect");
+      const address = findExport(module, name);
       if (address === null) {
-        throw new Error("GetClientRect oracle export is unavailable");
+        throw new Error(`${name} oracle export is unavailable`);
       }
       const getClientRect = new SystemFunction(
         address,
@@ -10929,9 +10971,7 @@ function scheduleGetClientRectOracle(module, liveWindowHandle) {
             getClientRectOracleCall.hookResult === null ||
             getClientRectOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error(
-              "GetClientRect oracle did not pass through the hook",
-            );
+            throw new Error(`${name} oracle did not pass through the hook`);
           }
           const outputAfter = snapshotRect(output);
           return {
@@ -10986,15 +11026,20 @@ function scheduleGetClientRectOracle(module, liveWindowHandle) {
         ),
       };
       getClientRectOracleComplete = true;
-      emit("get-client-rect-oracle", getClientRectOracleEvidence);
-      maybeCompleteGetClientRectObservation();
+      emit(`${observation}-oracle`, getClientRectOracleEvidence);
+      maybeCompleteGetClientRectObservation(observation);
     } catch (error) {
-      emit("get-client-rect-oracle-error", { error: error.message });
+      emit(`${observation}-oracle-error`, { error: error.message });
     }
   });
 }
 
-function maybeCompleteGetClientRectObservation() {
+function maybeCompleteGetClientRectObservation(
+  observation =
+    getClientRectObservedApi === "GetWindowRect"
+      ? "get-window-rect"
+      : "get-client-rect",
+) {
   if (
     getClientRectCompletionRecorded ||
     !getClientRectOracleComplete ||
@@ -11003,16 +11048,224 @@ function maybeCompleteGetClientRectObservation() {
     return;
   }
   if (activeCallsByThread.size !== 0) {
-    setTimeout(maybeCompleteGetClientRectObservation, 10);
+    setTimeout(() => maybeCompleteGetClientRectObservation(observation), 10);
     return;
   }
   getClientRectCompletionRecorded = true;
-  emit("get-client-rect-complete", {
-    profile: "x86-bgi-first-client-rect-v1",
+  emit(`${observation}-complete`, {
+    profile:
+      observation === "get-window-rect"
+        ? "x86-bgi-first-window-rect-v1"
+        : "x86-bgi-first-client-rect-v1",
     mainModuleCall: getClientRectMainModuleCalls[0],
     oracle: getClientRectOracleEvidence,
   });
-  if (stopOnEvent === "get-client-rect-complete") {
+  if (stopOnEvent === `${observation}-complete`) {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachGetCursorPosHook(module) {
+  const name = "GetCursorPos";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("GetCursorPos export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && getCursorPosOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.output = args[0];
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = getCursorPosOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotPoint(this.output);
+      this.immediateConsumer =
+        isMainModuleCaller && getCursorPosMainModuleCalls.length === 0
+          ? snapshotInstructions(this.returnAddress, 96)
+          : null;
+      if (isOracleCaller) {
+        getCursorPosOracleCall.hookOutputBefore = this.outputBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.output.toString()],
+          lastErrorBefore: this.lastErrorBefore,
+          getCursorPos: {
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotPoint(this.output);
+      if (this.oracleCaller) {
+        getCursorPosOracleCall.hookResult = resultValue;
+        getCursorPosOracleCall.hookLastErrorAfter = lastError;
+        getCursorPosOracleCall.hookOutputAfter = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getCursorPos: {
+            result: resultValue,
+            succeeded: resultValue !== 0,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !getCursorPosCompletionRecorded) {
+        getCursorPosMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: resultValue,
+          succeeded: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleGetCursorPosOracle(module);
+        setImmediate(maybeCompleteGetCursorPosObservation);
+      }
+    },
+  });
+}
+
+function scheduleGetCursorPosOracle(module) {
+  if (getCursorPosOracleScheduled) {
+    return;
+  }
+  getCursorPosOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetCursorPos");
+      if (address === null) {
+        throw new Error("GetCursorPos oracle export is unavailable");
+      }
+      const getCursorPos = new SystemFunction(
+        address,
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = ({ id, nullOutput, sentinel }) => {
+        const output = nullOutput ? ptr(0) : Memory.alloc(8);
+        if (!nullOutput) {
+          output.writeByteArray(Array(8).fill(0xa5));
+        }
+        const outputBefore = snapshotPoint(output);
+        getCursorPosOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutputBefore: null,
+          hookOutputAfter: null,
+        };
+        try {
+          const outcome = getCursorPos(output);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getCursorPosOracleCall.hookResult === null ||
+            getCursorPosOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("GetCursorPos oracle did not pass through the hook");
+          }
+          const outputAfter = snapshotPoint(output);
+          return {
+            id,
+            output: output.toString(),
+            sentinel,
+            systemResult,
+            succeeded: systemResult !== 0,
+            systemLastError,
+            outputBefore,
+            outputAfter,
+            hookResult: getCursorPosOracleCall.hookResult,
+            hookLastErrorAfter: getCursorPosOracleCall.hookLastErrorAfter,
+            hookOutputBefore: getCursorPosOracleCall.hookOutputBefore,
+            hookOutputAfter: getCursorPosOracleCall.hookOutputAfter,
+            hookResultMatches: getCursorPosOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              getCursorPosOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          getCursorPosOracleCall = null;
+        }
+      };
+      const calls = [
+        { id: "valid-output", nullOutput: false, sentinel: 0x11223344 },
+        { id: "null-output", nullOutput: true, sentinel: 0x55667788 },
+      ].map(invoke);
+      getCursorPosOracleEvidence = {
+        profile: "x86-valid-and-null-output-v1",
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      getCursorPosOracleComplete = true;
+      emit("get-cursor-pos-oracle", getCursorPosOracleEvidence);
+      maybeCompleteGetCursorPosObservation();
+    } catch (error) {
+      emit("get-cursor-pos-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteGetCursorPosObservation() {
+  if (
+    getCursorPosCompletionRecorded ||
+    !getCursorPosOracleComplete ||
+    getCursorPosMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteGetCursorPosObservation, 10);
+    return;
+  }
+  getCursorPosCompletionRecorded = true;
+  emit("get-cursor-pos-complete", {
+    profile: "x86-bgi-first-cursor-position-v1",
+    mainModuleCall: getCursorPosMainModuleCalls[0],
+    oracle: getCursorPosOracleEvidence,
+  });
+  if (stopOnEvent === "get-cursor-pos-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -25985,14 +26238,34 @@ Process.attachModuleObserver({
     }
     if (
       module.name.toLowerCase() === "user32.dll" &&
-      selectedObservations.has("get-client-rect")
+      (selectedObservations.has("get-client-rect") ||
+        selectedObservations.has("get-window-rect"))
     ) {
       try {
-        attachGetClientRectHook(module);
+        const name = selectedObservations.has("get-window-rect")
+          ? "GetWindowRect"
+          : "GetClientRect";
+        attachGetClientRectHook(module, name);
       } catch (error) {
         emit("hook-error", {
           module: module.name,
-          api: "GetClientRect",
+          api: selectedObservations.has("get-window-rect")
+            ? "GetWindowRect"
+            : "GetClientRect",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("get-cursor-pos")
+    ) {
+      try {
+        attachGetCursorPosHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetCursorPos",
           error: error.message,
         });
       }

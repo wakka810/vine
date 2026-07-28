@@ -18,24 +18,24 @@ use crate::runtime::{
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
     RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
-    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest, RuntimeCursorResource,
-    RuntimeCursorSource, RuntimeDisplayProfile, RuntimeEndPaintRequest, RuntimeIconResource,
-    RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeKeyboardProfile, RuntimeRect,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind,
-    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
-    RuntimeWindow, RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference,
-    RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
-    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
-    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
-    RuntimeWindowProcedureCallingConvention,
+    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest, RuntimeCursorPositionProfile,
+    RuntimeCursorResource, RuntimeCursorSource, RuntimeDisplayProfile, RuntimeEndPaintRequest,
+    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
+    RuntimeKeyboardProfile, RuntimeRect, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeUpdateWindowCallbackAction,
+    RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeWindow,
+    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
+    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
+    RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 27;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 28;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -54,6 +54,8 @@ pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
+pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
+pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
 pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
@@ -98,6 +100,7 @@ const ERROR_SUCCESS: u32 = 0;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INVALID_WINDOW_HANDLE: u32 = 1400;
+const ERROR_NOACCESS: u32 = 998;
 const ERROR_INVALID_MONITOR_HANDLE: u32 = 1461;
 const ERROR_DC_NOT_FOUND: u32 = 1425;
 const ERROR_INVALID_INDEX: u32 = 1413;
@@ -363,11 +366,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v27() -> Self {
+    pub fn controlled_v28() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-window-frame-change-show-update-paint-input-v27"
+            id: "user32-single-monitor-window-frame-change-show-update-paint-input-v28"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -393,6 +396,11 @@ impl User32CompatibilityPolicy {
                     maximum_virtual_key: 0xff,
                     aggregate_modifier_keys: true,
                     clear_on_source_focus_loss: true,
+                }),
+                cursor_position: Some(RuntimeCursorPositionProfile {
+                    id: "primary-display-center-cursor-v1".to_owned(),
+                    initial_screen_x: 960,
+                    initial_screen_y: 540,
                 }),
             },
             swap_mouse_button: Some(User32SwapMouseButtonPolicy {
@@ -608,6 +616,26 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-input-profile-invalid",
                 "User32 logical input profile requires a bounded nonempty ASCII identity",
+            ));
+        }
+        let cursor_position = self.input.cursor_position.as_ref();
+        let monitor_rect = self
+            .enum_display_monitors
+            .as_ref()
+            .map(|profile| profile.primary_monitor_rect);
+        if cursor_position.is_none_or(|cursor| {
+            !valid_profile_id(&cursor.id)
+                || monitor_rect.is_none_or(|rect| {
+                    cursor.initial_screen_x < rect.left
+                        || cursor.initial_screen_x >= rect.right
+                        || cursor.initial_screen_y < rect.top
+                        || cursor.initial_screen_y >= rect.bottom
+                })
+        }) {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-cursor-position-profile-invalid",
+                "User32 cursor position requires a bounded initial point inside the logical primary monitor",
             ));
         }
         if let Some(profile) = self.swap_mouse_button.as_ref()
@@ -1193,6 +1221,14 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        GET_WINDOW_RECT_IMPLEMENTATION => match handle_get_window_rect(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        GET_CURSOR_POS_IMPLEMENTATION => match handle_get_cursor_pos(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         GET_FOREGROUND_WINDOW_IMPLEMENTATION => {
             match handle_get_foreground_window(contract, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -1537,6 +1573,90 @@ fn handle_get_client_rect(
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let bytes = [0_i32, 0, client_right, client_bottom]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect();
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_get_window_rect(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let output = required_argument(contract, frame, 1, "window rectangle")?;
+    let window = match session.runtime().window(window_handle) {
+        Ok(window) => window,
+        Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let geometry = window.creation.geometry;
+    let width = i32::try_from(geometry.width).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-window-rect-width-invalid",
+            "logical outer width does not fit an x86 RECT",
+        )
+    })?;
+    let height = i32::try_from(geometry.height).map_err(|_| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-window-rect-height-invalid",
+            "logical outer height does not fit an x86 RECT",
+        )
+    })?;
+    let right = geometry.x.checked_add(width).ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-window-rect-right-invalid",
+            "logical outer right coordinate does not fit an x86 RECT",
+        )
+    })?;
+    let bottom = geometry.y.checked_add(height).ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-windows",
+            "get-window-rect-bottom-invalid",
+            "logical outer bottom coordinate does not fit an x86 RECT",
+        )
+    })?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let bytes = [geometry.x, geometry.y, right, bottom]
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect();
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_get_cursor_pos(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "cursor position")?;
+    if output == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_NOACCESS));
+    }
+    let cursor = session.runtime().cursor_position().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-input",
+            "cursor-position-profile-unconfigured",
+            "logical cursor position must be configured before GetCursorPos is queried",
+        )
+    })?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let bytes = [cursor.screen_x, cursor.screen_y]
         .into_iter()
         .flat_map(i32::to_le_bytes)
         .collect();
@@ -6042,6 +6162,8 @@ pub fn user32_contract_for_endpoint(
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
+        "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
+        "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
         "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
         "GetAsyncKeyState" => Ok(Some(get_async_key_state_contract(endpoint)?)),
         "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
@@ -6389,6 +6511,43 @@ pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CLIENT_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_window_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", true),
+                conditional_out_struct("windowRect", "RECT", 16),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_WINDOW_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_cursor_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![nullable_out_struct("point", "POINT", 8)],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_CURSOR_POS_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -6865,7 +7024,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v27();
+        let policy = User32CompatibilityPolicy::controlled_v28();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -6912,6 +7071,14 @@ mod tests {
         assert_eq!(keyboard.maximum_virtual_key, 0xff);
         assert!(keyboard.aggregate_modifier_keys);
         assert!(keyboard.clear_on_source_focus_loss);
+        let cursor_position = policy
+            .input_profile()
+            .unwrap()
+            .cursor_position
+            .expect("cursor position profile");
+        assert_eq!(cursor_position.id, "primary-display-center-cursor-v1");
+        assert_eq!(cursor_position.initial_screen_x, 960);
+        assert_eq!(cursor_position.initial_screen_y, 540);
         let get_async_key_state = policy.get_async_key_state.as_ref().unwrap();
         assert_eq!(get_async_key_state.profile_id, keyboard.id);
         assert_eq!(get_async_key_state.minimum_virtual_key, 0);
@@ -6932,7 +7099,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v28();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -6944,14 +7111,26 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v28();
         invalid_input.input.id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_keyboard = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_cursor_position = User32CompatibilityPolicy::controlled_v28();
+        invalid_cursor_position
+            .input
+            .cursor_position
+            .as_mut()
+            .unwrap()
+            .initial_screen_x = 1920;
+        assert_eq!(
+            invalid_cursor_position.validate().unwrap_err().code,
+            "user32-cursor-position-profile-invalid"
+        );
+
+        let mut invalid_keyboard = User32CompatibilityPolicy::controlled_v28();
         invalid_keyboard
             .input
             .keyboard
@@ -6963,7 +7142,7 @@ mod tests {
             "user32-get-async-key-state-profile-invalid"
         );
 
-        let mut invalid_async_key = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_async_key = User32CompatibilityPolicy::controlled_v28();
         invalid_async_key
             .get_async_key_state
             .as_mut()
@@ -6974,7 +7153,7 @@ mod tests {
             "user32-get-async-key-state-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v28();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -6985,28 +7164,28 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v28();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v28();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_update = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_update = User32CompatibilityPolicy::controlled_v28();
         invalid_update.update_window.as_mut().unwrap().paint_message = WM_PAINT + 1;
         assert_eq!(
             invalid_update.validate().unwrap_err().code,
             "user32-update-window-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v28();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -7017,7 +7196,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v28();
         invalid_timer
             .set_timer
             .as_mut()
@@ -7028,14 +7207,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v28();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v28();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -7046,7 +7225,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v28();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -7057,7 +7236,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v28();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -7068,7 +7247,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v28();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -7080,7 +7259,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v28();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -7091,7 +7270,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v28();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -7102,7 +7281,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v28();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -7113,7 +7292,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v27();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v28();
         invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

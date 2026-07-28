@@ -174,10 +174,10 @@ pub use imm32::{
     RuntimeImeContextAssociation, RuntimeImeContextId, RuntimeImeContextReference,
 };
 pub use input::{
-    RuntimeAsyncKeyStateResult, RuntimeInputProfile, RuntimeKeyboardEventReceipt,
-    RuntimeKeyboardProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeKeyboardState, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
-    RuntimeVirtualKeyState,
+    RuntimeAsyncKeyStateResult, RuntimeCursorPosition, RuntimeCursorPositionProfile,
+    RuntimeInputProfile, RuntimeKeyboardEventReceipt, RuntimeKeyboardProfile,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeKeyboardState,
+    RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult, RuntimeVirtualKeyState,
 };
 pub use kernel::*;
 pub use messages::{

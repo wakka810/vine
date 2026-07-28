@@ -78,6 +78,13 @@ export interface PreparedMetadata {
     currentDirectoryA: RuntimeCurrentDirectoryA;
     currentDirectoryGeneration: number;
     kernel32Policy?: string;
+    user32Policy?: string;
+    cursorPosition?: {
+      profileId: string;
+      screenX: number;
+      screenY: number;
+      generation: number;
+    };
   };
   sourceSnapshot?: {
     titleFingerprint: string;
@@ -174,6 +181,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     d3d9DrawPrimitiveEnabled: number,
     d3d9EndSceneEnabled: number,
     d3d9PresentEnabled: number,
+    user32AsyncKeyStateInitialScanEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -299,6 +307,7 @@ export class RuntimeBridge {
     d3d9DrawPrimitiveEnabled: boolean,
     d3d9EndSceneEnabled: boolean,
     d3d9PresentEnabled: boolean,
+    user32AsyncKeyStateInitialScanEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -321,6 +330,7 @@ export class RuntimeBridge {
         Number(d3d9DrawPrimitiveEnabled),
         Number(d3d9EndSceneEnabled),
         Number(d3d9PresentEnabled),
+        Number(user32AsyncKeyStateInitialScanEnabled),
       ),
     );
   }

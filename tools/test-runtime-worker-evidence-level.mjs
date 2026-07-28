@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 47 as const/u);
+assert.match(protocol, /protocolVersion = 48 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -57,9 +57,14 @@ assert.match(protocol, /d3d9-post-scene-present-gateway/u);
 assert.match(protocol, /d3d9-post-present-continuation/u);
 assert.match(protocol, /postPresentContinuation:/u);
 assert.match(protocol, /user32-async-key-state-input/u);
+assert.match(protocol, /user32-async-key-state-initial-scan/u);
 assert.match(protocol, /RuntimeKeyboardInputEvent/u);
+assert.match(protocol, /RuntimeCursorPositionSnapshot/u);
 assert.match(protocol, /keyboardInput:/u);
+assert.match(protocol, /getWindowRect:/u);
+assert.match(protocol, /getCursorPos:/u);
 assert.match(protocol, /getAsyncKeyState:/u);
+assert.match(protocol, /getAsyncKeyStateInitialScan:/u);
 
 assert.match(
   worker,
@@ -80,6 +85,8 @@ assert.match(
 );
 assert.match(worker, /summary BGI evidence retained detailed call payloads/u);
 assert.match(worker, /user32\.get-async-key-state\.v1/u);
+assert.match(worker, /user32\.get-window-rect\.v1/u);
+assert.match(worker, /user32\.get-cursor-pos\.v1/u);
 assert.match(worker, /ingestKeyboardInput/u);
 assert.match(worker, /#pendingKeyboardEvents/u);
 assert.match(fullProbe, /type: "keyboard-input"/u);

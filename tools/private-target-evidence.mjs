@@ -13,7 +13,7 @@ export const PRIVATE_TARGET_EVIDENCE_DESCENDANT_PATHS = Object.freeze([
 
 const GIT_OBJECT_ID = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
-const MAXIMUM_SEMANTIC_REPORT_BYTES = 2 * 1024 * 1024;
+const MAXIMUM_SEMANTIC_REPORT_BYTES = 4 * 1024 * 1024;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);

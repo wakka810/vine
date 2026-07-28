@@ -124,9 +124,9 @@ use super::imm32::{
     RuntimeImeContextId, RuntimeImm32,
 };
 use super::input::{
-    RuntimeAsyncKeyStateResult, RuntimeInput, RuntimeInputProfile, RuntimeKeyboardEventReceipt,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardState, RuntimeMouseButtonMapping,
-    RuntimeSwapMouseButtonResult,
+    RuntimeAsyncKeyStateResult, RuntimeCursorPosition, RuntimeInput, RuntimeInputProfile,
+    RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardState,
+    RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
 };
 use super::messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 use super::messages::{RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage};
@@ -889,6 +889,10 @@ impl RuntimeKernel {
 
     pub fn keyboard_state(&self) -> Option<&RuntimeKeyboardState> {
         self.input.keyboard_state()
+    }
+
+    pub fn cursor_position(&self) -> Option<&RuntimeCursorPosition> {
+        self.input.cursor_position()
     }
 
     pub fn ingest_keyboard_event(
@@ -3662,6 +3666,14 @@ impl RuntimeKernel {
     ) -> Result<Option<&RuntimeHeapBacking>, RuntimeStateError> {
         self.heap(handle)?;
         Ok(self.heaps.backing(handle))
+    }
+
+    pub fn heap_extension_backing(
+        &self,
+        handle: u32,
+    ) -> Result<Option<&RuntimeHeapBacking>, RuntimeStateError> {
+        self.heap(handle)?;
+        Ok(self.heaps.extension_backing(handle))
     }
 
     pub fn large_heap_allocation_backing(&self) -> Option<&RuntimeLargeHeapAllocationBacking> {

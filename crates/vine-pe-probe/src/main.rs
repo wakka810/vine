@@ -127,7 +127,7 @@ const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
-const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 131_072;
+const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 196_608;
 const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
@@ -266,6 +266,7 @@ enum GenericRuntimeCapability {
     D3d9Present,
     D3d9PostPresentContinuation,
     User32AsyncKeyStateInput,
+    User32AsyncKeyStateInitialScan,
 }
 
 struct GenericRuntimeProcess {
@@ -475,6 +476,8 @@ struct GenericRuntimeSessionReady {
     mouse_button_mapping: Option<vine_core::RuntimeMouseButtonMapping>,
     #[serde(skip_serializing_if = "Option::is_none")]
     keyboard_state: Option<RuntimeKeyboardState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor_position: Option<vine_core::RuntimeCursorPosition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_keyboard_event_receipt: Option<RuntimeKeyboardEventReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2724,6 +2727,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9Present
                     | GenericRuntimeCapability::D3d9PostPresentContinuation
                     | GenericRuntimeCapability::User32AsyncKeyStateInput
+                    | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
             )
         ) {
             let loader = kernel32_policy
@@ -3395,11 +3399,23 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::D3d9Present
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
+                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+        )
+    );
+    let get_async_key_state_enabled = matches!(
+        enabled_capability,
+        Some(
+            GenericRuntimeCapability::User32AsyncKeyStateInput
+                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
         )
     );
     let get_async_key_state_input_enabled = matches!(
         enabled_capability,
         Some(GenericRuntimeCapability::User32AsyncKeyStateInput)
+    );
+    let get_window_rect_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::User32AsyncKeyStateInitialScan)
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
@@ -3410,6 +3426,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9Present
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
+                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3662,7 +3679,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9PostScenePresentGateway
             | GenericRuntimeCapability::D3d9Present
             | GenericRuntimeCapability::D3d9PostPresentContinuation
-            | GenericRuntimeCapability::User32AsyncKeyStateInput,
+            | GenericRuntimeCapability::User32AsyncKeyStateInput
+            | GenericRuntimeCapability::User32AsyncKeyStateInitialScan,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3821,7 +3839,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v27();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v28();
     if !matches!(
         user32_capability,
         Some(
@@ -4456,6 +4474,7 @@ fn run_v86_generic_runtime_session(
                 endpoint,
                 virtual_alloc_enabled,
                 set_rect_enabled,
+                get_window_rect_enabled,
             )
         };
         if endpoint_enabled {
@@ -4660,8 +4679,11 @@ fn run_v86_generic_runtime_session(
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
             primary_monitor: process.runtime.primary_monitor().cloned(),
             mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
-            keyboard_state: get_async_key_state_input_enabled
+            keyboard_state: get_async_key_state_enabled
                 .then(|| process.runtime.keyboard_state().cloned())
+                .flatten(),
+            cursor_position: get_window_rect_enabled
+                .then(|| process.runtime.cursor_position().cloned())
                 .flatten(),
             initial_keyboard_event_receipt,
             source_snapshot: process.runtime.source_snapshot().cloned(),
@@ -6617,6 +6639,7 @@ fn runtime_capability_enables_endpoint(
     endpoint: &ApiEndpointIdentity,
     virtual_alloc_enabled: bool,
     set_rect_enabled: bool,
+    get_window_rect_enabled: bool,
 ) -> bool {
     let get_monitor_info_a_enabled =
         matches!(enabled, Some(GenericRuntimeCapability::GetMonitorInfoA));
@@ -7296,6 +7319,7 @@ fn runtime_capability_enables_endpoint(
         }
         "LoadLibraryA" => load_library_a_enabled,
         "GetClientRect" => get_client_rect_enabled,
+        "GetWindowRect" | "GetCursorPos" => get_window_rect_enabled,
         "SetRect" => set_rect_enabled,
         "GetDC" | "GetStockObject" | "FillRect" | "ReleaseDC" => window_dc_fill_enabled,
         "SetWindowLongA" => set_window_long_a_enabled,
@@ -14248,6 +14272,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-async-key-state-input" | "user32-async-key-state-input-continuation" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInput
+                }
+                "user32-async-key-state-initial-scan" => {
+                    GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
