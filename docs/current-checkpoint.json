@@ -185,8 +185,8 @@
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 5021416,
-      "sha256": "706216ac277a33c09cc975f026b5acecf0fbfc2f0609eb7d77134be412bee020"
+      "bytes": 5054853,
+      "sha256": "e195e93bc681db98f153a9d877f4624622bce6c7655665cf2a93aa4528f4ec66"
     },
     "browserRuntimeFixture": {
       "bytes": 3584,
@@ -2729,8 +2729,8 @@
       "nodeOracleReportBytes": 1775000,
       "nodeOracleReportSha256": "345850b8e9c124cf9e3c41ecca5ff57fab01edb2dc3fdddad13c5821eee989ba",
       "browserReportSchemaVersion": 16,
-      "browserReportBytes": 3403083,
-      "browserReportSha256": "18f2089bbaf745d957ffb6683993235461471b7b3bd0e92ce478a51c487478bb",
+      "browserReportBytes": 3403084,
+      "browserReportSha256": "cfdbd72d92e1d0f3657addc7b1fd4779515b54d1785f2f55abbfa0679d00aadf",
       "archiveSourceReadCompletions": 3,
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceReadOffsets": [0, 16, 400],
