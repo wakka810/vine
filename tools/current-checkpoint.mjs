@@ -407,21 +407,23 @@ export function validateCurrentCheckpoint(manifest) {
   const timerClockGenerations = d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = d3d9RecreatedTexturesActive
-    ? "5000,45930000"
-    : createDirectoryAActive
-      ? "5000,34870000"
-      : getFileAttributesAActive
-        ? "5000,34685000"
-        : sleepZeroActive
-          ? "5000,34550000"
-          : archiveSourceReadActive
-            ? "5000,23580000"
-            : dragAcceptFilesActive
-              ? "5000,23530000"
-              : mainLoopContinuationActive
-                ? "5000,10000,15000,20000,25000,30000,35000"
-                : "5000,10000,15000";
+  const timerDeadlines = d3d9PostRasterStatusWaitableTimerActive
+    ? "5000,45935000"
+    : d3d9RecreatedTexturesActive
+      ? "5000,45930000"
+      : createDirectoryAActive
+        ? "5000,34870000"
+        : getFileAttributesAActive
+          ? "5000,34685000"
+          : sleepZeroActive
+            ? "5000,34550000"
+            : archiveSourceReadActive
+              ? "5000,23580000"
+              : dragAcceptFilesActive
+                ? "5000,23530000"
+                : mainLoopContinuationActive
+                  ? "5000,10000,15000,20000,25000,30000,35000"
+                  : "5000,10000,15000";
   const timerPacingRequestIds = d3d9PostRasterStatusWaitableTimerActive
     ? "3,9198"
     : d3d9RecreatedTexturesActive
