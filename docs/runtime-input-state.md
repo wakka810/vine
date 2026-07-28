@@ -48,10 +48,16 @@ return zero without consuming the pressed bit or mutating state.
 
 The primary checkpoint posts one deterministic `ControlLeft` key-down event
 through the same browser protocol used by live DOM input. Rust aggregates it to
-`VK_CONTROL`; the first primary `GetAsyncKeyState(VK_CONTROL)` consumes
-`0x8001` and returns sign-extended `0xFFFF8001`. This demonstrates one bounded
-primary DOM／Worker／Wasm／Rust input-consumption path. It does not yet
-demonstrate gameplay response or DirectInput keyboard-device state.
+`VK_CONTROL`; the first primary `GetAsyncKeyState(VK_CONTROL)` consumes the
+pressed bit and returns sign-extended `0xFFFF8001`. With no second input event,
+a later primary poll of the same generic key returns `0xFFFF8000`. Node and
+Chrome therefore demonstrate that the pressed bit is one-shot while the
+current-down bit remains set across repeated polling. The continuation performs
+three additional immutable reads from source object 3 (`sysgrp.arc`) in both
+runs. Because no zero-input counterfactual was run, this records ordered source
+activity without claiming that the key event caused those reads or produced a
+visible gameplay response. Key-up and DirectInput keyboard-device state also
+remain outside this checkpoint.
 
 ## Mouse-button mapping
 
@@ -133,8 +139,8 @@ side-specific state independence, key-up, invalid and unfocused queries,
 LastError preservation, zero guest writes, and policy／authority failure
 atomicity.
 
-The native primary and confirmation traces, controlled Node semantic run, and
-Chrome Worker run are recorded in
+The native primary and confirmation traces, controlled two-query Node semantic
+run, and Chrome Worker run are recorded in
 [windows-native-evidence.md](windows-native-evidence.md). Mouse-mapping evidence
 remains in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
@@ -145,7 +151,8 @@ mouse translation, capture, raw input, callback-producing DirectInput variants,
 keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
 general device state. Pointer normalization is present at the adapter boundary,
 but primary pointer consumption is not demonstrated. The bounded controlled
-Control event proves transport and one User32 consumer only; arbitrary live
-gameplay input, IME text composition, browser shortcut suppression, and game
-response remain future scenario evidence. It does not change host OS input
-state, and TypeScript remains an adapter rather than Windows-state authority.
+Control event proves transport, one User32 consumer, and pressed-bit consumption
+across two held-key queries only; arbitrary live gameplay input, key release,
+IME text composition, browser shortcut suppression, and game response remain
+future scenario evidence. It does not change host OS input state, and TypeScript
+remains an adapter rather than Windows-state authority.

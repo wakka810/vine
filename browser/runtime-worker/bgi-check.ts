@@ -41,7 +41,8 @@ const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
 const d3d9Canvas =
   capabilityProfile === "d3d9-first-present" ||
   capabilityProfile === "d3d9-post-present-continuation" ||
-  capabilityProfile === "user32-async-key-state-input"
+  capabilityProfile === "user32-async-key-state-input" ||
+  capabilityProfile === "user32-async-key-state-input-continuation"
     ? requiredElement<HTMLCanvasElement>("#surface").transferControlToOffscreen()
     : undefined;
 const sessionId = 1;
@@ -148,7 +149,8 @@ const startMessage = {
             capabilityProfile === "d3d9-post-scene-present-gateway" ||
             capabilityProfile === "d3d9-first-present" ||
             capabilityProfile === "d3d9-post-present-continuation" ||
-            capabilityProfile === "user32-async-key-state-input"
+            capabilityProfile === "user32-async-key-state-input" ||
+            capabilityProfile === "user32-async-key-state-input-continuation"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -178,7 +180,8 @@ const startMessage = {
       capabilityProfile === "d3d9-post-scene-present-gateway" ||
       capabilityProfile === "d3d9-first-present" ||
       capabilityProfile === "d3d9-post-present-continuation" ||
-      capabilityProfile === "user32-async-key-state-input"
+      capabilityProfile === "user32-async-key-state-input" ||
+      capabilityProfile === "user32-async-key-state-input-continuation"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -189,7 +192,10 @@ const startMessage = {
   ...(d3d9Canvas === undefined ? {} : { d3d9Canvas }),
 } satisfies MainToWorkerMessage;
 worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
-if (capabilityProfile === "user32-async-key-state-input") {
+if (
+  capabilityProfile === "user32-async-key-state-input" ||
+  capabilityProfile === "user32-async-key-state-input-continuation"
+) {
   worker.postMessage({
     type: "keyboard-input",
     protocolVersion,
@@ -283,7 +289,8 @@ function parseCapabilityProfile(
     value === "d3d9-post-scene-present-gateway" ||
     value === "d3d9-first-present" ||
     value === "d3d9-post-present-continuation" ||
-    value === "user32-async-key-state-input"
+    value === "user32-async-key-state-input" ||
+    value === "user32-async-key-state-input-continuation"
     ? value
     : undefined;
 }

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 46 as const;
+export const protocolVersion = 47 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -40,7 +40,8 @@ export type BgiCapabilityProfile =
   | "d3d9-post-scene-present-gateway"
   | "d3d9-first-present"
   | "d3d9-post-present-continuation"
-  | "user32-async-key-state-input";
+  | "user32-async-key-state-input"
+  | "user32-async-key-state-input-continuation";
 
 export type RuntimeKeyboardSourceEventKind =
   | "focus-gained"
@@ -1399,6 +1400,32 @@ export interface SessionReport {
         lastCompletionInstructionCount: number;
         virtualKey: 0x11;
         result: { action: "set"; value: 0xffff_8001 };
+        lastError: 0;
+        inputEventSequence: 1;
+        inputVirtualKey: 0xa2;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "user32-async-key-state-input-continuation";
+        implementationId: "user32.get-async-key-state.v1";
+        requiredCompletions: 2;
+        completionCount: 2;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        firstResult: { action: "set"; value: 0xffff_8001 };
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        virtualKey: 0x11;
+        result: { action: "set"; value: 0xffff_8000 };
         lastError: 0;
         inputEventSequence: 1;
         inputVirtualKey: 0xa2;

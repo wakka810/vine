@@ -173,9 +173,13 @@ export function validateCurrentCheckpoint(manifest) {
   const d3d9PostRasterStatusWaitableTimerActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-raster-status-waitable-timer";
-  const user32AsyncKeyStateInputActive =
+  const user32AsyncKeyStateInputContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-async-key-state-input";
+    "user32-async-key-state-input-continuation";
+  const user32AsyncKeyStateInputActive =
+    user32AsyncKeyStateInputContinuationActive ||
+    root.activeRuntimeCheckpoint?.profile ===
+      "user32-async-key-state-input";
   const d3d9PostPresentStructuredStopActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-present-continuation";
@@ -313,7 +317,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = d3d9PostPresentContinuationActive
+  const timerCycleCount = user32AsyncKeyStateInputContinuationActive
+    ? 9_232
+    : d3d9PostPresentContinuationActive
     ? 9_205
     : d3d9PostRasterStatusWaitableTimerActive
     ? 9_187
@@ -332,14 +338,18 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? 7
                   : 3;
-  const timerArmCount = d3d9PostPresentContinuationActive
+  const timerArmCount = user32AsyncKeyStateInputContinuationActive
+    ? 9_232
+    : d3d9PostPresentContinuationActive
     ? 9_205
     : d3d9PostRasterStatusWaitableTimerActive
     ? 9_188
     : d3d9RecreatedTexturesActive
       ? 9_187
       : timerCycleCount;
-  const timerSetSequences = d3d9PostPresentContinuationActive
+  const timerSetSequences = user32AsyncKeyStateInputContinuationActive
+    ? "18681,128060"
+    : d3d9PostPresentContinuationActive
     ? "18681,127648"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "18681,127377"
@@ -358,7 +368,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
-  const timerSetInstructionCounts = d3d9PostPresentContinuationActive
+  const timerSetInstructionCounts = user32AsyncKeyStateInputContinuationActive
+    ? "11974074,29403502"
+    : d3d9PostPresentContinuationActive
     ? "11974074,28874710"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "11974074,28761446"
@@ -377,7 +389,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = d3d9PostPresentContinuationActive
+  const timerWaitSequences = user32AsyncKeyStateInputContinuationActive
+    ? "18682,128061"
+    : d3d9PostPresentContinuationActive
     ? "18682,127649"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "18682,127378"
@@ -396,7 +410,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = d3d9PostPresentContinuationActive
+  const timerWaitInstructionCounts = user32AsyncKeyStateInputContinuationActive
+    ? "11974080,29403508"
+    : d3d9PostPresentContinuationActive
     ? "11974080,28874716"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "11974080,28761452"
@@ -415,7 +431,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = d3d9PostPresentContinuationActive
+  const timerGenerations = user32AsyncKeyStateInputContinuationActive
+    ? "1,9232"
+    : d3d9PostPresentContinuationActive
     ? "1,9205"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,1"
@@ -434,12 +452,16 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = d3d9PostPresentContinuationActive
+  const timerClockGenerations = user32AsyncKeyStateInputContinuationActive
+    ? "1,9232"
+    : d3d9PostPresentContinuationActive
     ? "1,9205"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = d3d9PostPresentContinuationActive
+  const timerDeadlines = user32AsyncKeyStateInputContinuationActive
+    ? "5000,46160000"
+    : d3d9PostPresentContinuationActive
     ? "5000,46025000"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "5000,45935000"
@@ -458,7 +480,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = d3d9PostPresentContinuationActive
+  const timerPacingRequestIds = user32AsyncKeyStateInputContinuationActive
+    ? "3,9247"
+    : d3d9PostPresentContinuationActive
     ? "3,9216"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "3,9198"
@@ -477,7 +501,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = d3d9PostPresentContinuationActive
+  const timerPacingRegistrationIds = user32AsyncKeyStateInputContinuationActive
+    ? "1,9232"
+    : d3d9PostPresentContinuationActive
     ? "1,9205"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
@@ -496,7 +522,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = d3d9PostPresentContinuationActive
+  const timerPacingClockGenerations = user32AsyncKeyStateInputContinuationActive
+    ? "0,9231"
+    : d3d9PostPresentContinuationActive
     ? "0,9204"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "0,9186"
@@ -515,7 +543,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = d3d9PostPresentContinuationActive
+  const timerNextRegistrationIds = user32AsyncKeyStateInputContinuationActive
+    ? "2,9233"
+    : d3d9PostPresentContinuationActive
     ? "2,9206"
     : d3d9PostRasterStatusWaitableTimerActive
     ? "2,9188"
@@ -534,7 +564,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = user32AsyncKeyStateInputActive
+  const profileExpectations = user32AsyncKeyStateInputContinuationActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 107_148,
+        browserMappingDirtyPages: 110_362,
+        browserSuccessExecutionTransitions: 419_208,
+        latestSchema:
+          "vine.v86-bgi-user32-async-key-state-input-continuation",
+        latestWritebackBatches: 128_223,
+        latestWritebackDirtyPages: 177_196,
+        latestWritebackChangedBytes: 6_792_623,
+        latestHostDeltaBatches: 107_148,
+        latestFinalMemoryGeneration: 236_665,
+        semanticCallDigestSha256:
+          "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404",
+        memoryContentSha256:
+          "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87",
+      }
+    : user32AsyncKeyStateInputActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_909,
@@ -2290,7 +2338,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (user32AsyncKeyStateInputActive
+      (user32AsyncKeyStateInputContinuationActive
+        ? 15
+        : user32AsyncKeyStateInputActive
         ? 14
         : d3d9PostPresentStructuredStopActive
           ? 13
@@ -2298,9 +2348,17 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
-      (setWindowPosFrameChangeMoveActive ? 38 : sleepZeroActive ? 29 : 21) ||
+      (user32AsyncKeyStateInputContinuationActive
+        ? 39
+        : setWindowPosFrameChangeMoveActive
+          ? 38
+          : sleepZeroActive
+            ? 29
+            : 21) ||
     bgiMappingOperations.commit !==
-      (setWindowPosFrameChangeMoveActive
+      (user32AsyncKeyStateInputContinuationActive
+        ? 149
+        : setWindowPosFrameChangeMoveActive
         ? 142
         : sleepZeroActive
           ? 94
@@ -2313,7 +2371,13 @@ export function validateCurrentCheckpoint(manifest) {
       (setWindowPosFrameChangeMoveActive ? 62 : sleepZeroActive ? 45 : 28) ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !==
-      (setWindowPosFrameChangeMoveActive ? 21 : sleepZeroActive ? 12 : 4) ||
+      (user32AsyncKeyStateInputContinuationActive
+        ? 22
+        : setWindowPosFrameChangeMoveActive
+          ? 21
+          : sleepZeroActive
+            ? 12
+            : 4) ||
     bgiBrowserEvidence.mappingDeltas !==
       profileExpectations.browserMappingDeltas ||
     bgiBrowserEvidence.mappingDirtyPages !==
@@ -2328,7 +2392,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (d3d9PostPresentContinuationActive
+      (user32AsyncKeyStateInputContinuationActive
+        ? 2_020
+        : d3d9PostPresentContinuationActive
         ? 2_014
         : d3d9RecreatedTexturesActive
         ? 2_010
@@ -2365,7 +2431,9 @@ export function validateCurrentCheckpoint(manifest) {
       1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (d3d9PostPresentContinuationActive
+      (user32AsyncKeyStateInputContinuationActive
+        ? 14
+        : d3d9PostPresentContinuationActive
         ? 11
         : createDirectoryAActive
           ? 10
@@ -18580,7 +18648,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (user32AsyncKeyStateInputActive
+      (user32AsyncKeyStateInputContinuationActive
+        ? "Rust-owned held-key GetAsyncKeyState continuation with one-shot pressed-bit consumption across repeated primary polling"
+        : user32AsyncKeyStateInputActive
         ? "Rust-owned focused virtual-key state with versioned browser input ingress and signed-short GetAsyncKeyState query semantics"
         : setWindowPosFrameChangeMoveActive
         ? "Rust-owned SetWindowPos frame-change move callback transaction over RuntimeUser32 geometry authority"
@@ -21087,7 +21157,8 @@ export function validateCurrentCheckpoint(manifest) {
     ]) {
       if (
         (evidence.getAsyncKeyStateCompletions ??
-          evidence.getAsyncKeyStateNodeCompletions) !== 1 ||
+          evidence.getAsyncKeyStateNodeCompletions) !==
+          (user32AsyncKeyStateInputContinuationActive ? 2 : 1) ||
         evidence.keyboardInputReceivedMessages !== 1 ||
         evidence.keyboardInputQueuedBeforePrepare !== 1 ||
         evidence.keyboardInputReceiptSequence !== 1 ||
@@ -21128,9 +21199,41 @@ export function validateCurrentCheckpoint(manifest) {
         evidence.getAsyncKeyStateLastErrorPolicy !== "preserve" ||
         evidence.getAsyncKeyStateGuestMemoryMutation !== false ||
         evidence.getAsyncKeyStateFailureAtomicity !== true ||
-        evidence.getAsyncKeyStateNodeCompletions !== 1 ||
-        evidence.getAsyncKeyStateChromeCompletions !== 1 ||
-        evidence.getAsyncKeyStateNodeChromeOrderedSemanticsMatched !== true
+        evidence.getAsyncKeyStateNodeCompletions !==
+          (user32AsyncKeyStateInputContinuationActive ? 2 : 1) ||
+        evidence.getAsyncKeyStateChromeCompletions !==
+          (user32AsyncKeyStateInputContinuationActive ? 2 : 1) ||
+        evidence.getAsyncKeyStateNodeChromeOrderedSemanticsMatched !== true ||
+        (user32AsyncKeyStateInputContinuationActive &&
+          (evidence.getAsyncKeyStateContinuationSequence !== 128_117 ||
+            evidence.getAsyncKeyStateContinuationInstructionCount !==
+              30_263_849 ||
+            evidence.getAsyncKeyStateContinuationArguments?.join(",") !==
+              "0x00000011" ||
+            evidence.getAsyncKeyStateContinuationResult !== "0xffff8000" ||
+            evidence.getAsyncKeyStateContinuationReturnAddress !==
+              "0x10068405" ||
+            evidence.getAsyncKeyStateContinuationStackPointers?.join(",") !==
+              "0x006ff53c,0x006ff544" ||
+            evidence.getAsyncKeyStateContinuationLastError !== 0 ||
+            evidence.getAsyncKeyStateContinuationGuestWriteBytes !== 0 ||
+            evidence.getAsyncKeyStateContinuationAdditionalInputEvents !== 0 ||
+            evidence.getAsyncKeyStateContinuationPressedBitConsumed !== true ||
+            evidence.getAsyncKeyStateContinuationDownBitRetained !== true ||
+            evidence.getAsyncKeyStateContinuationSourceReadCompletions !== 3 ||
+            evidence.getAsyncKeyStateContinuationSourceReadObjectId !== 3 ||
+            evidence.getAsyncKeyStateContinuationSourceReadSequences?.join(",") !==
+              "127970,127972,127992" ||
+            evidence.getAsyncKeyStateContinuationSourceReadOffsets?.join(",") !==
+              "0,16,4114329" ||
+            evidence.getAsyncKeyStateContinuationSourceReadBytes?.join(",") !==
+              "16,19968,4651" ||
+            evidence.getAsyncKeyStateContinuationSourceReadPayloadSha256?.join(",") !==
+              "1f08b1b89c913b0b677353a7aee5284306cdd5ed1f0427e9ef72700902e23dc6,42931ab19f71d15c16e2bbae121ef460b4f0987e2245baea489b46c94ae9a97e,a2353879125f99ea538c31c52942c812abd875b7bd0b98b68344f0bfc8a0b2b2" ||
+            evidence.getAsyncKeyStateContinuationSourceReadNodeChromeMatched !==
+              true ||
+            evidence.getAsyncKeyStateContinuationSourceReadCausalityEstablished !==
+              false))
       ) {
         errors.push(`${label} GetAsyncKeyState input evidence is invalid`);
       }
@@ -21140,26 +21243,75 @@ export function validateCurrentCheckpoint(manifest) {
       ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
     ]) {
       if (
-        completion.capability !== "user32-async-key-state-input" ||
+        completion.capability !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? "user32-async-key-state-input-continuation"
+            : "user32-async-key-state-input") ||
         completion.implementationId !== "user32.get-async-key-state.v1" ||
-        completion.requiredCompletions !== 1 ||
-        completion.completionCount !== 1 ||
-        completion.lastCompletionSequence !== 127_691 ||
-        completion.lastCompletionInstructionCount !== 29_325_480 ||
+        completion.requiredCompletions !==
+          (user32AsyncKeyStateInputContinuationActive ? 2 : 1) ||
+        completion.completionCount !==
+          (user32AsyncKeyStateInputContinuationActive ? 2 : 1) ||
+        completion.lastCompletionSequence !==
+          (user32AsyncKeyStateInputContinuationActive ? 128_117 : 127_691) ||
+        completion.lastCompletionInstructionCount !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? 30_263_849
+            : 29_325_480) ||
         completion.virtualKey !== 17 ||
-        completion.result !== "0xffff8001" ||
+        completion.result !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? "0xffff8000"
+            : "0xffff8001") ||
         completion.lastError !== 0 ||
         completion.inputEventSequence !== 1 ||
         completion.inputVirtualKey !== 162 ||
-        completion.instructionCount !== 29_325_523 ||
-        completion.nextEndpoint?.endpointId !== 8 ||
-        completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
-        completion.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+        completion.instructionCount !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? 30_263_940
+            : 29_325_523) ||
+        completion.nextEndpoint?.endpointId !==
+          (user32AsyncKeyStateInputContinuationActive ? 75 : 8) ||
+        completion.nextEndpoint?.endpointAddress !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? "0x7f0004a0"
+            : "0x7f000070") ||
+        completion.nextEndpoint?.api !==
+          (user32AsyncKeyStateInputContinuationActive
+            ? "KERNEL32.dll!HeapAlloc"
+            : "WINMM.dll!timeGetTime") ||
         completion.memoryContentSha256 !==
-          "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4"
+          (user32AsyncKeyStateInputContinuationActive
+            ? "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87"
+            : "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4") ||
+        (user32AsyncKeyStateInputContinuationActive &&
+          (completion.firstCompletionSequence !== 127_691 ||
+            completion.firstCompletionInstructionCount !== 29_325_480 ||
+            completion.firstResult !== "0xffff8001"))
       ) {
         errors.push(`${label} GetAsyncKeyState checkpoint evidence is invalid`);
       }
+    }
+    if (
+      user32AsyncKeyStateInputContinuationActive &&
+      (currentStop.kind !== "capability-checkpoint" ||
+        currentStop.nextCheckpoint !==
+          "user32-async-key-state-initial-scan" ||
+        currentStop.pausedHistoricalCheckpoint !==
+          "user32-async-key-state-input-continuation" ||
+        currentStop.instructionCount !== 30_263_940 ||
+        currentStop.capabilityCluster !==
+          "user32-async-key-state-initial-scan" ||
+        currentStop.reason !==
+          "user32-async-key-state-input-continuation-checkpoint-complete" ||
+        currentStop.nextEndpoint?.endpointKind !== "runtime-system-export" ||
+        currentStop.nextEndpoint?.endpointId !== 75 ||
+        currentStop.nextEndpoint?.api !== "KERNEL32.dll!HeapAlloc" ||
+        currentStop.nextEndpoint?.endpointAddress !== "0x7f0004a0" ||
+        currentStop.nextEndpoint?.observedModule !== "KERNEL32.dll" ||
+        currentStop.nextEndpoint?.observedSymbol !== "HeapAlloc")
+    ) {
+      errors.push("GetAsyncKeyState continuation next checkpoint is invalid");
     }
     if (
       latestEvidence.getAsyncKeyStateImplemented !== true ||
@@ -22249,6 +22401,9 @@ export function renderReadmeStatus(manifest) {
                             : next.completion.capability ===
                                 "d3d9-first-present"
                               ? "first frame presentations"
+                              : next.completion.capability ===
+                                  "user32-async-key-state-input-continuation"
+                                ? "held-key async-key queries"
                               : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +

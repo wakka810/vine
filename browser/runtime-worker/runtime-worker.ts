@@ -325,7 +325,8 @@ function isD3d9Present(
   return (
     profile === "d3d9-first-present" ||
     profile === "d3d9-post-present-continuation" ||
-    profile === "user32-async-key-state-input"
+    profile === "user32-async-key-state-input" ||
+    profile === "user32-async-key-state-input-continuation"
   );
 }
 
@@ -334,14 +335,24 @@ function isD3d9PostPresentContinuation(
 ): boolean {
   return (
     profile === "d3d9-post-present-continuation" ||
-    profile === "user32-async-key-state-input"
+    profile === "user32-async-key-state-input" ||
+    profile === "user32-async-key-state-input-continuation"
   );
 }
 
 function isUser32AsyncKeyStateInput(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-async-key-state-input";
+  return (
+    profile === "user32-async-key-state-input" ||
+    profile === "user32-async-key-state-input-continuation"
+  );
+}
+
+function isUser32AsyncKeyStateInputContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-async-key-state-input-continuation";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -3391,7 +3402,9 @@ class BrowserRuntimeSession {
           checkpoint.capability === "d3d9-post-raster-status-waitable-timer" ||
           checkpoint.capability === "d3d9-post-scene-present-gateway" ||
           checkpoint.capability === "d3d9-first-present" ||
-          checkpoint.capability === "user32-async-key-state-input"
+          checkpoint.capability === "user32-async-key-state-input" ||
+          checkpoint.capability ===
+            "user32-async-key-state-input-continuation"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3450,6 +3463,9 @@ class BrowserRuntimeSession {
       "checkpoint-complete",
       checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
+        : checkpoint.capability ===
+            "user32-async-key-state-input-continuation"
+          ? "GetAsyncKeyState held-key continuation checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-input"
           ? "GetAsyncKeyState controlled keyboard input checkpoint completed"
         : checkpoint.capability === "d3d9-end-scene"
@@ -5932,72 +5948,130 @@ class BrowserRuntimeSession {
     ) {
       const input = this.#report.keyboardInput;
       const inputEvent = input.receipts[0];
-      invariant(
-        this.#report.getAsyncKeyState === null &&
+      if (this.#report.getAsyncKeyState === null) {
+        invariant(
           this.#report.checkpointCompletion === null &&
-          call.sequence === 127_691 &&
-          this.#report.instructions === 29_325_480 &&
+            call.sequence === 127_691 &&
+            this.#report.instructions === 29_325_480 &&
+            call.module.toLowerCase() === "user32.dll" &&
+            call.symbol === "GetAsyncKeyState" &&
+            call.arguments.length === 1 &&
+            call.arguments[0] === 0x11 &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.result.value === 0xffff_8001 &&
+            call.returnAddress === 0x1006_8405 &&
+            call.stackPointerBefore === 0x006f_f53c &&
+            call.stackPointerAfter === 0x006f_f544 &&
+            call.lastError === 0 &&
+            call.guestWrites.length === 0 &&
+            input.receivedMessages === 1 &&
+            input.queuedBeforePrepare === 1 &&
+            input.receipts.length === 1 &&
+            inputEvent?.sequence === 1 &&
+            inputEvent.kind === "key-down" &&
+            inputEvent.virtualKey === 0xa2 &&
+            inputEvent.repeat === false &&
+            inputEvent.sourceFocused === true &&
+            inputEvent.generation === 1 &&
+            inputEvent.affectedKeys.length === 2 &&
+            inputEvent.affectedKeys[0]?.virtualKey === 0x11 &&
+            inputEvent.affectedKeys[0].down === true &&
+            inputEvent.affectedKeys[0].pressedSinceLastQuery === true &&
+            inputEvent.affectedKeys[1]?.virtualKey === 0xa2 &&
+            inputEvent.affectedKeys[1].down === true &&
+            inputEvent.affectedKeys[1].pressedSinceLastQuery === true,
+          `GetAsyncKeyState browser input contract changed: ${JSON.stringify({
+            instructions: this.#report.instructions,
+            call,
+            input,
+          })}`,
+        );
+        this.#report.getAsyncKeyState = {
+          call: structuredClone(call),
+          compatibilityPolicyId:
+            "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+          keyboardProfileId: "foreground-focused-virtual-key-state-v1",
+          inputEvent: structuredClone(inputEvent),
+          stateAuthority: "rust-runtime-input-keyboard",
+          browserSourceAuthority: "typescript-browser-input-adapter",
+          returnEncoding:
+            "signed-short-high-bit-down-low-bit-pressed-since-query",
+          modifierAggregation: "side-specific-to-generic",
+          pressedBitConsumption: "queried-virtual-key-only",
+          sourceFocusRequired: true,
+          focusedForegroundWindowRequired: true,
+          lastErrorPolicy: "preserve",
+          guestMemoryMutation: false,
+          failureAtomicity: true,
+        };
+        if (
+          !isUser32AsyncKeyStateInputContinuation(
+            this.#configuration.capabilityProfile,
+          )
+        ) {
+          this.#report.checkpointCompletion = {
+            capability: "user32-async-key-state-input",
+            implementationId: "user32.get-async-key-state.v1",
+            requiredCompletions: 1,
+            completionCount: 1,
+            lastCompletionSequence: call.sequence,
+            lastCompletionInstructionCount: this.#report.instructions,
+            virtualKey: 0x11,
+            result: { action: "set", value: 0xffff_8001 },
+            lastError: 0,
+            inputEventSequence: 1,
+            inputVirtualKey: 0xa2,
+            instructionCount: 0,
+            nextEndpoint: { id: 0, address: 0 },
+            memoryContentSha256: "",
+          };
+          this.#bgiCheckpointPending = true;
+        }
+        return;
+      }
+      const firstCall = this.#report.getAsyncKeyState.call;
+      invariant(
+        isUser32AsyncKeyStateInputContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+          this.#report.checkpointCompletion === null &&
+          firstCall.sequence === 127_691 &&
+          call.sequence === 128_117 &&
+          this.#report.instructions === 30_263_849 &&
           call.module.toLowerCase() === "user32.dll" &&
           call.symbol === "GetAsyncKeyState" &&
           call.arguments.length === 1 &&
           call.arguments[0] === 0x11 &&
           "action" in call.result &&
           call.result.action === "set" &&
-          call.result.value === 0xffff_8001 &&
+          call.result.value === 0xffff_8000 &&
           call.returnAddress === 0x1006_8405 &&
           call.stackPointerBefore === 0x006f_f53c &&
           call.stackPointerAfter === 0x006f_f544 &&
           call.lastError === 0 &&
           call.guestWrites.length === 0 &&
           input.receivedMessages === 1 &&
-          input.queuedBeforePrepare === 1 &&
-          input.receipts.length === 1 &&
-          inputEvent?.sequence === 1 &&
-          inputEvent.kind === "key-down" &&
-          inputEvent.virtualKey === 0xa2 &&
-          inputEvent.repeat === false &&
-          inputEvent.sourceFocused === true &&
-          inputEvent.generation === 1 &&
-          inputEvent.affectedKeys.length === 2 &&
-          inputEvent.affectedKeys[0]?.virtualKey === 0x11 &&
-          inputEvent.affectedKeys[0].down === true &&
-          inputEvent.affectedKeys[0].pressedSinceLastQuery === true &&
-          inputEvent.affectedKeys[1]?.virtualKey === 0xa2 &&
-          inputEvent.affectedKeys[1].down === true &&
-          inputEvent.affectedKeys[1].pressedSinceLastQuery === true,
-        `GetAsyncKeyState browser input contract changed: ${JSON.stringify({
+          input.receipts.length === 1,
+        `GetAsyncKeyState held-key continuation changed: ${JSON.stringify({
           instructions: this.#report.instructions,
+          firstCall,
           call,
           input,
         })}`,
       );
-      this.#report.getAsyncKeyState = {
-        call: structuredClone(call),
-        compatibilityPolicyId:
-          "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
-        keyboardProfileId: "foreground-focused-virtual-key-state-v1",
-        inputEvent: structuredClone(inputEvent),
-        stateAuthority: "rust-runtime-input-keyboard",
-        browserSourceAuthority: "typescript-browser-input-adapter",
-        returnEncoding:
-          "signed-short-high-bit-down-low-bit-pressed-since-query",
-        modifierAggregation: "side-specific-to-generic",
-        pressedBitConsumption: "queried-virtual-key-only",
-        sourceFocusRequired: true,
-        focusedForegroundWindowRequired: true,
-        lastErrorPolicy: "preserve",
-        guestMemoryMutation: false,
-        failureAtomicity: true,
-      };
       this.#report.checkpointCompletion = {
-        capability: "user32-async-key-state-input",
+        capability: "user32-async-key-state-input-continuation",
         implementationId: "user32.get-async-key-state.v1",
-        requiredCompletions: 1,
-        completionCount: 1,
+        requiredCompletions: 2,
+        completionCount: 2,
+        firstCompletionSequence: firstCall.sequence,
+        firstCompletionInstructionCount: 29_325_480,
+        firstResult: { action: "set", value: 0xffff_8001 },
         lastCompletionSequence: call.sequence,
         lastCompletionInstructionCount: this.#report.instructions,
         virtualKey: 0x11,
-        result: { action: "set", value: 0xffff_8001 },
+        result: { action: "set", value: 0xffff_8000 },
         lastError: 0,
         inputEventSequence: 1,
         inputVirtualKey: 0xa2,
@@ -8067,7 +8141,8 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      isUser32AsyncKeyStateInput(this.#configuration.capabilityProfile) &&
+      this.#configuration.capabilityProfile ===
+        "user32-async-key-state-input" &&
       terminal.outcome === "checkpoint-complete"
     ) {
       const input = this.#report.keyboardInput;
@@ -8110,6 +8185,59 @@ class BrowserRuntimeSession {
             this.#waitForSingleObjectExCompletions,
           pacing,
         })}`,
+      );
+    }
+    if (
+      isUser32AsyncKeyStateInputContinuation(
+        this.#configuration.capabilityProfile,
+      ) && terminal.outcome === "checkpoint-complete"
+    ) {
+      const input = this.#report.keyboardInput;
+      const firstQuery = this.#report.getAsyncKeyState;
+      const checkpoint = this.#report.checkpointCompletion;
+      const pacing = this.#timerPacing.metrics();
+      invariant(
+        this.#report.supportedCallCount === 128_117 &&
+          this.#report.supportedCallSemanticsSha256 ===
+            "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404" &&
+          this.#report.firstUnsupported === null &&
+          firstQuery?.call.sequence === 127_691 &&
+          "action" in firstQuery.call.result &&
+          firstQuery.call.result.action === "set" &&
+          firstQuery.call.result.value === 0xffff_8001 &&
+          input.receivedMessages === 1 &&
+          input.queuedBeforePrepare === 1 &&
+          input.receipts.length === 1 &&
+          checkpoint?.capability ===
+            "user32-async-key-state-input-continuation" &&
+          checkpoint.firstCompletionSequence === 127_691 &&
+          checkpoint.firstCompletionInstructionCount === 29_325_480 &&
+          checkpoint.firstResult.value === 0xffff_8001 &&
+          checkpoint.lastCompletionSequence === 128_117 &&
+          checkpoint.lastCompletionInstructionCount === 30_263_849 &&
+          checkpoint.result.value === 0xffff_8000 &&
+          checkpoint.instructionCount === 30_263_940 &&
+          checkpoint.nextEndpoint.id === 75 &&
+          checkpoint.nextEndpoint.address === 0x7f00_04a0 &&
+          checkpoint.memoryContentSha256 ===
+            "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87" &&
+          this.#waitForSingleObjectExCompletions === 9_232 &&
+          pacing.requests === 9_232 &&
+          pacing.completions === 9_232 &&
+          pacing.pending === 0,
+        `GetAsyncKeyState continuation checkpoint report changed: ${JSON.stringify(
+          {
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            input,
+            firstQuery,
+            checkpoint,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          },
+        )}`,
       );
     }
     if (this.#configuration.evidenceLevel === "full") {

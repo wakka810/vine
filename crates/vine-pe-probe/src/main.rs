@@ -14246,7 +14246,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-post-present-continuation" => {
                     GenericRuntimeCapability::D3d9PostPresentContinuation
                 }
-                "user32-async-key-state-input" => {
+                "user32-async-key-state-input" | "user32-async-key-state-input-continuation" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInput
                 }
                 "kernel32-leave-critical-section" => {

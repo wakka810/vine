@@ -80,8 +80,11 @@ const d3d9PostRasterStatusWaitableTimerProfile =
   bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayProfile =
   bgiProfile === "d3d9-post-scene-present-gateway";
+const user32AsyncKeyStateInputContinuationProfile =
+  bgiProfile === "user32-async-key-state-input-continuation";
 const user32AsyncKeyStateInputProfile =
-  bgiProfile === "user32-async-key-state-input";
+  bgiProfile === "user32-async-key-state-input" ||
+  user32AsyncKeyStateInputContinuationProfile;
 const d3d9PostPresentContinuationProfile =
   bgiProfile === "d3d9-post-present-continuation" ||
   user32AsyncKeyStateInputProfile;
@@ -795,6 +798,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-first-present",
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
+        "user32-async-key-state-input-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -839,6 +843,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-first-present",
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
+        "user32-async-key-state-input-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -883,29 +888,33 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-first-present",
         "d3d9-post-present-continuation",
         "user32-async-key-state-input",
+        "user32-async-key-state-input-continuation",
       ].includes(bgiProfile) && scenario === "success"
-        ? d3d9PostPresentContinuationProfile
-          ? 2_014
-          : d3d9RecreatedTexturesProfile
-          ? 2_010
-          : createDirectoryAProfile
-            ? 1_526
-            : getFileAttributesAProfile
-              ? 1_518
-              : sleepZeroProfile
-                ? 1_512
-                : bgiProfile === "kernel32-archive-source-read"
-                  ? 1_032
-                  : bgiProfile === "shell32-drag-accept-files"
-                    ? 1_030
-                    : bgiProfile === "primary-main-loop-progression" ||
-                        bgiProfile === "kernel32-leave-critical-section" ||
-                        bgiProfile ===
-                          "kernel32-enter-critical-section-continuation" ||
-                        bgiProfile ===
-                          "kernel32-leave-critical-section-continuation"
-                      ? 2
-                      : 1
+        ? user32AsyncKeyStateInputContinuationProfile
+          ? 2_020
+          : d3d9PostPresentContinuationProfile
+            ? 2_014
+            : d3d9RecreatedTexturesProfile
+              ? 2_010
+              : createDirectoryAProfile
+                ? 1_526
+                : getFileAttributesAProfile
+                  ? 1_518
+                  : sleepZeroProfile
+                    ? 1_512
+                    : bgiProfile === "kernel32-archive-source-read"
+                      ? 1_032
+                      : bgiProfile === "shell32-drag-accept-files"
+                        ? 1_030
+                        : bgiProfile === "primary-main-loop-progression" ||
+                            bgiProfile ===
+                              "kernel32-leave-critical-section" ||
+                            bgiProfile ===
+                              "kernel32-enter-critical-section-continuation" ||
+                            bgiProfile ===
+                              "kernel32-leave-critical-section-continuation"
+                          ? 2
+                          : 1
         : 0,
     );
     assert.deepEqual(evidence.report.initialCurrentDirectory, {
@@ -966,30 +975,32 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-create-directory-a" ||
         setWindowPosRepeatActivationProfile
       ) {
-        const pacingCount = d3d9PostPresentContinuationProfile
-          ? 9_205
-          : d3d9RecreatedTexturesProfile
-          ? d3d9PostRasterStatusWaitableTimerProfile
-            ? 9_187
-            : 9_186
-          : createDirectoryAProfile
-            ? 6_974
-            : getFileAttributesAProfile
-              ? 6_937
-              : sleepZeroProfile
-                ? 6_910
-                : bgiProfile === "kernel32-archive-source-read"
-                  ? 4_716
-                  : bgiProfile === "shell32-drag-accept-files"
-                    ? 4_706
-                    : bgiProfile === "primary-main-loop-progression" ||
-                        bgiProfile === "kernel32-leave-critical-section" ||
-                        bgiProfile ===
-                          "kernel32-enter-critical-section-continuation" ||
-                        bgiProfile ===
-                          "kernel32-leave-critical-section-continuation"
-                      ? 7
-                      : 3;
+        const pacingCount = user32AsyncKeyStateInputContinuationProfile
+          ? 9_232
+          : d3d9PostPresentContinuationProfile
+            ? 9_205
+            : d3d9RecreatedTexturesProfile
+              ? d3d9PostRasterStatusWaitableTimerProfile
+                ? 9_187
+                : 9_186
+              : createDirectoryAProfile
+                ? 6_974
+                : getFileAttributesAProfile
+                  ? 6_937
+                  : sleepZeroProfile
+                    ? 6_910
+                    : bgiProfile === "kernel32-archive-source-read"
+                      ? 4_716
+                      : bgiProfile === "shell32-drag-accept-files"
+                        ? 4_706
+                        : bgiProfile === "primary-main-loop-progression" ||
+                            bgiProfile === "kernel32-leave-critical-section" ||
+                            bgiProfile ===
+                              "kernel32-enter-critical-section-continuation" ||
+                            bgiProfile ===
+                              "kernel32-leave-critical-section-continuation"
+                          ? 7
+                          : 3;
         assert.deepEqual(evidence.report.timerPacing, {
           requests: pacingCount,
           completions: pacingCount,
@@ -1111,6 +1122,31 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                     offset: 9_729,
                     requestedBytes: 3_001,
                     transferredBytes: 3_001,
+                    succeeded: true,
+                  },
+                ]
+              : []),
+            ...(user32AsyncKeyStateInputContinuationProfile
+              ? [
+                  {
+                    objectId: 3,
+                    offset: 0,
+                    requestedBytes: 16,
+                    transferredBytes: 16,
+                    succeeded: true,
+                  },
+                  {
+                    objectId: 3,
+                    offset: 16,
+                    requestedBytes: 19_968,
+                    transferredBytes: 19_968,
+                    succeeded: true,
+                  },
+                  {
+                    objectId: 3,
+                    offset: 4_114_329,
+                    requestedBytes: 4_651,
+                    transferredBytes: 4_651,
                     succeeded: true,
                   },
                 ]
@@ -4440,6 +4476,42 @@ function validateBgiEquivalence(browser, oracle) {
           inputVirtualKey: oracleCheckpoint.inputVirtualKey,
         },
         "Chrome Worker async-key checkpoint differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "user32-async-key-state-input-continuation"
+    ) {
+      assert.deepEqual(
+        {
+          firstCompletionSequence: browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          firstResult: browserCheckpoint.firstResult,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          virtualKey: browserCheckpoint.virtualKey,
+          result: browserCheckpoint.result,
+          lastError: browserCheckpoint.lastError,
+          inputEventSequence: browserCheckpoint.inputEventSequence,
+          inputVirtualKey: browserCheckpoint.inputVirtualKey,
+        },
+        {
+          firstCompletionSequence: oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          firstResult: oracleCheckpoint.firstResult,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          virtualKey: oracleCheckpoint.virtualKey,
+          result: oracleCheckpoint.result,
+          lastError: oracleCheckpoint.lastError,
+          inputEventSequence: oracleCheckpoint.inputEventSequence,
+          inputVirtualKey: oracleCheckpoint.inputVirtualKey,
+        },
+        "Chrome Worker held-key continuation differs from the Node oracle",
       );
     }
     return;

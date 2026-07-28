@@ -1491,6 +1491,17 @@ Canonical stopは127,690 supported calls／29,325,480 instructions、semantic di
 keyboard event transport、focus／foreground gating、pressed-since-last-query bit、repeat、multi-key stateをclaimしない。
 <!-- END FROZEN HISTORICAL EVIDENCE -->
 
+Async keyboard input continuationはWorker message protocol 47／browser BGI report schema 15で検証する。
+一件のfocused `ControlLeft` key-downだけを投入し、side-specific `VK_LCONTROL`からgeneric
+`VK_CONTROL`へのaggregation、最初のsigned-SHORT `0xFFFF8001`、追加inputなしの後続pollで
+`0xFFFF8000`を要求する。これによりqueried generic keyのpressed-since-query bitだけが一度消費され、
+current-down bitは保持されることをNode／Chromeのordered semantics、LastError preserve、zero guest write、
+最終memory contentで一致させる。Continuation中に到達するsource object 3の三つのimmutable readもoffset／length／
+payload identityまで一致させるが、zero-input counterfactualがないためinputとの因果やvisible gameplay responseは
+acceptanceへ含めない。Key-up、全38-key initial scan、message translation、DirectInput keyboard、arbitrary live inputは
+次のscenario evidenceとする。Exact occurrence、instruction、digest、artifact identity、次endpointは変動値の正本である
+`docs/current-checkpoint.json`だけから検証する。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

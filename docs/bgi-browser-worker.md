@@ -304,6 +304,21 @@ The profile then stops before `GetAsyncKeyState(VK_CONTROL)` at instruction
 Rust input transition semantics, focus gating, and the high-bit／low-bit return
 contract belong to the following input gateway.
 
+The active input continuation profile
+`user32-async-key-state-input-continuation` keeps browser runtime transport
+`vine.browser-runtime-worker.v45`, advances the main／Worker message protocol to
+version 47, and emits browser BGI report schema version 15. The main adapter
+queues one focused `ControlLeft` key-down before runtime preparation; the Worker
+forwards exactly one normalized receipt through Wasm to the Rust-owned keyboard
+state. The first generic `VK_CONTROL` query returns signed `0xFFFF8001`. A later
+query with no additional receipt returns `0xFFFF8000`, proving that the queried
+pressed bit is consumed once while current-down remains set. Node and Chrome
+also agree on three additional immutable source-object-3 reads. Those reads are
+ordered continuation evidence, not evidence that input caused asset loading or
+a visible gameplay response; no zero-input counterfactual is part of this
+profile. Exact occurrence, instruction, digest, report identity, and next-stop
+values remain in the current manifest.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
@@ -322,9 +337,10 @@ fingerprint before and after execution.
 
 ## Non-claims
 
-- The checkpoint is not title rendering, input, audio, complete save/load, or full-play
-  acceptance. It proves one bounded durable directory mutation, not general writable
-  persistence.
+- The checkpoint is not readable title rendering, general input, audio,
+  complete save/load, or full-play acceptance. It proves one bounded keyboard
+  ingress and held-key User32 query path plus one bounded durable directory
+  mutation, not general gameplay input or writable persistence.
 - The controlled second thread does not claim broad Win32 thread, wait,
   synchronization, APC, SEH, or scheduling fairness compatibility.
 - `Sleep` intervals greater than zero, no-competitor timing, host wall-clock delay,
