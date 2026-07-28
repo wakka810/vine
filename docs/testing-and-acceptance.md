@@ -1370,6 +1370,21 @@ atomicityを固定する。Node／Chrome protocol v35はsequence 127,365–127,3
 `IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65である。他stage／state／value、texture binding、EndScene、
 draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
 
+続く`SetTexture` leafは、focused primary trace二runが同じdevice、stage 0、non-NULL texture、caller RVA
+`0x5B27C`、`D3D_OK`、LastError 0 preserve、直後の`SetFVF(0x144)` consumerを一致させる。Controlled
+PE32/i386 oracleはbind／repeat／switch／unbind、LastError sentinel `0x5A5A` preserve、SetTextureによる
+reference count不変とGetTextureの一時AddRefを固定する。Native driverがwrong-device textureやstage 16も
+受理する事実はdriver evidenceとしてのみ記録し、active policyはsame-deviceのstatic DEFAULT variant 4と
+stage 0／NULL unbindだけへ狭める。
+
+Focused Rust model／dispatcher testsはdevice-owned non-owning binding、same-device validation、generation
+preflight、targeted／idempotent commit、texture retirementと同じcommitでのbinding clear、NULL／unknown／
+wrong-class／wrong-owner／unsupported／stale／duplicate／exhaustionのfailure atomicityを固定する。Node／Chrome
+protocol v36はsequence 127,371、instruction 28,761,291、device 3／COM 21、texture 8／COM 24、stage 0、
+device generation 54、reference count 5、zero guest writes、renderer resourceなしを一致させる。Canonical stopは
+instruction 28,761,298の`IDirect3DDevice9::SetFVF(0x144)` slot 89である。他stage／resource binding、vertex
+format、EndScene、draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

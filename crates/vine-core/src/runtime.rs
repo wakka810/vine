@@ -126,7 +126,8 @@ pub use graphics::{
     RuntimeGraphicsSamplerStateUpdateResult, RuntimeGraphicsSamplerStates, RuntimeGraphicsScene,
     RuntimeGraphicsSceneBeginResult, RuntimeGraphicsSurface, RuntimeGraphicsSurfaceDescriptor,
     RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId, RuntimeGraphicsTexture,
-    RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureContent,
+    RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureBindingUpdateResult,
+    RuntimeGraphicsTextureBindings, RuntimeGraphicsTextureContent,
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
     RuntimeGraphicsTextureDirtyRegionMarkResult, RuntimeGraphicsTextureFilter,
     RuntimeGraphicsTextureId, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
@@ -142,9 +143,10 @@ pub(crate) use graphics::{
     RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsDeviceCreateRequest,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdateRequest,
     RuntimeGraphicsSceneBeginRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    RuntimeGraphicsTextureStageStateUpdateRequest, RuntimeGraphicsTextureUpdateRequest,
-    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsTextureBindingUpdateRequest, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureStageStateUpdateRequest,
+    RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsVertexBufferCreateRequest,
+    RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

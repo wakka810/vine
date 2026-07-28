@@ -2404,6 +2404,183 @@ assert.throws(
   /violates its caller, tuple, result, LastError, or consumer contract/,
 );
 
+const setTextureImmediateConsumer = makeInstructionWindow(
+  0x0045_b27c,
+  128,
+  8,
+);
+setFixtureInstruction(
+  setTextureImmediateConsumer,
+  0,
+  "mov",
+  "eax, dword ptr [0x5517c4]",
+);
+const setTextureCaller = {
+  address: "0x45b27c",
+  module: "BGI.exe",
+  rva: 0x5b27c,
+};
+const setTextureObservation = {
+  stage: 0,
+  texture: "0x650000",
+  lastErrorBefore: 0,
+  immediateConsumer: setTextureImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const setTextureCompletionCall = {
+  callId: 1,
+  api: "SetTexture",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 65,
+  object: "0x490000",
+  arguments: ["0x0", "0x650000"],
+  result: 0,
+  resultU32: 0,
+  stage: 0,
+  texture: "0x650000",
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: setTextureImmediateConsumer,
+  caller: setTextureCaller,
+};
+const d3d9SetTextureEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-set-texture-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-set-texture"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-set-texture"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: setTextureCaller,
+    module: "d3d9.dll",
+    api: "SetTexture",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 65,
+    object: "0x490000",
+    arguments: ["0x0", "0x650000"],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: setTextureCaller,
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "SetTexture",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 65,
+    object: "0x490000",
+    result: "0x0",
+    d3d9SetTexture: setTextureObservation,
+  },
+  {
+    schema,
+    sequence: 6,
+    threadId: 20,
+    kind: "d3d9-set-texture-complete",
+    profile: "x86-bgi-first-frame-static-default-texture-stage-zero-v1",
+    device: "0x490000",
+    mainModuleCall: setTextureCompletionCall,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-set-texture-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9SetTextureSummary = summarizeTrace(
+  encode(d3d9SetTextureEvents),
+  "d3d9-set-texture-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9SetTextureSummary.d3d9.setTextureObservations[0].call,
+  {
+    sequence: 4,
+    caller: { module: "BGI.exe", rva: 0x5b27c },
+    stage: 0,
+    texture: "0x650000",
+    result: "0x0",
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer: setTextureImmediateConsumer,
+  },
+);
+const missingSetTextureCompletion = d3d9SetTextureEvents.filter(
+  (event) => event.kind !== "d3d9-set-texture-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingSetTextureCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedSetTextureLastError = structuredClone(d3d9SetTextureEvents);
+changedSetTextureLastError.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+).d3d9SetTexture.lastErrorAfter = 1;
+assert.throws(
+  () => summarizeTrace(encode(changedSetTextureLastError)),
+  /violates its caller, binding, result, LastError, or consumer contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -4570,6 +4747,13 @@ d3d9BeginSceneSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-begin-scene"];
 assert.doesNotThrow(() => summarizeTrace(encode(d3d9BeginSceneSelection)));
+
+const d3d9SetTextureSelection = structuredClone(events);
+d3d9SetTextureSelection[0].arguments.observations = ["d3d9-set-texture"];
+d3d9SetTextureSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-set-texture"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9SetTextureSelection)));
 
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];

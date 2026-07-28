@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-initial-texture-stage-states` and uses protocol
-`vine.browser-runtime-worker.v35`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-set-texture` and uses protocol
+`vine.browser-runtime-worker.v36`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -173,6 +173,15 @@ with device generations 48–53. Node and Chrome agree on sequences 127,365–12
 zero guest writes, reference count 5, and no renderer resource, then stop at
 instruction 28,761,291 on `IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65,
 endpoint `0x01011440`, return address `0x1005B27C`.
+Protocol version 36 carries that completion and the immutable Rust-owned device
+binding snapshot. Rust resolves the live device and static DEFAULT texture on
+the same logical device, commits a non-owning stage-0 relation, and leaves COM
+reference count 5 unchanged. Node and Chrome agree on sequence 127,371,
+logical device 3／COM 21, texture 8／COM 24, device generation 54, zero guest
+writes, no browser renderer resource, and the cumulative semantic and terminal
+memory digests. Both stop seven instructions later at
+`IDirect3DDevice9::SetFVF(0x00000144)` slot 89, endpoint `0x010115C0`, return
+address `0x1005B291`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -216,7 +225,8 @@ fingerprint before and after execution.
   not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
   dynamic-destination variant, or upload to a renderer. The following BeginScene creates
   only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
-  sampler state, and the six reached texture-stage calls add only Rust-owned typed stage-0
-  fixed-function state. EndScene, other sampler／state／filter variants, the three rejected
-  render states, other texture-stage variants, texture binding, draw, Present, device loss,
+  sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
+  fixed-function state, and SetTexture adds one non-owning Rust-owned binding. EndScene,
+  other sampler／state／filter variants, the three rejected render states, other
+  texture-stage／binding variants, vertex format, draw, Present, device loss,
   and visible browser output remain unsupported.

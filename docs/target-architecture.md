@@ -808,7 +808,7 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 geometry resource、`SetRenderState` gatewayでreached typed device state、`Clear` gatewayでlogical back-buffer
 contentを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
-device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、back-buffer
+device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、stage-0 texture binding、back-buffer
 content generationとclear sequenceを
 owner-local plan／commitで管理し、各4,096-object capacity、stale
 plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
@@ -870,9 +870,12 @@ sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変
 permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Reached
 `SetTextureStageState`も同じdevice owner上のstage 0 sparse typed stateへ、到達したcolor／alpha operationとargumentの
 六設定だけをplan／preflight／idempotent commitする。Native driverが受理するprofile外stage／state／valueはpolicyへ
-暗黙昇格させない。TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、
-sampler state、texture-stage state、renderer resourceの第二のauthorityを持たない。Texture binding、draw、Present、pixel
-backing、browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
+暗黙昇格させない。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
+`RuntimeGraphicsDevice`にstage 0のnon-owning texture IDだけをplan／preflight／idempotent commitする。NULLはunbind、
+texture final retirementは同じretirement commitで残存bindingをclearし、binding自体はCOM AddRefを所有しない。
+TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
+texture-stage state、texture binding、renderer resourceの第二のauthorityを持たない。他stage／resource binding、draw、
+Present、pixel backing、browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

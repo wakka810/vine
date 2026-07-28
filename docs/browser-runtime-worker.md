@@ -391,17 +391,18 @@ to read-only on Unlock. The device then consumes the exact four fixed-function `
 settings through Rust-owned typed state and completes the bounded `GetRasterStatus` output before
 sampling the Rust-owned high-resolution performance frequency and deterministic counter. The
 reached loop repeatedly consumes raster status and counter values before continuing to the next
-User32 contract. Protocol v35 carries the bounded `IDirect3DTexture9::AddDirtyRect`,
+User32 contract. Protocol v36 carries the bounded `IDirect3DTexture9::AddDirtyRect`,
 `IDirect3DDevice9::UpdateTexture`, and `IDirect3DDevice9::BeginScene` completions. Its immutable
 snapshots show the Rust-owned source／destination texture and COM relations, descriptor roles,
 copied logical fill, source dirty-region consumption, exact generations, and the device-local
 inactive-to-active scene transition. It also carries the two reached
 `IDirect3DDevice9::SetSamplerState` completions, immutable sparse sampler-state snapshots, three
 explicit post-sampler render-state rejections, and the six reached
-`IDirect3DDevice9::SetTextureStageState` completions. The Worker validates the cumulative typed
-stage-0 color／alpha state before stopping at `IDirect3DDevice9::SetTexture`; it stores no
-independent texture content, dirty region, scene state, sampler state, texture-stage state, or
-renderer resource.
+`IDirect3DDevice9::SetTextureStageState` completions and the reached stage-0
+`IDirect3DDevice9::SetTexture` completion. The Worker validates the cumulative typed
+color／alpha state and the Rust-owned non-owning relation to logical texture 8 before stopping at
+`IDirect3DDevice9::SetFVF`; it stores no independent texture content, dirty region, scene state,
+sampler state, texture-stage state, texture binding, COM reference, or renderer resource.
 The Worker observes completions and mirrors checked guest bytes, but owns neither
 identity, lock state, protection, resource content, render state, nor a second raster／performance
 clock. It does not substitute `performance.now()` or browser scheduling for guest-visible time.

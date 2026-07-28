@@ -78,6 +78,19 @@ pub enum RuntimeGraphicsTextureArgument {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureBindings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage_zero: Option<RuntimeGraphicsTextureId>,
+}
+
+impl RuntimeGraphicsTextureBindings {
+    fn is_pristine(&self) -> bool {
+        self.stage_zero.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSamplerState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_filter: Option<RuntimeGraphicsTextureFilter>,
@@ -577,6 +590,8 @@ pub struct RuntimeGraphicsDevice {
     pub sampler_states: RuntimeGraphicsSamplerStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsTextureStageStates::is_pristine")]
     pub texture_stage_states: RuntimeGraphicsTextureStageStates,
+    #[serde(skip_serializing_if = "RuntimeGraphicsTextureBindings::is_pristine")]
+    pub texture_bindings: RuntimeGraphicsTextureBindings,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -662,6 +677,13 @@ pub(crate) struct RuntimeGraphicsSamplerStateUpdateRequest {
 pub(crate) struct RuntimeGraphicsTextureStageStateUpdateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub update: RuntimeGraphicsTextureStageStateUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureBindingUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub stage: u32,
+    pub texture_com_object_id: Option<RuntimeComObjectId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -771,6 +793,18 @@ pub(crate) struct RuntimeGraphicsTextureStageStateUpdatePlan {
     next_device_generation: u64,
     previous: Option<RuntimeGraphicsTextureStageStateUpdate>,
     update: RuntimeGraphicsTextureStageStateUpdate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureBindingUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous_texture_id: Option<RuntimeGraphicsTextureId>,
+    texture_id: Option<RuntimeGraphicsTextureId>,
+    request: RuntimeGraphicsTextureBindingUpdateRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -937,6 +971,17 @@ pub struct RuntimeGraphicsTextureStageStateUpdateResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureBindingUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub stage: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub texture_id: Option<RuntimeGraphicsTextureId>,
+    pub changed: bool,
+    pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsBackBufferClearResult {
     pub device_id: RuntimeGraphicsDeviceId,
     pub device_generation: u64,
@@ -1070,6 +1115,15 @@ pub(crate) struct RuntimeGraphicsComRetirementPlan {
     texture_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsTextureId)>,
     surface_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsSurfaceId)>,
     vertex_buffer_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)>,
+    texture_binding_clearances: Vec<RuntimeGraphicsTextureBindingClearance>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeGraphicsTextureBindingClearance {
+    device_id: RuntimeGraphicsDeviceId,
+    texture_id: RuntimeGraphicsTextureId,
+    device_generation: u64,
+    next_device_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1229,6 +1283,7 @@ impl RuntimeGraphics {
             render_states: RuntimeGraphicsRenderStates::default(),
             sampler_states: RuntimeGraphicsSamplerStates::default(),
             texture_stage_states: RuntimeGraphicsTextureStageStates::default(),
+            texture_bindings: RuntimeGraphicsTextureBindings::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
             renderer: None,
@@ -1521,6 +1576,140 @@ impl RuntimeGraphics {
             changed,
             device_generation: device.generation,
         }
+    }
+
+    pub(super) fn plan_texture_binding_update(
+        &self,
+        request: RuntimeGraphicsTextureBindingUpdateRequest,
+    ) -> Result<RuntimeGraphicsTextureBindingUpdatePlan, RuntimeStateError> {
+        validate_texture_binding_update_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-texture-binding-device-com-object-unknown",
+                    "logical texture binding requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let texture_id = self.resolve_texture_binding_target(device_id, request)?;
+        let device = self.device(device_id)?;
+        let previous_texture_id = device.texture_bindings.stage_zero;
+        let changed = previous_texture_id != texture_id;
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsTextureBindingUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous_texture_id,
+            texture_id,
+            request,
+        })
+    }
+
+    pub(super) fn preflight_texture_binding_update(
+        &self,
+        plan: &RuntimeGraphicsTextureBindingUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-texture-binding-update-plan-stale"));
+        };
+        let texture_id = self
+            .resolve_texture_binding_target(plan.device_id, plan.request)
+            .map_err(|_| stale_plan("graphics-texture-binding-update-plan-stale"))?;
+        let changed = plan.previous_texture_id != plan.texture_id;
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.texture_bindings.stage_zero != plan.previous_texture_id
+            || texture_id != plan.texture_id
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan("graphics-texture-binding-update-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_texture_binding_update(
+        &mut self,
+        plan: RuntimeGraphicsTextureBindingUpdatePlan,
+    ) -> RuntimeGraphicsTextureBindingUpdateResult {
+        debug_assert!(self.preflight_texture_binding_update(&plan).is_ok());
+        let changed = plan.previous_texture_id != plan.texture_id;
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.texture_bindings.stage_zero = plan.texture_id;
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsTextureBindingUpdateResult {
+            device_id: device.id,
+            stage: plan.request.stage,
+            texture_id: plan.texture_id,
+            changed,
+            device_generation: device.generation,
+        }
+    }
+
+    fn resolve_texture_binding_target(
+        &self,
+        device_id: RuntimeGraphicsDeviceId,
+        request: RuntimeGraphicsTextureBindingUpdateRequest,
+    ) -> Result<Option<RuntimeGraphicsTextureId>, RuntimeStateError> {
+        let Some(texture_com_object_id) = request.texture_com_object_id else {
+            return Ok(None);
+        };
+        let texture_id = self
+            .texture_com_object_index
+            .get(&texture_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-texture-binding-texture-com-object-unknown",
+                    "logical texture binding requires a live texture COM object",
+                )
+            })?;
+        self.validate_texture_association(texture_com_object_id, texture_id)?;
+        let texture = self
+            .textures
+            .get(&texture_id)
+            .expect("validated logical texture association disappeared");
+        if texture.device_id != device_id {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-texture-binding-device-mismatch",
+                "logical texture binding requires the device that created the texture",
+            ));
+        }
+        Ok(Some(texture_id))
     }
 
     pub(super) fn plan_back_buffer_clear(
@@ -2909,6 +3098,10 @@ impl RuntimeGraphics {
             &surface_associations,
             &vertex_buffer_associations,
         )?;
+        let texture_binding_clearances = self.texture_binding_clearances_for_retirement(
+            &device_associations,
+            &texture_associations,
+        )?;
         Ok(Some(RuntimeGraphicsComRetirementPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
@@ -2916,6 +3109,7 @@ impl RuntimeGraphics {
             texture_associations,
             surface_associations,
             vertex_buffer_associations,
+            texture_binding_clearances,
         }))
     }
 
@@ -2941,7 +3135,12 @@ impl RuntimeGraphics {
         &self,
         plan: &RuntimeGraphicsComRetirementPlan,
     ) -> Result<(), RuntimeStateError> {
+        let texture_binding_clearances = self.texture_binding_clearances_for_retirement(
+            &plan.device_associations,
+            &plan.texture_associations,
+        );
         if self.generation != plan.expected_generation
+            || texture_binding_clearances.as_ref() != Ok(&plan.texture_binding_clearances)
             || self
                 .validate_retirement_associations(
                     &plan.device_associations,
@@ -2958,6 +3157,18 @@ impl RuntimeGraphics {
 
     pub(crate) fn commit_com_object_retirement(&mut self, plan: RuntimeGraphicsComRetirementPlan) {
         debug_assert!(self.preflight_com_object_retirement(&plan).is_ok());
+        for clearance in plan.texture_binding_clearances {
+            let device = self
+                .devices
+                .get_mut(&clearance.device_id)
+                .expect("preflighted texture-binding device disappeared during retirement");
+            debug_assert_eq!(
+                device.texture_bindings.stage_zero,
+                Some(clearance.texture_id)
+            );
+            device.texture_bindings.stage_zero = None;
+            device.generation = clearance.next_device_generation;
+        }
         for (com_object_id, surface_id) in plan.surface_associations {
             self.surface_com_object_index.remove(&com_object_id);
             let surface = self
@@ -3001,6 +3212,52 @@ impl RuntimeGraphics {
             self.devices.remove(&device_id);
         }
         self.generation = plan.next_generation;
+    }
+
+    fn texture_binding_clearances_for_retirement(
+        &self,
+        device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
+        texture_associations: &[(RuntimeComObjectId, RuntimeGraphicsTextureId)],
+    ) -> Result<Vec<RuntimeGraphicsTextureBindingClearance>, RuntimeStateError> {
+        let retiring_devices = device_associations
+            .iter()
+            .map(|(_, device_id)| *device_id)
+            .collect::<BTreeSet<_>>();
+        let mut clearances = Vec::new();
+        for (_, texture_id) in texture_associations {
+            let texture = self.textures.get(texture_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-binding-retirement-texture-missing",
+                    "retiring logical texture is missing while deriving binding clearances",
+                )
+            })?;
+            if retiring_devices.contains(&texture.device_id) {
+                continue;
+            }
+            let device = self.devices.get(&texture.device_id).ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-binding-retirement-device-missing",
+                    "retiring bound texture has no live creating device",
+                )
+            })?;
+            if device.texture_bindings.stage_zero == Some(*texture_id) {
+                clearances.push(RuntimeGraphicsTextureBindingClearance {
+                    device_id: device.id,
+                    texture_id: *texture_id,
+                    device_generation: device.generation,
+                    next_device_generation: device.generation.checked_add(1).ok_or_else(|| {
+                        RuntimeStateError::resource_limit(
+                            "runtime-graphics",
+                            "graphics-device-generation-exhausted",
+                            "logical graphics device generation is exhausted",
+                        )
+                    })?,
+                });
+            }
+        }
+        Ok(clearances)
     }
 
     fn validate_retirement_associations(
@@ -3128,6 +3385,21 @@ impl RuntimeGraphics {
                 "runtime-graphics",
                 "graphics-device-texture-index-missing",
                 "logical graphics device is missing a resource relation index",
+            ));
+        }
+        if let Some(texture_id) = self
+            .devices
+            .get(&device_id)
+            .and_then(|device| device.texture_bindings.stage_zero)
+            && self
+                .textures
+                .get(&texture_id)
+                .is_none_or(|texture| texture.device_id != device_id)
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-device-texture-binding-dangling",
+                "logical graphics device texture binding does not resolve to a live owned texture",
             ));
         }
         Ok(())
@@ -3516,6 +3788,24 @@ fn validate_back_buffer_clear_request(
             "runtime-graphics",
             "graphics-back-buffer-clear-request-invalid",
             "logical back-buffer clear requires a live graphics device",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_texture_binding_update_request(
+    request: RuntimeGraphicsTextureBindingUpdateRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0
+        || request.stage != 0
+        || request
+            .texture_com_object_id
+            .is_some_and(|texture_com_object_id| texture_com_object_id.0 == 0)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-binding-request-invalid",
+            "logical texture binding requires stage zero and live COM object identities",
         ));
     }
     Ok(())
@@ -4346,6 +4636,115 @@ mod tests {
             "graphics-generation-exhausted"
         );
         assert_eq!(changed_at_exhaustion, before_exhausted_change);
+    }
+
+    #[test]
+    fn texture_bindings_are_non_owning_idempotent_and_retirement_safe() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+            .unwrap();
+        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+
+        let bind_request = RuntimeGraphicsTextureBindingUpdateRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+            stage: 0,
+            texture_com_object_id: Some(RuntimeComObjectId(8)),
+        };
+        let before_plan = graphics.clone();
+        let bind = graphics.plan_texture_binding_update(bind_request).unwrap();
+        let stale_bind = bind.clone();
+        graphics.preflight_texture_binding_update(&bind).unwrap();
+        assert_eq!(graphics, before_plan);
+        let bound = graphics.commit_texture_binding_update(bind);
+        assert_eq!(bound.device_id, device.id);
+        assert_eq!(bound.texture_id, Some(texture.id));
+        assert!(bound.changed);
+        assert_eq!(
+            graphics
+                .device(device.id)
+                .unwrap()
+                .texture_bindings
+                .stage_zero,
+            Some(texture.id)
+        );
+        assert_eq!(
+            graphics
+                .preflight_texture_binding_update(&stale_bind)
+                .unwrap_err()
+                .code,
+            "graphics-texture-binding-update-plan-stale"
+        );
+
+        let before_repeat = graphics.clone();
+        let repeat = graphics.plan_texture_binding_update(bind_request).unwrap();
+        assert!(!graphics.commit_texture_binding_update(repeat).changed);
+        assert_eq!(graphics, before_repeat);
+
+        let second_device_plan = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(second_device_plan, RuntimeComObjectId(9));
+        let second_texture_plan = graphics
+            .plan_texture_creation(texture_request(RuntimeComObjectId(9)))
+            .unwrap();
+        graphics.commit_texture_creation(second_texture_plan, RuntimeComObjectId(10));
+        let before_wrong_owner = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    stage: 0,
+                    texture_com_object_id: Some(RuntimeComObjectId(10)),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-texture-binding-device-mismatch"
+        );
+        assert_eq!(graphics, before_wrong_owner);
+
+        let before_invalid_stage = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    stage: 1,
+                    texture_com_object_id: Some(RuntimeComObjectId(8)),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-texture-binding-request-invalid"
+        );
+        assert_eq!(graphics, before_invalid_stage);
+
+        let retirement = graphics
+            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .unwrap()
+            .unwrap();
+        let device_generation = graphics.device(device.id).unwrap().generation;
+        graphics
+            .preflight_com_object_retirement(&retirement)
+            .unwrap();
+        graphics.commit_com_object_retirement(retirement);
+        let device_after_retirement = graphics.device(device.id).unwrap();
+        assert_eq!(device_after_retirement.texture_bindings.stage_zero, None);
+        assert_eq!(device_after_retirement.generation, device_generation + 1);
+        assert!(graphics.texture(texture.id).is_err());
+
+        let unbind = graphics
+            .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                stage: 0,
+                texture_com_object_id: None,
+            })
+            .unwrap();
+        assert!(!graphics.commit_texture_binding_update(unbind).changed);
+
+        let remaining_texture = graphics
+            .texture_for_com_object(RuntimeComObjectId(10))
+            .unwrap()
+            .clone();
+        assert_eq!(remaining_texture.device_id, RuntimeGraphicsDeviceId(2));
     }
 
     #[test]

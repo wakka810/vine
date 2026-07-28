@@ -5558,3 +5558,31 @@ COM object 21、device generation 48–53、cumulative color／alpha stage state
 次stopはinstruction 28,761,291、endpoint `0x01011440`、caller return `0x1005B27C`の
 `IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65である。他stage／state／value、texture binding、EndScene、
 draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 165. BGI first `SetTexture` and controlled binding lifetime
+
+Focused primary captureは467,047 bytes／1,156 lines／SHA-256
+`22796c4d1415ca7f9ded6ddd1f0ad6bbb2e86d176e122d7fe78da0219c2c6839`、summaryは299,926 bytes／
+SHA-256 `fde9e209747b4be1756899b125edc55fa3290ec4e20c59e919dce2a8989dcbf6`で、1,154 events／539
+API pairsがbalancedである。Independent confirmation captureは467,267 bytes／1,157 lines／SHA-256
+`6f643a32d7f13718cabc4ea6480e11e8c734fa1da1f2c837eef85f769549528a`、summaryは300,037 bytes／
+SHA-256 `6417ad74f7c5f7b7b12c374e73cbacf4d3d1cf16e11b2ba2d18ab0520b54c64c`で、1,155 events／539
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、stage 0、nonzero texture、
+`D3D_OK`／LastError 0、caller RVA `0x0005B27C`、immediate consumer `SetFVF(0x144)`を一致させる。
+Raw trace／summaryは`.work/windows-traces/`に保持しGitへ追加しない。Source executableは実行前後とも
+1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Controlled oracle `x86-d3d9-set-get-texture-lifetime-v1`はPE32／COFF-i386 executableである。Sourceは
+13,167 bytes／SHA-256 `d4e0353023dfce67cf82e86d26c16358af64b2010271eb55d246c5551a4d14e0`、objectは15,755
+bytes／SHA-256 `a9b0ef4b188e4f7608e904603d5f98d737afedb4fa4f21a78e96b0a40e55f944`、executableは8,192
+bytes／SHA-256 `e69e59b7e14dca9d25a41612fece47925c6178a6868b2335d9a7741ced1b5455`である。独立二runは
+ともにexit 0で、bind／repeat／switch／unbindを`D3D_OK`、全callのLastError sentinel 23,130 (`0x5A5A`)
+preserve、SetTexture前後のtexture reference count不変、GetTextureだけが`1 -> 2 -> 1`の一時AddRefを行うことを
+一致させる。Tested wrong-device textureとstage 16もnative driverでは`D3D_OK`となるため、runtimeはこの
+permissivenessを一般化せず、到達したsame-device／stage-0 profileだけを許可する。
+
+Goldenはlive same-device identity、non-owning binding、NULL unbind、HRESULT class、LastError preserve、zero guest
+writesである。Canonical Node／Chromeはsequence 127,371、instruction 28,761,291、logical device 3／COM 21、
+texture 8／COM 24、device generation 54を一致させる。次stopは7 instructions後、endpoint `0x010115C0`、
+caller return `0x1005B291`の`IDirect3DDevice9::SetFVF(0x144)` slot 89である。他stage／resource、vertex format、
+draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。

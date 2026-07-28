@@ -15,8 +15,9 @@ at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
 Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
-slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, and slot 69
-`SetSamplerState` delegate to implemented handlers. `CreateTexture`
+slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, slot 65
+`SetTexture`, slot 67 `SetTextureStageState`, and slot 69 `SetSamplerState`
+delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
 `AddDirtyRect` delegate to implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
@@ -690,9 +691,62 @@ state. Both engines stop at instruction 28,761,237 on device slot 67
 `SetTextureStageState(0,1,4)`, endpoint `0x01011460`, return address
 `0x1005B1F5`.
 
-This slice does not implement other samplers, sampler states or filter values,
-the three rejected render states, texture-stage state, `EndScene`, draw calls,
-Present, device loss, texel backing, renderer upload, or visible pixels.
+The sampler slice does not generalize other samplers, sampler states or filter
+values. The three rejected render states remain unsupported; later bounded
+texture-stage and texture-binding slices do not change that result.
+
+## Bounded initial texture-stage state
+
+Version 23 adds `primary-first-frame-fixed-function-texture-stage-zero-v1` for
+device slot 67. `RuntimeGraphicsDevice` owns sparse typed stage-0 fields for the
+reached color and alpha operations and arguments. The profile accepts only the
+six ordered tuples `(state,value) = (1,4),(2,2),(3,0),(4,2),(5,2),(6,0)`.
+Each call validates the live device and typed value, builds a mutation-free
+generation plan, preflights it, and commits only the selected field. Repeating
+an equal value succeeds without changing either generation. Other stages,
+states, values, stale plans, and generation exhaustion fail before mutation.
+
+Two focused primary traces agree on the six caller RVAs, contiguous ordering,
+`D3D_OK`, LastError 0, and the final transition into SetTexture setup. A
+controlled PE32/i386 readback oracle fixes the initial values, the cumulative
+reached values, repeat behavior, LastError sentinel preservation, and stable
+device reference count. The native driver accepted tested profile-external
+values; Vine deliberately narrows that behavior to the reached six tuples.
+
+Canonical Node and Chrome complete sequences 127,365 through 127,370 at
+instructions 28,761,237 through 28,761,282. They agree on device 3／COM object
+21, cumulative typed state, device generations 48 through 53, zero guest
+writes, and no renderer resource. Both then reach slot 65 `SetTexture`.
+
+## Bounded stage-zero texture binding
+
+Version 24 adds `primary-first-frame-static-default-texture-stage-zero-v1` for
+device slot 65. The reached call binds static DEFAULT texture variant 4 to
+stage 0. `RuntimeGraphicsDevice.texture_bindings` is the sole binding authority;
+the D3D9 frontend resolves live COM identities but stores no parallel pointer
+or binding map, and TypeScript observes only the immutable snapshot.
+
+The relation is intentionally non-owning and does not AddRef the texture.
+Planning validates the device, texture, same-device ownership, current binding,
+and global／device generations. Preflight repeats those checks before one
+targeted commit. Binding the same texture is a mutation-free success, NULL
+unbinds stage 0, and final texture retirement clears any surviving device
+binding in the same retirement commit. Unknown, wrong-class, wrong-device,
+stale, unsupported-stage／variant, and generation-exhaustion paths leave COM
+state, binding state, allocator state, and all generations unchanged.
+
+Focused native traces agree on stage 0, one non-NULL texture, `D3D_OK`, preserved
+LastError 0, and immediate `SetFVF(0x144)` consumption. A controlled PE32/i386
+oracle fixes bind／repeat／switch／unbind success, LastError sentinel preservation,
+no SetTexture reference-count change, and GetTexture's temporary AddRef. The
+native driver also accepted tested wrong-device and out-of-band stage calls;
+the runtime does not generalize that permissiveness.
+
+Canonical Node and Chrome complete sequence 127,371 at instruction 28,761,291.
+They agree on device 3／COM 21, texture 8／COM 24, stage 0, device generation 54,
+reference count 5, zero guest writes, non-owning lifetime, and no renderer
+resource. Seven instructions later both stop at device slot 89
+`SetFVF(0x00000144)`.
 
 ## Versioned frontend and shared graphics boundary
 
@@ -725,6 +779,9 @@ lifecycle transition without creating browser graphics state. Slot 69
 device and preserves the plan／preflight／targeted-commit boundary.
 Slot 67 `SetTextureStageState` adds the reached stage-0 fixed-function
 color／alpha operation and argument fields to the same device-owned typed state.
+Slot 65 `SetTexture` adds a non-owning stage-0 relation to that same device. The
+relation is revalidated against the texture owner and is cleared atomically if
+the texture retires while the device remains live.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -741,7 +798,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-initial-texture-stage-states
+npm run check:runtime:bgi -- --profile d3d9-set-texture
 npm run check:runtime:bgi-browser
 ```
 
@@ -779,10 +836,11 @@ texture content, and zero writes. It then records the exact slot-31
 consumption, generations, and zero writes. It then records the exact slot-41
 `BeginScene`, Rust-owned inactive-to-active device transition, scene sequence,
 lifecycle policy, and zero writes. Finally it records the exact two slot-69
-`SetSamplerState` transitions, sparse sampler-state snapshots, device
-generations, and three explicit post-sampler render-state rejections before
-stopping at device slot 67 `SetTextureStageState`, without creating a browser
-renderer resource or a second graphics authority.
+`SetSamplerState` transitions, the six slot-67 `SetTextureStageState` updates,
+and the slot-65 non-owning texture binding, including immutable device
+snapshots and three explicit post-sampler render-state rejections. It then
+stops at device slot 89 `SetFVF` without creating a browser renderer resource
+or a second graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -810,13 +868,15 @@ slot 31. The historical `d3d9-update-texture` profile additionally enables the e
 static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
 `IDirect3DDevice9::BeginScene` slot 41. The historical `d3d9-begin-scene` profile
 additionally enables the exact inactive-to-active scene transition and stops at
-`IDirect3DDevice9::SetSamplerState` slot 69. The active
+`IDirect3DDevice9::SetSamplerState` slot 69. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
-states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The active
+states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical
 `d3d9-initial-texture-stage-states` profile additionally enables the six reached
 stage-0 fixed-function color／alpha operation and argument settings, then stops
-at `IDirect3DDevice9::SetTexture` slot 65.
+at `IDirect3DDevice9::SetTexture` slot 65. The active `d3d9-set-texture`
+profile additionally enables the exact stage-0 static DEFAULT binding and
+stops at `IDirect3DDevice9::SetFVF` slot 89.
 
 ## Non-claims
 
@@ -831,20 +891,21 @@ at `IDirect3DDevice9::SetTexture` slot 65.
   one exact full-target black `Clear`, one bounded source-texture
   `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
   exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
-  linear `SetSamplerState` calls, and the exact six stage-0
-  `SetTextureStageState` calls are
+  linear `SetSamplerState` calls, the exact six stage-0
+  `SetTextureStageState` calls, and the exact stage-0 static DEFAULT
+  `SetTexture` binding are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
   device/resource state, partial dirty-region transfer, dynamic-destination
   `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
-  filter variants, other texture stages／operations／arguments, texture binding,
-  draw, Present, Reset,
+  filter variants, other texture stages／operations／arguments／resources,
+  vertex format, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
-  bounded UpdateTexture, bounded BeginScene, bounded sampler state, and bounded
-  texture-stage state create Rust logical state
+  bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
+  texture-stage state, and bounded texture binding create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

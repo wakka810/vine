@@ -19,9 +19,10 @@ use crate::runtime::{
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
     RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
     RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureArgument,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
-    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
+    RuntimeGraphicsTextureBindingUpdateRequest, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
+    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureFilter,
+    RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureStageStateUpdateRequest,
     RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
@@ -33,7 +34,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 23;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 24;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -318,6 +319,15 @@ pub struct D3d9InitialTextureStageStatePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9TextureBindingPolicy {
+    pub profile_id: String,
+    pub stage: u32,
+    pub texture_variant_indices: Vec<u32>,
+    pub null_unbind_supported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9RasterStatusPolicy {
     pub profile_id: String,
     pub display_profile_id: String,
@@ -379,6 +389,7 @@ pub struct D3d9CompatibilityPolicy {
     pub initial_render_states: Option<D3d9InitialRenderStatePolicy>,
     pub initial_sampler_states: Option<D3d9InitialSamplerStatePolicy>,
     pub initial_texture_stage_states: Option<D3d9InitialTextureStageStatePolicy>,
+    pub texture_binding: Option<D3d9TextureBindingPolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
@@ -387,11 +398,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v23() -> Self {
+    pub fn controlled_v24() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v23".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v24".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -513,6 +524,12 @@ impl D3d9CompatibilityPolicy {
                 profile_id: "primary-first-frame-fixed-function-texture-stage-zero-v1".to_owned(),
                 settings: controlled_initial_texture_stage_state_settings(),
             }),
+            texture_binding: Some(D3d9TextureBindingPolicy {
+                profile_id: "primary-first-frame-static-default-texture-stage-zero-v1".to_owned(),
+                stage: 0,
+                texture_variant_indices: vec![4],
+                null_unbind_supported: true,
+            }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -554,6 +571,7 @@ impl D3d9CompatibilityPolicy {
         }
         self.add_dirty_rect = None;
         self.update_texture = None;
+        self.texture_binding = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -566,6 +584,7 @@ impl D3d9CompatibilityPolicy {
         }
         self.add_dirty_rect = None;
         self.update_texture = None;
+        self.texture_binding = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
@@ -795,6 +814,19 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-initial-texture-stage-state-profile-invalid",
                 "D3D9 initial texture-stage-state profile must describe the reached stage-zero fixed-function color and alpha sequence",
+            ));
+        }
+        if let Some(texture_binding) = self.texture_binding.as_ref()
+            && (self
+                .create_texture
+                .as_ref()
+                .is_none_or(|texture| !valid_texture_binding_policy(texture_binding, texture))
+                || self.update_texture.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-texture-binding-profile-invalid",
+                "D3D9 texture-binding profile must select the reached stage-zero static DEFAULT texture",
             ));
         }
         if let Some(raster_status) = self.raster_status.as_ref()
@@ -1186,6 +1218,29 @@ fn valid_update_texture_policy(
         && destination.pool == D3D9_D3DPOOL_DEFAULT
 }
 
+fn valid_texture_binding_policy(
+    policy: &D3d9TextureBindingPolicy,
+    texture: &D3d9CreateTexturePolicy,
+) -> bool {
+    policy.profile_id == "primary-first-frame-static-default-texture-stage-zero-v1"
+        && policy.stage == 0
+        && policy.texture_variant_indices == [4]
+        && policy.null_unbind_supported
+        && policy.texture_variant_indices.iter().all(|index| {
+            texture
+                .variants
+                .get(*index as usize)
+                .is_some_and(|variant| {
+                    variant.width == 2_048
+                        && variant.height == 1_024
+                        && variant.levels == 1
+                        && variant.usage == 0
+                        && variant.format == D3D9_D3DFMT_X8R8G8B8
+                        && variant.pool == D3D9_D3DPOOL_DEFAULT
+                })
+        })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D3d9PresentParameters {
@@ -1533,6 +1588,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => ("BeginScene", 0),
         43 => ("Clear", 6),
         57 => ("SetRenderState", 2),
+        65 => ("SetTexture", 2),
         67 => ("SetTextureStageState", 3),
         69 => ("SetSamplerState", 3),
         _ => {
@@ -1564,6 +1620,7 @@ fn dispatch_d3d9_device_frontend_call(
         41 => dispatch_begin_scene(policy, call),
         43 => dispatch_clear(policy, call),
         57 => dispatch_set_render_state(policy, call),
+        65 => dispatch_set_texture(policy, call),
         67 => dispatch_set_texture_stage_state(policy, call),
         69 => dispatch_set_sampler_state(policy, call),
         _ => unreachable!(),
@@ -2322,6 +2379,107 @@ fn dispatch_set_sampler_state(
         .runtime_mut()
         .commit_graphics_sampler_state_update(plan);
     debug_assert_eq!(result.update, update);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn dispatch_set_texture(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(binding_policy) = policy.texture_binding.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-set-texture",
+            "set-texture-policy-disabled",
+            "D3D9 compatibility policy does not enable SetTexture",
+        );
+    };
+    let stage = call.frame().explicit_arguments[0];
+    let texture_pointer = call.frame().explicit_arguments[1];
+    if stage != binding_policy.stage {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let texture_com_object_id = if texture_pointer == 0 {
+        if !binding_policy.null_unbind_supported {
+            return call.complete(
+                ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+                Vec::new(),
+            );
+        }
+        None
+    } else {
+        let interface = match call
+            .runtime()
+            .com_interface_for_pointer(GuestAddress(texture_pointer))
+        {
+            Ok(interface) if interface.iid == D3D9_IDIRECT3DTEXTURE9_IID => interface,
+            Ok(_) => {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) => return call.runtime_fault(error),
+        };
+        let texture = match call
+            .runtime()
+            .graphics_texture_for_com_object(interface.object_id)
+        {
+            Ok(texture) => texture,
+            Err(error) if error.class == RuntimeStateErrorClass::NotFound => {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) => return call.runtime_fault(error),
+        };
+        let texture_policy = policy
+            .create_texture
+            .as_ref()
+            .expect("validated D3D9 SetTexture policy lost its texture profile");
+        let allowed = binding_policy
+            .texture_variant_indices
+            .iter()
+            .filter_map(|index| texture_policy.variants.get(*index as usize))
+            .any(|variant| logical_texture_matches_variant(&texture.descriptor, variant));
+        if !allowed {
+            return call.complete(
+                ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+                Vec::new(),
+            );
+        }
+        Some(interface.object_id)
+    };
+    let plan = match call.runtime().plan_graphics_texture_binding_update(
+        RuntimeGraphicsTextureBindingUpdateRequest {
+            device_com_object_id: call.frame().object_id,
+            stage,
+            texture_com_object_id,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput | RuntimeStateErrorClass::NotFound
+            ) =>
+        {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_texture_binding_update(&plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call
+        .runtime_mut()
+        .commit_graphics_texture_binding_update(plan);
+    debug_assert_eq!(result.stage, stage);
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
@@ -3489,7 +3647,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 43 | 57 | 67 | 69 => {
+            19 | 23 | 26 | 31 | 41 | 43 | 57 | 65 | 67 | 69 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

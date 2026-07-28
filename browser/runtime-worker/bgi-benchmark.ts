@@ -335,7 +335,7 @@ function runSession(
         capabilityProfile === "d3d9-update-texture" ||
         capabilityProfile === "d3d9-begin-scene" ||
         capabilityProfile === "d3d9-initial-sampler-states" ||
-        capabilityProfile === "d3d9-initial-texture-stage-states"
+        (capabilityProfile === "d3d9-initial-texture-stage-states" || capabilityProfile === "d3d9-set-texture")
           ? 35_000_000
           : 20_000_000,
       watchdogWallMilliseconds:
@@ -354,7 +354,7 @@ function runSession(
         capabilityProfile === "d3d9-update-texture" ||
         capabilityProfile === "d3d9-begin-scene" ||
         capabilityProfile === "d3d9-initial-sampler-states" ||
-        capabilityProfile === "d3d9-initial-texture-stage-states"
+        (capabilityProfile === "d3d9-initial-texture-stage-states" || capabilityProfile === "d3d9-set-texture")
           ? 300_000
           : capabilityProfile === "shell32-drag-accept-files" ||
               capabilityProfile === "kernel32-archive-source-read"
@@ -394,7 +394,7 @@ function parseCapabilityProfile(
     value === "d3d9-update-texture" ||
     value === "d3d9-begin-scene" ||
     value === "d3d9-initial-sampler-states" ||
-    value === "d3d9-initial-texture-stage-states"
+    (value === "d3d9-initial-texture-stage-states" || value === "d3d9-set-texture")
     ? value
     : undefined;
 }
