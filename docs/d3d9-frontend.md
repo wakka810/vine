@@ -296,11 +296,11 @@ has height `1024`, one mip level, `D3DFMT_X8R8G8B8`, and a NULL shared-handle
 pointer. Width is either the initial `1024` or the reached recreated `2048`;
 each width admits the same bounded usage／pool band:
 
-| Width × height | Usage | Pool | Logical usage／pool |
-|---|---:|---:|---|
-| `1024x1024`, `2048x1024` | `0` | `D3DPOOL_SYSTEMMEM` (`2`) | static／system memory |
-| `1024x1024`, `2048x1024` | `0` | `D3DPOOL_DEFAULT` (`0`) | static／default |
-| `1024x1024`, `2048x1024` | `D3DUSAGE_DYNAMIC` (`0x200`) | `D3DPOOL_DEFAULT` (`0`) | dynamic／default |
+| Width × height           |                        Usage |                      Pool | Logical usage／pool   |
+| ------------------------ | ---------------------------: | ------------------------: | --------------------- |
+| `1024x1024`, `2048x1024` |                          `0` | `D3DPOOL_SYSTEMMEM` (`2`) | static／system memory |
+| `1024x1024`, `2048x1024` |                          `0` |   `D3DPOOL_DEFAULT` (`0`) | static／default       |
+| `1024x1024`, `2048x1024` | `D3DUSAGE_DYNAMIC` (`0x200`) |   `D3DPOOL_DEFAULT` (`0`) | dynamic／default      |
 
 Width／height zero, NULL output, or a non-NULL shared handle returns
 `D3DERR_INVALIDCALL`; a well-formed shape outside this exact allow-list returns
@@ -662,8 +662,7 @@ logical scene alone is not a first-present milestone completion.
 
 ## Bounded initial sampler state
 
-Version 22 adds `primary-first-frame-linear-sampler-states-v1` for device slot
-69. `RuntimeGraphicsDevice` owns a sparse typed sampler-state map; neither the
+Version 22 adds `primary-first-frame-linear-sampler-states-v1` for device slot 69. `RuntimeGraphicsDevice` owns a sparse typed sampler-state map; neither the
 COM frontend nor TypeScript keeps a second copy. The bounded profile accepts
 only sampler 0 `D3DSAMP_MINFILTER = D3DTEXF_LINEAR`, followed by sampler 0
 `D3DSAMP_MAGFILTER = D3DTEXF_LINEAR`. Each state change validates the live
@@ -908,8 +907,8 @@ Reached slot 43 `Clear` similarly appends authoritative uniform content to the
 logical device back buffer without crossing into a renderer adapter.
 The following `SetRect` leaf materializes the caller-owned guest structure, and
 slot 21 `AddDirtyRect` updates only the source texture's Rust-owned dirty-region
-    state. Slot 31 `UpdateTexture` is the first two-resource consumer boundary and
-    copies that logical texture content while consuming the source dirty region.
+state. Slot 31 `UpdateTexture` is the first two-resource consumer boundary and
+copies that logical texture content while consuming the source dirty region.
 Slot 41 `BeginScene` then owns the first device-local active-scene sequence and
 lifecycle transition without creating browser graphics state. Slot 69
 `SetSamplerState` adds the first sparse typed sampler map to that same logical
@@ -946,7 +945,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-post-end-scene-raster-status
+npm run check:runtime:bgi -- --profile d3d9-post-raster-status-waitable-timer
 npm run check:runtime:bgi-browser
 ```
 
@@ -986,13 +985,14 @@ consumption, generations, and zero writes. It then records the exact slot-41
 lifecycle policy, and zero writes. Finally it records the exact two slot-69
 `SetSamplerState` transitions, the six slot-67 `SetTextureStageState` updates,
 and the slot-65 non-owning texture binding, including immutable device
-  snapshots and three explicit post-sampler render-state rejections. It then
-  records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
-  binding, slot-81 immutable triangle-strip draw submission, and slot-42
-  active-to-inactive scene close followed by the deterministic post-scene
-  slot-19 raster-status sample,
-  without creating a browser renderer resource, visible pixels, or a second
-  graphics authority.
+snapshots and three explicit post-sampler render-state rejections. It then
+records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
+binding, slot-81 immutable triangle-strip draw submission, and slot-42
+active-to-inactive scene close followed by the deterministic post-scene
+slot-19 raster-status sample and its logical waitable-timer arm/wait pacing
+cycle,
+without creating a browser renderer resource, visible pixels, or a second
+graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -1027,20 +1027,23 @@ states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The histo
 `d3d9-initial-texture-stage-states` profile additionally enables the six reached
 stage-0 fixed-function color／alpha operation and argument settings, then stops
 at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
-  profile additionally enables the exact stage-0 static DEFAULT binding and
-  stops at `IDirect3DDevice9::SetFVF` slot 89. The historical `d3d9-set-fvf`
-  profile additionally enables only FVF `0x144` and stops at
-  `IDirect3DDevice9::SetStreamSource` slot 100. The historical
-  `d3d9-set-stream-source` profile additionally enables only the exact
-  stream-0／vertex-buffer／offset-0／stride-28 binding and stops at
-  `IDirect3DDevice9::DrawPrimitive` slot 81. The historical
-  `d3d9-draw-primitive` profile adds the exact first-frame triangle-strip quad
-  submission and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
-  `d3d9-end-scene` profile closes that exact scene, preserves its draw content,
-  and completes before the next post-scene slot-19 raster-status query. The active
-  `d3d9-post-end-scene-raster-status` profile completes that deterministic
-  eight-byte query without changing runtime graphics or COM state and stops
-  before `kernel32.dll!SetWaitableTimer`.
+profile additionally enables the exact stage-0 static DEFAULT binding and
+stops at `IDirect3DDevice9::SetFVF` slot 89. The historical `d3d9-set-fvf`
+profile additionally enables only FVF `0x144` and stops at
+`IDirect3DDevice9::SetStreamSource` slot 100. The historical
+`d3d9-set-stream-source` profile additionally enables only the exact
+stream-0／vertex-buffer／offset-0／stride-28 binding and stops at
+`IDirect3DDevice9::DrawPrimitive` slot 81. The historical
+`d3d9-draw-primitive` profile adds the exact first-frame triangle-strip quad
+submission and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
+`d3d9-end-scene` profile closes that exact scene, preserves its draw content,
+and completes before the next post-scene slot-19 raster-status query. The historical
+`d3d9-post-end-scene-raster-status` profile completes that deterministic
+eight-byte query without changing runtime graphics or COM state and stops
+before `kernel32.dll!SetWaitableTimer`. The active
+`d3d9-post-raster-status-waitable-timer` profile completes the following
+timer-1 arm and finite alertable wait using the Rust-owned logical timer clock,
+then stops before the next slot-19 raster-status query.
 
 ## Non-claims
 
@@ -1060,8 +1063,9 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
   source binding at offset 0／stride 28, one exact triangle-strip quad draw
-  submission, the matching active-to-inactive `EndScene`, and its immediate
-  deterministic raster-status sample are
+  submission, the matching active-to-inactive `EndScene`, its immediate
+  deterministic raster-status sample, and the following bounded logical
+  waitable-timer pacing cycle are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other

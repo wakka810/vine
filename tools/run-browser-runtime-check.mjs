@@ -76,7 +76,10 @@ assert(
 );
 const bgiProfile =
   bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+const d3d9PostRasterStatusWaitableTimerProfile =
+  bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostEndSceneRasterStatusProfile =
+  d3d9PostRasterStatusWaitableTimerProfile ||
   bgiProfile === "d3d9-post-end-scene-raster-status";
 const d3d9EndSceneProfile =
   d3d9PostEndSceneRasterStatusProfile || bgiProfile === "d3d9-end-scene";
@@ -89,8 +92,7 @@ const d3d9SetFvfProfile =
 const d3d9SetTextureProfile =
   d3d9SetFvfProfile || bgiProfile === "d3d9-set-texture";
 const d3d9InitialTextureStageStatesProfile =
-  d3d9SetTextureProfile ||
-  bgiProfile === "d3d9-initial-texture-stage-states";
+  d3d9SetTextureProfile || bgiProfile === "d3d9-initial-texture-stage-states";
 const d3d9InitialSamplerStatesProfile =
   d3d9InitialTextureStageStatesProfile ||
   bgiProfile === "d3d9-initial-sampler-states";
@@ -128,7 +130,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v41";
+const runtimeProtocol = "vine.browser-runtime-worker.v42";
 assert.equal(
   checkpoint.browserCheckpoint.browserRuntimeProtocol,
   runtimeProtocol,
@@ -774,6 +776,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-draw-primitive",
         "d3d9-end-scene",
         "d3d9-post-end-scene-raster-status",
+        "d3d9-post-raster-status-waitable-timer",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -813,6 +816,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-draw-primitive",
         "d3d9-end-scene",
         "d3d9-post-end-scene-raster-status",
+        "d3d9-post-raster-status-waitable-timer",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -852,6 +856,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-draw-primitive",
         "d3d9-end-scene",
         "d3d9-post-end-scene-raster-status",
+        "d3d9-post-raster-status-waitable-timer",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9RecreatedTexturesProfile
           ? 2_010
@@ -933,7 +938,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile
       ) {
         const pacingCount = d3d9RecreatedTexturesProfile
-          ? 9_186
+          ? d3d9PostRasterStatusWaitableTimerProfile
+            ? 9_187
+            : 9_186
           : createDirectoryAProfile
             ? 6_974
             : getFileAttributesAProfile
@@ -1548,8 +1555,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             trapInstructionCount: 28_761_068,
             arguments: [0x4801_0001, 0x006f_f318],
             result: { action: "set", value: 0x4701_0009 },
-            implementationId:
-              "user32.begin-paint.full-client-logical-dc.v1",
+            implementationId: "user32.begin-paint.full-client-logical-dc.v1",
             returnAddress: 0x1009_28d9,
             stackPointerBefore: 0x006f_f2cc,
             stackPointerAfter: 0x006f_f2d8,
@@ -1588,10 +1594,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           paintStructBytes,
         );
         assert.equal(update.beginPaint.paint.deviceContext.id, 9);
-        assert.equal(
-          update.beginPaint.paint.deviceContext.handle,
-          0x4701_0009,
-        );
+        assert.equal(update.beginPaint.paint.deviceContext.handle, 0x4701_0009);
         assert.equal(update.beginPaint.paint.livePaintSessions, 1);
         assert.equal(update.beginPaint.paint.liveDeviceContexts, 1);
         assert.deepEqual(
@@ -1666,15 +1669,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (d3d9ClearProfile) {
         const clear = evidence.report.d3d9Clear;
         assert(clear !== null, "Chrome Worker omitted D3D9 Clear evidence");
-        assert.deepEqual(clear.call.arguments, [
-          0x0101_0004,
-          0,
-          0,
-          1,
-          0xff00_0000,
-          0x3f80_0000,
-          0,
-        ]);
+        assert.deepEqual(
+          clear.call.arguments,
+          [0x0101_0004, 0, 0, 1, 0xff00_0000, 0x3f80_0000, 0],
+        );
         assert.deepEqual(clear.call.result, { kind: "h-result", value: 0 });
         assert.equal(clear.call.sequence, 127_355);
         assert.equal(clear.call.symbol, "IDirect3DDevice9.Clear");
@@ -1706,7 +1704,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           clear.compatibilityPolicyId,
           "d3d9-primary-virtual-adapter-v28",
         );
-        assert.equal(clear.clearProfileId, "primary-full-render-target-black-v1");
+        assert.equal(
+          clear.clearProfileId,
+          "primary-full-render-target-black-v1",
+        );
         assert.equal(
           clear.targetAuthority,
           "rust-runtime-graphics-logical-device-back-buffer",
@@ -1726,13 +1727,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(setRect.call.sequence, 127_356);
         assert.equal(setRect.call.module.toLowerCase(), "user32.dll");
         assert.equal(setRect.call.symbol, "SetRect");
-        assert.deepEqual(setRect.call.arguments, [
-          0x006f_f29c,
-          0,
-          0,
-          1_280,
-          720,
-        ]);
+        assert.deepEqual(
+          setRect.call.arguments,
+          [0x006f_f29c, 0, 0, 1_280, 720],
+        );
         assert.deepEqual(setRect.call.result, { action: "set", value: 1 });
         assert.equal(setRect.call.implementationId, "user32.set-rect.v1");
         assert.equal(setRect.call.returnAddress, 0x1005_b00b);
@@ -1740,9 +1738,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(setRect.call.guestWrites, [
           {
             address: 0x006f_f29c,
-            bytes: [
-              0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 208, 2, 0, 0,
-            ],
+            bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 208, 2, 0, 0],
           },
         ]);
         assert.equal(setRect.implementationId, "user32.set-rect.v1");
@@ -1785,7 +1781,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         });
         assert.equal(dirty.call.graphicsTexture?.content?.contentGeneration, 1);
         assert.equal(dirty.call.graphicsTexture?.content?.fills.length, 1);
-        assert.equal(dirty.call.graphicsTexture?.content?.fills[0]?.sequence, 3);
+        assert.equal(
+          dirty.call.graphicsTexture?.content?.fills[0]?.sequence,
+          3,
+        );
         assert.equal(dirty.call.graphicsTexture?.generation, 41);
         assert.equal(
           dirty.compatibilityPolicyId,
@@ -1821,11 +1820,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(update.call.symbol, "IDirect3DDevice9.UpdateTexture");
         assert.equal(update.call.interface, "IDirect3DDevice9");
         assert.equal(update.call.vtableSlot, 31);
-        assert.deepEqual(update.call.arguments, [
-          0x0101_0004,
-          0x0102_0004,
-          0x0103_0004,
-        ]);
+        assert.deepEqual(
+          update.call.arguments,
+          [0x0101_0004, 0x0102_0004, 0x0103_0004],
+        );
         assert.deepEqual(update.call.result, { kind: "h-result", value: 0 });
         assert.equal(update.call.returnAddress, 0x1005_b038);
         assert.equal(update.call.stackPointerBefore, 0x006f_f258);
@@ -1848,7 +1846,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(pair.destination.dirtyRegion, {
           kind: "whole-texture",
         });
-        assert.deepEqual(pair.destination.content?.fills, pair.source.content?.fills);
+        assert.deepEqual(
+          pair.destination.content?.fills,
+          pair.source.content?.fills,
+        );
         assert.deepEqual(pair.destination.content?.lastUpdate, {
           sequence: 1,
           sourceTextureId: 7,
@@ -1885,7 +1886,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (d3d9BeginSceneProfile) {
         const begin = evidence.report.d3d9BeginScene;
-        assert(begin !== null, "Chrome Worker omitted D3D9 BeginScene evidence");
+        assert(
+          begin !== null,
+          "Chrome Worker omitted D3D9 BeginScene evidence",
+        );
         assert.equal(begin.call.sequence, 127_359);
         assert.equal(begin.call.symbol, "IDirect3DDevice9.BeginScene");
         assert.equal(begin.call.interface, "IDirect3DDevice9");
@@ -1900,10 +1904,18 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(begin.call.guestWrites, []);
         assert.equal(begin.call.graphicsDevice?.id, 3);
         assert.equal(begin.call.graphicsDevice?.comObjectId, "21");
-        assert.deepEqual(begin.call.graphicsDevice?.activeScene, { sequence: 1 });
+        assert.deepEqual(begin.call.graphicsDevice?.activeScene, {
+          sequence: 1,
+        });
         assert.equal(begin.call.graphicsDevice?.generation, 45);
-        assert.equal(begin.call.graphicsDevice?.backBuffer.contentGeneration, 1);
-        assert.equal(begin.call.graphicsDevice?.backBuffer.uniformClear?.sequence, 1);
+        assert.equal(
+          begin.call.graphicsDevice?.backBuffer.contentGeneration,
+          1,
+        );
+        assert.equal(
+          begin.call.graphicsDevice?.backBuffer.uniformClear?.sequence,
+          1,
+        );
         assert.equal(begin.call.graphicsDevice?.renderer, undefined);
         assert.equal(
           begin.compatibilityPolicyId,
@@ -2044,8 +2056,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const expectedStates = [1, 2, 3, 4, 5, 6];
         const expectedValues = [4, 2, 0, 2, 2, 0];
         const expectedReturns = [
-          0x1005_b1f5, 0x1005_b20b, 0x1005_b221, 0x1005_b237,
-          0x1005_b24d, 0x1005_b263,
+          0x1005_b1f5, 0x1005_b20b, 0x1005_b221, 0x1005_b237, 0x1005_b24d,
+          0x1005_b263,
         ];
         assert.equal(textureStage.calls.length, 6);
         for (const [index, call] of textureStage.calls.entries()) {
@@ -2074,9 +2086,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
               colorOperation: "modulate",
               ...(index >= 1 ? { colorArgumentOne: "texture" } : {}),
               ...(index >= 2 ? { colorArgumentTwo: "diffuse" } : {}),
-              ...(index >= 3
-                ? { alphaOperation: "select-argument-one" }
-                : {}),
+              ...(index >= 3 ? { alphaOperation: "select-argument-one" } : {}),
               ...(index >= 4 ? { alphaArgumentOne: "texture" } : {}),
               ...(index >= 5 ? { alphaArgumentTwo: "diffuse" } : {}),
             },
@@ -2109,7 +2119,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (d3d9SetTextureProfile) {
         const binding = evidence.report.d3d9SetTexture;
-        assert(binding !== null, "Chrome Worker omitted D3D9 SetTexture evidence");
+        assert(
+          binding !== null,
+          "Chrome Worker omitted D3D9 SetTexture evidence",
+        );
         const call = binding.call;
         assert.equal(call.sequence, 127_371);
         assert.equal(call.symbol, "IDirect3DDevice9.SetTexture");
@@ -2123,7 +2136,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(call.referenceCount, 5);
         assert.equal(call.objectRetired, false);
         assert.deepEqual(call.guestWrites, []);
-        assert.deepEqual(call.graphicsDevice?.textureBindings, { stageZero: 8 });
+        assert.deepEqual(call.graphicsDevice?.textureBindings, {
+          stageZero: 8,
+        });
         assert.equal(call.graphicsDevice?.generation, 54);
         assert.equal(call.graphicsDevice?.renderer, undefined);
         assert.equal(
@@ -2171,7 +2186,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           call.graphicsDevice?.flexibleVertexFormat,
           "xyz-rhw-diffuse-texture1",
         );
-        assert.deepEqual(call.graphicsDevice?.textureBindings, { stageZero: 8 });
+        assert.deepEqual(call.graphicsDevice?.textureBindings, {
+          stageZero: 8,
+        });
         assert.equal(call.graphicsDevice?.generation, 55);
         assert.equal(call.graphicsDevice?.renderer, undefined);
         assert.equal(
@@ -2208,13 +2225,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(call.symbol, "IDirect3DDevice9.SetStreamSource");
         assert.equal(call.interface, "IDirect3DDevice9");
         assert.equal(call.vtableSlot, 100);
-        assert.deepEqual(call.arguments, [
-          0x0101_0004,
-          0,
-          0x0105_0004,
-          0,
-          28,
-        ]);
+        assert.deepEqual(call.arguments, [0x0101_0004, 0, 0x0105_0004, 0, 28]);
         assert.deepEqual(call.result, { kind: "h-result", value: 0 });
         assert.equal(call.returnAddress, 0x1005_b3ec);
         assert.equal(call.stackPointerBefore, 0x006f_f250);
@@ -2282,10 +2293,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(device, "Chrome Worker omitted the Rust graphics snapshot");
         assert.deepEqual(device.activeScene, { sequence: 1 });
         assert.deepEqual(device.textureBindings, { stageZero: 8 });
-        assert.equal(
-          device.flexibleVertexFormat,
-          "xyz-rhw-diffuse-texture1",
-        );
+        assert.equal(device.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
         assert.deepEqual(device.streamSources, {
           streamZero: { vertexBufferId: 3, offsetInBytes: 0, stride: 28 },
         });
@@ -2358,7 +2366,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       }
       if (d3d9EndSceneProfile) {
         const endScene = evidence.report.d3d9EndScene;
-        assert(endScene !== null, "Chrome Worker omitted D3D9 EndScene evidence");
+        assert(
+          endScene !== null,
+          "Chrome Worker omitted D3D9 EndScene evidence",
+        );
         const call = endScene.call;
         assert.equal(call.sequence, 127_375);
         assert.equal(call.symbol, "IDirect3DDevice9.EndScene");
@@ -2373,7 +2384,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(call.objectRetired, false);
         assert.deepEqual(call.guestWrites, []);
         const device = call.graphicsDevice;
-        assert(device, "Chrome Worker omitted the ended Rust graphics snapshot");
+        assert(
+          device,
+          "Chrome Worker omitted the ended Rust graphics snapshot",
+        );
         assert.equal(device.activeScene, undefined);
         assert.equal(device.generation, 58);
         assert.equal(device.backBuffer.contentGeneration, 2);
@@ -3306,21 +3320,11 @@ function normalizeSetWindowPosFrameChangeMove(snapshot) {
 
 function expectedUpdateWindowPaintStructBytes() {
   return [
-    0x09, 0x00, 0x01, 0x47,
-    0x01, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x05, 0x00, 0x00,
-    0xd0, 0x02, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
+    0x09, 0x00, 0x01, 0x47, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
   ];
 }
@@ -3834,9 +3838,7 @@ function validateBgiEquivalence(browser, oracle) {
     "Chrome Worker D3D9 BeginScene evidence differs from the Node oracle",
   );
   assert.deepEqual(
-    normalizeD3d9InitialSamplerStates(
-      browser.report.d3d9InitialSamplerStates,
-    ),
+    normalizeD3d9InitialSamplerStates(browser.report.d3d9InitialSamplerStates),
     normalizeD3d9InitialSamplerStates(oracle.d3d9InitialSamplerStates),
     "Chrome Worker D3D9 SetSamplerState evidence differs from the Node oracle",
   );
@@ -3878,9 +3880,7 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeD3d9PostEndSceneRasterStatus(
       browser.report.d3d9PostEndSceneRasterStatus,
     ),
-    normalizeD3d9PostEndSceneRasterStatus(
-      oracle.d3d9PostEndSceneRasterStatus,
-    ),
+    normalizeD3d9PostEndSceneRasterStatus(oracle.d3d9PostEndSceneRasterStatus),
     "Chrome Worker post-EndScene D3D9 GetRasterStatus evidence differs from the Node oracle",
   );
   assert.deepEqual(

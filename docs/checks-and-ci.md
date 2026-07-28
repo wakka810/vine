@@ -141,9 +141,10 @@ triangle-strip `DrawPrimitive(5, 0, 2)` submission. The draw snapshots the reach
 fixed-function state, texture content, and 112 vertex bytes into Rust-owned logical
 back-buffer state without yet claiming visible pixels. It then closes the exact
 active scene through `IDirect3DDevice9::EndScene` slot 42 while preserving the
-draw content and completes the versioned checkpoint before the next post-scene
-`GetRasterStatus` slot-19 endpoint; no renderer resource or visible pixels are
-claimed. Exact
+draw content, samples the bounded post-scene `GetRasterStatus`, and completes
+the following logical waitable-timer arm/wait pacing cycle. The versioned
+checkpoint stops before the next slot-19 raster-status endpoint; no renderer
+resource, host clock authority, or visible pixels are claimed. Exact
 current artifact, report, blocker, and resume-condition identities remain
 manifest-owned.
 
@@ -287,10 +288,10 @@ the browser runtime.
 The source adapter has two exact host-build profiles with the same 22 imports,
 814 exports, adapter ABI version `1`, state ABI, and behavioral contract:
 
-| Host profile | Bytes | SHA-256 |
-|---|---:|---|
-| Windows GNU | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
-| Linux GNU | 2,116,017 | `21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4` |
+| Host profile |     Bytes | SHA-256                                                            |
+| ------------ | --------: | ------------------------------------------------------------------ |
+| Windows GNU  | 1,857,800 | `99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f` |
+| Linux GNU    | 2,116,017 | `21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4` |
 
 Windows report fingerprints remain the canonical evidence values. Linux
 reports preserve their actual adapter identity and run all semantic assertions,

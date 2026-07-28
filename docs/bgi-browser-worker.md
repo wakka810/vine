@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-post-end-scene-raster-status` and uses protocol
-`vine.browser-runtime-worker.v41`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-post-raster-status-waitable-timer` and uses
+protocol `vine.browser-runtime-worker.v42`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -232,6 +232,17 @@ cumulative 784 raster-status completions. The capability completes at instructio
 28,761,446 before runtime export 118, `kernel32.dll!SetWaitableTimer` at
 `0x7F000750`. Neither engine imports host／browser scanout state or creates a
 renderer resource or visible pixels.
+
+Protocol version 42 continues through the immediately following timer-1 pacing
+cycle. Sequence 127,377 arms the existing manual-reset waitable timer for a
+relative 5,000 × 100 ns interval at instruction 28,761,446. Sequence 127,378
+then completes the matching finite alertable `WaitForSingleObjectEx` at
+instruction 28,761,452 through `runtime.timer-delay.v1`; Rust timer clock
+generation 9,187 and arm generation 1 authorize the completion. Node and Chrome
+agree on the ordered calls, final memory content, and one requested／completed
+host delay, while the Rust logical clock remains authoritative and no host wall
+clock value is imported. The checkpoint stops at instruction 28,761,476 before
+the next slot-19 `IDirect3DDevice9::GetRasterStatus` query.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

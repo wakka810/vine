@@ -82,22 +82,11 @@ const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES = [
-  0x09, 0x00, 0x01, 0x47,
-  0x01, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x05, 0x00, 0x00,
-  0xd0, 0x02, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
+  0x09, 0x00, 0x01, 0x47, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ] as const;
 const yieldChannel = new MessageChannel();
 
@@ -124,7 +113,8 @@ function includesD3d9RecreatedTextures(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -141,7 +131,8 @@ function isSetWindowPosFrameChangeMove(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -157,7 +148,8 @@ function includesShowWindowNormal(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -172,7 +164,8 @@ function isUpdateWindow(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -192,7 +185,8 @@ function includesD3d9Clear(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -205,7 +199,8 @@ function isSetRect(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -217,7 +212,8 @@ function isD3d9AddDirtyRect(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -228,7 +224,8 @@ function isD3d9UpdateTexture(
     profile === "d3d9-update-texture" ||
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -238,7 +235,8 @@ function isD3d9BeginScene(
   return (
     profile === "d3d9-begin-scene" ||
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -247,7 +245,8 @@ function isD3d9InitialSamplerStates(
 ): boolean {
   return (
     profile === "d3d9-initial-sampler-states" ||
-    (profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile))
+    profile === "d3d9-initial-texture-stage-states" ||
+    isD3d9SetTexture(profile)
   );
 }
 
@@ -255,8 +254,7 @@ function isD3d9InitialTextureStageStates(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    profile === "d3d9-initial-texture-stage-states" ||
-    isD3d9SetTexture(profile)
+    profile === "d3d9-initial-texture-stage-states" || isD3d9SetTexture(profile)
   );
 }
 
@@ -295,7 +293,16 @@ function isD3d9EndScene(
 function isD3d9PostEndSceneRasterStatus(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "d3d9-post-end-scene-raster-status";
+  return (
+    profile === "d3d9-post-end-scene-raster-status" ||
+    isD3d9PostRasterStatusWaitableTimer(profile)
+  );
+}
+
+function isD3d9PostRasterStatusWaitableTimer(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-post-raster-status-waitable-timer";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -855,6 +862,11 @@ class BrowserRuntimeSession {
   #beginPaintCall: RuntimeBeginPaintCallSnapshot | null = null;
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
+  #d3d9PostRasterStatusTimerArm: {
+    sequence: number;
+    instructionCount: number;
+    generation: number;
+  } | null = null;
   #enterCriticalSectionCompletions = 0;
   #leaveCriticalSectionCompletions = 0;
   #enterCriticalSectionAcquisition: {
@@ -890,7 +902,8 @@ class BrowserRuntimeSession {
   #bgiCheckpointPending = false;
   #d3d9RasterStatusCompletionCount = 0;
   readonly #d3d9InitialSamplerStateCalls: RuntimeSupportedCallSnapshot[] = [];
-  readonly #d3d9InitialTextureStageStateCalls: RuntimeSupportedCallSnapshot[] = [];
+  readonly #d3d9InitialTextureStageStateCalls: RuntimeSupportedCallSnapshot[] =
+    [];
   #synchronousApiBoundariesSinceYield = 0;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -956,8 +969,7 @@ class BrowserRuntimeSession {
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
     d3d9UpdateTexture: null as SessionReport["d3d9UpdateTexture"],
     d3d9BeginScene: null as SessionReport["d3d9BeginScene"],
-    d3d9InitialSamplerStates:
-      null as SessionReport["d3d9InitialSamplerStates"],
+    d3d9InitialSamplerStates: null as SessionReport["d3d9InitialSamplerStates"],
     d3d9InitialTextureStageStates:
       null as SessionReport["d3d9InitialTextureStageStates"],
     d3d9SetTexture: null as SessionReport["d3d9SetTexture"],
@@ -1112,9 +1124,7 @@ class BrowserRuntimeSession {
               isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
               isD3d9UpdateTexture(this.#configuration.capabilityProfile),
               isD3d9BeginScene(this.#configuration.capabilityProfile),
-              isD3d9InitialSamplerStates(
-                this.#configuration.capabilityProfile,
-              ),
+              isD3d9InitialSamplerStates(this.#configuration.capabilityProfile),
               isD3d9InitialTextureStageStates(
                 this.#configuration.capabilityProfile,
               ),
@@ -3167,7 +3177,8 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile === checkpoint.capability &&
         this.#requirePrepared().runtime.kernel32Policy ===
           (checkpoint.capability === "d3d9-end-scene" ||
-          checkpoint.capability === "d3d9-post-end-scene-raster-status"
+          checkpoint.capability === "d3d9-post-end-scene-raster-status" ||
+          checkpoint.capability === "d3d9-post-raster-status-waitable-timer"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3176,7 +3187,8 @@ class BrowserRuntimeSession {
       this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpointAddress,
       ) ??
-      (checkpoint.capability === "d3d9-end-scene" &&
+      ((checkpoint.capability === "d3d9-end-scene" ||
+        checkpoint.capability === "d3d9-post-raster-status-waitable-timer") &&
       endpointAddress === 0x0101_1160
         ? {
             id: 0,
@@ -3221,17 +3233,20 @@ class BrowserRuntimeSession {
           ? "EndScene first-frame lifecycle checkpoint completed"
           : checkpoint.capability === "d3d9-post-end-scene-raster-status"
             ? "Post-EndScene raster-status checkpoint completed"
-        : checkpoint.capability ===
-            "kernel32-leave-critical-section-continuation"
-          ? "LeaveCriticalSection continuation checkpoint completed"
-          : checkpoint.capability ===
-              "kernel32-enter-critical-section-continuation"
-            ? "EnterCriticalSection continuation checkpoint completed"
-            : checkpoint.capability === "primary-main-loop-progression"
-              ? "API-boundary scheduler roundtrip checkpoint completed"
-              : checkpoint.capability === "kernel32-enter-critical-section"
-                ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
-                : "WaitForSingleObjectEx recurring-wait checkpoint completed",
+            : checkpoint.capability === "d3d9-post-raster-status-waitable-timer"
+              ? "Post-scene waitable-timer pacing checkpoint completed"
+              : checkpoint.capability ===
+                  "kernel32-leave-critical-section-continuation"
+                ? "LeaveCriticalSection continuation checkpoint completed"
+                : checkpoint.capability ===
+                    "kernel32-enter-critical-section-continuation"
+                  ? "EnterCriticalSection continuation checkpoint completed"
+                  : checkpoint.capability === "primary-main-loop-progression"
+                    ? "API-boundary scheduler roundtrip checkpoint completed"
+                    : checkpoint.capability ===
+                        "kernel32-enter-critical-section"
+                      ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
+                      : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
   }
@@ -3385,8 +3400,7 @@ class BrowserRuntimeSession {
     const isPaintCompletion =
       completion.implementationId ===
         "user32.begin-paint.full-client-logical-dc.v1" ||
-      completion.implementationId ===
-        "user32.end-paint.matching-session.v1";
+      completion.implementationId === "user32.end-paint.matching-session.v1";
     invariant(
       isPaintCompletion === (metadata.paint !== undefined),
       "BGI paint completion metadata mismatch",
@@ -3838,13 +3852,14 @@ class BrowserRuntimeSession {
         stackPointerBefore: frame.stackPointer,
         stackPointerAfter: completion.stackPointer,
         lastError: completion.lastError,
-        guestWrites: [{ address: paintWrite.address, bytes: [...paintWrite.bytes] }],
+        guestWrites: [
+          { address: paintWrite.address, bytes: [...paintWrite.bytes] },
+        ],
         paint: structuredClone(paint),
       };
     }
     if (
-      completion.implementationId ===
-      "user32.end-paint.matching-session.v1"
+      completion.implementationId === "user32.end-paint.matching-session.v1"
     ) {
       const [windowHandle, paintStructAddress] = call.arguments;
       const paint = metadata.paint;
@@ -3917,8 +3932,7 @@ class BrowserRuntimeSession {
         endPaint,
         windowAuthority: "rust-runtime-user32-logical-window",
         updateRegionAuthority: "rust-runtime-user32-window-update-region",
-        updateRegionSource:
-          "set-window-pos-frame-change-nccalcsize-completion",
+        updateRegionSource: "set-window-pos-frame-change-nccalcsize-completion",
         updateRegionConsumption: "begin-paint-targeted-commit",
         paintSessionAuthority: "rust-runtime-user32-paint-session",
         deviceContextAuthority: "rust-runtime-gdi-device-context",
@@ -4262,6 +4276,102 @@ class BrowserRuntimeSession {
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
+    }
+    if (
+      isD3d9PostRasterStatusWaitableTimer(
+        this.#configuration.capabilityProfile,
+      ) &&
+      completion.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+      sequence === 127_377
+    ) {
+      const arm = call.waitableTimer?.timer.arm;
+      invariant(
+        this.#report.d3d9PostEndSceneRasterStatus?.call.sequence ===
+          sequence - 1 &&
+          this.#d3d9PostRasterStatusTimerArm === null &&
+          call.module.toLowerCase() === "kernel32.dll" &&
+          call.symbol === "SetWaitableTimer" &&
+          call.arguments.length === 6 &&
+          call.arguments[0] === 0x5701_0001 &&
+          call.arguments[1] === 0x006f_f280 &&
+          call.arguments.slice(2).every((argument) => argument === 0) &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1005_0607 &&
+          call.stackPointerAfter - call.stackPointerBefore === 28 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          call.waitableTimer?.handle === 0x5701_0001 &&
+          call.waitableTimer.timer.id === 1 &&
+          call.waitableTimer.timer.manualReset === true &&
+          arm?.relativeDueTime100ns === 5_000 &&
+          arm.periodMilliseconds === 0 &&
+          arm.generation === 1 &&
+          call.waitableTimer.objectRecord.id === 20 &&
+          call.waitableTimer.objectRecord.waitState?.state === "nonsignaled",
+        "post-scene SetWaitableTimer ABI or timer generation changed",
+      );
+      this.#d3d9PostRasterStatusTimerArm = {
+        sequence,
+        instructionCount: this.#report.instructions,
+        generation: arm.generation,
+      };
+    }
+    if (
+      isD3d9PostRasterStatusWaitableTimer(
+        this.#configuration.capabilityProfile,
+      ) &&
+      completion.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
+      this.#d3d9PostRasterStatusTimerArm !== null &&
+      sequence === this.#d3d9PostRasterStatusTimerArm.sequence + 1
+    ) {
+      const timer = call.waitableTimer;
+      invariant(
+        call.module.toLowerCase() === "kernel32.dll" &&
+          call.symbol === "WaitForSingleObjectEx" &&
+          call.arguments.length === 3 &&
+          call.arguments[0] === 0x5701_0001 &&
+          call.arguments[1] === 10 &&
+          call.arguments[2] === 1 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1005_0615 &&
+          call.stackPointerAfter - call.stackPointerBefore === 16 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          timer?.handle === 0x5701_0001 &&
+          timer.timer.id === 1 &&
+          timer.timer.lastExpiration?.armGeneration ===
+            this.#d3d9PostRasterStatusTimerArm.generation &&
+          timer.objectRecord.id === 20 &&
+          timer.objectRecord.waitState?.state === "signaled" &&
+          timer.objectRecord.waitState.exit_code === 0 &&
+          timer.timerClock?.currentTime100ns === 45_935_000 &&
+          timer.timerClock.generation === 9_187 &&
+          timer.nextWaitRegistrationId === 9_188,
+        "post-scene WaitForSingleObjectEx ABI or expiration generation changed",
+      );
+      this.#report.checkpointCompletion = {
+        capability: "d3d9-post-raster-status-waitable-timer",
+        implementationId:
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        armSequence: this.#d3d9PostRasterStatusTimerArm.sequence,
+        armInstructionCount:
+          this.#d3d9PostRasterStatusTimerArm.instructionCount,
+        armGeneration: this.#d3d9PostRasterStatusTimerArm.generation,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
     }
     if (
       completion.implementationId ===
@@ -4818,9 +4928,7 @@ class BrowserRuntimeSession {
     };
   }
 
-  #recordD3d9InitialSamplerStateCall(
-    call: RuntimeSupportedCallSnapshot,
-  ): void {
+  #recordD3d9InitialSamplerStateCall(call: RuntimeSupportedCallSnapshot): void {
     if (
       !isD3d9InitialSamplerStates(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9"
@@ -4912,13 +5020,15 @@ class BrowserRuntimeSession {
     if (this.#d3d9InitialSamplerStateCalls.length === 2) {
       const first = this.#d3d9InitialSamplerStateCalls[0];
       const second = this.#d3d9InitialSamplerStateCalls[1];
-      invariant(first !== undefined && second !== undefined, "sampler calls missing");
+      invariant(
+        first !== undefined && second !== undefined,
+        "sampler calls missing",
+      );
       this.#report.d3d9InitialSamplerStates = {
         calls: [first, second],
         postSamplerRenderStateRejections: [],
         compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
-        samplerStateProfileId:
-          "primary-first-frame-linear-sampler-states-v1",
+        samplerStateProfileId: "primary-first-frame-linear-sampler-states-v1",
         stateAuthority: "rust-runtime-graphics-logical-device-sampler-states",
         mutation: "validate-plan-preflight-targeted-idempotent-commit",
         sameValueGenerationChange: 0,
@@ -4933,9 +5043,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9InitialTextureStageStates(
-        this.#configuration.capabilityProfile,
-      ) ||
+      !isD3d9InitialTextureStageStates(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 67
     ) {
@@ -5262,8 +5370,7 @@ class BrowserRuntimeSession {
     this.#report.d3d9DrawPrimitive = {
       call: structuredClone(call),
       compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
-      drawPrimitiveProfileId:
-        "primary-first-frame-triangle-strip-quad-draw-v1",
+      drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1",
       stateAuthority:
         "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
       vertexByteAuthority: "rust-guest-memory-synchronous-immutable-snapshot",
@@ -5355,9 +5462,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9PostEndSceneRasterStatus(
-        this.#configuration.capabilityProfile,
-      ) ||
+      !isD3d9PostEndSceneRasterStatus(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 19 ||
       call.sequence !== 127_376
@@ -5410,6 +5515,12 @@ class BrowserRuntimeSession {
       browserRendererResourceCreated: false,
       visiblePixelsProduced: false,
     };
+    if (
+      this.#configuration.capabilityProfile !==
+      "d3d9-post-end-scene-raster-status"
+    ) {
+      return;
+    }
     this.#report.checkpointCompletion = {
       capability: "d3d9-post-end-scene-raster-status",
       implementationId: "d3d9.get-raster-status.deterministic-sample.v1",
@@ -7176,131 +7287,165 @@ class BrowserRuntimeSession {
             (isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
               ? "d3d9-idirect3ddevice9-method"
               : isSetRect(this.#configuration.capabilityProfile)
-              ? "d3d9-idirect3dtexture9-method"
-              : isD3d9Clear(this.#configuration.capabilityProfile)
-                ? "user32-api-contract"
-                : "d3d9-idirect3ddevice9-method") &&
+                ? "d3d9-idirect3dtexture9-method"
+                : isD3d9Clear(this.#configuration.capabilityProfile)
+                  ? "user32-api-contract"
+                  : "d3d9-idirect3ddevice9-method") &&
           (isD3d9EndScene(this.#configuration.capabilityProfile)
             ? this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
               this.#report.d3d9EndScene?.call.sequence === 127_375
-          : isD3d9DrawPrimitive(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
-              this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
-              firstUnsupported.instructionCount === 28_761_332 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0"
-          : isD3d9SetStreamSource(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
-              this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
-              firstUnsupported.instructionCount === 28_761_324 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7"
-          : isD3d9SetFvf(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
-              this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
-              firstUnsupported.instructionCount === 28_761_315 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21"
-          : isD3d9SetTexture(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
-              this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
-              this.#report.d3d9InitialSamplerStates?.calls[0].sequence ===
-                127_360 &&
-              this.#report.d3d9InitialSamplerStates.calls[1].sequence ===
-                127_361 &&
-              this.#report.d3d9InitialSamplerStates
-                .postSamplerRenderStateRejections.length === 3 &&
-              this.#report.d3d9InitialTextureStageStates?.calls[0].sequence ===
-                127_365 &&
-              this.#report.d3d9InitialTextureStageStates.calls[5].sequence ===
-                127_370 &&
-              this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
-              firstUnsupported.instructionCount === 28_761_298 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1"
-          : isD3d9InitialTextureStageStates(
-            this.#configuration.capabilityProfile,
-          )
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
-              this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
-              this.#report.d3d9InitialSamplerStates?.calls[0].sequence ===
-                127_360 &&
-              this.#report.d3d9InitialSamplerStates.calls[1].sequence ===
-                127_361 &&
-              this.#report.d3d9InitialSamplerStates
-                .postSamplerRenderStateRejections.length === 3 &&
-              this.#report.d3d9InitialTextureStageStates?.calls[0].sequence ===
-                127_365 &&
-              this.#report.d3d9InitialTextureStageStates.calls[5].sequence ===
-                127_370 &&
-              firstUnsupported.instructionCount === 28_761_291 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method"
-          : isD3d9InitialSamplerStates(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
-              this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
-              this.#report.d3d9InitialSamplerStates?.calls[0].sequence ===
-                127_360 &&
-              this.#report.d3d9InitialSamplerStates.calls[1].sequence ===
-                127_361 &&
-              this.#report.d3d9InitialSamplerStates
-                .postSamplerRenderStateRejections.length === 3 &&
-              firstUnsupported.instructionCount === 28_761_237 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8"
-          : isD3d9BeginScene(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
-              this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
-              firstUnsupported.instructionCount === 28_761_195 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf"
-          : isD3d9UpdateTexture(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              this.#report.d3d9UpdateTexture?.call.sequence === 127_358 &&
-              firstUnsupported.instructionCount === 28_761_181 &&
-              firstUnsupported.capabilityCluster ===
-                "d3d9-idirect3ddevice9-method" &&
-              firstUnsupported.memoryContentSha256 ===
-                "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a"
-            : isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
-              ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              this.#report.d3d9AddDirtyRect?.call.sequence === 127_357 &&
-              firstUnsupported.instructionCount === 28_761_175
-            : isSetRect(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-              this.#report.setRect?.call.sequence === 127_356 &&
-              firstUnsupported.instructionCount === 28_761_165
-            : isD3d9Clear(this.#configuration.capabilityProfile)
-              ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-                firstUnsupported.instructionCount === 28_761_157
-              : firstUnsupported.instructionCount === 28_761_128),
+            : isD3d9DrawPrimitive(this.#configuration.capabilityProfile)
+              ? this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
+                this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
+                firstUnsupported.instructionCount === 28_761_332 &&
+                firstUnsupported.capabilityCluster ===
+                  "d3d9-idirect3ddevice9-method" &&
+                firstUnsupported.memoryContentSha256 ===
+                  "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0"
+              : isD3d9SetStreamSource(this.#configuration.capabilityProfile)
+                ? this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
+                  this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
+                  firstUnsupported.instructionCount === 28_761_324 &&
+                  firstUnsupported.capabilityCluster ===
+                    "d3d9-idirect3ddevice9-method" &&
+                  firstUnsupported.memoryContentSha256 ===
+                    "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7"
+                : isD3d9SetFvf(this.#configuration.capabilityProfile)
+                  ? this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
+                    this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
+                    firstUnsupported.instructionCount === 28_761_315 &&
+                    firstUnsupported.capabilityCluster ===
+                      "d3d9-idirect3ddevice9-method" &&
+                    firstUnsupported.memoryContentSha256 ===
+                      "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21"
+                  : isD3d9SetTexture(this.#configuration.capabilityProfile)
+                    ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+                      this.#report.setRect?.call.sequence === 127_356 &&
+                      this.#report.d3d9AddDirtyRect?.call.sequence ===
+                        127_357 &&
+                      this.#report.d3d9UpdateTexture?.call.sequence ===
+                        127_358 &&
+                      this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
+                      this.#report.d3d9InitialSamplerStates?.calls[0]
+                        .sequence === 127_360 &&
+                      this.#report.d3d9InitialSamplerStates.calls[1]
+                        .sequence === 127_361 &&
+                      this.#report.d3d9InitialSamplerStates
+                        .postSamplerRenderStateRejections.length === 3 &&
+                      this.#report.d3d9InitialTextureStageStates?.calls[0]
+                        .sequence === 127_365 &&
+                      this.#report.d3d9InitialTextureStageStates.calls[5]
+                        .sequence === 127_370 &&
+                      this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
+                      firstUnsupported.instructionCount === 28_761_298 &&
+                      firstUnsupported.capabilityCluster ===
+                        "d3d9-idirect3ddevice9-method" &&
+                      firstUnsupported.memoryContentSha256 ===
+                        "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1"
+                    : isD3d9InitialTextureStageStates(
+                          this.#configuration.capabilityProfile,
+                        )
+                      ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+                        this.#report.setRect?.call.sequence === 127_356 &&
+                        this.#report.d3d9AddDirtyRect?.call.sequence ===
+                          127_357 &&
+                        this.#report.d3d9UpdateTexture?.call.sequence ===
+                          127_358 &&
+                        this.#report.d3d9BeginScene?.call.sequence ===
+                          127_359 &&
+                        this.#report.d3d9InitialSamplerStates?.calls[0]
+                          .sequence === 127_360 &&
+                        this.#report.d3d9InitialSamplerStates.calls[1]
+                          .sequence === 127_361 &&
+                        this.#report.d3d9InitialSamplerStates
+                          .postSamplerRenderStateRejections.length === 3 &&
+                        this.#report.d3d9InitialTextureStageStates?.calls[0]
+                          .sequence === 127_365 &&
+                        this.#report.d3d9InitialTextureStageStates.calls[5]
+                          .sequence === 127_370 &&
+                        firstUnsupported.instructionCount === 28_761_291 &&
+                        firstUnsupported.capabilityCluster ===
+                          "d3d9-idirect3ddevice9-method"
+                      : isD3d9InitialSamplerStates(
+                            this.#configuration.capabilityProfile,
+                          )
+                        ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+                          this.#report.setRect?.call.sequence === 127_356 &&
+                          this.#report.d3d9AddDirtyRect?.call.sequence ===
+                            127_357 &&
+                          this.#report.d3d9UpdateTexture?.call.sequence ===
+                            127_358 &&
+                          this.#report.d3d9BeginScene?.call.sequence ===
+                            127_359 &&
+                          this.#report.d3d9InitialSamplerStates?.calls[0]
+                            .sequence === 127_360 &&
+                          this.#report.d3d9InitialSamplerStates.calls[1]
+                            .sequence === 127_361 &&
+                          this.#report.d3d9InitialSamplerStates
+                            .postSamplerRenderStateRejections.length === 3 &&
+                          firstUnsupported.instructionCount === 28_761_237 &&
+                          firstUnsupported.capabilityCluster ===
+                            "d3d9-idirect3ddevice9-method" &&
+                          firstUnsupported.memoryContentSha256 ===
+                            "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8"
+                        : isD3d9BeginScene(
+                              this.#configuration.capabilityProfile,
+                            )
+                          ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
+                            this.#report.setRect?.call.sequence === 127_356 &&
+                            this.#report.d3d9AddDirtyRect?.call.sequence ===
+                              127_357 &&
+                            this.#report.d3d9UpdateTexture?.call.sequence ===
+                              127_358 &&
+                            this.#report.d3d9BeginScene?.call.sequence ===
+                              127_359 &&
+                            firstUnsupported.instructionCount === 28_761_195 &&
+                            firstUnsupported.capabilityCluster ===
+                              "d3d9-idirect3ddevice9-method" &&
+                            firstUnsupported.memoryContentSha256 ===
+                              "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf"
+                          : isD3d9UpdateTexture(
+                                this.#configuration.capabilityProfile,
+                              )
+                            ? this.#report.d3d9Clear?.call.sequence ===
+                                127_355 &&
+                              this.#report.setRect?.call.sequence === 127_356 &&
+                              this.#report.d3d9AddDirtyRect?.call.sequence ===
+                                127_357 &&
+                              this.#report.d3d9UpdateTexture?.call.sequence ===
+                                127_358 &&
+                              firstUnsupported.instructionCount ===
+                                28_761_181 &&
+                              firstUnsupported.capabilityCluster ===
+                                "d3d9-idirect3ddevice9-method" &&
+                              firstUnsupported.memoryContentSha256 ===
+                                "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a"
+                            : isD3d9AddDirtyRect(
+                                  this.#configuration.capabilityProfile,
+                                )
+                              ? this.#report.d3d9Clear?.call.sequence ===
+                                  127_355 &&
+                                this.#report.setRect?.call.sequence ===
+                                  127_356 &&
+                                this.#report.d3d9AddDirtyRect?.call.sequence ===
+                                  127_357 &&
+                                firstUnsupported.instructionCount === 28_761_175
+                              : isSetRect(this.#configuration.capabilityProfile)
+                                ? this.#report.d3d9Clear?.call.sequence ===
+                                    127_355 &&
+                                  this.#report.setRect?.call.sequence ===
+                                    127_356 &&
+                                  firstUnsupported.instructionCount ===
+                                    28_761_165
+                                : isD3d9Clear(
+                                      this.#configuration.capabilityProfile,
+                                    )
+                                  ? this.#report.d3d9Clear?.call.sequence ===
+                                      127_355 &&
+                                    firstUnsupported.instructionCount ===
+                                      28_761_157
+                                  : firstUnsupported.instructionCount ===
+                                    28_761_128),
         "UpdateWindow report omitted its pending callback or paint-session lifecycle",
       );
     }

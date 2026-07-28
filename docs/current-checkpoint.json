@@ -16,7 +16,7 @@
         "id": "logical-window-and-message-flow",
         "label": "Logical window and message flow",
         "status": "in-progress",
-      "evidenceBoundary": "Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial"
+        "evidenceBoundary": "Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial"
       },
       {
         "id": "immutable-source-asset-access",
@@ -28,7 +28,7 @@
         "id": "first-present-readable-screen",
         "label": "First present and readable screen",
         "status": "in-progress",
-      "evidenceBoundary": "Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded initial and post-scene raster-status queries, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, typed FVF 0x144, the exact non-owning stream-zero binding, one owning immutable triangle-strip draw submission, and the first scene lifecycle close with draw content preserved are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, while pixel storage, renderer translation, Present, and visible primary pixels are not reached"
+        "evidenceBoundary": "Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded initial and post-scene raster-status queries, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, typed FVF 0x144, the exact non-owning stream-zero binding, one owning immutable triangle-strip draw submission, the first scene lifecycle close with draw content preserved, and the following logical waitable-timer arm/wait pacing cycle are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, while pixel storage, renderer translation, Present, and visible primary pixels are not reached"
       },
       {
         "id": "user-input-consumption",
@@ -180,7 +180,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v41",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v42",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -336,15 +336,15 @@
       "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       "nodeRole": "semantic-oracle-only",
       "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
-      "guestInstructions": 28761446,
-      "cpuSlices": 129016,
+      "guestInstructions": 28761476,
+      "cpuSlices": 129018,
       "budgetYields": 1542,
-      "supportedCalls": 127375,
+      "supportedCalls": 127377,
       "evidenceLevel": "summary",
       "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-      "callSemanticsSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
-      "writebackBatches": 129012,
-      "writebackPages": 179554,
+      "callSemanticsSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
+      "writebackBatches": 129014,
+      "writebackPages": 179556,
       "hostDeltaBatches": 106770,
       "callbackEntries": 30,
       "callbackReplacements": 15,
@@ -360,10 +360,10 @@
       "registeredThreadIds": [8192, 8193],
       "executedThreadIds": [8192, 8193],
       "contextSwitches": 2010,
-      "setWaitableTimerCompletions": 9187,
+      "setWaitableTimerCompletions": 9188,
       "setWaitableTimerSequence": 18681,
-      "setWaitableTimerSequences": [18681, 127344],
-      "setWaitableTimerInstructionCounts": [11974074, 28759195],
+      "setWaitableTimerSequences": [18681, 127377],
+      "setWaitableTimerInstructionCounts": [11974074, 28761446],
       "setWaitableTimerInstructionCount": 11974074,
       "setWaitableTimerArguments": [
         "0x57010002",
@@ -394,9 +394,9 @@
       "setWaitableTimerBrowserTimerCreated": false,
       "setWaitableTimerExpirationImplemented": true,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
-      "waitForSingleObjectExCompletions": 9186,
-      "waitForSingleObjectExSequences": [18682, 127337],
-      "waitForSingleObjectExInstructionCounts": [11974080, 28759054],
+      "waitForSingleObjectExCompletions": 9187,
+      "waitForSingleObjectExSequences": [18682, 127378],
+      "waitForSingleObjectExInstructionCounts": [11974080, 28761452],
       "waitForSingleObjectExArguments": [
         "0x57010002",
         "0x0000000a",
@@ -409,12 +409,12 @@
       "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       "waitForSingleObjectExTimerId": 2,
       "waitForSingleObjectExManualReset": true,
-      "waitForSingleObjectExArmGenerations": [1, 9186],
+      "waitForSingleObjectExArmGenerations": [1, 1],
       "waitForSingleObjectExDeadlineTimes100ns": [5000, 45930000],
       "waitForSingleObjectExClockTimes100ns": [5000, 45930000],
-      "waitForSingleObjectExClockGenerations": [1, 9186],
+      "waitForSingleObjectExClockGenerations": [1, 9187],
       "waitForSingleObjectExWaitState": "signaled",
-      "waitForSingleObjectExNextRegistrationIds": [2, 9187],
+      "waitForSingleObjectExNextRegistrationIds": [2, 9188],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
       "waitForSingleObjectExTimeoutMode": "finite-zero-through-ten-milliseconds",
@@ -422,13 +422,13 @@
       "waitForSingleObjectExApcDeliveryImplemented": false,
       "waitForSingleObjectExPacingService": "runtime.timer-delay.v1",
       "waitForSingleObjectExPacingPayloadVersion": 1,
-      "waitForSingleObjectExPacingRequestIds": ["3", "9197"],
-      "waitForSingleObjectExPacingRegistrationIds": ["1", "9186"],
+      "waitForSingleObjectExPacingRequestIds": ["3", "9198"],
+      "waitForSingleObjectExPacingRegistrationIds": ["1", "9187"],
       "waitForSingleObjectExPacingDelayMilliseconds": [1, 1],
-      "waitForSingleObjectExPacingTimerIds": ["2", "2"],
+      "waitForSingleObjectExPacingTimerIds": ["2", "1"],
       "waitForSingleObjectExPacingTargetTimes100ns": ["5000", "45930000"],
-      "waitForSingleObjectExPacingClockGenerations": ["0", "9185"],
-      "waitForSingleObjectExPacingArmGenerations": ["1", "9186"],
+      "waitForSingleObjectExPacingClockGenerations": ["0", "9186"],
+      "waitForSingleObjectExPacingArmGenerations": ["1", "1"],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
       "waitForSingleObjectExLogicalCompletionAuthority": "rust-runtime",
@@ -438,8 +438,8 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerCreated": true,
-      "waitForSingleObjectExBrowserPacingRequests": 9186,
-      "waitForSingleObjectExBrowserPacingCompletions": 9186,
+      "waitForSingleObjectExBrowserPacingRequests": 9187,
+      "waitForSingleObjectExBrowserPacingCompletions": 9187,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
@@ -1002,7 +1002,7 @@
       "virtualAllocNodeCompletions": 1,
       "virtualAllocChromeCompletions": 1,
       "virtualAllocNodeChromeOrderedSemanticsMatched": true,
-      "successExecutionTransitionCount": 416563,
+      "successExecutionTransitionCount": 416570,
       "monitorFromWindowCompletions": 2,
       "monitorFromWindowSequence": 17842,
       "monitorFromWindowArguments": ["0x48010001", "0x00000001"],
@@ -2091,8 +2091,8 @@
       "d3d9SamplerStateLogicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
       "d3d9SamplerStateLogicalGraphicsComObjectId": "21",
       "d3d9SamplerStateFiltersAfterCalls": [
-        {"min": "linear", "mag": null},
-        {"min": "linear", "mag": "linear"}
+        { "min": "linear", "mag": null },
+        { "min": "linear", "mag": "linear" }
       ],
       "d3d9SamplerStateLogicalGraphicsDeviceGenerations": [46, 47],
       "d3d9SamplerStateSameValueGenerationChange": 0,
@@ -2101,19 +2101,33 @@
       "d3d9SamplerStateBrowserRendererResourceCreated": false,
       "d3d9PostSamplerRenderStateRejectedCompletions": 3,
       "d3d9PostSamplerRenderStateRejectedSequences": [127362, 127363, 127364],
-      "d3d9PostSamplerRenderStateRejectedInstructionCounts": [28761212, 28761220, 28761228],
+      "d3d9PostSamplerRenderStateRejectedInstructionCounts": [
+        28761212, 28761220, 28761228
+      ],
       "d3d9PostSamplerRenderStateRejectedArguments": [
         ["0x01010004", "0x000000ab", "0x00000001"],
         ["0x01010004", "0x00000014", "0x00000006"],
         ["0x01010004", "0x00000013", "0x00000005"]
       ],
-      "d3d9PostSamplerRenderStateRejectedResults": ["0x8876086a", "0x8876086a", "0x8876086a"],
-      "d3d9PostSamplerRenderStateRejectedReturnAddresses": ["0x1005b1b7", "0x1005b1cb", "0x1005b1df"],
+      "d3d9PostSamplerRenderStateRejectedResults": [
+        "0x8876086a",
+        "0x8876086a",
+        "0x8876086a"
+      ],
+      "d3d9PostSamplerRenderStateRejectedReturnAddresses": [
+        "0x1005b1b7",
+        "0x1005b1cb",
+        "0x1005b1df"
+      ],
       "d3d9PostSamplerRenderStateRejectedCallerIgnoredResults": true,
       "d3d9SamplerStateNodeChromeOrderedSemanticsMatched": true,
       "d3d9TextureStageStateCompletions": 6,
-      "d3d9TextureStageStateSequences": [127365, 127366, 127367, 127368, 127369, 127370],
-      "d3d9TextureStageStateInstructionCounts": [28761237, 28761246, 28761255, 28761264, 28761273, 28761282],
+      "d3d9TextureStageStateSequences": [
+        127365, 127366, 127367, 127368, 127369, 127370
+      ],
+      "d3d9TextureStageStateInstructionCounts": [
+        28761237, 28761246, 28761255, 28761264, 28761273, 28761282
+      ],
       "d3d9TextureStageStateArguments": [
         ["0x01010004", "0x00000000", "0x00000001", "0x00000004"],
         ["0x01010004", "0x00000000", "0x00000002", "0x00000002"],
@@ -2122,8 +2136,22 @@
         ["0x01010004", "0x00000000", "0x00000005", "0x00000002"],
         ["0x01010004", "0x00000000", "0x00000006", "0x00000000"]
       ],
-      "d3d9TextureStageStateResults": ["0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
-      "d3d9TextureStageStateReturnAddresses": ["0x1005b1f5", "0x1005b20b", "0x1005b221", "0x1005b237", "0x1005b24d", "0x1005b263"],
+      "d3d9TextureStageStateResults": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ],
+      "d3d9TextureStageStateReturnAddresses": [
+        "0x1005b1f5",
+        "0x1005b20b",
+        "0x1005b221",
+        "0x1005b237",
+        "0x1005b24d",
+        "0x1005b263"
+      ],
       "d3d9TextureStageStateStackPointers": [
         ["0x006ff254", "0x006ff268"],
         ["0x006ff254", "0x006ff268"],
@@ -2134,7 +2162,14 @@
       ],
       "d3d9TextureStageStateGuestWriteBytes": [0, 0, 0, 0, 0, 0],
       "d3d9TextureStageStateDeviceReferenceCounts": [5, 5, 5, 5, 5, 5],
-      "d3d9TextureStageStateDeviceObjectsRetired": [false, false, false, false, false, false],
+      "d3d9TextureStageStateDeviceObjectsRetired": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
       "d3d9TextureStageStateCompatibilityPolicyId": "d3d9-primary-virtual-adapter-v28",
       "d3d9TextureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
       "d3d9TextureStageStateAuthority": "rust-runtime-graphics-logical-device-texture-stage-states",
@@ -2143,14 +2178,38 @@
       "d3d9TextureStageStateLogicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
       "d3d9TextureStageStateLogicalGraphicsComObjectId": "21",
       "d3d9TextureStageStatesAfterCalls": [
-        {"colorOperation": "modulate"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture", "alphaArgumentTwo": "diffuse"}
+        { "colorOperation": "modulate" },
+        { "colorOperation": "modulate", "colorArgumentOne": "texture" },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture",
+          "alphaArgumentTwo": "diffuse"
+        }
       ],
-      "d3d9TextureStageStateLogicalGraphicsDeviceGenerations": [48, 49, 50, 51, 52, 53],
+      "d3d9TextureStageStateLogicalGraphicsDeviceGenerations": [
+        48, 49, 50, 51, 52, 53
+      ],
       "d3d9TextureStageStateSameValueGenerationChange": 0,
       "d3d9TextureStageStateUnsupportedVariantResult": "0x8876086a",
       "d3d9TextureStageStateFailureAtomicity": true,
@@ -2326,10 +2385,7 @@
       ],
       "d3d9PostEndSceneRasterStatusResult": "0x00000000",
       "d3d9PostEndSceneRasterStatusReturnAddress": "0x1005aedd",
-      "d3d9PostEndSceneRasterStatusStackPointers": [
-        "0x006ff268",
-        "0x006ff278"
-      ],
+      "d3d9PostEndSceneRasterStatusStackPointers": ["0x006ff268", "0x006ff278"],
       "d3d9PostEndSceneRasterStatusGuestWriteBytes": 8,
       "d3d9PostEndSceneRasterStatusOutputAddress": "0x006ff280",
       "d3d9PostEndSceneRasterStatusOutputHex": "0000000001000000",
@@ -2392,7 +2448,7 @@
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 416563,
+          "transitionCount": 416570,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2458,37 +2514,40 @@
       "initialStackCommittedPagesAfterGrowth": 7,
       "initialStackFinalGuardPage": "0x006f8000",
       "initialGeneration": 27,
-      "finalGeneration": 236965,
-      "nodeFinalGeneration": 235527,
+      "finalGeneration": 236967,
+      "nodeFinalGeneration": 235529,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
-      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
       "checkpointCompletion": {
-        "capability": "d3d9-post-end-scene-raster-status",
-        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+        "capability": "d3d9-post-raster-status-waitable-timer",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127376,
-        "lastCompletionInstructionCount": 28761389,
-        "instructionCount": 28761446,
+        "armSequence": 127377,
+        "armInstructionCount": 28761446,
+        "armGeneration": 1,
+        "lastCompletionSequence": 127378,
+        "lastCompletionInstructionCount": 28761452,
+        "instructionCount": 28761476,
         "nextEndpoint": {
-          "endpointId": 118,
-          "endpointAddress": "0x7f000750",
-          "api": "kernel32.dll!SetWaitableTimer"
+          "endpointId": 0,
+          "endpointAddress": "0x01011160",
+          "api": "IDirect3DDevice9::GetRasterStatus"
         },
-        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
+        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
       },
       "initialCurrentDirectoryBytesWithNul": [67, 58, 92, 86, 105, 110, 101, 0],
       "initialCurrentDirectoryGeneration": 0,
       "setCurrentDirectoryGeneration": 1,
-      "wasmBridgeCalls": 373351,
+      "wasmBridgeCalls": 373357,
       "runtimeCoreLinearMemoryBytes": 16580608,
       "executionEngineLinearMemoryBytes": 18219008,
-      "maximumSliceMilliseconds": 2.5550000071525574,
-      "elapsedMilliseconds": 20504.89500001073,
-      "heartbeatSamples": 4104,
-      "maximumHeartbeatGapMilliseconds": 18.09000000357628,
-      "usedJsHeapBytesBefore": 638535,
-      "usedJsHeapBytesAfter": 4818091,
+      "maximumSliceMilliseconds": 3.009999990463257,
+      "elapsedMilliseconds": 20350.540000006557,
+      "heartbeatSamples": 4073,
+      "maximumHeartbeatGapMilliseconds": 20.99500000476837,
+      "usedJsHeapBytesBefore": 638815,
+      "usedJsHeapBytesAfter": 4829723,
       "cancelInstructions": 19,
       "watchdogInstructions": 4,
       "pendingHostCallsAfterCleanup": 0,
@@ -2498,10 +2557,10 @@
       "sourceReadCompletions": 10,
       "sourceReadPayloadSha256": "6dba2f3ade90d3706b45ccf37e490a56c97e74511a0eae0c4ab5546f34ce1cd6",
       "sourceReadPendingAfterCleanup": 0,
-      "nodeOracleReportBytes": 561027,
-      "nodeOracleReportSha256": "625767eb2f976303702c493656f7c6e7998800b200c7ea755ea9d4a4f05062ec",
-      "browserReportBytes": 1936718,
-      "browserReportSha256": "9039f9840802c8f0640f057c71995ea715560c5f18b25065544ea9b126212f65",
+      "nodeOracleReportBytes": 561111,
+      "nodeOracleReportSha256": "456efd128b067cfa7046b0af1ed5a23ae3f06b32af2cc12cf1fc795e4a35144d",
+      "browserReportBytes": 1936937,
+      "browserReportSha256": "88814ffb31c5711f3b03fbf943da49ea14f2728729335a4a99bed8ea38528968",
       "archiveSourceReadCompletions": 3,
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceReadOffsets": [0, 16, 400],
@@ -2655,9 +2714,9 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "d3d9-post-end-scene-raster-status",
+    "runtimeKernelCheckpoint": "d3d9-post-raster-status-waitable-timer",
     "status": "checkpoint-complete",
-    "profile": "d3d9-post-end-scene-raster-status",
+    "profile": "d3d9-post-raster-status-waitable-timer",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -2762,7 +2821,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 120,
     "genericDispatcherContractCount": 122,
-    "genericDispatcherCallOccurrenceCount": 127375,
+    "genericDispatcherCallOccurrenceCount": 127377,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -3023,12 +3082,12 @@
         "user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity",
         "user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime",
         "user32_dispatcher::set_window_long_a_updates_effective_style_visibility_and_preserves_failures",
-    "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks",
-    "user32_dispatcher::set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc",
-    "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit",
-    "user32_dispatcher::set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomically",
-    "user32_dispatcher::show_window_rejects_unreached_command_handle_and_window_state_atomically",
-    "user32_dispatcher::update_window_rejects_invalid_handle_disabled_policy_and_missing_region_atomically",
+        "user32_dispatcher::set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks",
+        "user32_dispatcher::set_window_pos_resize_atomically_updates_window_and_gdi_surface_after_nccalc",
+        "user32_dispatcher::set_window_pos_resize_rejects_live_window_dc_before_window_or_surface_commit",
+        "user32_dispatcher::set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomically",
+        "user32_dispatcher::show_window_rejects_unreached_command_handle_and_window_state_atomically",
+        "user32_dispatcher::update_window_rejects_invalid_handle_disabled_policy_and_missing_region_atomically",
         "winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic",
         "runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic",
         "source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically",
@@ -3097,7 +3156,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "d3d9-post-raster-status-waitable-timer"
+      "capabilityExpansionPausedAt": "d3d9-post-waitable-timer-raster-status"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -4954,8 +5013,16 @@
         "sourceVariantIndex": 3,
         "destinationVariantIndex": 4,
         "dynamicDestinationVariantIndex": 5,
-        "nonNullOracleSuccessVariants": ["primary", "repeat", "dynamic-destination"],
-        "nonNullOracleInvalidVariants": ["reversed-pools", "default-source", "same-resource"],
+        "nonNullOracleSuccessVariants": [
+          "primary",
+          "repeat",
+          "dynamic-destination"
+        ],
+        "nonNullOracleInvalidVariants": [
+          "reversed-pools",
+          "default-source",
+          "same-resource"
+        ],
         "nullVariantClaimed": false,
         "validResult": "0x00000000",
         "invalidResult": "0x8876086c",
@@ -5081,8 +5148,8 @@
         "stateAuthority": "runtime/graphics.rs::RuntimeGraphicsDevice",
         "supportedSampler": 0,
         "supportedStates": [
-          {"state": 6, "value": 2, "meaning": "minification-linear"},
-          {"state": 5, "value": 2, "meaning": "magnification-linear"}
+          { "state": 6, "value": 2, "meaning": "minification-linear" },
+          { "state": 5, "value": 2, "meaning": "magnification-linear" }
         ],
         "validResult": "0x00000000",
         "unsupportedResult": "0x8876086a",
@@ -5161,13 +5228,19 @@
         "logicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
         "logicalGraphicsComObjectId": "21",
         "filtersAfterCalls": [
-          {"min": "linear", "mag": null},
-          {"min": "linear", "mag": "linear"}
+          { "min": "linear", "mag": null },
+          { "min": "linear", "mag": "linear" }
         ],
         "logicalGraphicsDeviceGenerations": [46, 47],
         "postSamplerRenderStateRejectedSequences": [127362, 127363, 127364],
-        "postSamplerRenderStateRejectedInstructionCounts": [28761212, 28761220, 28761228],
-        "postSamplerRenderStateRejectedResults": ["0x8876086a", "0x8876086a", "0x8876086a"],
+        "postSamplerRenderStateRejectedInstructionCounts": [
+          28761212, 28761220, 28761228
+        ],
+        "postSamplerRenderStateRejectedResults": [
+          "0x8876086a",
+          "0x8876086a",
+          "0x8876086a"
+        ],
         "postSamplerRenderStateCallerIgnoredResults": true,
         "browserRendererResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
@@ -5180,12 +5253,16 @@
         "stateAuthority": "runtime/graphics.rs::RuntimeGraphicsDevice",
         "supportedStage": 0,
         "supportedStates": [
-          {"state": 1, "value": 4, "meaning": "color-operation-modulate"},
-          {"state": 2, "value": 2, "meaning": "color-argument-one-texture"},
-          {"state": 3, "value": 0, "meaning": "color-argument-two-diffuse"},
-          {"state": 4, "value": 2, "meaning": "alpha-operation-select-argument-one"},
-          {"state": 5, "value": 2, "meaning": "alpha-argument-one-texture"},
-          {"state": 6, "value": 0, "meaning": "alpha-argument-two-diffuse"}
+          { "state": 1, "value": 4, "meaning": "color-operation-modulate" },
+          { "state": 2, "value": 2, "meaning": "color-argument-one-texture" },
+          { "state": 3, "value": 0, "meaning": "color-argument-two-diffuse" },
+          {
+            "state": 4,
+            "value": 2,
+            "meaning": "alpha-operation-select-argument-one"
+          },
+          { "state": 5, "value": 2, "meaning": "alpha-argument-one-texture" },
+          { "state": 6, "value": 0, "meaning": "alpha-argument-two-diffuse" }
         ],
         "validResult": "0x00000000",
         "unsupportedResult": "0x8876086a",
@@ -5218,7 +5295,14 @@
         "sameDevicePerTrace": true,
         "singleThreadPerTrace": true,
         "contiguousCalls": true,
-        "callerRvas": ["0x0005b1f5", "0x0005b20b", "0x0005b221", "0x0005b237", "0x0005b24d", "0x0005b263"],
+        "callerRvas": [
+          "0x0005b1f5",
+          "0x0005b20b",
+          "0x0005b221",
+          "0x0005b237",
+          "0x0005b24d",
+          "0x0005b263"
+        ],
         "arguments": [
           ["0x00000000", "0x00000001", "0x00000004"],
           ["0x00000000", "0x00000002", "0x00000002"],
@@ -5227,7 +5311,14 @@
           ["0x00000000", "0x00000005", "0x00000002"],
           ["0x00000000", "0x00000006", "0x00000000"]
         ],
-        "results": ["0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
+        "results": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
         "lastErrors": [0, 0, 0, 0, 0, 0],
         "immediateConsumers": [
           "mov-eax-dword-ptr-0x004017c4",
@@ -5260,7 +5351,9 @@
       },
       "privateRuntimeTextureStageStateEvidence": {
         "nodeSequences": [127365, 127366, 127367, 127368, 127369, 127370],
-        "nodeInstructionCounts": [28761237, 28761246, 28761255, 28761264, 28761273, 28761282],
+        "nodeInstructionCounts": [
+          28761237, 28761246, 28761255, 28761264, 28761273, 28761282
+        ],
         "chromeSequences": [127365, 127366, 127367, 127368, 127369, 127370],
         "arguments": [
           ["0x01010004", "0x00000000", "0x00000001", "0x00000004"],
@@ -5270,7 +5363,14 @@
           ["0x01010004", "0x00000000", "0x00000005", "0x00000002"],
           ["0x01010004", "0x00000000", "0x00000006", "0x00000000"]
         ],
-        "returnAddresses": ["0x1005b1f5", "0x1005b20b", "0x1005b221", "0x1005b237", "0x1005b24d", "0x1005b263"],
+        "returnAddresses": [
+          "0x1005b1f5",
+          "0x1005b20b",
+          "0x1005b221",
+          "0x1005b237",
+          "0x1005b24d",
+          "0x1005b263"
+        ],
         "stackPointers": [
           ["0x006ff254", "0x006ff268"],
           ["0x006ff254", "0x006ff268"],
@@ -5279,7 +5379,14 @@
           ["0x006ff254", "0x006ff268"],
           ["0x006ff254", "0x006ff268"]
         ],
-        "results": ["0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
+        "results": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
         "guestWriteBytes": [0, 0, 0, 0, 0, 0],
         "deviceReferenceCounts": [5, 5, 5, 5, 5, 5],
         "deviceObjectsRetired": [false, false, false, false, false, false],
@@ -5287,12 +5394,34 @@
         "logicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
         "logicalGraphicsComObjectId": "21",
         "statesAfterCalls": [
-          {"colorOperation": "modulate"},
-          {"colorOperation": "modulate", "colorArgumentOne": "texture"},
-          {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse"},
-          {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one"},
-          {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture"},
-          {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture", "alphaArgumentTwo": "diffuse"}
+          { "colorOperation": "modulate" },
+          { "colorOperation": "modulate", "colorArgumentOne": "texture" },
+          {
+            "colorOperation": "modulate",
+            "colorArgumentOne": "texture",
+            "colorArgumentTwo": "diffuse"
+          },
+          {
+            "colorOperation": "modulate",
+            "colorArgumentOne": "texture",
+            "colorArgumentTwo": "diffuse",
+            "alphaOperation": "select-argument-one"
+          },
+          {
+            "colorOperation": "modulate",
+            "colorArgumentOne": "texture",
+            "colorArgumentTwo": "diffuse",
+            "alphaOperation": "select-argument-one",
+            "alphaArgumentOne": "texture"
+          },
+          {
+            "colorOperation": "modulate",
+            "colorArgumentOne": "texture",
+            "colorArgumentTwo": "diffuse",
+            "alphaOperation": "select-argument-one",
+            "alphaArgumentOne": "texture",
+            "alphaArgumentTwo": "diffuse"
+          }
         ],
         "logicalGraphicsDeviceGenerations": [48, 49, 50, 51, 52, 53],
         "browserRendererResourceCreated": false,
@@ -5655,12 +5784,7 @@
         "nodeSequence": 127374,
         "nodeInstructionCount": 28761324,
         "chromeSequence": 127374,
-        "arguments": [
-          "0x01010004",
-          "0x00000005",
-          "0x00000000",
-          "0x00000002"
-        ],
+        "arguments": ["0x01010004", "0x00000005", "0x00000000", "0x00000002"],
         "returnAddress": "0x1005b402",
         "stackPointers": ["0x006ff254", "0x006ff268"],
         "result": "0x00000000",
@@ -8114,7 +8238,7 @@
       "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-d3d9-post-end-scene-raster-status",
+      "schema": "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -9278,7 +9402,7 @@
       "nativeCreateWindowExAExecutableHashUnchanged": true,
       "implementation": "Rust-owned SetWindowPos frame-change move callback transaction over RuntimeUser32 geometry authority",
       "implementedApiContractCount": 122,
-      "genericSupportedCallCount": 127375,
+      "genericSupportedCallCount": 127377,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -9472,11 +9596,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 127474,
-      "writebackDirtyPages": 175996,
-      "writebackChangedBytes": 6620003,
+      "writebackBatches": 127476,
+      "writebackDirtyPages": 175998,
+      "writebackChangedBytes": 6620041,
       "hostDeltaBatches": 106770,
-      "finalMemoryGeneration": 235527,
+      "finalMemoryGeneration": 235529,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -9593,7 +9717,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [18699, 18701, 18703],
       "enterCriticalSectionOccurrences": [32, 33, 34],
@@ -10016,12 +10140,12 @@
       "setWaitableTimerHostTimerImported": false,
       "setWaitableTimerBrowserTimerImported": false,
       "setWaitableTimerExpirationImplemented": true,
-      "setWaitableTimerNodeCompletions": 9187,
-      "setWaitableTimerChromeCompletions": 9187,
+      "setWaitableTimerNodeCompletions": 9188,
+      "setWaitableTimerChromeCompletions": 9188,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
       "waitForSingleObjectExImplemented": true,
-      "waitForSingleObjectExSequences": [18682, 127337],
-      "waitForSingleObjectExInstructionCounts": [11974080, 28759054],
+      "waitForSingleObjectExSequences": [18682, 127378],
+      "waitForSingleObjectExInstructionCounts": [11974080, 28761452],
       "waitForSingleObjectExArguments": [
         "0x57010002",
         "0x0000000a",
@@ -10032,10 +10156,10 @@
       "waitForSingleObjectExLastErrors": [0, 0],
       "waitForSingleObjectExGuestWrites": 0,
       "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
-      "waitForSingleObjectExArmGenerations": [1, 9186],
+      "waitForSingleObjectExArmGenerations": [1, 1],
       "waitForSingleObjectExDeadlineTimes100ns": [5000, 45930000],
       "waitForSingleObjectExClockTimes100ns": [5000, 45930000],
-      "waitForSingleObjectExClockGenerations": [1, 9186],
+      "waitForSingleObjectExClockGenerations": [1, 9187],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
       "waitForSingleObjectExMutation": "cross-owner-preflight-targeted-commit",
@@ -10043,12 +10167,12 @@
       "waitForSingleObjectExApcDeliveryImplemented": false,
       "waitForSingleObjectExPacingService": "runtime.timer-delay.v1",
       "waitForSingleObjectExPacingPayloadVersion": 1,
-      "waitForSingleObjectExPacingRequestIds": ["3", "9197"],
-      "waitForSingleObjectExPacingRegistrationIds": ["1", "9186"],
+      "waitForSingleObjectExPacingRequestIds": ["3", "9198"],
+      "waitForSingleObjectExPacingRegistrationIds": ["1", "9187"],
       "waitForSingleObjectExPacingDelayMilliseconds": [1, 1],
       "waitForSingleObjectExPacingTargetTimes100ns": ["5000", "45930000"],
-      "waitForSingleObjectExPacingClockGenerations": ["0", "9185"],
-      "waitForSingleObjectExPacingArmGenerations": ["1", "9186"],
+      "waitForSingleObjectExPacingClockGenerations": ["0", "9186"],
+      "waitForSingleObjectExPacingArmGenerations": ["1", "1"],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
       "waitForSingleObjectExLogicalCompletionAuthority": "rust-runtime",
@@ -10058,13 +10182,13 @@
       "waitForSingleObjectExOtherGuestLaneExecutionDuringPacing": false,
       "waitForSingleObjectExHostClockImported": false,
       "waitForSingleObjectExBrowserTimerImported": false,
-      "waitForSingleObjectExBrowserPacingRequests": 9186,
-      "waitForSingleObjectExBrowserPacingCompletions": 9186,
+      "waitForSingleObjectExBrowserPacingRequests": 9187,
+      "waitForSingleObjectExBrowserPacingCompletions": 9187,
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
-      "waitForSingleObjectExNodeCompletions": 9186,
-      "waitForSingleObjectExChromeCompletions": 9186,
+      "waitForSingleObjectExNodeCompletions": 9187,
+      "waitForSingleObjectExChromeCompletions": 9187,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
       "sleepZeroImplemented": true,
       "sleepZeroPolicyId": "kernel32-create-directory-a-v1",
@@ -12182,7 +12306,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+      "semanticCallDigestSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -14291,13 +14415,25 @@
       "nativeUpdateTextureConfirmationSummarySha256": "0af54fd50a108ade2364e17789184fd8d3b56968c076cf7af0dffc898bbd39cb",
       "nativeUpdateTextureConfirmationBalancedApiPairs": 566,
       "nativeUpdateTextureTraceDiagnostics": 0,
-      "nativeUpdateTextureCreationCallerRvas": ["0x0005a715", "0x0005a7b7", "0x0005a7dc"],
+      "nativeUpdateTextureCreationCallerRvas": [
+        "0x0005a715",
+        "0x0005a7b7",
+        "0x0005a7dc"
+      ],
       "nativeUpdateTextureCallerRva": "0x0005b038",
       "nativeUpdateTextureSourceVariantIndex": 3,
       "nativeUpdateTextureDestinationVariantIndex": 4,
       "nativeUpdateTextureDynamicDestinationVariantIndex": 5,
-      "nativeUpdateTextureNonNullSuccessVariants": ["primary", "repeat", "dynamic-destination"],
-      "nativeUpdateTextureNonNullInvalidVariants": ["reversed-pools", "default-source", "same-resource"],
+      "nativeUpdateTextureNonNullSuccessVariants": [
+        "primary",
+        "repeat",
+        "dynamic-destination"
+      ],
+      "nativeUpdateTextureNonNullInvalidVariants": [
+        "reversed-pools",
+        "default-source",
+        "same-resource"
+      ],
       "nativeUpdateTextureNullVariantClaimed": false,
       "nativeUpdateTextureValidResult": "0x00000000",
       "nativeUpdateTextureInvalidResult": "0x8876086c",
@@ -14485,8 +14621,8 @@
       "d3d9SamplerStateLogicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
       "d3d9SamplerStateLogicalGraphicsComObjectId": "21",
       "d3d9SamplerStateFiltersAfterCalls": [
-        {"min": "linear", "mag": null},
-        {"min": "linear", "mag": "linear"}
+        { "min": "linear", "mag": null },
+        { "min": "linear", "mag": "linear" }
       ],
       "d3d9SamplerStateLogicalGraphicsDeviceGenerations": [46, 47],
       "d3d9SamplerStateSameValueGenerationChange": 0,
@@ -14497,14 +14633,24 @@
       "d3d9SamplerStateNodeCompletions": 2,
       "d3d9SamplerStateChromeCompletions": 2,
       "d3d9PostSamplerRenderStateRejectedSequences": [127362, 127363, 127364],
-      "d3d9PostSamplerRenderStateRejectedInstructionCounts": [28761212, 28761220, 28761228],
+      "d3d9PostSamplerRenderStateRejectedInstructionCounts": [
+        28761212, 28761220, 28761228
+      ],
       "d3d9PostSamplerRenderStateRejectedArguments": [
         ["0x01010004", "0x000000ab", "0x00000001"],
         ["0x01010004", "0x00000014", "0x00000006"],
         ["0x01010004", "0x00000013", "0x00000005"]
       ],
-      "d3d9PostSamplerRenderStateRejectedResults": ["0x8876086a", "0x8876086a", "0x8876086a"],
-      "d3d9PostSamplerRenderStateRejectedReturnAddresses": ["0x1005b1b7", "0x1005b1cb", "0x1005b1df"],
+      "d3d9PostSamplerRenderStateRejectedResults": [
+        "0x8876086a",
+        "0x8876086a",
+        "0x8876086a"
+      ],
+      "d3d9PostSamplerRenderStateRejectedReturnAddresses": [
+        "0x1005b1b7",
+        "0x1005b1cb",
+        "0x1005b1df"
+      ],
       "d3d9PostSamplerRenderStateCallerIgnoredResults": true,
       "d3d9SamplerStateNodeChromeOrderedSemanticsMatched": true,
       "nativeTextureStageStateProfileId": "x86-bgi-first-frame-fixed-function-texture-stage-zero-v1",
@@ -14527,7 +14673,14 @@
       "nativeTextureStageStateSameDevicePerTrace": true,
       "nativeTextureStageStateSingleThreadPerTrace": true,
       "nativeTextureStageStateContiguousCalls": true,
-      "nativeTextureStageStateCallerRvas": ["0x0005b1f5", "0x0005b20b", "0x0005b221", "0x0005b237", "0x0005b24d", "0x0005b263"],
+      "nativeTextureStageStateCallerRvas": [
+        "0x0005b1f5",
+        "0x0005b20b",
+        "0x0005b221",
+        "0x0005b237",
+        "0x0005b24d",
+        "0x0005b263"
+      ],
       "nativeTextureStageStateArguments": [
         ["0x00000000", "0x00000001", "0x00000004"],
         ["0x00000000", "0x00000002", "0x00000002"],
@@ -14536,7 +14689,14 @@
         ["0x00000000", "0x00000005", "0x00000002"],
         ["0x00000000", "0x00000006", "0x00000000"]
       ],
-      "nativeTextureStageStateResults": ["0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
+      "nativeTextureStageStateResults": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ],
       "nativeTextureStageStateLastErrors": [0, 0, 0, 0, 0, 0],
       "nativeTextureStageStateImmediateConsumers": [
         "mov-eax-dword-ptr-0x004017c4",
@@ -14567,8 +14727,12 @@
       "nativeTextureStageStateRuntimePolicyNarrowsNativePermissiveness": true,
       "nativeTextureStageStateExecutableHashUnchanged": true,
       "d3d9TextureStageStateImplemented": true,
-      "d3d9TextureStageStateSequences": [127365, 127366, 127367, 127368, 127369, 127370],
-      "d3d9TextureStageStateInstructionCounts": [28761237, 28761246, 28761255, 28761264, 28761273, 28761282],
+      "d3d9TextureStageStateSequences": [
+        127365, 127366, 127367, 127368, 127369, 127370
+      ],
+      "d3d9TextureStageStateInstructionCounts": [
+        28761237, 28761246, 28761255, 28761264, 28761273, 28761282
+      ],
       "d3d9TextureStageStateArguments": [
         ["0x01010004", "0x00000000", "0x00000001", "0x00000004"],
         ["0x01010004", "0x00000000", "0x00000002", "0x00000002"],
@@ -14577,7 +14741,14 @@
         ["0x01010004", "0x00000000", "0x00000005", "0x00000002"],
         ["0x01010004", "0x00000000", "0x00000006", "0x00000000"]
       ],
-      "d3d9TextureStageStateReturnAddresses": ["0x1005b1f5", "0x1005b20b", "0x1005b221", "0x1005b237", "0x1005b24d", "0x1005b263"],
+      "d3d9TextureStageStateReturnAddresses": [
+        "0x1005b1f5",
+        "0x1005b20b",
+        "0x1005b221",
+        "0x1005b237",
+        "0x1005b24d",
+        "0x1005b263"
+      ],
       "d3d9TextureStageStateStackPointers": [
         ["0x006ff254", "0x006ff268"],
         ["0x006ff254", "0x006ff268"],
@@ -14586,10 +14757,24 @@
         ["0x006ff254", "0x006ff268"],
         ["0x006ff254", "0x006ff268"]
       ],
-      "d3d9TextureStageStateResults": ["0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000", "0x00000000"],
+      "d3d9TextureStageStateResults": [
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000",
+        "0x00000000"
+      ],
       "d3d9TextureStageStateGuestWriteBytes": [0, 0, 0, 0, 0, 0],
       "d3d9TextureStageStateDeviceReferenceCounts": [5, 5, 5, 5, 5, 5],
-      "d3d9TextureStageStateDeviceObjectsRetired": [false, false, false, false, false, false],
+      "d3d9TextureStageStateDeviceObjectsRetired": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
       "d3d9TextureStageStatePolicyVersion": 28,
       "d3d9TextureStageStatePolicyId": "d3d9-primary-virtual-adapter-v28",
       "d3d9TextureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
@@ -14599,14 +14784,38 @@
       "d3d9TextureStageStateLogicalGraphicsDeviceNamespace": "vine.logical-graphics-device.v1",
       "d3d9TextureStageStateLogicalGraphicsComObjectId": "21",
       "d3d9TextureStageStatesAfterCalls": [
-        {"colorOperation": "modulate"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture"},
-        {"colorOperation": "modulate", "colorArgumentOne": "texture", "colorArgumentTwo": "diffuse", "alphaOperation": "select-argument-one", "alphaArgumentOne": "texture", "alphaArgumentTwo": "diffuse"}
+        { "colorOperation": "modulate" },
+        { "colorOperation": "modulate", "colorArgumentOne": "texture" },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture"
+        },
+        {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture",
+          "alphaArgumentTwo": "diffuse"
+        }
       ],
-      "d3d9TextureStageStateLogicalGraphicsDeviceGenerations": [48, 49, 50, 51, 52, 53],
+      "d3d9TextureStageStateLogicalGraphicsDeviceGenerations": [
+        48, 49, 50, 51, 52, 53
+      ],
       "d3d9TextureStageStateSameValueGenerationChange": 0,
       "d3d9TextureStageStateUnsupportedVariantResult": "0x8876086a",
       "d3d9TextureStageStateFailureAtomicity": true,
@@ -14804,7 +15013,9 @@
       "nativeSetStreamSourceOracleStrideZeroReadback": [0, 0],
       "nativeSetStreamSourceOracleStreamOneReadback": [0, 28],
       "nativeSetStreamSourceOracleNullUnbindSupported": true,
-      "nativeSetStreamSourceOracleVertexBufferReferenceCounts": [1, 1, 2, 1, 1, 1],
+      "nativeSetStreamSourceOracleVertexBufferReferenceCounts": [
+        1, 1, 2, 1, 1, 1
+      ],
       "nativeSetStreamSourceOracleSetStreamSourceReferenceCountChanged": false,
       "nativeSetStreamSourceOracleGetStreamSourceAddsReference": true,
       "nativeSetStreamSourceRuntimePolicyNarrowsNativePermissiveness": true,
@@ -15012,10 +15223,7 @@
         "0x006ff280"
       ],
       "d3d9PostEndSceneRasterStatusReturnAddress": "0x1005aedd",
-      "d3d9PostEndSceneRasterStatusStackPointers": [
-        "0x006ff268",
-        "0x006ff278"
-      ],
+      "d3d9PostEndSceneRasterStatusStackPointers": ["0x006ff268", "0x006ff278"],
       "d3d9PostEndSceneRasterStatusResult": "0x00000000",
       "d3d9PostEndSceneRasterStatusGuestWriteBytes": 8,
       "d3d9PostEndSceneRasterStatusOutputAddress": "0x006ff280",
@@ -15044,22 +15252,25 @@
       "d3d9PostEndSceneRasterStatusChromeCumulativeCompletions": 784,
       "d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched": true,
       "capabilityCheckpointCompletion": {
-        "capability": "d3d9-post-end-scene-raster-status",
-        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+        "capability": "d3d9-post-raster-status-waitable-timer",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127376,
-        "lastCompletionInstructionCount": 28761389,
-        "instructionCount": 28761446,
+        "armSequence": 127377,
+        "armInstructionCount": 28761446,
+        "armGeneration": 1,
+        "lastCompletionSequence": 127378,
+        "lastCompletionInstructionCount": 28761452,
+        "instructionCount": 28761476,
         "nextEndpoint": {
-          "endpointId": 118,
-          "endpointAddress": "0x7f000750",
-          "api": "kernel32.dll!SetWaitableTimer"
+          "endpointId": 0,
+          "endpointAddress": "0x01011160",
+          "api": "IDirect3DDevice9::GetRasterStatus"
         },
-        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
+        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
       },
-      "reportBytes": 561027,
-      "reportSha256": "625767eb2f976303702c493656f7c6e7998800b200c7ea755ea9d4a4f05062ec",
+      "reportBytes": 561111,
+      "reportSha256": "456efd128b067cfa7046b0af1ed5a23ae3f06b32af2cc12cf1fc795e4a35144d",
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceManifest": "fixtures/source-snapshots/primary-boot-archives-v1.json",
       "archiveSourceMountRoot": "C:\\Vine",
@@ -15195,28 +15406,29 @@
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
-    "nextCheckpoint": "d3d9-post-raster-status-waitable-timer",
-    "pausedHistoricalCheckpoint": "d3d9-post-end-scene-raster-status",
-    "instructionCount": 28761446,
+    "nextCheckpoint": "d3d9-post-waitable-timer-raster-status",
+    "pausedHistoricalCheckpoint": "d3d9-post-raster-status-waitable-timer",
+    "instructionCount": 28761476,
     "capabilityCluster": "d3d9-first-frame-post-scene-pacing",
-    "reason": "post-end-scene-raster-status-checkpoint-complete",
+    "reason": "post-scene-waitable-timer-checkpoint-complete",
     "completion": {
-      "capability": "d3d9-post-end-scene-raster-status",
-      "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+      "capability": "d3d9-post-raster-status-waitable-timer",
+      "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       "requiredCompletions": 1,
       "completionCount": 1,
-      "lastCompletionSequence": 127376,
-      "lastCompletionInstructionCount": 28761389
+      "armSequence": 127377,
+      "armInstructionCount": 28761446,
+      "armGeneration": 1,
+      "lastCompletionSequence": 127378,
+      "lastCompletionInstructionCount": 28761452
     },
     "nextEndpoint": {
-      "endpointKind": "runtime-system-export",
-      "endpointId": 118,
-      "api": "kernel32.dll!SetWaitableTimer",
-      "endpointAddress": "0x7f000750",
-      "iatAddress": "0x100d1280",
-      "observedModule": "KERNEL32.dll",
-      "observedSymbol": "SetWaitableTimer",
-      "disposition": "declared-runtime-export"
+      "endpointKind": "com-method",
+      "endpointId": 0,
+      "api": "IDirect3DDevice9::GetRasterStatus",
+      "endpointAddress": "0x01011160",
+      "observedModule": "<com>",
+      "observedSymbol": "interface-1-slot-19"
     }
   }
 }

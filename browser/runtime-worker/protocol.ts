@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 41 as const;
+export const protocolVersion = 42 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -35,7 +35,8 @@ export type BgiCapabilityProfile =
   | "d3d9-set-stream-source"
   | "d3d9-draw-primitive"
   | "d3d9-end-scene"
-  | "d3d9-post-end-scene-raster-status";
+  | "d3d9-post-end-scene-raster-status"
+  | "d3d9-post-raster-status-waitable-timer";
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -118,7 +119,9 @@ export interface RuntimeGraphicsDeviceSnapshot {
       vertexBufferContentGeneration: number;
       vertexData: number[];
       renderStates: RuntimeGraphicsDeviceSnapshot["renderStates"];
-      samplerStates: NonNullable<RuntimeGraphicsDeviceSnapshot["samplerStates"]>;
+      samplerStates: NonNullable<
+        RuntimeGraphicsDeviceSnapshot["samplerStates"]
+      >;
       textureStageStates: NonNullable<
         RuntimeGraphicsDeviceSnapshot["textureStageStates"]
       >;
@@ -1202,6 +1205,27 @@ export interface SessionReport {
         implementationId: "d3d9.get-raster-status.deterministic-sample.v1";
         requiredCompletions: 1;
         completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "d3d9-post-raster-status-waitable-timer";
+        implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        armSequence: number;
+        armInstructionCount: number;
+        armGeneration: number;
         lastCompletionSequence: number;
         lastCompletionInstructionCount: number;
         instructionCount: number;

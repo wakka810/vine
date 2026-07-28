@@ -170,9 +170,13 @@ export function validateCurrentCheckpoint(manifest) {
     "kernel32-leave-critical-section-continuation";
   const dragAcceptFilesActive =
     root.activeRuntimeCheckpoint?.profile === "shell32-drag-accept-files";
-  const d3d9PostEndSceneRasterStatusActive =
+  const d3d9PostRasterStatusWaitableTimerActive =
     root.activeRuntimeCheckpoint?.profile ===
-    "d3d9-post-end-scene-raster-status";
+    "d3d9-post-raster-status-waitable-timer";
+  const d3d9PostEndSceneRasterStatusActive =
+    d3d9PostRasterStatusWaitableTimerActive ||
+    root.activeRuntimeCheckpoint?.profile ===
+      "d3d9-post-end-scene-raster-status";
   const d3d9EndSceneActive =
     d3d9PostEndSceneRasterStatusActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-end-scene";
@@ -191,7 +195,7 @@ export function validateCurrentCheckpoint(manifest) {
   const d3d9InitialTextureStageStatesActive =
     d3d9SetTextureActive ||
     root.activeRuntimeCheckpoint?.profile ===
-    "d3d9-initial-texture-stage-states";
+      "d3d9-initial-texture-stage-states";
   const d3d9InitialSamplerStatesActive =
     d3d9InitialTextureStageStatesActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-initial-sampler-states";
@@ -218,7 +222,7 @@ export function validateCurrentCheckpoint(manifest) {
   const setWindowPosFrameChangeMoveActive =
     showWindowNormalActive ||
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-set-window-pos-frame-change-move";
+      "user32-set-window-pos-frame-change-move";
   const d3d9RecreatedTexturesActive =
     setWindowPosFrameChangeMoveActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-recreated-textures";
@@ -293,97 +297,116 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = d3d9RecreatedTexturesActive
-    ? 9_186
-    : createDirectoryAActive
-      ? 6_974
-      : getFileAttributesAActive
-        ? 6_937
-        : sleepZeroActive
-          ? 6_910
-          : archiveSourceReadActive
-            ? 4_716
-            : dragAcceptFilesActive
-              ? 4_706
-              : mainLoopContinuationActive
-                ? 7
-                : 3;
-  const timerArmCount = d3d9RecreatedTexturesActive ? 9_187 : timerCycleCount;
-  const timerSetSequences = d3d9RecreatedTexturesActive
-    ? "18681,127344"
-    : createDirectoryAActive
-      ? "18681,108706"
-      : getFileAttributesAActive
-        ? "18681,108148"
-        : sleepZeroActive
-          ? "18681,107739"
-          : archiveSourceReadActive
-            ? "18681,89364"
-            : dragAcceptFilesActive
-              ? "18681,89217"
-              : mainLoopContinuationActive
-                ? "18681,18689,18697,18705,18713,18721,18729"
-                : "18681,18689,18697";
-  const timerSetInstructionCounts = d3d9RecreatedTexturesActive
-    ? "11974074,28759195"
-    : createDirectoryAActive
-      ? "11974074,28269117"
-      : getFileAttributesAActive
-        ? "11973553,16432845"
-        : sleepZeroActive
-          ? "11973553,16291292"
-          : archiveSourceReadActive
-            ? "11973553,15942875"
-            : dragAcceptFilesActive
-              ? "11973553,15600688"
-              : mainLoopContinuationActive
-                ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
-                : "11973553,11973700,11973847";
-  const timerWaitSequences = d3d9RecreatedTexturesActive
-    ? "18682,127337"
-    : createDirectoryAActive
-      ? "18682,108707"
-      : getFileAttributesAActive
-        ? "18682,108149"
-        : sleepZeroActive
-          ? "18682,107740"
-          : archiveSourceReadActive
-            ? "18682,89365"
-            : dragAcceptFilesActive
-              ? "18682,89218"
-              : mainLoopContinuationActive
-                ? "18682,18690,18698,18706,18714,18722,18730"
-                : "18682,18690,18698";
-  const timerWaitInstructionCounts = d3d9RecreatedTexturesActive
-    ? "11974080,28759054"
-    : createDirectoryAActive
-      ? "11974080,28269123"
-      : getFileAttributesAActive
-        ? "11973559,16432851"
-        : sleepZeroActive
-          ? "11973559,16291298"
-          : archiveSourceReadActive
-            ? "11973559,15942881"
-            : dragAcceptFilesActive
-              ? "11973559,15600694"
-              : mainLoopContinuationActive
-                ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
-                : "11973559,11973706,11973853";
-  const timerGenerations = d3d9RecreatedTexturesActive
-    ? "1,9186"
-    : createDirectoryAActive
-      ? "1,6974"
-      : getFileAttributesAActive
-        ? "1,6937"
-        : sleepZeroActive
-          ? "1,6910"
-          : archiveSourceReadActive
-            ? "1,4716"
-            : dragAcceptFilesActive
-              ? "1,4706"
-              : mainLoopContinuationActive
-                ? "1,2,3,4,5,6,7"
-                : "1,2,3";
+  const timerCycleCount = d3d9PostRasterStatusWaitableTimerActive
+    ? 9_187
+    : d3d9RecreatedTexturesActive
+      ? 9_186
+      : createDirectoryAActive
+        ? 6_974
+        : getFileAttributesAActive
+          ? 6_937
+          : sleepZeroActive
+            ? 6_910
+            : archiveSourceReadActive
+              ? 4_716
+              : dragAcceptFilesActive
+                ? 4_706
+                : mainLoopContinuationActive
+                  ? 7
+                  : 3;
+  const timerArmCount = d3d9PostRasterStatusWaitableTimerActive
+    ? 9_188
+    : d3d9RecreatedTexturesActive
+      ? 9_187
+      : timerCycleCount;
+  const timerSetSequences = d3d9PostRasterStatusWaitableTimerActive
+    ? "18681,127377"
+    : d3d9RecreatedTexturesActive
+      ? "18681,127344"
+      : createDirectoryAActive
+        ? "18681,108706"
+        : getFileAttributesAActive
+          ? "18681,108148"
+          : sleepZeroActive
+            ? "18681,107739"
+            : archiveSourceReadActive
+              ? "18681,89364"
+              : dragAcceptFilesActive
+                ? "18681,89217"
+                : mainLoopContinuationActive
+                  ? "18681,18689,18697,18705,18713,18721,18729"
+                  : "18681,18689,18697";
+  const timerSetInstructionCounts = d3d9PostRasterStatusWaitableTimerActive
+    ? "11974074,28761446"
+    : d3d9RecreatedTexturesActive
+      ? "11974074,28759195"
+      : createDirectoryAActive
+        ? "11974074,28269117"
+        : getFileAttributesAActive
+          ? "11973553,16432845"
+          : sleepZeroActive
+            ? "11973553,16291292"
+            : archiveSourceReadActive
+              ? "11973553,15942875"
+              : dragAcceptFilesActive
+                ? "11973553,15600688"
+                : mainLoopContinuationActive
+                  ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
+                  : "11973553,11973700,11973847";
+  const timerWaitSequences = d3d9PostRasterStatusWaitableTimerActive
+    ? "18682,127378"
+    : d3d9RecreatedTexturesActive
+      ? "18682,127337"
+      : createDirectoryAActive
+        ? "18682,108707"
+        : getFileAttributesAActive
+          ? "18682,108149"
+          : sleepZeroActive
+            ? "18682,107740"
+            : archiveSourceReadActive
+              ? "18682,89365"
+              : dragAcceptFilesActive
+                ? "18682,89218"
+                : mainLoopContinuationActive
+                  ? "18682,18690,18698,18706,18714,18722,18730"
+                  : "18682,18690,18698";
+  const timerWaitInstructionCounts = d3d9PostRasterStatusWaitableTimerActive
+    ? "11974080,28761452"
+    : d3d9RecreatedTexturesActive
+      ? "11974080,28759054"
+      : createDirectoryAActive
+        ? "11974080,28269123"
+        : getFileAttributesAActive
+          ? "11973559,16432851"
+          : sleepZeroActive
+            ? "11973559,16291298"
+            : archiveSourceReadActive
+              ? "11973559,15942881"
+              : dragAcceptFilesActive
+                ? "11973559,15600694"
+                : mainLoopContinuationActive
+                  ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
+                  : "11973559,11973706,11973853";
+  const timerGenerations = d3d9PostRasterStatusWaitableTimerActive
+    ? "1,1"
+    : d3d9RecreatedTexturesActive
+      ? "1,9186"
+      : createDirectoryAActive
+        ? "1,6974"
+        : getFileAttributesAActive
+          ? "1,6937"
+          : sleepZeroActive
+            ? "1,6910"
+            : archiveSourceReadActive
+              ? "1,4716"
+              : dragAcceptFilesActive
+                ? "1,4706"
+                : mainLoopContinuationActive
+                  ? "1,2,3,4,5,6,7"
+                  : "1,2,3";
+  const timerClockGenerations = d3d9PostRasterStatusWaitableTimerActive
+    ? "1,9187"
+    : timerGenerations;
   const timerDeadlines = d3d9RecreatedTexturesActive
     ? "5000,45930000"
     : createDirectoryAActive
@@ -399,562 +422,613 @@ export function validateCurrentCheckpoint(manifest) {
               : mainLoopContinuationActive
                 ? "5000,10000,15000,20000,25000,30000,35000"
                 : "5000,10000,15000";
-  const timerPacingRequestIds = d3d9RecreatedTexturesActive
-    ? "3,9197"
-    : createDirectoryAActive
-      ? "3,6985"
-      : getFileAttributesAActive
-        ? "3,6942"
-        : sleepZeroActive
-          ? "3,6915"
-          : archiveSourceReadActive
-            ? "3,4721"
-            : dragAcceptFilesActive
-              ? "3,4708"
-              : mainLoopContinuationActive
-                ? "3,4,5,6,7,8,9"
-                : "3,4,5";
-  const timerPacingRegistrationIds = d3d9RecreatedTexturesActive
-    ? "1,9186"
-    : createDirectoryAActive
-      ? "1,6974"
-      : getFileAttributesAActive
-        ? "1,6937"
-        : sleepZeroActive
-          ? "1,6910"
-          : archiveSourceReadActive
-            ? "1,4716"
-            : dragAcceptFilesActive
-              ? "1,4706"
-              : mainLoopContinuationActive
-                ? "1,2,3,4,5,6,7"
-                : "1,2,3";
-  const timerPacingClockGenerations = d3d9RecreatedTexturesActive
-    ? "0,9185"
-    : createDirectoryAActive
-      ? "0,6973"
-      : getFileAttributesAActive
-        ? "0,6936"
-        : sleepZeroActive
-          ? "0,6909"
-          : archiveSourceReadActive
-            ? "0,4715"
-            : dragAcceptFilesActive
-              ? "0,4705"
-              : mainLoopContinuationActive
-                ? "0,1,2,3,4,5,6"
-                : "0,1,2";
-  const timerNextRegistrationIds = d3d9RecreatedTexturesActive
-    ? "2,9187"
-    : createDirectoryAActive
-      ? "2,6975"
-      : getFileAttributesAActive
-        ? "2,6938"
-        : sleepZeroActive
-          ? "2,6911"
-          : archiveSourceReadActive
-            ? "2,4717"
-            : dragAcceptFilesActive
-              ? "2,4707"
-              : mainLoopContinuationActive
-                ? "2,3,4,5,6,7,8"
-                : "2,3,4";
-  const profileExpectations = d3d9PostEndSceneRasterStatusActive
+  const timerPacingRequestIds = d3d9PostRasterStatusWaitableTimerActive
+    ? "3,9198"
+    : d3d9RecreatedTexturesActive
+      ? "3,9197"
+      : createDirectoryAActive
+        ? "3,6985"
+        : getFileAttributesAActive
+          ? "3,6942"
+          : sleepZeroActive
+            ? "3,6915"
+            : archiveSourceReadActive
+              ? "3,4721"
+              : dragAcceptFilesActive
+                ? "3,4708"
+                : mainLoopContinuationActive
+                  ? "3,4,5,6,7,8,9"
+                  : "3,4,5";
+  const timerPacingRegistrationIds = d3d9PostRasterStatusWaitableTimerActive
+    ? "1,9187"
+    : d3d9RecreatedTexturesActive
+      ? "1,9186"
+      : createDirectoryAActive
+        ? "1,6974"
+        : getFileAttributesAActive
+          ? "1,6937"
+          : sleepZeroActive
+            ? "1,6910"
+            : archiveSourceReadActive
+              ? "1,4716"
+              : dragAcceptFilesActive
+                ? "1,4706"
+                : mainLoopContinuationActive
+                  ? "1,2,3,4,5,6,7"
+                  : "1,2,3";
+  const timerPacingClockGenerations = d3d9PostRasterStatusWaitableTimerActive
+    ? "0,9186"
+    : d3d9RecreatedTexturesActive
+      ? "0,9185"
+      : createDirectoryAActive
+        ? "0,6973"
+        : getFileAttributesAActive
+          ? "0,6936"
+          : sleepZeroActive
+            ? "0,6909"
+            : archiveSourceReadActive
+              ? "0,4715"
+              : dragAcceptFilesActive
+                ? "0,4705"
+                : mainLoopContinuationActive
+                  ? "0,1,2,3,4,5,6"
+                  : "0,1,2";
+  const timerNextRegistrationIds = d3d9PostRasterStatusWaitableTimerActive
+    ? "2,9188"
+    : d3d9RecreatedTexturesActive
+      ? "2,9187"
+      : createDirectoryAActive
+        ? "2,6975"
+        : getFileAttributesAActive
+          ? "2,6938"
+          : sleepZeroActive
+            ? "2,6911"
+            : archiveSourceReadActive
+              ? "2,4717"
+              : dragAcceptFilesActive
+                ? "2,4707"
+                : mainLoopContinuationActive
+                  ? "2,3,4,5,6,7,8"
+                  : "2,3,4";
+  const profileExpectations = d3d9PostRasterStatusWaitableTimerActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_770,
         browserMappingDirtyPages: 109_859,
-        browserSuccessExecutionTransitions: 416_563,
-        latestSchema: "vine.v86-bgi-d3d9-post-end-scene-raster-status",
-        latestWritebackBatches: 127_474,
-        latestWritebackDirtyPages: 175_996,
-        latestWritebackChangedBytes: 6_620_003,
+        browserSuccessExecutionTransitions: 416_570,
+        latestSchema: "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
+        latestWritebackBatches: 127_476,
+        latestWritebackDirtyPages: 175_998,
+        latestWritebackChangedBytes: 6_620_041,
         latestHostDeltaBatches: 106_770,
-        latestFinalMemoryGeneration: 235_527,
+        latestFinalMemoryGeneration: 235_529,
         semanticCallDigestSha256:
-          "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+          "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
         memoryContentSha256:
-          "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+          "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
       }
-    : d3d9EndSceneActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_561,
-        latestSchema: "vine.v86-bgi-d3d9-end-scene",
-        latestWritebackBatches: 127_473,
-        latestWritebackDirtyPages: 175_995,
-        latestWritebackChangedBytes: 6_619_956,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_525,
-        semanticCallDigestSha256:
-          "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
-        memoryContentSha256:
-          "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
-      }
-    : d3d9DrawPrimitiveActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_559,
-        latestSchema: "vine.v86-bgi-d3d9-draw-primitive",
-        latestWritebackBatches: 127_472,
-        latestWritebackDirtyPages: 175_994,
-        latestWritebackChangedBytes: 6_619_910,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_524,
-        semanticCallDigestSha256:
-          "bad8077a6eb60ec328542af5d68f70824e0f579d0aa1b9998944c0117b522615",
-        memoryContentSha256:
-          "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0",
-      }
-    : d3d9SetStreamSourceActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_557,
-        latestSchema: "vine.v86-bgi-d3d9-set-stream-source",
-        latestWritebackBatches: 127_471,
-        latestWritebackDirtyPages: 175_993,
-        latestWritebackChangedBytes: 6_619_903,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_523,
-        semanticCallDigestSha256:
-          "550bf28ab81d2eea0c0e2159ed6c8051b114c016926f026b591b9d21170371d6",
-        memoryContentSha256:
-          "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7",
-      }
-    : d3d9SetFvfActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_555,
-        latestSchema: "vine.v86-bgi-d3d9-set-fvf",
-        latestWritebackBatches: 127_470,
-        latestWritebackDirtyPages: 175_992,
-        latestWritebackChangedBytes: 6_619_892,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_522,
-        semanticCallDigestSha256:
-          "e1d9ed2ab4cac70ba8e85563baa9c8f761577ee855c0a0df5b59e06f76c0bfb3",
-        memoryContentSha256:
-          "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21",
-      }
-    : d3d9SetTextureActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_553,
-        latestSchema: "vine.v86-bgi-d3d9-set-texture",
-        latestWritebackBatches: 127_469,
-        latestWritebackDirtyPages: 175_991,
-        latestWritebackChangedBytes: 6_619_874,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_521,
-        semanticCallDigestSha256:
-          "80d38898b8abb24cee864e307e108c2bb7f4c76791bb9de774b83bc5301fdf03",
-        memoryContentSha256:
-          "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1",
-      }
-    : d3d9InitialTextureStageStatesActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_551,
-        latestSchema: "vine.v86-bgi-d3d9-initial-texture-stage-states",
-        latestWritebackBatches: 127_468,
-        latestWritebackDirtyPages: 175_990,
-        latestWritebackChangedBytes: 6_619_863,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_520,
-        semanticCallDigestSha256:
-          "efee84814bbd1a4b116f61de3b0167d295e09c2017facd86b1cf21bb4641f2dd",
-        memoryContentSha256:
-          "ebb1d477c29d5d4438b9747d2ccd764e03f2fdca4d79fa39f6a900fedbebbfad",
-      }
-    : d3d9InitialSamplerStatesActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_539,
-        latestSchema: "vine.v86-bgi-d3d9-initial-sampler-states",
-        latestWritebackBatches: 127_462,
-        latestWritebackDirtyPages: 175_984,
-        latestWritebackChangedBytes: 6_619_837,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_514,
-        semanticCallDigestSha256:
-          "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
-        memoryContentSha256:
-          "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
-      }
-    : d3d9BeginSceneActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_529,
-        latestSchema: "vine.v86-bgi-d3d9-begin-scene",
-        latestWritebackBatches: 127_457,
-        latestWritebackDirtyPages: 175_979,
-        latestWritebackChangedBytes: 6_619_810,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_509,
-        semanticCallDigestSha256:
-          "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
-        memoryContentSha256:
-          "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
-      }
-    : d3d9UpdateTextureActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_527,
-        latestSchema: "vine.v86-bgi-d3d9-update-texture",
-        latestWritebackBatches: 127_456,
-        latestWritebackDirtyPages: 175_978,
-        latestWritebackChangedBytes: 6_619_792,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_508,
-        semanticCallDigestSha256:
-          "b5f44675f551e3986efd94d97b0a50dcb26431f22697fe16178824bafcdc828d",
-        memoryContentSha256:
-          "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a",
-      }
-    : d3d9AddDirtyRectActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_525,
-        latestSchema: "vine.v86-bgi-d3d9-add-dirty-rect",
-        latestWritebackBatches: 127_455,
-        latestWritebackDirtyPages: 175_977,
-        latestWritebackChangedBytes: 6_619_787,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_507,
-        semanticCallDigestSha256:
-          "af311f2769ed51c752349385619cb00400ecb468a866133f5cba71a7c80c373a",
-        memoryContentSha256:
-          "2e8deed2908c310e490b75ba714ebc8eb615a87b66efab2ab49287784d0a408a",
-      }
-    : setRectActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_769,
-        browserMappingDirtyPages: 109_858,
-        browserSuccessExecutionTransitions: 416_523,
-        latestSchema: "vine.v86-bgi-user32-set-rect",
-        latestWritebackBatches: 127_454,
-        latestWritebackDirtyPages: 175_976,
-        latestWritebackChangedBytes: 6_619_715,
-        latestHostDeltaBatches: 106_769,
-        latestFinalMemoryGeneration: 235_506,
-        semanticCallDigestSha256:
-          "01f5a4a0ca80adefdfde1a8d7a7ab3a229c76fc4d35271ebacc46cc61340761f",
-        memoryContentSha256:
-          "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
-      }
-    : d3d9ClearActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_768,
-        browserMappingDirtyPages: 109_857,
-        browserSuccessExecutionTransitions: 416_521,
-        latestSchema: "vine.v86-bgi-d3d9-clear",
-        latestWritebackBatches: 127_453,
-        latestWritebackDirtyPages: 175_975,
-        latestWritebackChangedBytes: 6_619_704,
-        latestHostDeltaBatches: 106_768,
-        latestFinalMemoryGeneration: 235_504,
-        semanticCallDigestSha256:
-          "b8d2e16f49c417e6deebf9fa52a40195204ea2502a65b5299d9867b5229eb9cc",
-        memoryContentSha256:
-          "b567254a8ef1a0ea18a6a983b10293b57b25ad5b9864bda28c28598d5200e5ae",
-      }
-    : updateWindowActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_768,
-        browserMappingDirtyPages: 109_857,
-        browserSuccessExecutionTransitions: 416_519,
-        latestSchema: "vine.v86-bgi-user32-update-window",
-        latestWritebackBatches: 127_452,
-        latestWritebackDirtyPages: 175_974,
-        latestWritebackChangedBytes: 6_619_682,
-        latestHostDeltaBatches: 106_768,
-        latestFinalMemoryGeneration: 235_503,
-        semanticCallDigestSha256:
-          "33ef06b514d5d26eefb8d2ecdea0e569197752884b798af5787e3e0ef8d0b4b5",
-        memoryContentSha256:
-          "ceaaf33c0382b0f1859997d2f114a1d85eeed1ce5090bb9e7f6fabcc49de03ff",
-      }
-    : setWindowPosFrameChangeMoveActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_766,
-        browserMappingDirtyPages: 109_855,
-        browserSuccessExecutionTransitions: 416_510,
-        latestSchema: "vine.v86-bgi-user32-set-window-pos-frame-change-move",
-        latestWritebackBatches: 127_448,
-        latestWritebackDirtyPages: 175_970,
-        latestWritebackChangedBytes: 6_619_588,
-        latestHostDeltaBatches: 106_766,
-        latestFinalMemoryGeneration: 235_497,
-        semanticCallDigestSha256:
-          "6288683381bcc5df62a20abad70a9b73bbedb153dd0f5f8aa9cfe2e3abde300c",
-        memoryContentSha256:
-          "b7a48b1a742ff2e7bf477880574bdad5f9334288f4adc3c9d6a8616ed49ad628",
-      }
-    : d3d9RecreatedTexturesActive
+    : d3d9PostEndSceneRasterStatusActive
       ? {
           benchmarkObservation: "current-archive-source-read-observation",
-          browserMappingDeltas: 106_761,
-          browserMappingDirtyPages: 109_847,
-          browserSuccessExecutionTransitions: 416_491,
-          latestSchema: "vine.v86-bgi-d3d9-recreated-textures",
-          latestWritebackBatches: 127_439,
-          latestWritebackDirtyPages: 175_958,
-          latestWritebackChangedBytes: 6_619_474,
-          latestHostDeltaBatches: 106_761,
-          latestFinalMemoryGeneration: 235_480,
+          browserMappingDeltas: 106_770,
+          browserMappingDirtyPages: 109_859,
+          browserSuccessExecutionTransitions: 416_563,
+          latestSchema: "vine.v86-bgi-d3d9-post-end-scene-raster-status",
+          latestWritebackBatches: 127_474,
+          latestWritebackDirtyPages: 175_996,
+          latestWritebackChangedBytes: 6_620_003,
+          latestHostDeltaBatches: 106_770,
+          latestFinalMemoryGeneration: 235_527,
           semanticCallDigestSha256:
-            "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
+            "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
           memoryContentSha256:
-            "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
+            "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
         }
-      : setWindowPosRepeatActivationActive
+      : d3d9EndSceneActive
         ? {
             benchmarkObservation: "current-archive-source-read-observation",
-            browserMappingDeltas: 92_825,
-            browserMappingDirtyPages: 95_902,
-            browserSuccessExecutionTransitions: 353_544,
-            latestSchema:
-              "vine.v86-bgi-user32-set-window-pos-repeat-activation",
-            latestWritebackBatches: 108_830,
-            latestWritebackDirtyPages: 150_285,
-            latestWritebackChangedBytes: 6_369_334,
-            latestHostDeltaBatches: 92_825,
-            latestFinalMemoryGeneration: 202_769,
+            browserMappingDeltas: 106_769,
+            browserMappingDirtyPages: 109_858,
+            browserSuccessExecutionTransitions: 416_561,
+            latestSchema: "vine.v86-bgi-d3d9-end-scene",
+            latestWritebackBatches: 127_473,
+            latestWritebackDirtyPages: 175_995,
+            latestWritebackChangedBytes: 6_619_956,
+            latestHostDeltaBatches: 106_769,
+            latestFinalMemoryGeneration: 235_525,
             semanticCallDigestSha256:
-              "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+              "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
             memoryContentSha256:
-              "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+              "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
           }
-        : createDirectoryAActive
+        : d3d9DrawPrimitiveActive
           ? {
               benchmarkObservation: "current-archive-source-read-observation",
-              browserMappingDeltas: 92_815,
-              browserMappingDirtyPages: 95_893,
-              browserSuccessExecutionTransitions: 353_486,
-              latestSchema: "vine.v86-bgi-kernel32-create-directory-a",
-              latestWritebackBatches: 108_810,
-              latestWritebackDirtyPages: 150_254,
-              latestWritebackChangedBytes: 6_368_965,
-              latestHostDeltaBatches: 92_815,
-              latestFinalMemoryGeneration: 202_575,
+              browserMappingDeltas: 106_769,
+              browserMappingDirtyPages: 109_858,
+              browserSuccessExecutionTransitions: 416_559,
+              latestSchema: "vine.v86-bgi-d3d9-draw-primitive",
+              latestWritebackBatches: 127_472,
+              latestWritebackDirtyPages: 175_994,
+              latestWritebackChangedBytes: 6_619_910,
+              latestHostDeltaBatches: 106_769,
+              latestFinalMemoryGeneration: 235_524,
               semanticCallDigestSha256:
-                "e925e87a010017aa85316f8564a8bcbdac81fe59f87b84e5c288a865db0adb65",
+                "bad8077a6eb60ec328542af5d68f70824e0f579d0aa1b9998944c0117b522615",
               memoryContentSha256:
-                "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+                "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0",
             }
-          : getFileAttributesAActive
+          : d3d9SetStreamSourceActive
             ? {
                 benchmarkObservation: "current-archive-source-read-observation",
-                browserMappingDeltas: 92_492,
-                browserMappingDirtyPages: 94_681,
-                browserSuccessExecutionTransitions: 349_581,
-                latestSchema: "vine.v86-bgi-kernel32-get-file-attributes-a",
-                latestWritebackBatches: 108_267,
-                latestWritebackDirtyPages: 148_855,
-                latestWritebackChangedBytes: 4_925_375,
-                latestHostDeltaBatches: 92_492,
-                latestFinalMemoryGeneration: 201_672,
+                browserMappingDeltas: 106_769,
+                browserMappingDirtyPages: 109_858,
+                browserSuccessExecutionTransitions: 416_557,
+                latestSchema: "vine.v86-bgi-d3d9-set-stream-source",
+                latestWritebackBatches: 127_471,
+                latestWritebackDirtyPages: 175_993,
+                latestWritebackChangedBytes: 6_619_903,
+                latestHostDeltaBatches: 106_769,
+                latestFinalMemoryGeneration: 235_523,
                 semanticCallDigestSha256:
-                  "b1846ec7eb00de76f15194a14e4877f2fb1871e0ac49a00f3b81b8dc6f0583a2",
+                  "550bf28ab81d2eea0c0e2159ed6c8051b114c016926f026b591b9d21170371d6",
                 memoryContentSha256:
-                  "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+                  "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7",
               }
-            : globalMemoryStatusActive
+            : d3d9SetFvfActive
               ? {
                   benchmarkObservation:
                     "current-archive-source-read-observation",
-                  browserMappingDeltas: 92_327,
-                  browserMappingDirtyPages: 94_516,
-                  browserSuccessExecutionTransitions: 348_240,
-                  latestSchema: "vine.v86-bgi-kernel32-global-memory-status",
-                  latestWritebackBatches: 107_849,
-                  latestWritebackDirtyPages: 148_256,
-                  latestWritebackChangedBytes: 4_917_540,
-                  latestHostDeltaBatches: 92_327,
-                  latestFinalMemoryGeneration: 201_089,
+                  browserMappingDeltas: 106_769,
+                  browserMappingDirtyPages: 109_858,
+                  browserSuccessExecutionTransitions: 416_555,
+                  latestSchema: "vine.v86-bgi-d3d9-set-fvf",
+                  latestWritebackBatches: 127_470,
+                  latestWritebackDirtyPages: 175_992,
+                  latestWritebackChangedBytes: 6_619_892,
+                  latestHostDeltaBatches: 106_769,
+                  latestFinalMemoryGeneration: 235_522,
                   semanticCallDigestSha256:
-                    "ef1e28a26937875cb742983528bf5a9cd278aab6bd6fee49ac8de1415418a884",
+                    "e1d9ed2ab4cac70ba8e85563baa9c8f761577ee855c0a0df5b59e06f76c0bfb3",
                   memoryContentSha256:
-                    "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+                    "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21",
                 }
-              : sleepZeroActive
+              : d3d9SetTextureActive
                 ? {
                     benchmarkObservation:
                       "current-archive-source-read-observation",
-                    browserMappingDeltas: 92_304,
-                    browserMappingDirtyPages: 94_493,
-                    browserSuccessExecutionTransitions: 348_147,
-                    latestSchema: "vine.v86-bgi-kernel32-sleep-zero",
-                    latestWritebackBatches: 107_818,
-                    latestWritebackDirtyPages: 148_160,
-                    latestWritebackChangedBytes: 4_916_226,
-                    latestHostDeltaBatches: 92_304,
-                    latestFinalMemoryGeneration: 201_035,
+                    browserMappingDeltas: 106_769,
+                    browserMappingDirtyPages: 109_858,
+                    browserSuccessExecutionTransitions: 416_553,
+                    latestSchema: "vine.v86-bgi-d3d9-set-texture",
+                    latestWritebackBatches: 127_469,
+                    latestWritebackDirtyPages: 175_991,
+                    latestWritebackChangedBytes: 6_619_874,
+                    latestHostDeltaBatches: 106_769,
+                    latestFinalMemoryGeneration: 235_521,
                     semanticCallDigestSha256:
-                      "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+                      "80d38898b8abb24cee864e307e108c2bb7f4c76791bb9de774b83bc5301fdf03",
                     memoryContentSha256:
-                      "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+                      "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1",
                   }
-                : archiveSourceReadActive
+                : d3d9InitialTextureStageStatesActive
                   ? {
                       benchmarkObservation:
                         "current-archive-source-read-observation",
-                      browserMappingDeltas: 78_613,
-                      browserMappingDirtyPages: 80_530,
-                      browserSuccessExecutionTransitions: 286_089,
+                      browserMappingDeltas: 106_769,
+                      browserMappingDirtyPages: 109_858,
+                      browserSuccessExecutionTransitions: 416_551,
                       latestSchema:
-                        "vine.v86-bgi-kernel32-archive-source-read.v1",
-                      latestWritebackBatches: 89_491,
-                      latestWritebackDirtyPages: 122_969,
-                      latestWritebackChangedBytes: 3_623_229,
-                      latestHostDeltaBatches: 78_613,
-                      latestFinalMemoryGeneration: 169_016,
+                        "vine.v86-bgi-d3d9-initial-texture-stage-states",
+                      latestWritebackBatches: 127_468,
+                      latestWritebackDirtyPages: 175_990,
+                      latestWritebackChangedBytes: 6_619_863,
+                      latestHostDeltaBatches: 106_769,
+                      latestFinalMemoryGeneration: 235_520,
                       semanticCallDigestSha256:
-                        "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
+                        "efee84814bbd1a4b116f61de3b0167d295e09c2017facd86b1cf21bb4641f2dd",
                       memoryContentSha256:
-                        "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+                        "ebb1d477c29d5d4438b9747d2ccd764e03f2fdca4d79fa39f6a900fedbebbfad",
                     }
-                  : dragAcceptFilesActive
+                  : d3d9InitialSamplerStatesActive
                     ? {
                         benchmarkObservation:
-                          "current-shell32-drag-accept-files-observation",
-                        browserMappingDeltas: 78_501,
-                        browserMappingDirtyPages: 80_168,
-                        browserSuccessExecutionTransitions: 285_545,
+                          "current-archive-source-read-observation",
+                        browserMappingDeltas: 106_769,
+                        browserMappingDirtyPages: 109_858,
+                        browserSuccessExecutionTransitions: 416_539,
                         latestSchema:
-                          "vine.v86-bgi-shell32-drag-accept-files.v1",
-                        latestWritebackBatches: 89_339,
-                        latestWritebackDirtyPages: 122_724,
-                        latestWritebackChangedBytes: 3_608_013,
-                        latestHostDeltaBatches: 78_501,
-                        latestFinalMemoryGeneration: 168_414,
+                          "vine.v86-bgi-d3d9-initial-sampler-states",
+                        latestWritebackBatches: 127_462,
+                        latestWritebackDirtyPages: 175_984,
+                        latestWritebackChangedBytes: 6_619_837,
+                        latestHostDeltaBatches: 106_769,
+                        latestFinalMemoryGeneration: 235_514,
                         semanticCallDigestSha256:
-                          "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+                          "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
                         memoryContentSha256:
-                          "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+                          "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
                       }
-                    : leaveCriticalSectionContinuationActive
+                    : d3d9BeginSceneActive
                       ? {
                           benchmarkObservation:
-                            "current-critical-section-continuation-release-observation",
-                          browserMappingDeltas: 17_384,
-                          browserMappingDirtyPages: 18_891,
-                          browserSuccessExecutionTransitions: 58_464,
-                          latestSchema:
-                            "vine.v86-bgi-kernel32-leave-critical-section-continuation.v1",
-                          latestWritebackBatches: 18_793,
-                          latestWritebackDirtyPages: 37_790,
-                          latestWritebackChangedBytes: 2_933_180,
-                          latestHostDeltaBatches: 17_384,
-                          latestFinalMemoryGeneration: 36_750,
+                            "current-archive-source-read-observation",
+                          browserMappingDeltas: 106_769,
+                          browserMappingDirtyPages: 109_858,
+                          browserSuccessExecutionTransitions: 416_529,
+                          latestSchema: "vine.v86-bgi-d3d9-begin-scene",
+                          latestWritebackBatches: 127_457,
+                          latestWritebackDirtyPages: 175_979,
+                          latestWritebackChangedBytes: 6_619_810,
+                          latestHostDeltaBatches: 106_769,
+                          latestFinalMemoryGeneration: 235_509,
                           semanticCallDigestSha256:
-                            "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
+                            "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
                           memoryContentSha256:
-                            "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+                            "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
                         }
-                      : enterCriticalSectionContinuationActive
+                      : d3d9UpdateTextureActive
                         ? {
                             benchmarkObservation:
-                              "current-critical-section-acquisition-observation",
-                            browserMappingDeltas: 17_383,
-                            browserMappingDirtyPages: 18_890,
-                            browserSuccessExecutionTransitions: 58_461,
-                            latestSchema:
-                              "vine.v86-bgi-kernel32-enter-critical-section-continuation.v1",
-                            latestWritebackBatches: 18_792,
-                            latestWritebackDirtyPages: 37_788,
-                            latestWritebackChangedBytes: 2_933_171,
-                            latestHostDeltaBatches: 17_383,
-                            latestFinalMemoryGeneration: 36_748,
+                              "current-archive-source-read-observation",
+                            browserMappingDeltas: 106_769,
+                            browserMappingDirtyPages: 109_858,
+                            browserSuccessExecutionTransitions: 416_527,
+                            latestSchema: "vine.v86-bgi-d3d9-update-texture",
+                            latestWritebackBatches: 127_456,
+                            latestWritebackDirtyPages: 175_978,
+                            latestWritebackChangedBytes: 6_619_792,
+                            latestHostDeltaBatches: 106_769,
+                            latestFinalMemoryGeneration: 235_508,
                             semanticCallDigestSha256:
-                              "da20a011071131b44421f357e9dd1fa044ff1ee2ec33e509ed28a38137bec04b",
+                              "b5f44675f551e3986efd94d97b0a50dcb26431f22697fe16178824bafcdc828d",
                             memoryContentSha256:
-                              "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df",
+                              "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a",
                           }
-                        : leaveCriticalSectionActive
+                        : d3d9AddDirtyRectActive
                           ? {
                               benchmarkObservation:
-                                "current-critical-section-release-observation",
-                              browserMappingDeltas: 17_382,
-                              browserMappingDirtyPages: 18_889,
-                              browserSuccessExecutionTransitions: 58_458,
-                              latestSchema:
-                                "vine.v86-bgi-kernel32-leave-critical-section.v1",
-                              latestWritebackBatches: 18_791,
-                              latestWritebackDirtyPages: 37_785,
-                              latestWritebackChangedBytes: 2_933_159,
-                              latestHostDeltaBatches: 17_382,
-                              latestFinalMemoryGeneration: 36_746,
+                                "current-archive-source-read-observation",
+                              browserMappingDeltas: 106_769,
+                              browserMappingDirtyPages: 109_858,
+                              browserSuccessExecutionTransitions: 416_525,
+                              latestSchema: "vine.v86-bgi-d3d9-add-dirty-rect",
+                              latestWritebackBatches: 127_455,
+                              latestWritebackDirtyPages: 175_977,
+                              latestWritebackChangedBytes: 6_619_787,
+                              latestHostDeltaBatches: 106_769,
+                              latestFinalMemoryGeneration: 235_507,
                               semanticCallDigestSha256:
-                                "77dee747fc8fc285f6c4e32f68e12ba2334118b7b6984ecc68236be8acdac7f4",
+                                "af311f2769ed51c752349385619cb00400ecb468a866133f5cba71a7c80c373a",
                               memoryContentSha256:
-                                "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636",
+                                "2e8deed2908c310e490b75ba714ebc8eb615a87b66efab2ab49287784d0a408a",
                             }
-                          : primaryMainLoopProgressionActive
+                          : setRectActive
                             ? {
                                 benchmarkObservation:
-                                  "current-main-loop-progression-observation",
-                                browserMappingDeltas: 17_381,
-                                browserMappingDirtyPages: 18_888,
-                                browserSuccessExecutionTransitions: 58_455,
-                                latestSchema:
-                                  "vine.v86-bgi-primary-main-loop-progression.v1",
-                                latestWritebackBatches: 18_790,
-                                latestWritebackDirtyPages: 37_783,
-                                latestWritebackChangedBytes: 2_933_150,
-                                latestHostDeltaBatches: 17_381,
-                                latestFinalMemoryGeneration: 36_744,
+                                  "current-archive-source-read-observation",
+                                browserMappingDeltas: 106_769,
+                                browserMappingDirtyPages: 109_858,
+                                browserSuccessExecutionTransitions: 416_523,
+                                latestSchema: "vine.v86-bgi-user32-set-rect",
+                                latestWritebackBatches: 127_454,
+                                latestWritebackDirtyPages: 175_976,
+                                latestWritebackChangedBytes: 6_619_715,
+                                latestHostDeltaBatches: 106_769,
+                                latestFinalMemoryGeneration: 235_506,
                                 semanticCallDigestSha256:
-                                  "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+                                  "01f5a4a0ca80adefdfde1a8d7a7ab3a229c76fc4d35271ebacc46cc61340761f",
                                 memoryContentSha256:
-                                  "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
+                                  "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
                               }
-                            : {
-                                benchmarkObservation:
-                                  "current-critical-section-idle-cycle-observation",
-                                browserMappingDeltas: 17_359,
-                                browserMappingDirtyPages: 18_866,
-                                browserSuccessExecutionTransitions: 58_352,
-                                latestSchema:
-                                  "vine.v86-bgi-kernel32-enter-critical-section.v1",
-                                latestWritebackBatches: 18_760,
-                                latestWritebackDirtyPages: 37_740,
-                                latestWritebackChangedBytes: 2_932_769,
-                                latestHostDeltaBatches: 17_359,
-                                latestFinalMemoryGeneration: 36_692,
-                                semanticCallDigestSha256:
-                                  "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
-                                memoryContentSha256:
-                                  "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
-                              };
+                            : d3d9ClearActive
+                              ? {
+                                  benchmarkObservation:
+                                    "current-archive-source-read-observation",
+                                  browserMappingDeltas: 106_768,
+                                  browserMappingDirtyPages: 109_857,
+                                  browserSuccessExecutionTransitions: 416_521,
+                                  latestSchema: "vine.v86-bgi-d3d9-clear",
+                                  latestWritebackBatches: 127_453,
+                                  latestWritebackDirtyPages: 175_975,
+                                  latestWritebackChangedBytes: 6_619_704,
+                                  latestHostDeltaBatches: 106_768,
+                                  latestFinalMemoryGeneration: 235_504,
+                                  semanticCallDigestSha256:
+                                    "b8d2e16f49c417e6deebf9fa52a40195204ea2502a65b5299d9867b5229eb9cc",
+                                  memoryContentSha256:
+                                    "b567254a8ef1a0ea18a6a983b10293b57b25ad5b9864bda28c28598d5200e5ae",
+                                }
+                              : updateWindowActive
+                                ? {
+                                    benchmarkObservation:
+                                      "current-archive-source-read-observation",
+                                    browserMappingDeltas: 106_768,
+                                    browserMappingDirtyPages: 109_857,
+                                    browserSuccessExecutionTransitions: 416_519,
+                                    latestSchema:
+                                      "vine.v86-bgi-user32-update-window",
+                                    latestWritebackBatches: 127_452,
+                                    latestWritebackDirtyPages: 175_974,
+                                    latestWritebackChangedBytes: 6_619_682,
+                                    latestHostDeltaBatches: 106_768,
+                                    latestFinalMemoryGeneration: 235_503,
+                                    semanticCallDigestSha256:
+                                      "33ef06b514d5d26eefb8d2ecdea0e569197752884b798af5787e3e0ef8d0b4b5",
+                                    memoryContentSha256:
+                                      "ceaaf33c0382b0f1859997d2f114a1d85eeed1ce5090bb9e7f6fabcc49de03ff",
+                                  }
+                                : setWindowPosFrameChangeMoveActive
+                                  ? {
+                                      benchmarkObservation:
+                                        "current-archive-source-read-observation",
+                                      browserMappingDeltas: 106_766,
+                                      browserMappingDirtyPages: 109_855,
+                                      browserSuccessExecutionTransitions: 416_510,
+                                      latestSchema:
+                                        "vine.v86-bgi-user32-set-window-pos-frame-change-move",
+                                      latestWritebackBatches: 127_448,
+                                      latestWritebackDirtyPages: 175_970,
+                                      latestWritebackChangedBytes: 6_619_588,
+                                      latestHostDeltaBatches: 106_766,
+                                      latestFinalMemoryGeneration: 235_497,
+                                      semanticCallDigestSha256:
+                                        "6288683381bcc5df62a20abad70a9b73bbedb153dd0f5f8aa9cfe2e3abde300c",
+                                      memoryContentSha256:
+                                        "b7a48b1a742ff2e7bf477880574bdad5f9334288f4adc3c9d6a8616ed49ad628",
+                                    }
+                                  : d3d9RecreatedTexturesActive
+                                    ? {
+                                        benchmarkObservation:
+                                          "current-archive-source-read-observation",
+                                        browserMappingDeltas: 106_761,
+                                        browserMappingDirtyPages: 109_847,
+                                        browserSuccessExecutionTransitions: 416_491,
+                                        latestSchema:
+                                          "vine.v86-bgi-d3d9-recreated-textures",
+                                        latestWritebackBatches: 127_439,
+                                        latestWritebackDirtyPages: 175_958,
+                                        latestWritebackChangedBytes: 6_619_474,
+                                        latestHostDeltaBatches: 106_761,
+                                        latestFinalMemoryGeneration: 235_480,
+                                        semanticCallDigestSha256:
+                                          "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
+                                        memoryContentSha256:
+                                          "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
+                                      }
+                                    : setWindowPosRepeatActivationActive
+                                      ? {
+                                          benchmarkObservation:
+                                            "current-archive-source-read-observation",
+                                          browserMappingDeltas: 92_825,
+                                          browserMappingDirtyPages: 95_902,
+                                          browserSuccessExecutionTransitions: 353_544,
+                                          latestSchema:
+                                            "vine.v86-bgi-user32-set-window-pos-repeat-activation",
+                                          latestWritebackBatches: 108_830,
+                                          latestWritebackDirtyPages: 150_285,
+                                          latestWritebackChangedBytes: 6_369_334,
+                                          latestHostDeltaBatches: 92_825,
+                                          latestFinalMemoryGeneration: 202_769,
+                                          semanticCallDigestSha256:
+                                            "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+                                          memoryContentSha256:
+                                            "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+                                        }
+                                      : createDirectoryAActive
+                                        ? {
+                                            benchmarkObservation:
+                                              "current-archive-source-read-observation",
+                                            browserMappingDeltas: 92_815,
+                                            browserMappingDirtyPages: 95_893,
+                                            browserSuccessExecutionTransitions: 353_486,
+                                            latestSchema:
+                                              "vine.v86-bgi-kernel32-create-directory-a",
+                                            latestWritebackBatches: 108_810,
+                                            latestWritebackDirtyPages: 150_254,
+                                            latestWritebackChangedBytes: 6_368_965,
+                                            latestHostDeltaBatches: 92_815,
+                                            latestFinalMemoryGeneration: 202_575,
+                                            semanticCallDigestSha256:
+                                              "e925e87a010017aa85316f8564a8bcbdac81fe59f87b84e5c288a865db0adb65",
+                                            memoryContentSha256:
+                                              "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+                                          }
+                                        : getFileAttributesAActive
+                                          ? {
+                                              benchmarkObservation:
+                                                "current-archive-source-read-observation",
+                                              browserMappingDeltas: 92_492,
+                                              browserMappingDirtyPages: 94_681,
+                                              browserSuccessExecutionTransitions: 349_581,
+                                              latestSchema:
+                                                "vine.v86-bgi-kernel32-get-file-attributes-a",
+                                              latestWritebackBatches: 108_267,
+                                              latestWritebackDirtyPages: 148_855,
+                                              latestWritebackChangedBytes: 4_925_375,
+                                              latestHostDeltaBatches: 92_492,
+                                              latestFinalMemoryGeneration: 201_672,
+                                              semanticCallDigestSha256:
+                                                "b1846ec7eb00de76f15194a14e4877f2fb1871e0ac49a00f3b81b8dc6f0583a2",
+                                              memoryContentSha256:
+                                                "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+                                            }
+                                          : globalMemoryStatusActive
+                                            ? {
+                                                benchmarkObservation:
+                                                  "current-archive-source-read-observation",
+                                                browserMappingDeltas: 92_327,
+                                                browserMappingDirtyPages: 94_516,
+                                                browserSuccessExecutionTransitions: 348_240,
+                                                latestSchema:
+                                                  "vine.v86-bgi-kernel32-global-memory-status",
+                                                latestWritebackBatches: 107_849,
+                                                latestWritebackDirtyPages: 148_256,
+                                                latestWritebackChangedBytes: 4_917_540,
+                                                latestHostDeltaBatches: 92_327,
+                                                latestFinalMemoryGeneration: 201_089,
+                                                semanticCallDigestSha256:
+                                                  "ef1e28a26937875cb742983528bf5a9cd278aab6bd6fee49ac8de1415418a884",
+                                                memoryContentSha256:
+                                                  "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+                                              }
+                                            : sleepZeroActive
+                                              ? {
+                                                  benchmarkObservation:
+                                                    "current-archive-source-read-observation",
+                                                  browserMappingDeltas: 92_304,
+                                                  browserMappingDirtyPages: 94_493,
+                                                  browserSuccessExecutionTransitions: 348_147,
+                                                  latestSchema:
+                                                    "vine.v86-bgi-kernel32-sleep-zero",
+                                                  latestWritebackBatches: 107_818,
+                                                  latestWritebackDirtyPages: 148_160,
+                                                  latestWritebackChangedBytes: 4_916_226,
+                                                  latestHostDeltaBatches: 92_304,
+                                                  latestFinalMemoryGeneration: 201_035,
+                                                  semanticCallDigestSha256:
+                                                    "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+                                                  memoryContentSha256:
+                                                    "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+                                                }
+                                              : archiveSourceReadActive
+                                                ? {
+                                                    benchmarkObservation:
+                                                      "current-archive-source-read-observation",
+                                                    browserMappingDeltas: 78_613,
+                                                    browserMappingDirtyPages: 80_530,
+                                                    browserSuccessExecutionTransitions: 286_089,
+                                                    latestSchema:
+                                                      "vine.v86-bgi-kernel32-archive-source-read.v1",
+                                                    latestWritebackBatches: 89_491,
+                                                    latestWritebackDirtyPages: 122_969,
+                                                    latestWritebackChangedBytes: 3_623_229,
+                                                    latestHostDeltaBatches: 78_613,
+                                                    latestFinalMemoryGeneration: 169_016,
+                                                    semanticCallDigestSha256:
+                                                      "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
+                                                    memoryContentSha256:
+                                                      "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+                                                  }
+                                                : dragAcceptFilesActive
+                                                  ? {
+                                                      benchmarkObservation:
+                                                        "current-shell32-drag-accept-files-observation",
+                                                      browserMappingDeltas: 78_501,
+                                                      browserMappingDirtyPages: 80_168,
+                                                      browserSuccessExecutionTransitions: 285_545,
+                                                      latestSchema:
+                                                        "vine.v86-bgi-shell32-drag-accept-files.v1",
+                                                      latestWritebackBatches: 89_339,
+                                                      latestWritebackDirtyPages: 122_724,
+                                                      latestWritebackChangedBytes: 3_608_013,
+                                                      latestHostDeltaBatches: 78_501,
+                                                      latestFinalMemoryGeneration: 168_414,
+                                                      semanticCallDigestSha256:
+                                                        "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+                                                      memoryContentSha256:
+                                                        "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+                                                    }
+                                                  : leaveCriticalSectionContinuationActive
+                                                    ? {
+                                                        benchmarkObservation:
+                                                          "current-critical-section-continuation-release-observation",
+                                                        browserMappingDeltas: 17_384,
+                                                        browserMappingDirtyPages: 18_891,
+                                                        browserSuccessExecutionTransitions: 58_464,
+                                                        latestSchema:
+                                                          "vine.v86-bgi-kernel32-leave-critical-section-continuation.v1",
+                                                        latestWritebackBatches: 18_793,
+                                                        latestWritebackDirtyPages: 37_790,
+                                                        latestWritebackChangedBytes: 2_933_180,
+                                                        latestHostDeltaBatches: 17_384,
+                                                        latestFinalMemoryGeneration: 36_750,
+                                                        semanticCallDigestSha256:
+                                                          "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
+                                                        memoryContentSha256:
+                                                          "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+                                                      }
+                                                    : enterCriticalSectionContinuationActive
+                                                      ? {
+                                                          benchmarkObservation:
+                                                            "current-critical-section-acquisition-observation",
+                                                          browserMappingDeltas: 17_383,
+                                                          browserMappingDirtyPages: 18_890,
+                                                          browserSuccessExecutionTransitions: 58_461,
+                                                          latestSchema:
+                                                            "vine.v86-bgi-kernel32-enter-critical-section-continuation.v1",
+                                                          latestWritebackBatches: 18_792,
+                                                          latestWritebackDirtyPages: 37_788,
+                                                          latestWritebackChangedBytes: 2_933_171,
+                                                          latestHostDeltaBatches: 17_383,
+                                                          latestFinalMemoryGeneration: 36_748,
+                                                          semanticCallDigestSha256:
+                                                            "da20a011071131b44421f357e9dd1fa044ff1ee2ec33e509ed28a38137bec04b",
+                                                          memoryContentSha256:
+                                                            "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df",
+                                                        }
+                                                      : leaveCriticalSectionActive
+                                                        ? {
+                                                            benchmarkObservation:
+                                                              "current-critical-section-release-observation",
+                                                            browserMappingDeltas: 17_382,
+                                                            browserMappingDirtyPages: 18_889,
+                                                            browserSuccessExecutionTransitions: 58_458,
+                                                            latestSchema:
+                                                              "vine.v86-bgi-kernel32-leave-critical-section.v1",
+                                                            latestWritebackBatches: 18_791,
+                                                            latestWritebackDirtyPages: 37_785,
+                                                            latestWritebackChangedBytes: 2_933_159,
+                                                            latestHostDeltaBatches: 17_382,
+                                                            latestFinalMemoryGeneration: 36_746,
+                                                            semanticCallDigestSha256:
+                                                              "77dee747fc8fc285f6c4e32f68e12ba2334118b7b6984ecc68236be8acdac7f4",
+                                                            memoryContentSha256:
+                                                              "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636",
+                                                          }
+                                                        : primaryMainLoopProgressionActive
+                                                          ? {
+                                                              benchmarkObservation:
+                                                                "current-main-loop-progression-observation",
+                                                              browserMappingDeltas: 17_381,
+                                                              browserMappingDirtyPages: 18_888,
+                                                              browserSuccessExecutionTransitions: 58_455,
+                                                              latestSchema:
+                                                                "vine.v86-bgi-primary-main-loop-progression.v1",
+                                                              latestWritebackBatches: 18_790,
+                                                              latestWritebackDirtyPages: 37_783,
+                                                              latestWritebackChangedBytes: 2_933_150,
+                                                              latestHostDeltaBatches: 17_381,
+                                                              latestFinalMemoryGeneration: 36_744,
+                                                              semanticCallDigestSha256:
+                                                                "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+                                                              memoryContentSha256:
+                                                                "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
+                                                            }
+                                                          : {
+                                                              benchmarkObservation:
+                                                                "current-critical-section-idle-cycle-observation",
+                                                              browserMappingDeltas: 17_359,
+                                                              browserMappingDirtyPages: 18_866,
+                                                              browserSuccessExecutionTransitions: 58_352,
+                                                              latestSchema:
+                                                                "vine.v86-bgi-kernel32-enter-critical-section.v1",
+                                                              latestWritebackBatches: 18_760,
+                                                              latestWritebackDirtyPages: 37_740,
+                                                              latestWritebackChangedBytes: 2_932_769,
+                                                              latestHostDeltaBatches: 17_359,
+                                                              latestFinalMemoryGeneration: 36_692,
+                                                              semanticCallDigestSha256:
+                                                                "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
+                                                              memoryContentSha256:
+                                                                "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
+                                                            };
   const timerEvidenceEntries =
     dragAcceptFilesActive || archiveSourceReadActive ? 2 : timerCycleCount;
   const timerRepeatedOnes = Array(timerEvidenceEntries).fill(1).join(",");
-  const timerRepeatedTwos = Array(timerEvidenceEntries).fill(2).join(",");
+  const timerRepeatedTwos = d3d9PostRasterStatusWaitableTimerActive
+    ? "2,1"
+    : Array(timerEvidenceEntries).fill(2).join(",");
   const timerRepeatedZeroes = Array(timerEvidenceEntries).fill(0).join(",");
   const expectedRootKeys = [
     "schema",
@@ -1318,9 +1392,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v41") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v42") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v41",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v42",
     );
   }
   if (
@@ -2176,10 +2250,10 @@ export function validateCurrentCheckpoint(manifest) {
       (updateWindowActive
         ? 30
         : setWindowPosFrameChangeMoveActive
-        ? 29
-        : setWindowPosRepeatActivationActive
-          ? 25
-          : 24) ||
+          ? 29
+          : setWindowPosRepeatActivationActive
+            ? 25
+            : 24) ||
     bgiBrowserEvidence.callbackReplacements !==
       (setWindowPosFrameChangeMoveActive ? 15 : 13) ||
     bgiBrowserEvidence.maximumCallbackDepth !== 3 ||
@@ -3403,8 +3477,10 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9BeginSceneNestedBeginReturnsInvalidCall !== true ||
       bgiBrowserEvidence.d3d9BeginSceneEndSceneImplemented !==
         d3d9EndSceneActive ||
-      bgiBrowserEvidence.d3d9BeginSceneBrowserRendererResourceCreated !== false ||
-      bgiBrowserEvidence.d3d9BeginSceneNodeChromeOrderedSemanticsMatched !== true)
+      bgiBrowserEvidence.d3d9BeginSceneBrowserRendererResourceCreated !==
+        false ||
+      bgiBrowserEvidence.d3d9BeginSceneNodeChromeOrderedSemanticsMatched !==
+        true)
   ) {
     errors.push("browser BGI D3D9 BeginScene evidence is invalid");
   }
@@ -3461,8 +3537,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9SamplerStateBrowserRendererResourceCreated !==
         false ||
       bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedCompletions !== 3 ||
-      bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedSequences?.join(",") !==
-        "127362,127363,127364" ||
+      bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedSequences?.join(
+        ",",
+      ) !== "127362,127363,127364" ||
       bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedInstructionCounts?.join(
         ",",
       ) !== "28761212,28761220,28761228" ||
@@ -3474,8 +3551,9 @@ export function validateCurrentCheckpoint(manifest) {
           ["0x01010004", "0x00000014", "0x00000006"],
           ["0x01010004", "0x00000013", "0x00000005"],
         ]) ||
-      bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedResults?.join(",") !==
-        "0x8876086a,0x8876086a,0x8876086a" ||
+      bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedResults?.join(
+        ",",
+      ) !== "0x8876086a,0x8876086a,0x8876086a" ||
       bgiBrowserEvidence.d3d9PostSamplerRenderStateRejectedReturnAddresses?.join(
         ",",
       ) !== "0x1005b1b7,0x1005b1cb,0x1005b1df" ||
@@ -3512,10 +3590,12 @@ export function validateCurrentCheckpoint(manifest) {
         ) ||
       bgiBrowserEvidence.d3d9TextureStageStateGuestWriteBytes?.join(",") !==
         "0,0,0,0,0,0" ||
-      bgiBrowserEvidence.d3d9TextureStageStateDeviceReferenceCounts?.join(",") !==
-        "5,5,5,5,5,5" ||
-      bgiBrowserEvidence.d3d9TextureStageStateDeviceObjectsRetired?.join(",") !==
-        "false,false,false,false,false,false" ||
+      bgiBrowserEvidence.d3d9TextureStageStateDeviceReferenceCounts?.join(
+        ",",
+      ) !== "5,5,5,5,5,5" ||
+      bgiBrowserEvidence.d3d9TextureStageStateDeviceObjectsRetired?.join(
+        ",",
+      ) !== "false,false,false,false,false,false" ||
       bgiBrowserEvidence.d3d9TextureStageStateCompatibilityPolicyId !==
         "d3d9-primary-virtual-adapter-v28" ||
       bgiBrowserEvidence.d3d9TextureStageStateProfileId !==
@@ -3646,8 +3726,7 @@ export function validateCurrentCheckpoint(manifest) {
         "xyz-rhw-diffuse-texture1" ||
       bgiBrowserEvidence.d3d9SetFvfLogicalGraphicsDeviceGeneration !== 55 ||
       bgiBrowserEvidence.d3d9SetFvfSameValueGenerationChange !== 0 ||
-      bgiBrowserEvidence.d3d9SetFvfUnsupportedVariantResult !==
-        "0x8876086a" ||
+      bgiBrowserEvidence.d3d9SetFvfUnsupportedVariantResult !== "0x8876086a" ||
       bgiBrowserEvidence.d3d9SetFvfFailureAtomicity !== true ||
       bgiBrowserEvidence.d3d9SetFvfBrowserRendererResourceCreated !== false ||
       bgiBrowserEvidence.d3d9SetFvfNodeChromeOrderedSemanticsMatched !== true)
@@ -3680,12 +3759,14 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceId !== 3 ||
       bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceNamespace !==
         "vine.logical-graphics-device.v1" ||
-      bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsComObjectId !== "21" ||
+      bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsComObjectId !==
+        "21" ||
       bgiBrowserEvidence.d3d9SetStreamSourceBoundStream !== 0 ||
       bgiBrowserEvidence.d3d9SetStreamSourceBoundVertexBufferId !== 3 ||
       bgiBrowserEvidence.d3d9SetStreamSourceOffsetInBytes !== 0 ||
       bgiBrowserEvidence.d3d9SetStreamSourceStride !== 28 ||
-      bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceGeneration !== 56 ||
+      bgiBrowserEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceGeneration !==
+        56 ||
       bgiBrowserEvidence.d3d9SetStreamSourceSameValueGenerationChange !== 0 ||
       bgiBrowserEvidence.d3d9SetStreamSourceNullUnbindImplemented !== false ||
       bgiBrowserEvidence.d3d9SetStreamSourceUnsupportedVariantResult !==
@@ -3726,7 +3807,8 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9DrawPrimitiveLogicalGraphicsDeviceNamespace !==
         "vine.logical-graphics-device.v1" ||
       bgiBrowserEvidence.d3d9DrawPrimitiveLogicalGraphicsComObjectId !== "21" ||
-      bgiBrowserEvidence.d3d9DrawPrimitiveLogicalGraphicsDeviceGeneration !== 57 ||
+      bgiBrowserEvidence.d3d9DrawPrimitiveLogicalGraphicsDeviceGeneration !==
+        57 ||
       bgiBrowserEvidence.d3d9DrawPrimitiveBackBufferContentGeneration !== 2 ||
       bgiBrowserEvidence.d3d9DrawPrimitiveSubmissionSequence !== 1 ||
       bgiBrowserEvidence.d3d9DrawPrimitiveSceneSequence !== 1 ||
@@ -3743,12 +3825,16 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9DrawPrimitiveTextureGeneration !== 45 ||
       bgiBrowserEvidence.d3d9DrawPrimitiveTextureContentGeneration !== 1 ||
       bgiBrowserEvidence.d3d9DrawPrimitivePendingSubmissionLimit !== 4_096 ||
-      bgiBrowserEvidence.d3d9DrawPrimitivePendingVertexBytesLimit !== 1_048_576 ||
-      bgiBrowserEvidence.d3d9DrawPrimitiveClearDiscardsPendingSubmissions !== true ||
+      bgiBrowserEvidence.d3d9DrawPrimitivePendingVertexBytesLimit !==
+        1_048_576 ||
+      bgiBrowserEvidence.d3d9DrawPrimitiveClearDiscardsPendingSubmissions !==
+        true ||
       bgiBrowserEvidence.d3d9DrawPrimitiveFailureAtomicity !== true ||
-      bgiBrowserEvidence.d3d9DrawPrimitiveBrowserRendererResourceCreated !== false ||
+      bgiBrowserEvidence.d3d9DrawPrimitiveBrowserRendererResourceCreated !==
+        false ||
       bgiBrowserEvidence.d3d9DrawPrimitiveVisiblePixelsProduced !== false ||
-      bgiBrowserEvidence.d3d9DrawPrimitiveNodeChromeOrderedSemanticsMatched !== true)
+      bgiBrowserEvidence.d3d9DrawPrimitiveNodeChromeOrderedSemanticsMatched !==
+        true)
   ) {
     errors.push("browser BGI D3D9 DrawPrimitive evidence is invalid");
   }
@@ -3804,14 +3890,16 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusResult !== "0x00000000" ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusReturnAddress !==
         "0x1005aedd" ||
-      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusStackPointers?.join(",") !==
-        "0x006ff268,0x006ff278" ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusStackPointers?.join(
+        ",",
+      ) !== "0x006ff268,0x006ff278" ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusGuestWriteBytes !== 8 ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusOutputAddress !==
         "0x006ff280" ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusOutputHex !==
         "0000000001000000" ||
-      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDeviceReferenceCount !== 5 ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDeviceReferenceCount !==
+        5 ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusDeviceObjectRetired !==
         false ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusCompatibilityPolicyId !==
@@ -3830,17 +3918,18 @@ export function validateCurrentCheckpoint(manifest) {
         false ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusLastErrorPolicy !==
         "preserve" ||
-      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusGuestWriteAtomic !== true ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusGuestWriteAtomic !==
+        true ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusHostScanoutImported !==
         false ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusBrowserScanoutImported !==
         false ||
-      bgiBrowserEvidence
-        .d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !== false ||
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !==
+        false ||
       bgiBrowserEvidence.d3d9PostEndSceneRasterStatusVisiblePixelsProduced !==
         false ||
-      bgiBrowserEvidence
-        .d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !== true)
+      bgiBrowserEvidence.d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !==
+        true)
   ) {
     errors.push(
       "browser BGI post-EndScene D3D9 GetRasterStatus evidence is invalid",
@@ -3910,7 +3999,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
       timerDeadlines ||
     bgiBrowserEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
-      timerGenerations ||
+      timerClockGenerations ||
     bgiBrowserEvidence.waitForSingleObjectExWaitState !== "signaled" ||
     bgiBrowserEvidence.waitForSingleObjectExNextRegistrationIds?.join(",") !==
       timerNextRegistrationIds ||
@@ -7234,8 +7323,14 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   for (const [value, label] of [
-    [d3d9NativeClear.primaryTraceSha256, "nativeClearEvidence.primaryTraceSha256"],
-    [d3d9NativeClear.primarySummarySha256, "nativeClearEvidence.primarySummarySha256"],
+    [
+      d3d9NativeClear.primaryTraceSha256,
+      "nativeClearEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeClear.primarySummarySha256,
+      "nativeClearEvidence.primarySummarySha256",
+    ],
     [
       d3d9NativeClear.confirmationTraceSha256,
       "nativeClearEvidence.confirmationTraceSha256",
@@ -7277,12 +7372,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.nativeAddDirtyRectEvidence.primaryRect",
     errors,
   );
-  const d3d9NativeAddDirtyRectValidInteriorRect =
-    requireOrderedIntegerArray(
-      d3d9NativeAddDirtyRect.validInteriorRect,
-      "activeRuntimeCheckpoint.d3d9Frontend.nativeAddDirtyRectEvidence.validInteriorRect",
-      errors,
-    );
+  const d3d9NativeAddDirtyRectValidInteriorRect = requireOrderedIntegerArray(
+    d3d9NativeAddDirtyRect.validInteriorRect,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeAddDirtyRectEvidence.validInteriorRect",
+    errors,
+  );
   const d3d9PrivateAddDirtyRectArguments = requireOrderedStringArray(
     d3d9PrivateAddDirtyRect.arguments,
     "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeAddDirtyRectEvidence.arguments",
@@ -7342,18 +7436,16 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.updateTexture.sourceTextureVariantIndices",
     errors,
   );
-  const d3d9UpdateTextureDestinationVariantIndices =
-    requireOrderedIntegerArray(
-      d3d9UpdateTexture.destinationTextureVariantIndices,
-      "activeRuntimeCheckpoint.d3d9Frontend.updateTexture.destinationTextureVariantIndices",
-      errors,
-    );
-  const d3d9NativeUpdateTextureCreationCallerRvas =
-    requireOrderedStringArray(
-      d3d9NativeUpdateTexture.creationCallerRvas,
-      "activeRuntimeCheckpoint.d3d9Frontend.nativeUpdateTextureEvidence.creationCallerRvas",
-      errors,
-    );
+  const d3d9UpdateTextureDestinationVariantIndices = requireOrderedIntegerArray(
+    d3d9UpdateTexture.destinationTextureVariantIndices,
+    "activeRuntimeCheckpoint.d3d9Frontend.updateTexture.destinationTextureVariantIndices",
+    errors,
+  );
+  const d3d9NativeUpdateTextureCreationCallerRvas = requireOrderedStringArray(
+    d3d9NativeUpdateTexture.creationCallerRvas,
+    "activeRuntimeCheckpoint.d3d9Frontend.nativeUpdateTextureEvidence.creationCallerRvas",
+    errors,
+  );
   const d3d9NativeUpdateTextureSuccessVariants = requireOrderedStringArray(
     d3d9NativeUpdateTexture.nonNullOracleSuccessVariants,
     "activeRuntimeCheckpoint.d3d9Frontend.nativeUpdateTextureEvidence.nonNullOracleSuccessVariants",
@@ -7603,13 +7695,34 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   for (const [value, label] of [
-    [d3d9NativeSetTexture.primaryTraceSha256, "nativeSetTextureEvidence.primaryTraceSha256"],
-    [d3d9NativeSetTexture.primarySummarySha256, "nativeSetTextureEvidence.primarySummarySha256"],
-    [d3d9NativeSetTexture.confirmationTraceSha256, "nativeSetTextureEvidence.confirmationTraceSha256"],
-    [d3d9NativeSetTexture.confirmationSummarySha256, "nativeSetTextureEvidence.confirmationSummarySha256"],
-    [d3d9NativeSetTexture.oracleSourceSha256, "nativeSetTextureEvidence.oracleSourceSha256"],
-    [d3d9NativeSetTexture.oracleObjectSha256, "nativeSetTextureEvidence.oracleObjectSha256"],
-    [d3d9NativeSetTexture.oracleExecutableSha256, "nativeSetTextureEvidence.oracleExecutableSha256"],
+    [
+      d3d9NativeSetTexture.primaryTraceSha256,
+      "nativeSetTextureEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeSetTexture.primarySummarySha256,
+      "nativeSetTextureEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativeSetTexture.confirmationTraceSha256,
+      "nativeSetTextureEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativeSetTexture.confirmationSummarySha256,
+      "nativeSetTextureEvidence.confirmationSummarySha256",
+    ],
+    [
+      d3d9NativeSetTexture.oracleSourceSha256,
+      "nativeSetTextureEvidence.oracleSourceSha256",
+    ],
+    [
+      d3d9NativeSetTexture.oracleObjectSha256,
+      "nativeSetTextureEvidence.oracleObjectSha256",
+    ],
+    [
+      d3d9NativeSetTexture.oracleExecutableSha256,
+      "nativeSetTextureEvidence.oracleExecutableSha256",
+    ],
   ]) {
     requireSha256(
       value,
@@ -7633,13 +7746,34 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   for (const [value, label] of [
-    [d3d9NativeSetFvf.primaryTraceSha256, "nativeSetFvfEvidence.primaryTraceSha256"],
-    [d3d9NativeSetFvf.primarySummarySha256, "nativeSetFvfEvidence.primarySummarySha256"],
-    [d3d9NativeSetFvf.confirmationTraceSha256, "nativeSetFvfEvidence.confirmationTraceSha256"],
-    [d3d9NativeSetFvf.confirmationSummarySha256, "nativeSetFvfEvidence.confirmationSummarySha256"],
-    [d3d9NativeSetFvf.oracleSourceSha256, "nativeSetFvfEvidence.oracleSourceSha256"],
-    [d3d9NativeSetFvf.oracleObjectSha256, "nativeSetFvfEvidence.oracleObjectSha256"],
-    [d3d9NativeSetFvf.oracleExecutableSha256, "nativeSetFvfEvidence.oracleExecutableSha256"],
+    [
+      d3d9NativeSetFvf.primaryTraceSha256,
+      "nativeSetFvfEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeSetFvf.primarySummarySha256,
+      "nativeSetFvfEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativeSetFvf.confirmationTraceSha256,
+      "nativeSetFvfEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativeSetFvf.confirmationSummarySha256,
+      "nativeSetFvfEvidence.confirmationSummarySha256",
+    ],
+    [
+      d3d9NativeSetFvf.oracleSourceSha256,
+      "nativeSetFvfEvidence.oracleSourceSha256",
+    ],
+    [
+      d3d9NativeSetFvf.oracleObjectSha256,
+      "nativeSetFvfEvidence.oracleObjectSha256",
+    ],
+    [
+      d3d9NativeSetFvf.oracleExecutableSha256,
+      "nativeSetFvfEvidence.oracleExecutableSha256",
+    ],
   ]) {
     requireSha256(
       value,
@@ -7769,13 +7903,34 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   for (const [value, label] of [
-    [d3d9NativeEndScene.primaryTraceSha256, "nativeEndSceneEvidence.primaryTraceSha256"],
-    [d3d9NativeEndScene.primarySummarySha256, "nativeEndSceneEvidence.primarySummarySha256"],
-    [d3d9NativeEndScene.confirmationTraceSha256, "nativeEndSceneEvidence.confirmationTraceSha256"],
-    [d3d9NativeEndScene.confirmationSummarySha256, "nativeEndSceneEvidence.confirmationSummarySha256"],
-    [d3d9NativeEndScene.oracleSourceSha256, "nativeEndSceneEvidence.oracleSourceSha256"],
-    [d3d9NativeEndScene.oracleObjectSha256, "nativeEndSceneEvidence.oracleObjectSha256"],
-    [d3d9NativeEndScene.oracleExecutableSha256, "nativeEndSceneEvidence.oracleExecutableSha256"],
+    [
+      d3d9NativeEndScene.primaryTraceSha256,
+      "nativeEndSceneEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativeEndScene.primarySummarySha256,
+      "nativeEndSceneEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativeEndScene.confirmationTraceSha256,
+      "nativeEndSceneEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativeEndScene.confirmationSummarySha256,
+      "nativeEndSceneEvidence.confirmationSummarySha256",
+    ],
+    [
+      d3d9NativeEndScene.oracleSourceSha256,
+      "nativeEndSceneEvidence.oracleSourceSha256",
+    ],
+    [
+      d3d9NativeEndScene.oracleObjectSha256,
+      "nativeEndSceneEvidence.oracleObjectSha256",
+    ],
+    [
+      d3d9NativeEndScene.oracleExecutableSha256,
+      "nativeEndSceneEvidence.oracleExecutableSha256",
+    ],
   ]) {
     requireSha256(
       value,
@@ -9290,8 +9445,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9NativeClear.confirmationCalls !== 404 ||
     d3d9NativeClear.diagnostics !== 0 ||
     d3d9NativeClear.callerRva !== "0x0005af9e" ||
-    d3d9NativeClearArguments.join(",") !==
-      "0,0,1,4278190080,1065353216,0" ||
+    d3d9NativeClearArguments.join(",") !== "0,0,1,4278190080,1065353216,0" ||
     d3d9NativeClear.result !== "0x00000000" ||
     d3d9NativeClear.lastError !== 0 ||
     d3d9NativeClear.allCallsMatchProfile !== true ||
@@ -9330,8 +9484,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9AddDirtyRect.nullRectMeaning !== "whole-texture" ||
     d3d9AddDirtyRect.validResult !== "0x00000000" ||
     d3d9AddDirtyRect.invalidResult !== "0x8876086c" ||
-    d3d9AddDirtyRect.mutation !==
-      "validate-plan-preflight-targeted-commit" ||
+    d3d9AddDirtyRect.mutation !== "validate-plan-preflight-targeted-commit" ||
     d3d9AddDirtyRect.failureAtomicity !== true ||
     d3d9AddDirtyRect.lastErrorPolicy !== "preserve" ||
     d3d9AddDirtyRect.guestWriteBytes !== 0 ||
@@ -9374,8 +9527,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateAddDirtyRect.nodeSequence !== 127_357 ||
     d3d9PrivateAddDirtyRect.nodeInstructionCount !== 28_761_165 ||
     d3d9PrivateAddDirtyRect.chromeSequence !== 127_357 ||
-    d3d9PrivateAddDirtyRectArguments.join(",") !==
-      "0x01020004,0x006ff29c" ||
+    d3d9PrivateAddDirtyRectArguments.join(",") !== "0x01020004,0x006ff29c" ||
     d3d9PrivateAddDirtyRect.returnAddress !== "0x1005b01d" ||
     d3d9PrivateAddDirtyRectStackPointers.join(",") !==
       "0x006ff25c,0x006ff268" ||
@@ -9526,8 +9678,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9BeginScene.lifecycle !== "inactive-to-active" ||
     d3d9BeginScene.validResult !== "0x00000000" ||
     d3d9BeginScene.invalidResult !== "0x8876086c" ||
-    d3d9BeginScene.mutation !==
-      "validate-plan-preflight-targeted-commit" ||
+    d3d9BeginScene.mutation !== "validate-plan-preflight-targeted-commit" ||
     d3d9BeginScene.failureAtomicity !== true ||
     d3d9BeginScene.lastErrorPolicy !== "preserve" ||
     d3d9BeginScene.guestWriteBytes !== 0 ||
@@ -9536,8 +9687,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9BeginScene.browserRendererCreated !== false ||
     d3d9NativeBeginScene.traceSchema !== "vine.win32-trace.v2" ||
     d3d9NativeBeginScene.profileId !== "x86-bgi-first-begin-scene-v1" ||
-    d3d9NativeBeginScene.oracleProfileId !==
-      "x86-d3d9-scene-lifecycle-v1" ||
+    d3d9NativeBeginScene.oracleProfileId !== "x86-d3d9-scene-lifecycle-v1" ||
     d3d9NativeBeginScene.primaryTraceBytes !== 470_012 ||
     d3d9NativeBeginScene.primaryTraceLines !== 1_171 ||
     d3d9NativeBeginScene.primaryTraceSha256 !==
@@ -9589,8 +9739,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateBeginScene.chromeSequence !== 127_359 ||
     d3d9PrivateBeginSceneArguments.join(",") !== "0x01010004" ||
     d3d9PrivateBeginScene.returnAddress !== "0x1005b048" ||
-    d3d9PrivateBeginSceneStackPointers.join(",") !==
-      "0x006ff260,0x006ff268" ||
+    d3d9PrivateBeginSceneStackPointers.join(",") !== "0x006ff260,0x006ff268" ||
     d3d9PrivateBeginScene.result !== "0x00000000" ||
     d3d9PrivateBeginScene.guestWriteBytes !== 0 ||
     d3d9PrivateBeginScene.deviceReferenceCount !== 5 ||
@@ -9662,8 +9811,7 @@ export function validateCurrentCheckpoint(manifest) {
           ["0x00000000", "0x00000006", "0x00000002"],
           ["0x00000000", "0x00000005", "0x00000002"],
         ]) ||
-      d3d9NativeSamplerState.results?.join(",") !==
-        "0x00000000,0x00000000" ||
+      d3d9NativeSamplerState.results?.join(",") !== "0x00000000,0x00000000" ||
       d3d9NativeSamplerState.lastErrors?.join(",") !== "0,0" ||
       d3d9NativeSamplerState.immediateConsumer !==
         "return-value-ignored-then-next-first-frame-state-call" ||
@@ -9689,13 +9837,13 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9NativeSamplerState.oracleInvalidStateResult !== "0x00000000" ||
       d3d9NativeSamplerState.oracleInvalidFilterResult !== "0x00000000" ||
       d3d9NativeSamplerState.oracleDeviceReferenceCounts?.join(",") !== "1,1" ||
-      d3d9NativeSamplerState.runtimePolicyNarrowsNativePermissiveness !== true ||
+      d3d9NativeSamplerState.runtimePolicyNarrowsNativePermissiveness !==
+        true ||
       d3d9NativeSamplerState.sourceExecutableHashUnchanged !== true ||
       d3d9PrivateSamplerState.nodeSequences?.join(",") !== "127360,127361" ||
       d3d9PrivateSamplerState.nodeInstructionCounts?.join(",") !==
         "28761195,28761204" ||
-      d3d9PrivateSamplerState.chromeSequences?.join(",") !==
-        "127360,127361" ||
+      d3d9PrivateSamplerState.chromeSequences?.join(",") !== "127360,127361" ||
       JSON.stringify(d3d9PrivateSamplerState.arguments) !==
         JSON.stringify([
           ["0x01010004", "0x00000000", "0x00000006", "0x00000002"],
@@ -9708,8 +9856,7 @@ export function validateCurrentCheckpoint(manifest) {
           ["0x006ff254", "0x006ff268"],
           ["0x006ff254", "0x006ff268"],
         ]) ||
-      d3d9PrivateSamplerState.results?.join(",") !==
-        "0x00000000,0x00000000" ||
+      d3d9PrivateSamplerState.results?.join(",") !== "0x00000000,0x00000000" ||
       d3d9PrivateSamplerState.guestWriteBytes?.join(",") !== "0,0" ||
       d3d9PrivateSamplerState.deviceReferenceCounts?.join(",") !== "5,5" ||
       d3d9PrivateSamplerState.deviceObjectsRetired?.join(",") !==
@@ -9725,14 +9872,17 @@ export function validateCurrentCheckpoint(manifest) {
         ]) ||
       d3d9PrivateSamplerState.logicalGraphicsDeviceGenerations?.join(",") !==
         "46,47" ||
-      d3d9PrivateSamplerState.postSamplerRenderStateRejectedSequences?.join(",") !==
-        "127362,127363,127364" ||
+      d3d9PrivateSamplerState.postSamplerRenderStateRejectedSequences?.join(
+        ",",
+      ) !== "127362,127363,127364" ||
       d3d9PrivateSamplerState.postSamplerRenderStateRejectedInstructionCounts?.join(
         ",",
       ) !== "28761212,28761220,28761228" ||
-      d3d9PrivateSamplerState.postSamplerRenderStateRejectedResults?.join(",") !==
-        "0x8876086a,0x8876086a,0x8876086a" ||
-      d3d9PrivateSamplerState.postSamplerRenderStateCallerIgnoredResults !== true ||
+      d3d9PrivateSamplerState.postSamplerRenderStateRejectedResults?.join(
+        ",",
+      ) !== "0x8876086a,0x8876086a,0x8876086a" ||
+      d3d9PrivateSamplerState.postSamplerRenderStateCallerIgnoredResults !==
+        true ||
       d3d9PrivateSamplerState.browserRendererResourceCreated !== false ||
       d3d9PrivateSamplerState.nodeChromeOrderedSemanticsMatched !== true)
   ) {
@@ -9904,8 +10054,9 @@ export function validateCurrentCheckpoint(manifest) {
             alphaArgumentTwo: "diffuse",
           },
         ]) ||
-      d3d9PrivateTextureStageState.logicalGraphicsDeviceGenerations?.join(",") !==
-        "48,49,50,51,52,53" ||
+      d3d9PrivateTextureStageState.logicalGraphicsDeviceGenerations?.join(
+        ",",
+      ) !== "48,49,50,51,52,53" ||
       d3d9PrivateTextureStageState.browserRendererResourceCreated !== false ||
       d3d9PrivateTextureStageState.nodeChromeOrderedSemanticsMatched !== true)
   ) {
@@ -10037,8 +10188,7 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9NativeSetFvf.traceSchema !== "vine.win32-trace.v2" ||
       d3d9NativeSetFvf.profileId !==
         "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1" ||
-      d3d9NativeSetFvf.oracleProfileId !==
-        "x86-d3d9-set-get-fvf-values-v1" ||
+      d3d9NativeSetFvf.oracleProfileId !== "x86-d3d9-set-get-fvf-values-v1" ||
       d3d9NativeSetFvf.primaryTraceBytes !== 471_737 ||
       d3d9NativeSetFvf.primaryTraceLines !== 1_174 ||
       d3d9NativeSetFvf.primaryTraceSha256 !==
@@ -10080,8 +10230,7 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9NativeSetFvf.oracleRuns !== 2 ||
       d3d9NativeSetFvf.oracleExitCodes?.join(",") !== "0,0" ||
       d3d9NativeSetFvf.oracleInitialFvf !== 0 ||
-      d3d9NativeSetFvf.oracleReadbacks?.join(",") !==
-        "0,324,2,0,4294967295" ||
+      d3d9NativeSetFvf.oracleReadbacks?.join(",") !== "0,324,2,0,4294967295" ||
       d3d9NativeSetFvf.oracleResultsAllZero !== true ||
       d3d9NativeSetFvf.oracleLastErrorSentinel !== 23_130 ||
       d3d9NativeSetFvf.oracleLastErrorPreserved !== true ||
@@ -10092,11 +10241,9 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9PrivateSetFvf.nodeSequence !== 127_372 ||
       d3d9PrivateSetFvf.nodeInstructionCount !== 28_761_298 ||
       d3d9PrivateSetFvf.chromeSequence !== 127_372 ||
-      d3d9PrivateSetFvf.arguments?.join(",") !==
-        "0x01010004,0x00000144" ||
+      d3d9PrivateSetFvf.arguments?.join(",") !== "0x01010004,0x00000144" ||
       d3d9PrivateSetFvf.returnAddress !== "0x1005b291" ||
-      d3d9PrivateSetFvf.stackPointers?.join(",") !==
-        "0x006ff25c,0x006ff268" ||
+      d3d9PrivateSetFvf.stackPointers?.join(",") !== "0x006ff25c,0x006ff268" ||
       d3d9PrivateSetFvf.result !== "0x00000000" ||
       d3d9PrivateSetFvf.guestWriteBytes !== 0 ||
       d3d9PrivateSetFvf.deviceReferenceCount !== 5 ||
@@ -10105,8 +10252,7 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9PrivateSetFvf.logicalGraphicsDeviceNamespace !==
         "vine.logical-graphics-device.v1" ||
       d3d9PrivateSetFvf.logicalGraphicsComObjectId !== "21" ||
-      d3d9PrivateSetFvf.flexibleVertexFormat !==
-        "xyz-rhw-diffuse-texture1" ||
+      d3d9PrivateSetFvf.flexibleVertexFormat !== "xyz-rhw-diffuse-texture1" ||
       d3d9PrivateSetFvf.logicalGraphicsDeviceGeneration !== 55 ||
       d3d9PrivateSetFvf.browserRendererResourceCreated !== false ||
       d3d9PrivateSetFvf.nodeChromeOrderedSemanticsMatched !== true)
@@ -10189,7 +10335,8 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9NativeSetStreamSource.oracleLastErrorPreserved !== true ||
       d3d9NativeSetStreamSource.oracleInitialBindingNull !== true ||
       d3d9NativeSetStreamSource.oracleTargetReadback?.join(",") !== "0,28" ||
-      d3d9NativeSetStreamSource.oracleOffsetFourReadback?.join(",") !== "4,28" ||
+      d3d9NativeSetStreamSource.oracleOffsetFourReadback?.join(",") !==
+        "4,28" ||
       d3d9NativeSetStreamSource.oracleStrideZeroReadback?.join(",") !== "0,0" ||
       d3d9NativeSetStreamSource.oracleStreamOneReadback?.join(",") !== "0,28" ||
       d3d9NativeSetStreamSource.oracleNullUnbindSupported !== true ||
@@ -10237,7 +10384,8 @@ export function validateCurrentCheckpoint(manifest) {
         "primary-first-frame-triangle-strip-quad-draw-v1" ||
       d3d9DrawPrimitive.stateAuthority !==
         "runtime/graphics.rs::RuntimeGraphicsDevice" ||
-      d3d9DrawPrimitive.vertexByteAuthority !== "runtime/memory.rs::GuestMemory" ||
+      d3d9DrawPrimitive.vertexByteAuthority !==
+        "runtime/memory.rs::GuestMemory" ||
       d3d9DrawPrimitive.supportedPrimitiveTopology !== "triangle-strip" ||
       d3d9DrawPrimitive.supportedStartVertex !== 0 ||
       d3d9DrawPrimitive.supportedPrimitiveCount !== 2 ||
@@ -10310,10 +10458,12 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9NativeDrawPrimitive.oracleMissingStreamResult !== "0x8876086c" ||
       d3d9NativeDrawPrimitive.oracleAcceptedResults?.join(",") !==
         "0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000" ||
-      d3d9NativeDrawPrimitive.oracleDeviceReferenceCounts?.join(",") !== "2,2" ||
+      d3d9NativeDrawPrimitive.oracleDeviceReferenceCounts?.join(",") !==
+        "2,2" ||
       d3d9NativeDrawPrimitive.oracleVertexBufferReferenceCounts?.join(",") !==
         "1,1" ||
-      d3d9NativeDrawPrimitive.runtimePolicyNarrowsNativePermissiveness !== true ||
+      d3d9NativeDrawPrimitive.runtimePolicyNarrowsNativePermissiveness !==
+        true ||
       d3d9NativeDrawPrimitive.sourceExecutableHashUnchanged !== true ||
       d3d9PrivateDrawPrimitive.nodeSequence !== 127_374 ||
       d3d9PrivateDrawPrimitive.nodeInstructionCount !== 28_761_324 ||
@@ -10373,8 +10523,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9EndScene.visiblePixelsProduced !== false ||
     d3d9NativeEndScene.traceSchema !== "vine.win32-trace.v2" ||
     d3d9NativeEndScene.profileId !== "x86-bgi-first-frame-end-scene-v1" ||
-    d3d9NativeEndScene.oracleProfileId !==
-      "x86-d3d9-scene-lifecycle-v1" ||
+    d3d9NativeEndScene.oracleProfileId !== "x86-d3d9-scene-lifecycle-v1" ||
     d3d9NativeEndScene.primaryTraceBytes !== 471_019 ||
     d3d9NativeEndScene.primaryTraceLines !== 1_176 ||
     d3d9NativeEndScene.primaryTraceSha256 !==
@@ -10432,8 +10581,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivateEndScene.chromeSequence !== 127_375 ||
     d3d9PrivateEndScene.arguments?.join(",") !== "0x01010004" ||
     d3d9PrivateEndScene.returnAddress !== "0x1005b43b" ||
-    d3d9PrivateEndScene.stackPointers?.join(",") !==
-      "0x006ff260,0x006ff268" ||
+    d3d9PrivateEndScene.stackPointers?.join(",") !== "0x006ff260,0x006ff268" ||
     d3d9PrivateEndScene.result !== "0x00000000" ||
     d3d9PrivateEndScene.guestWriteBytes !== 0 ||
     d3d9PrivateEndScene.deviceReferenceCount !== 5 ||
@@ -12655,7 +12803,7 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.waitForSingleObjectExClockTimes100ns?.join(",") !==
       timerDeadlines ||
     latestEvidence.waitForSingleObjectExClockGenerations?.join(",") !==
-      timerGenerations ||
+      timerClockGenerations ||
     latestEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     latestEvidence.waitForSingleObjectExClockAuthority !==
@@ -18443,7 +18591,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.showWindowNormalChromeCompletions !== 1 ||
       latestEvidence.showWindowNormalNodeChromeOrderedSemanticsMatched !== true)
   ) {
-    errors.push("latest native and private ShowWindow normal evidence is invalid");
+    errors.push(
+      "latest native and private ShowWindow normal evidence is invalid",
+    );
   }
   if (
     updateWindowActive &&
@@ -18521,8 +18671,7 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.endPaintImplemented !== true ||
       latestEvidence.endPaintSequence !== 127_354 ||
       latestEvidence.endPaintInstructionCount !== 28_761_073 ||
-      latestEvidence.endPaintArguments?.join(",") !==
-        "0x48010001,0x006ff318" ||
+      latestEvidence.endPaintArguments?.join(",") !== "0x48010001,0x006ff318" ||
       latestEvidence.endPaintResult !== 1 ||
       latestEvidence.endPaintImplementationId !==
         "user32.end-paint.matching-session.v1" ||
@@ -18576,16 +18725,34 @@ export function validateCurrentCheckpoint(manifest) {
     }
     const latestClearEvidencePairs = [
       [latestEvidence.nativeD3d9ClearProfileId, d3d9NativeClear.profileId],
-      [latestEvidence.nativeD3d9ClearPrimaryTraceBytes, d3d9NativeClear.primaryTraceBytes],
-      [latestEvidence.nativeD3d9ClearPrimaryTraceLines, d3d9NativeClear.primaryTraceLines],
-      [latestEvidence.nativeD3d9ClearPrimaryTraceSha256, d3d9NativeClear.primaryTraceSha256],
-      [latestEvidence.nativeD3d9ClearPrimarySummaryBytes, d3d9NativeClear.primarySummaryBytes],
-      [latestEvidence.nativeD3d9ClearPrimarySummarySha256, d3d9NativeClear.primarySummarySha256],
+      [
+        latestEvidence.nativeD3d9ClearPrimaryTraceBytes,
+        d3d9NativeClear.primaryTraceBytes,
+      ],
+      [
+        latestEvidence.nativeD3d9ClearPrimaryTraceLines,
+        d3d9NativeClear.primaryTraceLines,
+      ],
+      [
+        latestEvidence.nativeD3d9ClearPrimaryTraceSha256,
+        d3d9NativeClear.primaryTraceSha256,
+      ],
+      [
+        latestEvidence.nativeD3d9ClearPrimarySummaryBytes,
+        d3d9NativeClear.primarySummaryBytes,
+      ],
+      [
+        latestEvidence.nativeD3d9ClearPrimarySummarySha256,
+        d3d9NativeClear.primarySummarySha256,
+      ],
       [
         latestEvidence.nativeD3d9ClearPrimaryBalancedApiPairs,
         d3d9NativeClear.primaryBalancedApiPairs,
       ],
-      [latestEvidence.nativeD3d9ClearPrimaryCalls, d3d9NativeClear.primaryCalls],
+      [
+        latestEvidence.nativeD3d9ClearPrimaryCalls,
+        d3d9NativeClear.primaryCalls,
+      ],
       [
         latestEvidence.nativeD3d9ClearConfirmationTraceBytes,
         d3d9NativeClear.confirmationTraceBytes,
@@ -18614,7 +18781,10 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeD3d9ClearConfirmationCalls,
         d3d9NativeClear.confirmationCalls,
       ],
-      [latestEvidence.nativeD3d9ClearTraceDiagnostics, d3d9NativeClear.diagnostics],
+      [
+        latestEvidence.nativeD3d9ClearTraceDiagnostics,
+        d3d9NativeClear.diagnostics,
+      ],
       [latestEvidence.nativeD3d9ClearCallerRva, d3d9NativeClear.callerRva],
       [latestEvidence.nativeD3d9ClearArguments, d3d9NativeClear.arguments],
       [latestEvidence.nativeD3d9ClearResult, d3d9NativeClear.result],
@@ -18636,7 +18806,10 @@ export function validateCurrentCheckpoint(manifest) {
       [latestEvidence.d3d9ClearArguments, d3d9PrivateClear.arguments],
       [latestEvidence.d3d9ClearReturnAddress, d3d9PrivateClear.returnAddress],
       [latestEvidence.d3d9ClearResult, d3d9PrivateClear.result],
-      [latestEvidence.d3d9ClearGuestWriteBytes, d3d9PrivateClear.guestWriteBytes],
+      [
+        latestEvidence.d3d9ClearGuestWriteBytes,
+        d3d9PrivateClear.guestWriteBytes,
+      ],
       [
         latestEvidence.d3d9ClearDeviceReferenceCount,
         d3d9PrivateClear.deviceReferenceCount,
@@ -18672,7 +18845,10 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.d3d9ClearBackBufferSequence,
         d3d9PrivateClear.backBufferClearSequence,
       ],
-      [latestEvidence.d3d9ClearBackBufferRect, d3d9PrivateClear.backBufferClearRect],
+      [
+        latestEvidence.d3d9ClearBackBufferRect,
+        d3d9PrivateClear.backBufferClearRect,
+      ],
       [
         latestEvidence.d3d9ClearBackBufferColorArgb,
         d3d9PrivateClear.backBufferClearColorArgb,
@@ -18699,8 +18875,7 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9ClearPolicySchema !==
         "vine.d3d9-compatibility-policy" ||
       latestEvidence.d3d9ClearPolicyVersion !== 28 ||
-      latestEvidence.d3d9ClearPolicyId !==
-        "d3d9-primary-virtual-adapter-v28"
+      latestEvidence.d3d9ClearPolicyId !== "d3d9-primary-virtual-adapter-v28"
     ) {
       errors.push("latest native and private D3D9 Clear evidence is invalid");
     }
@@ -18766,8 +18941,7 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.setRectLastError !== 0 ||
       latestEvidence.setRectGuestWriteBytes !== 16 ||
       latestEvidence.setRectOutputAddress !== "0x006ff29c" ||
-      latestEvidence.setRectOutputHex !==
-        "000000000000000000050000d0020000" ||
+      latestEvidence.setRectOutputHex !== "000000000000000000050000d0020000" ||
       latestEvidence.setRectImplementationId !== "user32.set-rect.v1" ||
       latestEvidence.setRectMutation !==
         "guest-memory-preflight-atomic-write" ||
@@ -18972,10 +19146,12 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9UpdateTextureLogicalFillColorRef !== "0x00000000" ||
       latestEvidence.d3d9UpdateTextureUpdateSequence !== 1 ||
       latestEvidence.d3d9UpdateTextureFailureAtomicity !== true ||
-      latestEvidence.d3d9UpdateTexturePartialDirtyRegionsImplemented !== false ||
+      latestEvidence.d3d9UpdateTexturePartialDirtyRegionsImplemented !==
+        false ||
       latestEvidence.d3d9UpdateTextureDynamicDestinationImplemented !== false ||
       latestEvidence.d3d9UpdateTextureBrowserOwnsGraphicsState !== false ||
-      latestEvidence.d3d9UpdateTextureBrowserRendererResourceCreated !== false ||
+      latestEvidence.d3d9UpdateTextureBrowserRendererResourceCreated !==
+        false ||
       latestEvidence.d3d9UpdateTextureNodeCompletions !== 1 ||
       latestEvidence.d3d9UpdateTextureChromeCompletions !== 1 ||
       latestEvidence.d3d9UpdateTextureNodeChromeOrderedSemanticsMatched !== true
@@ -19189,7 +19365,8 @@ export function validateCurrentCheckpoint(manifest) {
         "0x00000000" ||
       JSON.stringify(
         latestEvidence.nativeSamplerStateOracleDeviceReferenceCounts,
-      ) !== JSON.stringify(d3d9NativeSamplerState.oracleDeviceReferenceCounts) ||
+      ) !==
+        JSON.stringify(d3d9NativeSamplerState.oracleDeviceReferenceCounts) ||
       latestEvidence.nativeSamplerStateRuntimePolicyNarrowsNativePermissiveness !==
         true ||
       latestEvidence.nativeSamplerStateExecutableHashUnchanged !== true ||
@@ -19317,8 +19494,9 @@ export function validateCurrentCheckpoint(manifest) {
         JSON.stringify(d3d9NativeTextureStageState.results) ||
       JSON.stringify(latestEvidence.nativeTextureStageStateLastErrors) !==
         JSON.stringify(d3d9NativeTextureStageState.lastErrors) ||
-      JSON.stringify(latestEvidence.nativeTextureStageStateImmediateConsumers) !==
-        JSON.stringify(d3d9NativeTextureStageState.immediateConsumers) ||
+      JSON.stringify(
+        latestEvidence.nativeTextureStageStateImmediateConsumers,
+      ) !== JSON.stringify(d3d9NativeTextureStageState.immediateConsumers) ||
       latestEvidence.nativeTextureStageStateOracleArchitecture !==
         d3d9NativeTextureStageState.oracleArchitecture ||
       latestEvidence.nativeTextureStageStateOracleSourceBytes !==
@@ -19340,8 +19518,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeTextureStageStateOracleLastErrorSentinel !==
         d3d9NativeTextureStageState.oracleLastErrorSentinel ||
       latestEvidence.nativeTextureStageStateOracleLastErrorPreserved !== true ||
-      JSON.stringify(latestEvidence.nativeTextureStageStateOracleInitialValues) !==
-        JSON.stringify(d3d9NativeTextureStageState.oracleInitialValues) ||
+      JSON.stringify(
+        latestEvidence.nativeTextureStageStateOracleInitialValues,
+      ) !== JSON.stringify(d3d9NativeTextureStageState.oracleInitialValues) ||
       JSON.stringify(
         latestEvidence.nativeTextureStageStateOracleValuesAfterBand,
       ) !== JSON.stringify(d3d9NativeTextureStageState.oracleValuesAfterBand) ||
@@ -19356,7 +19535,9 @@ export function validateCurrentCheckpoint(manifest) {
       JSON.stringify(
         latestEvidence.nativeTextureStageStateOracleDeviceReferenceCounts,
       ) !==
-        JSON.stringify(d3d9NativeTextureStageState.oracleDeviceReferenceCounts) ||
+        JSON.stringify(
+          d3d9NativeTextureStageState.oracleDeviceReferenceCounts,
+        ) ||
       latestEvidence.nativeTextureStageStateRuntimePolicyNarrowsNativePermissiveness !==
         true ||
       latestEvidence.nativeTextureStageStateExecutableHashUnchanged !== true ||
@@ -19377,7 +19558,8 @@ export function validateCurrentCheckpoint(manifest) {
         JSON.stringify(d3d9PrivateTextureStageState.guestWriteBytes) ||
       JSON.stringify(
         latestEvidence.d3d9TextureStageStateDeviceReferenceCounts,
-      ) !== JSON.stringify(d3d9PrivateTextureStageState.deviceReferenceCounts) ||
+      ) !==
+        JSON.stringify(d3d9PrivateTextureStageState.deviceReferenceCounts) ||
       JSON.stringify(
         latestEvidence.d3d9TextureStageStateDeviceObjectsRetired,
       ) !== JSON.stringify(d3d9PrivateTextureStageState.deviceObjectsRetired) ||
@@ -19497,8 +19679,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSetTextureOracleSetTextureReferenceCountChanged !==
         false ||
       latestEvidence.nativeSetTextureOracleGetTextureAddsReference !== true ||
-      latestEvidence.nativeSetTextureOracleGetTextureReferenceCounts?.join(",") !==
-        "1,2,1" ||
+      latestEvidence.nativeSetTextureOracleGetTextureReferenceCounts?.join(
+        ",",
+      ) !== "1,2,1" ||
       latestEvidence.nativeSetTextureRuntimePolicyNarrowsNativePermissiveness !==
         true ||
       latestEvidence.nativeSetTextureExecutableHashUnchanged !== true ||
@@ -19513,8 +19696,7 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9PrivateSetTexture.returnAddress ||
       JSON.stringify(latestEvidence.d3d9SetTextureStackPointers) !==
         JSON.stringify(d3d9PrivateSetTexture.stackPointers) ||
-      latestEvidence.d3d9SetTextureResult !==
-        d3d9PrivateSetTexture.result ||
+      latestEvidence.d3d9SetTextureResult !== d3d9PrivateSetTexture.result ||
       latestEvidence.d3d9SetTextureGuestWriteBytes !== 0 ||
       latestEvidence.d3d9SetTextureDeviceReferenceCount !== 5 ||
       latestEvidence.d3d9SetTextureDeviceObjectRetired !== false ||
@@ -19538,8 +19720,7 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9SetTextureLogicalGraphicsDeviceGeneration !== 54 ||
       latestEvidence.d3d9SetTextureSameValueGenerationChange !== 0 ||
       latestEvidence.d3d9SetTextureNullUnbindSupported !== true ||
-      latestEvidence.d3d9SetTextureUnsupportedVariantResult !==
-        "0x8876086a" ||
+      latestEvidence.d3d9SetTextureUnsupportedVariantResult !== "0x8876086a" ||
       latestEvidence.d3d9SetTextureFailureAtomicity !== true ||
       latestEvidence.d3d9SetTextureBrowserOwnsGraphicsState !== false ||
       latestEvidence.d3d9SetTextureBrowserRendererResourceCreated !== false ||
@@ -19676,9 +19857,7 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9SetFvfChromeCompletions !== 1 ||
       latestEvidence.d3d9SetFvfNodeChromeOrderedSemanticsMatched !== true
     ) {
-      errors.push(
-        "latest native and private D3D9 SetFVF evidence is invalid",
-      );
+      errors.push("latest native and private D3D9 SetFVF evidence is invalid");
     }
   }
   if (d3d9SetStreamSourceActive) {
@@ -19758,21 +19937,25 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSetStreamSourceOracleExecutableSha256 !==
         d3d9NativeSetStreamSource.oracleExecutableSha256 ||
       latestEvidence.nativeSetStreamSourceOracleRuns !== 2 ||
-      latestEvidence.nativeSetStreamSourceOracleExitCodes?.join(",") !== "0,0" ||
+      latestEvidence.nativeSetStreamSourceOracleExitCodes?.join(",") !==
+        "0,0" ||
       latestEvidence.nativeSetStreamSourceOracleLastErrorSentinel !== 23_130 ||
       latestEvidence.nativeSetStreamSourceOracleLastErrorPreserved !== true ||
       latestEvidence.nativeSetStreamSourceOracleInitialBindingNull !== true ||
       latestEvidence.nativeSetStreamSourceOracleTargetReadback?.join(",") !==
         "0,28" ||
-      latestEvidence.nativeSetStreamSourceOracleOffsetFourReadback?.join(",") !==
-        "4,28" ||
-      latestEvidence.nativeSetStreamSourceOracleStrideZeroReadback?.join(",") !==
-        "0,0" ||
+      latestEvidence.nativeSetStreamSourceOracleOffsetFourReadback?.join(
+        ",",
+      ) !== "4,28" ||
+      latestEvidence.nativeSetStreamSourceOracleStrideZeroReadback?.join(
+        ",",
+      ) !== "0,0" ||
       latestEvidence.nativeSetStreamSourceOracleStreamOneReadback?.join(",") !==
         "0,28" ||
       latestEvidence.nativeSetStreamSourceOracleNullUnbindSupported !== true ||
-      latestEvidence.nativeSetStreamSourceOracleVertexBufferReferenceCounts?.join(",") !==
-        "1,1,2,1,1,1" ||
+      latestEvidence.nativeSetStreamSourceOracleVertexBufferReferenceCounts?.join(
+        ",",
+      ) !== "1,1,2,1,1,1" ||
       latestEvidence.nativeSetStreamSourceOracleSetStreamSourceReferenceCountChanged !==
         false ||
       latestEvidence.nativeSetStreamSourceOracleGetStreamSourceAddsReference !==
@@ -19814,17 +19997,20 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9SetStreamSourceBoundVertexBufferId !== 3 ||
       latestEvidence.d3d9SetStreamSourceOffsetInBytes !== 0 ||
       latestEvidence.d3d9SetStreamSourceStride !== 28 ||
-      latestEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceGeneration !== 56 ||
+      latestEvidence.d3d9SetStreamSourceLogicalGraphicsDeviceGeneration !==
+        56 ||
       latestEvidence.d3d9SetStreamSourceSameValueGenerationChange !== 0 ||
       latestEvidence.d3d9SetStreamSourceNullUnbindImplemented !== false ||
       latestEvidence.d3d9SetStreamSourceUnsupportedVariantResult !==
         "0x8876086a" ||
       latestEvidence.d3d9SetStreamSourceFailureAtomicity !== true ||
       latestEvidence.d3d9SetStreamSourceBrowserOwnsGraphicsState !== false ||
-      latestEvidence.d3d9SetStreamSourceBrowserRendererResourceCreated !== false ||
+      latestEvidence.d3d9SetStreamSourceBrowserRendererResourceCreated !==
+        false ||
       latestEvidence.d3d9SetStreamSourceNodeCompletions !== 1 ||
       latestEvidence.d3d9SetStreamSourceChromeCompletions !== 1 ||
-      latestEvidence.d3d9SetStreamSourceNodeChromeOrderedSemanticsMatched !== true
+      latestEvidence.d3d9SetStreamSourceNodeChromeOrderedSemanticsMatched !==
+        true
     ) {
       errors.push(
         "latest native and private D3D9 SetStreamSource evidence is invalid",
@@ -19911,7 +20097,8 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.d3d9DrawPrimitiveTextureId !== 8 ||
       latestEvidence.d3d9DrawPrimitiveFailureAtomicity !== true ||
       latestEvidence.d3d9DrawPrimitiveBrowserOwnsGraphicsState !== false ||
-      latestEvidence.d3d9DrawPrimitiveBrowserRendererResourceCreated !== false ||
+      latestEvidence.d3d9DrawPrimitiveBrowserRendererResourceCreated !==
+        false ||
       latestEvidence.d3d9DrawPrimitiveVisiblePixelsProduced !== false ||
       latestEvidence.d3d9DrawPrimitiveNodeCompletions !== 1 ||
       latestEvidence.d3d9DrawPrimitiveChromeCompletions !== 1 ||
@@ -19967,7 +20154,8 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeEndSceneOracleLastErrorPreserved !== true ||
       latestEvidence.nativeEndSceneExecutableHashUnchanged !== true ||
       latestEvidence.d3d9EndSceneImplemented !== true ||
-      latestEvidence.d3d9EndSceneSequence !== d3d9PrivateEndScene.nodeSequence ||
+      latestEvidence.d3d9EndSceneSequence !==
+        d3d9PrivateEndScene.nodeSequence ||
       latestEvidence.d3d9EndSceneInstructionCount !==
         d3d9PrivateEndScene.nodeInstructionCount ||
       JSON.stringify(latestEvidence.d3d9EndSceneArguments) !==
@@ -20039,26 +20227,30 @@ export function validateCurrentCheckpoint(manifest) {
         "crates/vine-core/src/d3d9.rs::D3d9CompatibilityPolicy" ||
       latestEvidence.d3d9PostEndSceneRasterStatusInVBlank !== false ||
       latestEvidence.d3d9PostEndSceneRasterStatusScanLine !== 1 ||
-      latestEvidence.d3d9PostEndSceneRasterStatusRuntimeStateMutation !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusRuntimeStateMutation !==
+        false ||
       latestEvidence.d3d9PostEndSceneRasterStatusReferenceCountMutation !==
         false ||
-      latestEvidence.d3d9PostEndSceneRasterStatusLastErrorPolicy !== "preserve" ||
+      latestEvidence.d3d9PostEndSceneRasterStatusLastErrorPolicy !==
+        "preserve" ||
       latestEvidence.d3d9PostEndSceneRasterStatusGuestWriteAtomic !== true ||
       latestEvidence.d3d9PostEndSceneRasterStatusFailureAtomicity !== true ||
-      latestEvidence.d3d9PostEndSceneRasterStatusHostScanoutImported !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusHostScanoutImported !==
+        false ||
       latestEvidence.d3d9PostEndSceneRasterStatusBrowserScanoutImported !==
         false ||
       latestEvidence.d3d9PostEndSceneRasterStatusBrowserOwnsGraphicsState !==
         false ||
-      latestEvidence
-        .d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !== false ||
-      latestEvidence.d3d9PostEndSceneRasterStatusVisiblePixelsProduced !== false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusBrowserRendererResourceCreated !==
+        false ||
+      latestEvidence.d3d9PostEndSceneRasterStatusVisiblePixelsProduced !==
+        false ||
       latestEvidence.d3d9PostEndSceneRasterStatusNodeCumulativeCompletions !==
         784 ||
       latestEvidence.d3d9PostEndSceneRasterStatusChromeCumulativeCompletions !==
         784 ||
-      latestEvidence
-        .d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !== true)
+      latestEvidence.d3d9PostEndSceneRasterStatusNodeChromeOrderedSemanticsMatched !==
+        true)
   ) {
     errors.push(
       "latest post-EndScene D3D9 GetRasterStatus evidence is invalid",
@@ -20256,6 +20448,43 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push(
           `${label} post-EndScene raster-status checkpoint evidence is invalid`,
+        );
+      }
+    }
+  }
+  if (active.profile === "d3d9-post-raster-status-waitable-timer") {
+    if (
+      currentStop.nextEndpoint?.observedModule !== "<com>" ||
+      currentStop.nextEndpoint?.observedSymbol !== "interface-1-slot-19"
+    ) {
+      errors.push(
+        "post-scene waitable-timer next endpoint raw identity is invalid",
+      );
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "d3d9-post-raster-status-waitable-timer" ||
+        completion.implementationId !==
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.armSequence !== 127_377 ||
+        completion.armInstructionCount !== 28_761_446 ||
+        completion.armGeneration !== 1 ||
+        completion.lastCompletionSequence !== 127_378 ||
+        completion.lastCompletionInstructionCount !== 28_761_452 ||
+        completion.instructionCount !== 28_761_476 ||
+        completion.nextEndpoint?.endpointId !== 0 ||
+        completion.nextEndpoint?.endpointAddress !== "0x01011160" ||
+        completion.nextEndpoint?.api !== "IDirect3DDevice9::GetRasterStatus" ||
+        completion.memoryContentSha256 !==
+          "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
+      ) {
+        errors.push(
+          `${label} post-scene waitable-timer checkpoint evidence is invalid`,
         );
       }
     }
@@ -21229,7 +21458,10 @@ export function renderReadmeStatus(manifest) {
                       : next.completion.capability ===
                           "d3d9-post-end-scene-raster-status"
                         ? "post-scene raster-status sample"
-                        : "recurring waits"
+                        : next.completion.capability ===
+                            "d3d9-post-raster-status-waitable-timer"
+                          ? "post-scene timer arm/wait cycle"
+                          : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
