@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
 
+import {
+  formatManifestRuntimeEndpointIdentity,
+  formatRuntimeEndpointSymbol,
+} from "./runtime-endpoint-symbol.mjs";
+
 export const PRIVATE_TARGET_EVIDENCE_SCHEMA = "vine.private-target-evidence";
 export const PRIVATE_TARGET_EVIDENCE_VERSION = 6;
 export const PRIVATE_TARGET_EVIDENCE_DESCENDANT_PATHS = Object.freeze([
@@ -487,6 +492,24 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
         errors,
       );
+      if (typeof endpoint.module === "string" && endpoint.module.length > 0) {
+        try {
+          checkEqual(
+            `${endpoint.module}!${formatRuntimeEndpointSymbol(endpoint)}`.toLowerCase(),
+            formatManifestRuntimeEndpointIdentity(expectedEndpoint).toLowerCase(),
+            `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.identity`,
+            errors,
+          );
+        } catch (error) {
+          errors.push(
+            `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.identity is invalid: ${error.message}`,
+          );
+        }
+      } else {
+        errors.push(
+          `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.module must be a non-empty string`,
+        );
+      }
       if (expectedCompletion.roundtrips !== undefined) {
         checkEqual(
           JSON.stringify(completion.roundtrips),

@@ -94,6 +94,13 @@ divergence, an oversized summary report, a different structured stop, pending
 work, or malformed evidence is a hard failure. The output is written atomically
 only after all assertions pass.
 
+For a capability checkpoint, `nextEndpoint.api` records the semantic Win32／COM
+identity. If the prepared runtime catalog has not yet assigned that endpoint a
+semantic symbol, `nextEndpoint.observedModule` and `observedSymbol` separately
+record the exact raw report identity. The online gate and offline evidence
+validator compare the raw identity, endpoint ID, and address without treating
+the raw adapter symbol as guest-visible API semantics.
+
 ## Performance classification
 
 The command runs the required current-session semantic gate. It records the

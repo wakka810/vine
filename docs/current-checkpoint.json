@@ -15134,7 +15134,9 @@
       "endpointKind": "com-method",
       "endpointId": 0,
       "api": "IDirect3DDevice9::GetRasterStatus",
-      "endpointAddress": "0x01011160"
+      "endpointAddress": "0x01011160",
+      "observedModule": "<com>",
+      "observedSymbol": "interface-1-slot-19"
     }
   }
 }

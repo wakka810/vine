@@ -16,7 +16,10 @@ import {
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
 import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
-import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
+import {
+  formatManifestRuntimeEndpointIdentity,
+  formatRuntimeEndpointSymbol,
+} from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkpoint = loadCurrentCheckpoint(
@@ -132,6 +135,26 @@ assert.throws(
     }),
   /unsigned 16-bit integer/u,
 );
+assert.equal(
+  formatManifestRuntimeEndpointIdentity({ api: "kernel32.dll!Sleep" }),
+  "kernel32.dll!Sleep",
+);
+assert.equal(
+  formatManifestRuntimeEndpointIdentity({
+    api: "IDirect3DDevice9::GetRasterStatus",
+    observedModule: "<com>",
+    observedSymbol: "interface-1-slot-19",
+  }),
+  "<com>!interface-1-slot-19",
+);
+assert.throws(
+  () =>
+    formatManifestRuntimeEndpointIdentity({
+      api: "IDirect3DDevice9::GetRasterStatus",
+      observedModule: "<com>",
+    }),
+  /requires a non-empty module and symbol/u,
+);
 
 function validEvidence() {
   const browser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
@@ -140,23 +163,30 @@ function validEvidence() {
     checkpoint.nextStructuredStop.kind === "capability-checkpoint";
   const outcome = capabilityCheckpoint ? "checkpoint-complete" : "structured-stop";
   const checkpointCompletion = capabilityCheckpoint
-    ? {
-        ...structuredClone(checkpoint.nextStructuredStop.completion),
-        instructionCount: checkpoint.nextStructuredStop.instructionCount,
-        nextEndpoint: {
-          id: checkpoint.nextStructuredStop.nextEndpoint.endpointId,
-          address: Number.parseInt(
-            checkpoint.nextStructuredStop.nextEndpoint.endpointAddress,
-            16,
-          ),
-          module: checkpoint.nextStructuredStop.nextEndpoint.api.split("!")[0],
-          symbol: {
-            kind: "name",
-            name: checkpoint.nextStructuredStop.nextEndpoint.api.split("!")[1],
+    ? (() => {
+        const endpointIdentity = formatManifestRuntimeEndpointIdentity(
+          checkpoint.nextStructuredStop.nextEndpoint,
+        );
+        const separator = endpointIdentity.indexOf("!");
+        assert(separator > 0, "checkpoint endpoint identity must include a module");
+        return {
+          ...structuredClone(checkpoint.nextStructuredStop.completion),
+          instructionCount: checkpoint.nextStructuredStop.instructionCount,
+          nextEndpoint: {
+            id: checkpoint.nextStructuredStop.nextEndpoint.endpointId,
+            address: Number.parseInt(
+              checkpoint.nextStructuredStop.nextEndpoint.endpointAddress,
+              16,
+            ),
+            module: endpointIdentity.slice(0, separator),
+            symbol: {
+              kind: "name",
+              name: endpointIdentity.slice(separator + 1),
+            },
           },
-        },
-        memoryContentSha256: browser.memoryContentSha256,
-      }
+          memoryContentSha256: browser.memoryContentSha256,
+        };
+      })()
     : null;
   return finalizePrivateTargetEvidence({
     schema: PRIVATE_TARGET_EVIDENCE_SCHEMA,
@@ -375,6 +405,14 @@ for (const [label, evidence, expected] of [
       value.semantic.browser.callSemanticsSha256 = sha("c");
     }),
     "checkpoint digest",
+  ],
+  [
+    "checkpoint endpoint identity mismatch",
+    mutated((value) => {
+      value.semantic.node.checkpointCompletion.nextEndpoint.symbol.name =
+        "interface-1-slot-20";
+    }),
+    "checkpointCompletion.nextEndpoint.identity",
   ],
   [
     "dirty execution input",

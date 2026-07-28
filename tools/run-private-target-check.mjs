@@ -19,7 +19,10 @@ import {
   PRIVATE_TARGET_EVIDENCE_VERSION,
 } from "./private-target-evidence.mjs";
 import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
-import { formatRuntimeEndpointSymbol } from "./runtime-endpoint-symbol.mjs";
+import {
+  formatManifestRuntimeEndpointIdentity,
+  formatRuntimeEndpointSymbol,
+} from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutput = path.join(root, "docs", "private-target-evidence.json");
@@ -198,7 +201,7 @@ function assertCapabilityCheckpoint(actual, expected) {
     `${actual.nextEndpoint.module}!${formatRuntimeEndpointSymbol(
       actual.nextEndpoint,
     )}`.toLowerCase(),
-    expected.nextEndpoint.api.toLowerCase(),
+    formatManifestRuntimeEndpointIdentity(expected.nextEndpoint).toLowerCase(),
   );
   if (expected.completion.roundtrips !== undefined) {
     assert.deepEqual(actual.roundtrips, expected.completion.roundtrips);

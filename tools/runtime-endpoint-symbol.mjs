@@ -31,3 +31,30 @@ export function formatRuntimeEndpointSymbol(endpoint) {
 
   throw new TypeError("endpoint symbol is missing or unsupported");
 }
+
+export function formatManifestRuntimeEndpointIdentity(endpoint) {
+  if (!isRecord(endpoint)) {
+    throw new TypeError("manifest endpoint must be an object");
+  }
+
+  const hasObservedModule = endpoint.observedModule !== undefined;
+  const hasObservedSymbol = endpoint.observedSymbol !== undefined;
+  if (hasObservedModule || hasObservedSymbol) {
+    if (
+      typeof endpoint.observedModule !== "string" ||
+      endpoint.observedModule.length === 0 ||
+      typeof endpoint.observedSymbol !== "string" ||
+      endpoint.observedSymbol.length === 0
+    ) {
+      throw new TypeError(
+        "manifest observed endpoint identity requires a non-empty module and symbol",
+      );
+    }
+    return `${endpoint.observedModule}!${endpoint.observedSymbol}`;
+  }
+
+  if (typeof endpoint.api === "string" && endpoint.api.length > 0) {
+    return endpoint.api;
+  }
+  throw new TypeError("manifest endpoint API is missing");
+}

@@ -20058,6 +20058,12 @@ export function validateCurrentCheckpoint(manifest) {
     }
   }
   if (active.profile === "d3d9-end-scene") {
+    if (
+      currentStop.nextEndpoint?.observedModule !== "<com>" ||
+      currentStop.nextEndpoint?.observedSymbol !== "interface-1-slot-19"
+    ) {
+      errors.push("D3D9 EndScene next endpoint raw identity is invalid");
+    }
     for (const [label, completion] of [
       ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
       ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
@@ -20854,6 +20860,20 @@ export function validateCurrentCheckpoint(manifest) {
       0,
     );
     requireString(endpoint.api, "nextStructuredStop.nextEndpoint.api", errors);
+    const hasObservedModule = endpoint.observedModule !== undefined;
+    const hasObservedSymbol = endpoint.observedSymbol !== undefined;
+    if (hasObservedModule || hasObservedSymbol) {
+      requireString(
+        endpoint.observedModule,
+        "nextStructuredStop.nextEndpoint.observedModule",
+        errors,
+      );
+      requireString(
+        endpoint.observedSymbol,
+        "nextStructuredStop.nextEndpoint.observedSymbol",
+        errors,
+      );
+    }
     if (
       typeof endpoint.endpointAddress !== "string" ||
       !HEX32.test(endpoint.endpointAddress)
