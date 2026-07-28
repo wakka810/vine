@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-28T11:18:45.884Z",
+  "recordedAt": "2026-07-28T12:25:49.296Z",
   "repository": {
-    "implementationCommit": "1bbc243eaec2e7b6060100cde1fea16f156211f9",
-    "implementationTree": "0812fd051f2c244a4ec1be7f932b8792d3b219b5",
-    "headCommit": "1bbc243eaec2e7b6060100cde1fea16f156211f9",
+    "implementationCommit": "2bf7e3128c2558bc29907446392d7cb0f3dab8c3",
+    "implementationTree": "dad570bfaf1637e314af78f324807d81e262ba43",
+    "headCommit": "2bf7e3128c2558bc29907446392d7cb0f3dab8c3",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-post-end-scene-raster-status",
-    "runtimeProfile": "d3d9-post-end-scene-raster-status",
+    "runtimeCheckpoint": "d3d9-post-raster-status-waitable-timer",
+    "runtimeProfile": "d3d9-post-raster-status-waitable-timer",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-post-end-scene-raster-status",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v41",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v42",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,68 +70,72 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 122,
-      "supportedCalls": 127375,
-      "callSemanticsSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
-      "instructions": 28761446,
-      "finalGeneration": 235527,
-      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+      "supportedCalls": 127377,
+      "callSemanticsSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
+      "instructions": 28761476,
+      "finalGeneration": 235529,
+      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
       "checkpointCompletion": {
-        "capability": "d3d9-post-end-scene-raster-status",
-        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+        "capability": "d3d9-post-raster-status-waitable-timer",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127376,
-        "lastCompletionInstructionCount": 28761389,
-        "instructionCount": 28761446,
+        "armSequence": 127377,
+        "armInstructionCount": 28761446,
+        "armGeneration": 1,
+        "lastCompletionSequence": 127378,
+        "lastCompletionInstructionCount": 28761452,
+        "instructionCount": 28761476,
         "nextEndpoint": {
-          "id": 118,
-          "address": 2130708304,
-          "module": "KERNEL32.dll",
+          "id": 0,
+          "address": 16847200,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "interface-1-slot-19"
           }
         },
-        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
+        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
       },
-      "writebackBatches": 127474,
-      "dirtyPages": 175996,
-      "changedBytes": 6620003,
+      "writebackBatches": 127476,
+      "dirtyPages": 175998,
+      "changedBytes": 6620041,
       "hostDeltaBatches": 106770
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 127375,
-      "callSemanticsSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
-      "instructions": 28761446,
-      "finalGeneration": 236965,
-      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+      "supportedCalls": 127377,
+      "callSemanticsSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
+      "instructions": 28761476,
+      "finalGeneration": 236967,
+      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
       "checkpointCompletion": {
-        "capability": "d3d9-post-end-scene-raster-status",
-        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+        "capability": "d3d9-post-raster-status-waitable-timer",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127376,
-        "lastCompletionInstructionCount": 28761389,
-        "instructionCount": 28761446,
+        "armSequence": 127377,
+        "armInstructionCount": 28761446,
+        "armGeneration": 1,
+        "lastCompletionSequence": 127378,
+        "lastCompletionInstructionCount": 28761452,
+        "instructionCount": 28761476,
         "nextEndpoint": {
-          "address": 2130708304,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292160,
-          "id": 118,
-          "module": "kernel32.dll",
+          "id": 0,
+          "address": 16847200,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "interface-1-slot-19"
           }
         },
-        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
+        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
       },
-      "wasmBridgeCalls": 373351,
+      "wasmBridgeCalls": 373357,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 416563,
+          "transitionCount": 416570,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -178,28 +182,29 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "d3d9-post-raster-status-waitable-timer",
-      "pausedHistoricalCheckpoint": "d3d9-post-end-scene-raster-status",
-      "instructionCount": 28761446,
+      "nextCheckpoint": "d3d9-post-waitable-timer-raster-status",
+      "pausedHistoricalCheckpoint": "d3d9-post-raster-status-waitable-timer",
+      "instructionCount": 28761476,
       "capabilityCluster": "d3d9-first-frame-post-scene-pacing",
-      "reason": "post-end-scene-raster-status-checkpoint-complete",
+      "reason": "post-scene-waitable-timer-checkpoint-complete",
       "completion": {
-        "capability": "d3d9-post-end-scene-raster-status",
-        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
+        "capability": "d3d9-post-raster-status-waitable-timer",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127376,
-        "lastCompletionInstructionCount": 28761389
+        "armSequence": 127377,
+        "armInstructionCount": 28761446,
+        "armGeneration": 1,
+        "lastCompletionSequence": 127378,
+        "lastCompletionInstructionCount": 28761452
       },
       "nextEndpoint": {
-        "endpointKind": "runtime-system-export",
-        "endpointId": 118,
-        "api": "kernel32.dll!SetWaitableTimer",
-        "endpointAddress": "0x7f000750",
-        "iatAddress": "0x100d1280",
-        "observedModule": "KERNEL32.dll",
-        "observedSymbol": "SetWaitableTimer",
-        "disposition": "declared-runtime-export"
+        "endpointKind": "com-method",
+        "endpointId": 0,
+        "api": "IDirect3DDevice9::GetRasterStatus",
+        "endpointAddress": "0x01011160",
+        "observedModule": "<com>",
+        "observedSymbol": "interface-1-slot-19"
       }
     },
     "cleanup": {
@@ -215,14 +220,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-post-end-scene-raster-status/report.json",
-      "bytes": 561027,
-      "sha256": "625767eb2f976303702c493656f7c6e7998800b200c7ea755ea9d4a4f05062ec"
+      "path": ".work/v86-bgi-d3d9-post-raster-status-waitable-timer/report.json",
+      "bytes": 561111,
+      "sha256": "456efd128b067cfa7046b0af1ed5a23ae3f06b32af2cc12cf1fc795e4a35144d"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1936721,
-      "sha256": "4fcfa45df2d00faab7f28262c30d50363646355c21609d7b4936702aff0081ae"
+      "bytes": 1936938,
+      "sha256": "537a68a4e1dc6858eff2963a17776204333573e640b77b2f92b4134671f61149"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -237,7 +242,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "958aa2aae71d577ed28a40fa0ca50df4841ab7526fbb20c0ab0cd30110b2a5a0"
+      "sha256": "a9b7052dee131ddd34763affd8146bed060193898bbbd6aa6dd40ff02531491a"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -274,5 +279,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "1ded03791c6d41810e7891f6c88d84a59cc76dbfe7522425536d12d37b6b5960"
+  "payloadSha256": "d17fc69b95944380e41505bd1ac5342cbd14825e395a43c0585739443d31b653"
 }
