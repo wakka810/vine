@@ -76,6 +76,12 @@ pub enum RuntimeGraphicsTextureArgument {
     Texture,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsFlexibleVertexFormat {
+    XyzRhwDiffuseTexture1,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsTextureBindings {
@@ -592,6 +598,8 @@ pub struct RuntimeGraphicsDevice {
     pub texture_stage_states: RuntimeGraphicsTextureStageStates,
     #[serde(skip_serializing_if = "RuntimeGraphicsTextureBindings::is_pristine")]
     pub texture_bindings: RuntimeGraphicsTextureBindings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flexible_vertex_format: Option<RuntimeGraphicsFlexibleVertexFormat>,
     #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -684,6 +692,12 @@ pub(crate) struct RuntimeGraphicsTextureBindingUpdateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub stage: u32,
     pub texture_com_object_id: Option<RuntimeComObjectId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub format: RuntimeGraphicsFlexibleVertexFormat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -805,6 +819,17 @@ pub(crate) struct RuntimeGraphicsTextureBindingUpdatePlan {
     previous_texture_id: Option<RuntimeGraphicsTextureId>,
     texture_id: Option<RuntimeGraphicsTextureId>,
     request: RuntimeGraphicsTextureBindingUpdateRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdatePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    previous: Option<RuntimeGraphicsFlexibleVertexFormat>,
+    format: RuntimeGraphicsFlexibleVertexFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -976,6 +1001,15 @@ pub struct RuntimeGraphicsTextureBindingUpdateResult {
     pub stage: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub texture_id: Option<RuntimeGraphicsTextureId>,
+    pub changed: bool,
+    pub device_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsFlexibleVertexFormatUpdateResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub format: RuntimeGraphicsFlexibleVertexFormat,
     pub changed: bool,
     pub device_generation: u64,
 }
@@ -1284,6 +1318,7 @@ impl RuntimeGraphics {
             sampler_states: RuntimeGraphicsSamplerStates::default(),
             texture_stage_states: RuntimeGraphicsTextureStageStates::default(),
             texture_bindings: RuntimeGraphicsTextureBindings::default(),
+            flexible_vertex_format: None,
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
             renderer: None,
@@ -1673,6 +1708,103 @@ impl RuntimeGraphics {
             device_id: device.id,
             stage: plan.request.stage,
             texture_id: plan.texture_id,
+            changed,
+            device_generation: device.generation,
+        }
+    }
+
+    pub(super) fn plan_flexible_vertex_format_update(
+        &self,
+        request: RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
+    ) -> Result<RuntimeGraphicsFlexibleVertexFormatUpdatePlan, RuntimeStateError> {
+        validate_flexible_vertex_format_update_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-flexible-vertex-format-device-com-object-unknown",
+                    "logical flexible vertex format update requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let previous = device.flexible_vertex_format;
+        let changed = previous != Some(request.format);
+        let next_generation = if changed {
+            checked_next_generation(self.generation)?
+        } else {
+            self.generation
+        };
+        let next_device_generation = if changed {
+            device.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-device-generation-exhausted",
+                    "logical graphics device generation is exhausted",
+                )
+            })?
+        } else {
+            device.generation
+        };
+        Ok(RuntimeGraphicsFlexibleVertexFormatUpdatePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            previous,
+            format: request.format,
+        })
+    }
+
+    pub(super) fn preflight_flexible_vertex_format_update(
+        &self,
+        plan: &RuntimeGraphicsFlexibleVertexFormatUpdatePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan(
+                "graphics-flexible-vertex-format-update-plan-stale",
+            ));
+        };
+        let changed = plan.previous != Some(plan.format);
+        if self.generation != plan.expected_generation
+            || device.generation != plan.device_generation
+            || device.flexible_vertex_format != plan.previous
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_device_generation != device.generation))
+        {
+            return Err(stale_plan(
+                "graphics-flexible-vertex-format-update-plan-stale",
+            ));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_flexible_vertex_format_update(
+        &mut self,
+        plan: RuntimeGraphicsFlexibleVertexFormatUpdatePlan,
+    ) -> RuntimeGraphicsFlexibleVertexFormatUpdateResult {
+        debug_assert!(self.preflight_flexible_vertex_format_update(&plan).is_ok());
+        let changed = plan.previous != Some(plan.format);
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        if changed {
+            device.flexible_vertex_format = Some(plan.format);
+            device.generation = plan.next_device_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeGraphicsFlexibleVertexFormatUpdateResult {
+            device_id: device.id,
+            format: plan.format,
             changed,
             device_generation: device.generation,
         }
@@ -3811,6 +3943,19 @@ fn validate_texture_binding_update_request(
     Ok(())
 }
 
+fn validate_flexible_vertex_format_update_request(
+    request: RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-flexible-vertex-format-request-invalid",
+            "logical flexible vertex format update requires a live graphics device",
+        ));
+    }
+    Ok(())
+}
+
 fn full_back_buffer_rect(
     presentation: RuntimeGraphicsPresentation,
 ) -> Result<RuntimeRect, RuntimeStateError> {
@@ -4745,6 +4890,102 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(remaining_texture.device_id, RuntimeGraphicsDeviceId(2));
+    }
+
+    #[test]
+    fn flexible_vertex_format_updates_are_typed_idempotent_and_failure_atomic() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        assert_eq!(device.flexible_vertex_format, None);
+
+        let format_request = RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+            format: RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1,
+        };
+        let before_plan = graphics.clone();
+        let plan = graphics
+            .plan_flexible_vertex_format_update(format_request)
+            .unwrap();
+        let stale = plan.clone();
+        graphics
+            .preflight_flexible_vertex_format_update(&plan)
+            .unwrap();
+        assert_eq!(graphics, before_plan);
+        let result = graphics.commit_flexible_vertex_format_update(plan);
+        assert_eq!(result.device_id, device.id);
+        assert_eq!(result.format, format_request.format);
+        assert!(result.changed);
+        assert_eq!(result.device_generation, device.generation + 1);
+        assert_eq!(
+            graphics.device(device.id).unwrap().flexible_vertex_format,
+            Some(format_request.format)
+        );
+        assert_eq!(
+            graphics
+                .preflight_flexible_vertex_format_update(&stale)
+                .unwrap_err()
+                .code,
+            "graphics-flexible-vertex-format-update-plan-stale"
+        );
+
+        let before_repeat = graphics.clone();
+        let repeat = graphics
+            .plan_flexible_vertex_format_update(format_request)
+            .unwrap();
+        assert!(
+            !graphics
+                .commit_flexible_vertex_format_update(repeat)
+                .changed
+        );
+        assert_eq!(graphics, before_repeat);
+
+        let before_invalid = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_flexible_vertex_format_update(
+                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+                        device_com_object_id: RuntimeComObjectId(0),
+                        format: format_request.format,
+                    },
+                )
+                .unwrap_err()
+                .code,
+            "graphics-flexible-vertex-format-request-invalid"
+        );
+        assert_eq!(graphics, before_invalid);
+        assert_eq!(
+            graphics
+                .plan_flexible_vertex_format_update(
+                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+                        device_com_object_id: RuntimeComObjectId(99),
+                        format: format_request.format,
+                    },
+                )
+                .unwrap_err()
+                .code,
+            "graphics-flexible-vertex-format-device-com-object-unknown"
+        );
+        assert_eq!(graphics, before_invalid);
+
+        let mut exhausted = RuntimeGraphics::default();
+        let exhausted_plan = exhausted.plan_device_creation(request()).unwrap();
+        exhausted.commit_device_creation(exhausted_plan, RuntimeComObjectId(8));
+        exhausted.generation = u64::MAX;
+        let before_exhaustion = exhausted.clone();
+        assert_eq!(
+            exhausted
+                .plan_flexible_vertex_format_update(
+                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+                        device_com_object_id: RuntimeComObjectId(8),
+                        format: format_request.format,
+                    },
+                )
+                .unwrap_err()
+                .code,
+            "graphics-generation-exhausted"
+        );
+        assert_eq!(exhausted, before_exhaustion);
     }
 
     #[test]

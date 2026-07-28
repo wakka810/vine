@@ -1385,6 +1385,22 @@ device generation 54、reference count 5、zero guest writes、renderer resource
 instruction 28,761,298の`IDirect3DDevice9::SetFVF(0x144)` slot 89である。他stage／resource binding、vertex
 format、EndScene、draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
 
+続く`SetFVF` leafは、focused primary trace二runが同じdevice、FVF `0x144`、caller RVA
+`0x5B291`、`D3D_OK`、LastError 0、結果を分岐へ使わず直後に
+`SetStreamSource(0,vertexBuffer,0,28)`を準備するconsumerを一致させる。Controlled PE32/i386 oracleは
+初期値0と`0x144`／`2`／`0`／`0xFFFFFFFF`のnative set／get roundtrip、LastError sentinel `0x5A5A`
+preserve、device reference count不変を固定する。Nativeの`GetFVF(NULL)`はprocess faultとなるため安全な
+oracleから除外し、NULL output semanticsをclaimしない。Active policyはnative permissivenessを一般化せず
+到達値`0x144`だけへ狭める。
+
+Focused Rust model／dispatcher testsはdevice-owned typed FVF authority、generation preflight、targeted／
+idempotent commit、unknown／wrong-class／wrong-owner／unsupported／stale／duplicate／exhaustionのfailure
+atomicity、zero guest writes、LastError preserveを固定する。Node／Chrome protocol v37はsequence 127,372、
+instruction 28,761,298、device 3／COM 21、device generation 55、reference count 5、typed
+`xyz-rhw-diffuse-texture1`、renderer resourceなしを一致させる。Canonical stopはinstruction 28,761,315の
+`IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)` slot 100である。他FVF、stream binding、EndScene、
+draw／Present、pixel backing、browser rendererはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

@@ -5586,3 +5586,34 @@ writesである。Canonical Node／Chromeはsequence 127,371、instruction 28,76
 texture 8／COM 24、device generation 54を一致させる。次stopは7 instructions後、endpoint `0x010115C0`、
 caller return `0x1005B291`の`IDirect3DDevice9::SetFVF(0x144)` slot 89である。他stage／resource、vertex format、
 draw／Present、pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 166. BGI first `SetFVF` and controlled value roundtrips
+
+Focused primary captureは471,737 bytes／1,174 lines／SHA-256
+`ccbd46bbeb6ffa2c96d81850c661cf1f033fc293a8f96127ab8b3105d8bb9244`、summaryは299,134 bytes／
+SHA-256 `55c7a4a430f042fbb266c69d2f6db7c828192375ef34d44f261b461067339f08`で、1,172 events／547
+API pairsがbalancedである。Independent confirmation captureは472,466 bytes／1,176 lines／SHA-256
+`beeb26621af136e21584208d0a3d7197030d1333a0e68c6eaf26713cd2c76d1b`、summaryは299,312 bytes／
+SHA-256 `354d796a0032d16cdc11feb61c308024f05a96538d7c972dc954eb956803e542`で、1,174 events／548
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、FVF `0x144`、
+`D3D_OK`／LastError 0、caller RVA `0x0005B291`、immediate consumer
+`SetStreamSource(0,vertexBuffer,0,28)`を一致させる。Raw trace／summaryは`.work/windows-traces/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Controlled oracle `x86-d3d9-set-get-fvf-values-v1`はPE32／COFF-i386 executableである。Sourceは9,875
+bytes／SHA-256 `f63980eea99410d16b4d14de00169fbeea029ab35e5d5e403e0fe3db63d380ac`、objectは12,113
+bytes／SHA-256 `5685ae66c6134295ed0d6bc316cfab0438f0365e6245439a3c870ba2ba18611e`、executableは6,656
+bytes／SHA-256 `03255b961a3d5ba610a32d7be595be85f917392a4770ef66c36079827c31b9dd`である。独立二runは
+ともにexit 0で、initial FVF 0、`0x144`／`2`／`0`／`0xFFFFFFFF`のSetFVF／GetFVF roundtrip、
+全HRESULT `D3D_OK`、LastError sentinel 23,130 (`0x5A5A`) preserve、device reference count `[1,1]`を
+一致させる。`GetFVF(NULL)`はnative process access violationとなったため、repeatableなsafe oracleから除外し、
+そのNULL output behaviorをsemantic claimに使わない。Runtimeはnativeの広い値受理を一般化せず、primaryで
+到達した`0x144`だけを許可する。
+
+Goldenはtyped FVF authority、HRESULT class、LastError preserve、zero guest writes、device identity／reference
+count不変である。Canonical Node／Chromeはsequence 127,372、instruction 28,761,298、logical device 3／COM 21、
+device generation 55、`xyz-rhw-diffuse-texture1`を一致させる。次stopは17 instructions後、endpoint
+`0x01011670`、caller return `0x1005B3EC`の
+`IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)` slot 100である。他FVF、stream binding、draw／Present、
+pixel backing、browser rendererはこのevidenceからclaimしない。

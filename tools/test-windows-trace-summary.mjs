@@ -2581,6 +2581,179 @@ assert.throws(
   /violates its caller, binding, result, LastError, or consumer contract/,
 );
 
+const setFvfImmediateConsumer = makeInstructionWindow(0x0045_b291, 128, 4);
+setFixtureInstruction(
+  setFvfImmediateConsumer,
+  0,
+  "cmp",
+  "dword ptr [0x5517e0], 0",
+);
+setFixtureInstruction(
+  setFvfImmediateConsumer,
+  2,
+  "mov",
+  "eax, dword ptr [ecx + 0x190]",
+);
+const setFvfCaller = {
+  address: "0x45b291",
+  module: "BGI.exe",
+  rva: 0x5b291,
+};
+const setFvfObservation = {
+  fvf: 0x144,
+  lastErrorBefore: 0,
+  immediateConsumer: setFvfImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const setFvfCompletionCall = {
+  callId: 1,
+  api: "SetFVF",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 89,
+  object: "0x490000",
+  arguments: ["0x144"],
+  result: 0,
+  resultU32: 0,
+  fvf: 0x144,
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: setFvfImmediateConsumer,
+  caller: setFvfCaller,
+};
+const d3d9SetFvfEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-set-fvf-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-set-fvf"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-set-fvf"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: setFvfCaller,
+    module: "d3d9.dll",
+    api: "SetFVF",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 89,
+    object: "0x490000",
+    arguments: ["0x144"],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: setFvfCaller,
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "SetFVF",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 89,
+    object: "0x490000",
+    result: "0x0",
+    d3d9SetFvf: setFvfObservation,
+  },
+  {
+    schema,
+    sequence: 6,
+    threadId: 20,
+    kind: "d3d9-set-fvf-complete",
+    profile: "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1",
+    device: "0x490000",
+    mainModuleCall: setFvfCompletionCall,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-set-fvf-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9SetFvfSummary = summarizeTrace(
+  encode(d3d9SetFvfEvents),
+  "d3d9-set-fvf-fixture.jsonl",
+);
+assert.deepEqual(d3d9SetFvfSummary.d3d9.setFvfObservations[0].call, {
+  sequence: 4,
+  caller: { module: "BGI.exe", rva: 0x5b291 },
+  fvf: 0x144,
+  result: "0x0",
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: setFvfImmediateConsumer,
+});
+const missingSetFvfCompletion = d3d9SetFvfEvents.filter(
+  (event) => event.kind !== "d3d9-set-fvf-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingSetFvfCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedSetFvfLastError = structuredClone(d3d9SetFvfEvents);
+changedSetFvfLastError.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+).d3d9SetFvf.lastErrorAfter = 1;
+assert.throws(
+  () => summarizeTrace(encode(changedSetFvfLastError)),
+  /violates its caller, format, result, LastError, or consumer contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -4754,6 +4927,13 @@ d3d9SetTextureSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-set-texture"];
 assert.doesNotThrow(() => summarizeTrace(encode(d3d9SetTextureSelection)));
+
+const d3d9SetFvfSelection = structuredClone(events);
+d3d9SetFvfSelection[0].arguments.observations = ["d3d9-set-fvf"];
+d3d9SetFvfSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-set-fvf"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9SetFvfSelection)));
 
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];

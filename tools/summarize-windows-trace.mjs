@@ -84,6 +84,7 @@ const supportedObservations = new Set([
   "d3d9-update-texture",
   "d3d9-begin-scene",
   "d3d9-set-texture",
+  "d3d9-set-fvf",
   "d3d9-initial-sampler-states",
   "d3d9-initial-texture-stage-states",
   "d3d9-initial-vertex-buffer",
@@ -2644,6 +2645,115 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const setFvfCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-set-fvf-complete",
+  );
+  const requiresSetFvfCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-set-fvf" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-set-fvf-complete";
+  if (
+    setFvfCompletionEvents.length > 1 ||
+    (requiresSetFvfCompletion && setFvfCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-set-fvf observation requires exactly one structured completion",
+    );
+  }
+  const setFvfObservations = setFvfCompletionEvents.map((completion) => {
+    const snapshot = completion.mainModuleCall;
+    const pair = pairsByCallId.get(snapshot?.callId);
+    const observation = pair?.leave.d3d9SetFvf;
+    const instructions = snapshot?.immediateConsumer?.entry?.instructions;
+    const firstConsumerInstruction = instructions?.[0];
+    const setStreamSourcePreparation = instructions?.find(
+      (instruction) =>
+        instruction.mnemonic === "mov" &&
+        instruction.opStr === "eax, dword ptr [ecx + 0x190]",
+    );
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
+    if (
+      completion.profile !==
+        "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1" ||
+      typeof completion.device !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+      BigInt(completion.device) === 0n ||
+      !Number.isInteger(completion.sequence) ||
+      pair === undefined ||
+      observation === undefined ||
+      snapshot.api !== "SetFVF" ||
+      snapshot.interface !== "IDirect3DDevice9" ||
+      snapshot.vtableSlot !== 89 ||
+      snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+      JSON.stringify(snapshot.arguments) !==
+        JSON.stringify(pair.enter.arguments) ||
+      snapshot.result !== observation.result ||
+      snapshot.resultU32 !== observation.resultU32 ||
+      snapshot.fvf !== observation.fvf ||
+      snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+      snapshot.lastError !== observation.lastErrorAfter ||
+      JSON.stringify(snapshot.immediateConsumer) !==
+        JSON.stringify(observation.immediateConsumer) ||
+      snapshot.caller?.module !== pair.enter.caller?.module ||
+      snapshot.caller?.rva !== pair.enter.caller?.rva ||
+      pair.enter.parentCallId !== null ||
+      pair.enter.api !== "SetFVF" ||
+      pair.enter.interface !== "IDirect3DDevice9" ||
+      pair.enter.vtableSlot !== 89 ||
+      pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+      pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+      pair.enter.caller?.rva !== 0x5b291 ||
+      !Array.isArray(pair.enter.arguments) ||
+      pair.enter.arguments.length !== 1 ||
+      BigInt(pair.enter.arguments[0]) !== 0x144n ||
+      observation.fvf !== 0x144 ||
+      BigInt(pair.leave.result) !== 0n ||
+      observation.result !== 0 ||
+      observation.resultU32 !== 0 ||
+      observation.lastErrorBefore !== 0 ||
+      pair.leave.lastError !== 0 ||
+      observation.lastErrorAfter !== 0 ||
+      !Array.isArray(instructions) ||
+      firstConsumerInstruction?.mnemonic !== "cmp" ||
+      !firstConsumerInstruction.opStr.startsWith("dword ptr [") ||
+      !firstConsumerInstruction.opStr.endsWith("], 0") ||
+      setStreamSourcePreparation === undefined
+    ) {
+      throw new Error(
+        "d3d9-set-fvf completion violates its caller, format, result, LastError, or consumer contract",
+      );
+    }
+    if (
+      completion.threadId !== pair.enter.threadId ||
+      pair.leave.threadId !== pair.enter.threadId ||
+      completion.sequence !== pair.leave.sequence + 1
+    ) {
+      throw new Error(
+        "d3d9-set-fvf completion violates its thread or contiguous ordering contract",
+      );
+    }
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      threadId: pair.enter.threadId,
+      device: completion.device,
+      call: {
+        sequence: pair.enter.sequence,
+        caller: {
+          module: pair.enter.caller.module,
+          rva: pair.enter.caller.rva,
+        },
+        fvf: Number(BigInt(pair.enter.arguments[0])),
+        result: pair.leave.result,
+        lastErrorBefore: observation.lastErrorBefore,
+        lastError: pair.leave.lastError,
+        immediateConsumer: observation.immediateConsumer,
+      },
+    };
+  });
+
   const initialSamplerStateCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-initial-sampler-states-complete",
   );
@@ -4491,6 +4601,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       initialVertexBufferSequences,
       initialRenderStateSequences,
       setTextureObservations,
+      setFvfObservations,
       initialSamplerStateSequences,
       initialTextureStageStateSequences,
       rasterStatusObservations,

@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-set-texture` and uses protocol
-`vine.browser-runtime-worker.v36`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-set-fvf` and uses protocol
+`vine.browser-runtime-worker.v37`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -181,7 +181,13 @@ logical device 3／COM 21, texture 8／COM 24, device generation 54, zero guest
 writes, no browser renderer resource, and the cumulative semantic and terminal
 memory digests. Both stop seven instructions later at
 `IDirect3DDevice9::SetFVF(0x00000144)` slot 89, endpoint `0x010115C0`, return
-address `0x1005B291`.
+address `0x1005B291`. Protocol version 37 carries the resulting typed
+`xyz-rhw-diffuse-texture1` snapshot. Rust commits it on logical device 3／COM 21
+without changing reference count 5, writing guest memory, or creating a renderer
+resource. Node and Chrome agree on sequence 127,372, instruction 28,761,298,
+device generation 55, and the cumulative semantic digest. Both next stop at
+instruction 28,761,315 on `IDirect3DDevice9::SetStreamSource(0,0x01050004,0,28)`
+slot 100, endpoint `0x01011670`, return address `0x1005B3EC`.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -226,7 +232,8 @@ fingerprint before and after execution.
   dynamic-destination variant, or upload to a renderer. The following BeginScene creates
   only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
   sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
-  fixed-function state, and SetTexture adds one non-owning Rust-owned binding. EndScene,
+  fixed-function state, SetTexture adds one non-owning Rust-owned binding, and SetFVF
+  adds the one reached Rust-owned typed vertex format. EndScene,
   other sampler／state／filter variants, the three rejected render states, other
-  texture-stage／binding variants, vertex format, draw, Present, device loss,
+  texture-stage／binding variants, other vertex formats, stream binding, draw, Present, device loss,
   and visible browser output remain unsupported.

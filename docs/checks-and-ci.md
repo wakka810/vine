@@ -134,9 +134,10 @@ full-target Clear, the 16-byte presentation `SetRect`, source-texture
 `AddDirtyRect`, logical `UpdateTexture`, `BeginScene`, and the exact sampler-0
 MIN／MAG linear state band. The three following unprofiled render states are
 explicitly rejected and ignored by the caller. Downstream execution now also
-crosses the six exact stage-0 fixed-function texture-stage settings and the
-non-owning static DEFAULT texture binding; the runtime is paused at the
-manifested `IDirect3DDevice9::SetFVF` slot-89 endpoint. Exact
+crosses the six exact stage-0 fixed-function texture-stage settings, the
+non-owning static DEFAULT texture binding, and the bounded typed FVF `0x144`;
+the runtime is paused at the manifested `IDirect3DDevice9::SetStreamSource`
+slot-100 endpoint. Exact
 current artifact, report, blocker, and resume-condition identities remain
 manifest-owned.
 

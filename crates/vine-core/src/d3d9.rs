@@ -15,6 +15,7 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsBackBufferClearRequest,
     RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
+    RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
     RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
     RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
@@ -34,7 +35,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 24;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 25;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -44,6 +45,9 @@ pub const D3D9_D3DDEVTYPE_HAL: u32 = 1;
 pub const D3D9_D3DCAPS_READ_SCANLINE: u32 = 0x0002_0000;
 pub const D3D9_D3DCAPS2_DYNAMICTEXTURES: u32 = 0x2000_0000;
 pub const D3D9_D3DPS_VERSION_3_0: u32 = 0xffff_0300;
+pub const D3D9_D3DFVF_XYZRHW: u32 = 0x004;
+pub const D3D9_D3DFVF_DIFFUSE: u32 = 0x040;
+pub const D3D9_D3DFVF_TEX1: u32 = 0x100;
 pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
@@ -328,6 +332,13 @@ pub struct D3d9TextureBindingPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9FlexibleVertexFormatPolicy {
+    pub profile_id: String,
+    pub value: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9RasterStatusPolicy {
     pub profile_id: String,
     pub display_profile_id: String,
@@ -390,6 +401,7 @@ pub struct D3d9CompatibilityPolicy {
     pub initial_sampler_states: Option<D3d9InitialSamplerStatePolicy>,
     pub initial_texture_stage_states: Option<D3d9InitialTextureStageStatePolicy>,
     pub texture_binding: Option<D3d9TextureBindingPolicy>,
+    pub flexible_vertex_format: Option<D3d9FlexibleVertexFormatPolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
@@ -398,11 +410,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v24() -> Self {
+    pub fn controlled_v25() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v24".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v25".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -530,6 +542,10 @@ impl D3d9CompatibilityPolicy {
                 texture_variant_indices: vec![4],
                 null_unbind_supported: true,
             }),
+            flexible_vertex_format: Some(D3d9FlexibleVertexFormatPolicy {
+                profile_id: "primary-first-frame-transformed-diffuse-textured-fvf-v1".to_owned(),
+                value: D3D9_D3DFVF_XYZRHW | D3D9_D3DFVF_DIFFUSE | D3D9_D3DFVF_TEX1,
+            }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -572,6 +588,7 @@ impl D3d9CompatibilityPolicy {
         self.add_dirty_rect = None;
         self.update_texture = None;
         self.texture_binding = None;
+        self.flexible_vertex_format = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -585,6 +602,7 @@ impl D3d9CompatibilityPolicy {
         self.add_dirty_rect = None;
         self.update_texture = None;
         self.texture_binding = None;
+        self.flexible_vertex_format = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
@@ -827,6 +845,24 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-texture-binding-profile-invalid",
                 "D3D9 texture-binding profile must select the reached stage-zero static DEFAULT texture",
+            ));
+        }
+        if let Some(vertex_format) = self.flexible_vertex_format.as_ref()
+            && (vertex_format.profile_id
+                != "primary-first-frame-transformed-diffuse-textured-fvf-v1"
+                || vertex_format.value
+                    != (D3D9_D3DFVF_XYZRHW | D3D9_D3DFVF_DIFFUSE | D3D9_D3DFVF_TEX1)
+                || self
+                    .initial_vertex_buffer
+                    .as_ref()
+                    .is_none_or(|vertex_buffer| {
+                        vertex_buffer.flexible_vertex_format != vertex_format.value
+                    }))
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-flexible-vertex-format-profile-invalid",
+                "D3D9 flexible vertex format profile must match the reached transformed diffuse textured quad",
             ));
         }
         if let Some(raster_status) = self.raster_status.as_ref()
@@ -1591,6 +1627,7 @@ fn dispatch_d3d9_device_frontend_call(
         65 => ("SetTexture", 2),
         67 => ("SetTextureStageState", 3),
         69 => ("SetSamplerState", 3),
+        89 => ("SetFVF", 1),
         _ => {
             return call.fault(
                 ComFaultClass::RuntimeDefect,
@@ -1623,6 +1660,7 @@ fn dispatch_d3d9_device_frontend_call(
         65 => dispatch_set_texture(policy, call),
         67 => dispatch_set_texture_stage_state(policy, call),
         69 => dispatch_set_sampler_state(policy, call),
+        89 => dispatch_set_fvf(policy, call),
         _ => unreachable!(),
     }
 }
@@ -2480,6 +2518,57 @@ fn dispatch_set_texture(
         .runtime_mut()
         .commit_graphics_texture_binding_update(plan);
     debug_assert_eq!(result.stage, stage);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn dispatch_set_fvf(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(vertex_format_policy) = policy.flexible_vertex_format.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-set-fvf",
+            "set-fvf-policy-disabled",
+            "D3D9 compatibility policy does not enable SetFVF",
+        );
+    };
+    let value = call.frame().explicit_arguments[0];
+    if value != vertex_format_policy.value {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let format = RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1;
+    let plan = match call.runtime().plan_graphics_flexible_vertex_format_update(
+        RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
+            device_com_object_id: call.frame().object_id,
+            format,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput | RuntimeStateErrorClass::NotFound
+            ) =>
+        {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call
+        .runtime()
+        .preflight_graphics_flexible_vertex_format_update(&plan)
+    {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call
+        .runtime_mut()
+        .commit_graphics_flexible_vertex_format_update(plan);
+    debug_assert_eq!(result.format, format);
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
@@ -3647,7 +3736,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 43 | 57 | 65 | 67 | 69 => {
+            19 | 23 | 26 | 31 | 41 | 43 | 57 | 65 | 67 | 69 | 89 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

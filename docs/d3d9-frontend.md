@@ -16,7 +16,8 @@ delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
 Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
 slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, slot 65
-`SetTexture`, slot 67 `SetTextureStageState`, and slot 69 `SetSamplerState`
+`SetTexture`, slot 67 `SetTextureStageState`, slot 69 `SetSamplerState`, and
+slot 89 `SetFVF`
 delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
@@ -748,6 +749,36 @@ reference count 5, zero guest writes, non-owning lifetime, and no renderer
 resource. Seven instructions later both stop at device slot 89
 `SetFVF(0x00000144)`.
 
+## Bounded flexible vertex format
+
+Version 25 adds `primary-first-frame-transformed-diffuse-textured-fvf-v1` for
+device slot 89. The active policy accepts only `0x144`
+(`D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1`) and maps it to the typed
+`xyz-rhw-diffuse-texture1` value. `RuntimeGraphicsDevice.flexible_vertex_format`
+is the sole authority; the D3D9 frontend owns ABI and policy selection but stores
+no parallel raw FVF, and TypeScript observes only the immutable device snapshot.
+
+Planning validates the live logical device and its generation, preflight repeats
+those checks, and commit changes only the target device. Repeating the same value
+is a mutation-free `D3D_OK`. Unknown identity, wrong class／owner, stale or duplicate
+plan, generation exhaustion, and profile-out FVF values preserve device, COM,
+allocator, and generation state; profile-out values return `D3DERR_NOTAVAILABLE`.
+
+Focused native traces agree on FVF `0x144`, `D3D_OK`, LastError 0, caller RVA
+`0x0005B291`, and immediate slot-100 `SetStreamSource` setup. A controlled
+PE32/i386 oracle fixes initial FVF 0; successful `0x144`, `2`, `0`, and
+`0xFFFFFFFF` native set／get roundtrips; LastError sentinel preservation; and
+unchanged device reference count. The runtime intentionally narrows that native
+permissiveness to the reached `0x144`. `GetFVF(NULL)` faulted in the native
+process and is excluded from the safe semantic oracle; no NULL-output behavior is
+claimed.
+
+Canonical Node and Chrome complete sequence 127,372 at instruction 28,761,298.
+They agree on device 3／COM 21, device generation 55, reference count 5, typed
+format, zero guest writes, idempotent generation behavior, and no renderer
+resource. Seventeen instructions later both stop at device slot 100
+`SetStreamSource(0,0x01050004,0,28)`.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -782,6 +813,8 @@ color／alpha operation and argument fields to the same device-owned typed state
 Slot 65 `SetTexture` adds a non-owning stage-0 relation to that same device. The
 relation is revalidated against the texture owner and is cleared atomically if
 the texture retires while the device remains live.
+Slot 89 `SetFVF` adds one typed flexible-vertex-format field to that device through
+the same owner-local plan／preflight／idempotent-commit boundary.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -798,7 +831,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-set-texture
+npm run check:runtime:bgi -- --profile d3d9-set-fvf
 npm run check:runtime:bgi-browser
 ```
 
@@ -838,8 +871,9 @@ consumption, generations, and zero writes. It then records the exact slot-41
 lifecycle policy, and zero writes. Finally it records the exact two slot-69
 `SetSamplerState` transitions, the six slot-67 `SetTextureStageState` updates,
 and the slot-65 non-owning texture binding, including immutable device
-snapshots and three explicit post-sampler render-state rejections. It then
-stops at device slot 89 `SetFVF` without creating a browser renderer resource
+snapshots and three explicit post-sampler render-state rejections. It finally
+records the slot-89 typed FVF transition and then stops at device slot 100
+`SetStreamSource` without creating a browser renderer resource
 or a second graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
@@ -874,9 +908,11 @@ linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical
 `d3d9-initial-texture-stage-states` profile additionally enables the six reached
 stage-0 fixed-function color／alpha operation and argument settings, then stops
-at `IDirect3DDevice9::SetTexture` slot 65. The active `d3d9-set-texture`
+at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
 profile additionally enables the exact stage-0 static DEFAULT binding and
-stops at `IDirect3DDevice9::SetFVF` slot 89.
+stops at `IDirect3DDevice9::SetFVF` slot 89. The active `d3d9-set-fvf` profile
+additionally enables only FVF `0x144` and stops at
+`IDirect3DDevice9::SetStreamSource` slot 100.
 
 ## Non-claims
 
@@ -892,20 +928,20 @@ stops at `IDirect3DDevice9::SetFVF` slot 89.
   `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
   exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
   linear `SetSamplerState` calls, the exact six stage-0
-  `SetTextureStageState` calls, and the exact stage-0 static DEFAULT
-  `SetTexture` binding are
+  `SetTextureStageState` calls, the exact stage-0 static DEFAULT
+  `SetTexture` binding, and the exact typed FVF `0x144` are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
   device/resource state, partial dirty-region transfer, dynamic-destination
   `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
   filter variants, other texture stages／operations／arguments／resources,
-  vertex format, draw, Present, Reset,
+  other vertex formats, stream binding, draw, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
   bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
-  texture-stage state, and bounded texture binding create Rust logical state
+  texture-stage state, bounded texture binding, and bounded FVF state create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

@@ -808,7 +808,7 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 geometry resource、`SetRenderState` gatewayでreached typed device state、`Clear` gatewayでlogical back-buffer
 contentを所有するprivate Rust subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
-device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、stage-0 texture binding、back-buffer
+device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、stage-0 texture binding、typed flexible vertex format、back-buffer
 content generationとclear sequenceを
 owner-local plan／commitで管理し、各4,096-object capacity、stale
 plan、process teardownをmutation前に検証する。`Direct3DCreate9`、IUnknown lifetime、display query等のroot leafだけでは
@@ -873,8 +873,11 @@ permissivenessを推測で一般化せず、unsupported sampler／state／value�
 暗黙昇格させない。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
 `RuntimeGraphicsDevice`にstage 0のnon-owning texture IDだけをplan／preflight／idempotent commitする。NULLはunbind、
 texture final retirementは同じretirement commitで残存bindingをclearし、binding自体はCOM AddRefを所有しない。
-TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
-texture-stage state、texture binding、renderer resourceの第二のauthorityを持たない。他stage／resource binding、draw、
+Reached `SetFVF`はraw DWORDをdevice stateへ複製せず、versioned policyが許可した`0x144`をtyped
+`xyz-rhw-diffuse-texture1`へ変換して同じ`RuntimeGraphicsDevice`へplan／preflight／idempotent commitする。
+Native driverが受理する他FVFはpolicyへ暗黙昇格させない。TypeScriptはこれらのimmutable snapshotを検証するだけで、
+texture content、dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、
+renderer resourceの第二のauthorityを持たない。他stage／resource binding、他vertex format、stream binding、draw、
 Present、pixel backing、browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output

@@ -77,6 +77,9 @@ const focusedD3d9BeginSceneObservation =
 const focusedD3d9SetTextureObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-set-texture");
+const focusedD3d9SetFvfObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-set-fvf");
 const focusedD3d9InitialSamplerStatesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-sampler-states");
@@ -122,6 +125,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9UpdateTextureObservation ||
   focusedD3d9BeginSceneObservation ||
   focusedD3d9SetTextureObservation ||
+  focusedD3d9SetFvfObservation ||
   focusedD3d9InitialSamplerStatesObservation ||
   focusedD3d9InitialTextureStageStatesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
@@ -169,6 +173,9 @@ let focusedD3d9BeginSceneComplete = false;
 let focusedD3d9SetTextureDevice = null;
 let focusedD3d9SetTextureMainModuleCall = null;
 let focusedD3d9SetTextureComplete = false;
+let focusedD3d9SetFvfDevice = null;
+let focusedD3d9SetFvfMainModuleCall = null;
+let focusedD3d9SetFvfComplete = false;
 let focusedD3d9InitialSamplerStateDevice = null;
 let focusedD3d9InitialSamplerStatesComplete = false;
 const focusedD3d9InitialSamplerStateCalls = [];
@@ -4853,6 +4860,28 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9SetTextureDevice ??= objectAddress;
             this.traceD3d9SetTextureLastErrorBefore =
               Number(this.lastError) >>> 0;
+          } else if (focusedD3d9SetFvfObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const isPrimarySetFvf =
+              slot === 89 &&
+              caller.module?.toLowerCase() ===
+                Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5b291 &&
+              args[1].toUInt32() === 0x144 &&
+              focusedD3d9SetFvfMainModuleCall === null;
+            if (
+              focusedD3d9SetFvfComplete ||
+              !isPrimarySetFvf ||
+              (focusedD3d9SetFvfDevice !== null &&
+                objectAddress !== focusedD3d9SetFvfDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9SetFvfDevice ??= objectAddress;
+            this.traceD3d9SetFvfLastErrorBefore =
+              Number(this.lastError) >>> 0;
           } else if (focusedD3d9InitialSamplerStatesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -5096,6 +5125,17 @@ function attachIdirect3ddevice9(object) {
                   ),
                 }
               : null;
+          this.traceD3d9SetFvf =
+            focusedD3d9SetFvfObservation && slot === 89
+              ? {
+                  fvf: args[1].toUInt32(),
+                  lastErrorBefore: this.traceD3d9SetFvfLastErrorBefore,
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                }
+              : null;
           this.traceD3d9InitialSamplerState =
             focusedD3d9InitialSamplerStatesObservation && slot === 69
               ? {
@@ -5194,6 +5234,15 @@ function attachIdirect3ddevice9(object) {
                   resultU32: result.toUInt32(),
                   lastErrorAfter: lastError,
                 };
+          const d3d9SetFvf =
+            this.traceD3d9SetFvf === null
+              ? null
+              : {
+                  ...this.traceD3d9SetFvf,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           const d3d9InitialSamplerState =
             this.traceD3d9InitialSamplerState === null
               ? null
@@ -5231,6 +5280,7 @@ function attachIdirect3ddevice9(object) {
                 : { d3d9UpdateTexture }),
               ...(d3d9BeginScene === null ? {} : { d3d9BeginScene }),
               ...(d3d9SetTexture === null ? {} : { d3d9SetTexture }),
+              ...(d3d9SetFvf === null ? {} : { d3d9SetFvf }),
               ...(d3d9InitialSamplerState === null
                 ? {}
                 : { d3d9InitialSamplerState }),
@@ -5325,6 +5375,32 @@ function attachIdirect3ddevice9(object) {
               mainModuleCall: focusedD3d9SetTextureMainModuleCall,
             });
             if (stopOnEvent === "d3d9-set-texture-complete") {
+              recv("vine-trace-stop", () => {}).wait();
+            }
+          }
+          if (focusedD3d9SetFvfObservation && d3d9SetFvf !== null) {
+            focusedD3d9SetFvfMainModuleCall = {
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: d3d9SetFvf.result,
+              resultU32: d3d9SetFvf.resultU32,
+              fvf: d3d9SetFvf.fvf,
+              lastErrorBefore: d3d9SetFvf.lastErrorBefore,
+              lastError: d3d9SetFvf.lastErrorAfter,
+              immediateConsumer: d3d9SetFvf.immediateConsumer,
+              caller: this.traceFrame.caller,
+            };
+            focusedD3d9SetFvfComplete = true;
+            emit("d3d9-set-fvf-complete", {
+              profile: "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1",
+              device: focusedD3d9SetFvfDevice,
+              mainModuleCall: focusedD3d9SetFvfMainModuleCall,
+            });
+            if (stopOnEvent === "d3d9-set-fvf-complete") {
               recv("vine-trace-stop", () => {}).wait();
             }
           }
