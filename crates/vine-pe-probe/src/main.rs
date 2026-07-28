@@ -257,6 +257,7 @@ enum GenericRuntimeCapability {
     D3d9SetTexture,
     D3d9SetFvf,
     D3d9SetStreamSource,
+    D3d9DrawPrimitive,
 }
 
 struct GenericRuntimeProcess {
@@ -2703,6 +2704,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9SetTexture
                     | GenericRuntimeCapability::D3d9SetFvf
                     | GenericRuntimeCapability::D3d9SetStreamSource
+                    | GenericRuntimeCapability::D3d9DrawPrimitive
             )
         ) {
             let loader = kernel32_policy
@@ -3368,10 +3370,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_set_stream_source_enabled = matches!(
+    let d3d9_draw_primitive_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9SetStreamSource)
+        Some(GenericRuntimeCapability::D3d9DrawPrimitive)
     );
+    let d3d9_set_stream_source_enabled = d3d9_draw_primitive_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9SetStreamSource)
+        );
     let d3d9_set_fvf_enabled = d3d9_set_stream_source_enabled
         || matches!(
             enabled_capability,
@@ -3599,7 +3606,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9InitialTextureStageStates
             | GenericRuntimeCapability::D3d9SetTexture
             | GenericRuntimeCapability::D3d9SetFvf
-            | GenericRuntimeCapability::D3d9SetStreamSource,
+            | GenericRuntimeCapability::D3d9SetStreamSource
+            | GenericRuntimeCapability::D3d9DrawPrimitive,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3930,7 +3938,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v26();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v27();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -3957,6 +3965,9 @@ fn run_v86_generic_runtime_session(
     }
     if !d3d9_set_stream_source_enabled {
         d3d9_policy.stream_source = None;
+    }
+    if !d3d9_draw_primitive_enabled {
+        d3d9_policy.draw_primitive = None;
     }
     if !matches!(
         requested_capability,
@@ -6347,6 +6358,7 @@ fn run_v86_generic_runtime_session(
                             d3d9_initial_sampler_states_enabled
                                 && d3d9_policy.initial_sampler_states.is_some()
                         }
+                        81 => d3d9_draw_primitive_enabled && d3d9_policy.draw_primitive.is_some(),
                         67 => {
                             d3d9_initial_texture_stage_states_enabled
                                 && d3d9_policy.initial_texture_stage_states.is_some()
@@ -6415,6 +6427,7 @@ fn run_v86_generic_runtime_session(
                                     | "SetTexture"
                                     | "SetFVF"
                                     | "SetStreamSource"
+                                    | "DrawPrimitive"
                             ) {
                             process
                                 .runtime
@@ -14134,6 +14147,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-set-texture" => GenericRuntimeCapability::D3d9SetTexture,
                 "d3d9-set-fvf" => GenericRuntimeCapability::D3d9SetFvf,
                 "d3d9-set-stream-source" => GenericRuntimeCapability::D3d9SetStreamSource,
+                "d3d9-draw-primitive" => GenericRuntimeCapability::D3d9DrawPrimitive,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

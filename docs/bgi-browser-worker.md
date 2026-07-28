@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-set-stream-source` and uses protocol
-`vine.browser-runtime-worker.v38`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-draw-primitive` and uses protocol
+`vine.browser-runtime-worker.v39`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -197,6 +197,19 @@ renderer resource. Node and Chrome agree on sequence 127,373, instruction
 memory digests. Both next stop nine instructions later at instruction 28,761,324
 on `IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81, endpoint `0x01011540`,
 return address `0x1005B402`.
+Protocol version 39 carries the resulting immutable Rust-owned draw submission.
+Rust validates the active scene and exact reached render／sampler／texture-stage／
+texture／FVF／stream state, reads the checked 112-byte vertex range from
+authoritative `GuestMemory`, and commits one owning snapshot to logical device
+3／COM 21. The snapshot fixes device generation 57, back-buffer content
+generation 2, submission／scene sequence 1, vertex buffer 3, texture 8, and
+vertex SHA-256
+`405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362`.
+Node and Chrome agree on sequence 127,374 at instruction 28,761,324, reference
+count 5, zero guest writes, and no renderer resource or visible pixels. Both
+next stop eight instructions later at `IDirect3DDevice9::EndScene` slot 42,
+endpoint `0x010112D0`, return address `0x1005B43B`, with the same semantic and
+terminal-memory digests.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -242,9 +255,10 @@ fingerprint before and after execution.
   only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
   sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
   fixed-function state, SetTexture adds one non-owning Rust-owned binding, SetFVF
-  adds the one reached Rust-owned typed vertex format, and SetStreamSource adds
-  the exact non-owning stream-0／offset-0／stride-28 relation. EndScene,
+  adds the one reached Rust-owned typed vertex format, SetStreamSource adds
+  the exact non-owning stream-0／offset-0／stride-28 relation, and DrawPrimitive
+  appends one bounded owning immutable Rust draw submission. EndScene,
   other sampler／state／filter variants, the three rejected render states, other
   texture-stage／binding variants, other vertex formats, other stream bindings,
-  NULL stream unbind, draw, Present, device loss,
+  NULL stream unbind, other draws, Present, device loss,
   and visible browser output remain unsupported.

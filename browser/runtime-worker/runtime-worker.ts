@@ -275,7 +275,13 @@ function isD3d9SetFvf(
 function isD3d9SetStreamSource(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "d3d9-set-stream-source";
+  return profile === "d3d9-set-stream-source" || isD3d9DrawPrimitive(profile);
+}
+
+function isD3d9DrawPrimitive(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-draw-primitive";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -942,6 +948,7 @@ class BrowserRuntimeSession {
     d3d9SetTexture: null as SessionReport["d3d9SetTexture"],
     d3d9SetFvf: null as SessionReport["d3d9SetFvf"],
     d3d9SetStreamSource: null as SessionReport["d3d9SetStreamSource"],
+    d3d9DrawPrimitive: null as SessionReport["d3d9DrawPrimitive"],
     setRect: null as SessionReport["setRect"],
     firstUnsupported: null as SessionReport["firstUnsupported"],
     checkpointCompletion: null as SessionReport["checkpointCompletion"],
@@ -1096,6 +1103,7 @@ class BrowserRuntimeSession {
               isD3d9SetTexture(this.#configuration.capabilityProfile),
               isD3d9SetFvf(this.#configuration.capabilityProfile),
               isD3d9SetStreamSource(this.#configuration.capabilityProfile),
+              isD3d9DrawPrimitive(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -3109,6 +3117,7 @@ class BrowserRuntimeSession {
     this.#recordD3d9SetTextureCall(call);
     this.#recordD3d9SetFvfCall(call);
     this.#recordD3d9SetStreamSourceCall(call);
+    this.#recordD3d9DrawPrimitiveCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4474,7 +4483,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -4543,7 +4552,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -4600,7 +4609,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9AddDirtyRect = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       addDirtyRectProfileId:
         "primary-recreated-system-memory-texture-dirty-rect-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -4692,7 +4701,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9UpdateTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       updateTextureProfileId:
         "primary-recreated-system-memory-to-static-default-texture-update-v1",
       contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -4746,7 +4755,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9BeginScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       beginSceneProfileId: "primary-first-frame-scene-begin-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device",
       lifecycle: "inactive-to-active",
@@ -4856,7 +4865,7 @@ class BrowserRuntimeSession {
       this.#report.d3d9InitialSamplerStates = {
         calls: [first, second],
         postSamplerRenderStateRejections: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
         samplerStateProfileId:
           "primary-first-frame-linear-sampler-states-v1",
         stateAuthority: "rust-runtime-graphics-logical-device-sampler-states",
@@ -4946,7 +4955,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9InitialTextureStageStates = {
         calls: [first, second, third, fourth, fifth, sixth],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
         textureStageStateProfileId:
           "primary-first-frame-fixed-function-texture-stage-zero-v1",
         stateAuthority:
@@ -5001,7 +5010,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       textureBindingProfileId:
         "primary-first-frame-static-default-texture-stage-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-texture-bindings",
@@ -5056,7 +5065,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetFvf = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       flexibleVertexFormatProfileId:
         "primary-first-frame-transformed-diffuse-textured-fvf-v1",
       stateAuthority:
@@ -5118,7 +5127,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetStreamSource = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v26",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
       streamSourceProfileId:
         "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-stream-sources",
@@ -5132,6 +5141,92 @@ class BrowserRuntimeSession {
       unsupportedVariantResult: "0x8876086a",
       failureAtomicity: true,
       browserRendererResourceCreated: false,
+    };
+  }
+
+  #recordD3d9DrawPrimitiveCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isD3d9DrawPrimitive(this.#configuration.capabilityProfile) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 81
+    ) {
+      return;
+    }
+    const device = call.graphicsDevice;
+    const submission = device?.backBuffer.drawSubmissions?.[0];
+    invariant(
+      this.#report.d3d9DrawPrimitive === null &&
+        call.sequence === 127_374 &&
+        call.symbol === "IDirect3DDevice9.DrawPrimitive" &&
+        call.arguments.length === 4 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 5 &&
+        call.arguments[2] === 0 &&
+        call.arguments[3] === 2 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b402 &&
+        call.stackPointerBefore === 0x006f_f254 &&
+        call.stackPointerAfter === 0x006f_f268 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device !== undefined &&
+        device.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene?.sequence === 1 &&
+        device.textureBindings?.stageZero === 8 &&
+        device.flexibleVertexFormat === "xyz-rhw-diffuse-texture1" &&
+        device.streamSources?.streamZero.vertexBufferId === 3 &&
+        device.generation === 57 &&
+        device.backBuffer.contentGeneration === 2 &&
+        device.backBuffer.uniformClear?.sequence === 1 &&
+        device.backBuffer.drawSubmissions?.length === 1 &&
+        submission !== undefined &&
+        submission.sequence === 1 &&
+        submission.sceneSequence === 1 &&
+        submission.primitiveTopology === "triangle-strip" &&
+        submission.startVertex === 0 &&
+        submission.primitiveCount === 2 &&
+        submission.vertexCount === 4 &&
+        submission.flexibleVertexFormat === "xyz-rhw-diffuse-texture1" &&
+        submission.streamSource.vertexBufferId === 3 &&
+        submission.streamSource.offsetInBytes === 0 &&
+        submission.streamSource.stride === 28 &&
+        submission.vertexBufferContentGeneration === 1 &&
+        submission.vertexData.length === 112 &&
+        submission.texture.textureId === 8 &&
+        submission.texture.descriptor.width === 2_048 &&
+        submission.texture.descriptor.height === 1_024 &&
+        submission.texture.descriptor.levels === 1 &&
+        submission.texture.descriptor.usage === "none" &&
+        submission.texture.descriptor.pool === "default" &&
+        submission.texture.content.contentGeneration === 1 &&
+        device.renderer === undefined,
+      "D3D9 DrawPrimitive ABI or Rust logical draw submission changed",
+    );
+    this.#report.d3d9DrawPrimitive = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27",
+      drawPrimitiveProfileId:
+        "primary-first-frame-triangle-strip-quad-draw-v1",
+      stateAuthority:
+        "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
+      vertexByteAuthority: "rust-guest-memory-synchronous-immutable-snapshot",
+      mutation: "validate-plan-read-preflight-targeted-commit",
+      supportedPrimitiveTopology: "triangle-strip",
+      supportedStartVertex: 0,
+      supportedPrimitiveCount: 2,
+      capturedVertexBytes: 112,
+      pendingSubmissionLimit: 4_096,
+      pendingVertexBytesLimit: 1_048_576,
+      clearDiscardsPendingSubmissions: true,
+      failureAtomicity: true,
+      browserRendererResourceCreated: false,
+      visiblePixelsProduced: false,
     };
   }
 
@@ -6891,7 +6986,15 @@ class BrowserRuntimeSession {
               : isD3d9Clear(this.#configuration.capabilityProfile)
                 ? "user32-api-contract"
                 : "d3d9-idirect3ddevice9-method") &&
-          (isD3d9SetStreamSource(this.#configuration.capabilityProfile)
+          (isD3d9DrawPrimitive(this.#configuration.capabilityProfile)
+            ? this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
+              this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
+              firstUnsupported.instructionCount === 28_761_332 &&
+              firstUnsupported.capabilityCluster ===
+                "d3d9-idirect3ddevice9-method" &&
+              firstUnsupported.memoryContentSha256 ===
+                "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0"
+          : isD3d9SetStreamSource(this.#configuration.capabilityProfile)
             ? this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
               this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
               firstUnsupported.instructionCount === 28_761_324 &&
@@ -7181,6 +7284,7 @@ worker.addEventListener(
               d3d9SetTexture: null,
               d3d9SetFvf: null,
               d3d9SetStreamSource: null,
+              d3d9DrawPrimitive: null,
               setRect: null,
               firstUnsupported: null,
               checkpointCompletion: null,

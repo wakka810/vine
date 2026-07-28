@@ -1417,6 +1417,21 @@ logical vertex buffer 3、offset 0、stride 28、device generation 56、referenc
 Canonical stopはinstruction 28,761,324の`IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81である。他stream、offset、
 stride、NULL unbind、draw semantics、EndScene、Present、pixel backing、browser rendererはacceptanceへ含めない。
 
+続く`DrawPrimitive` gatewayは、focused primary trace二runが同じdevice、primitive type 5、start vertex 0、primitive
+count 2、caller RVA `0x5B402`、`D3D_OK`、LastError 0、結果を分岐へ使わずslot-42 `EndScene`へ進むconsumerを
+一致させる。Controlled PE32/i386 oracleはscene外、required state不足、stream不足の`D3DERR_INVALIDCALL`、target／
+repeat success、LastError sentinel `0x5A5A` preserve、device／vertex-buffer reference count不変を固定する。Nativeが
+受理したzero-count、out-of-range、triangle-list、scene外-after variantは到達policyへ一般化しない。
+
+Focused Rust model／dispatcher testsはactive sceneとexact typed stateのpreflight、checked `GuestMemory` read、112-byte
+owning immutable vertex snapshot、texture content snapshot、4,096 submission／1 MiB vertex-byte limit、stale／capacity／
+wrong-owner／uninitialized／locked／unsupported failure atomicity、resource retirement後のsnapshot保持、Clearによるpending
+submission破棄を固定する。Node／Chrome protocol v39はsequence 127,374、instruction 28,761,324、device 3／COM 21、
+device generation 57、back-buffer generation 2、submission／scene sequence 1、vertex buffer 3、texture 8、vertex hash
+`405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362`、zero guest writes、renderer resource／visible
+pixelsなしを一致させる。Canonical stopはinstruction 28,761,332の`IDirect3DDevice9::EndScene` slot 42である。他draw、
+`EndScene` semantics、Present、pixel backing、browser renderer／visible outputはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

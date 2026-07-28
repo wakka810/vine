@@ -15,8 +15,9 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsBackBufferClearRequest,
     RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
-    RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
-    RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
+    RuntimeGraphicsDrawCaptureRequest, RuntimeGraphicsFlexibleVertexFormat,
+    RuntimeGraphicsFlexibleVertexFormatUpdateRequest, RuntimeGraphicsFrontend,
+    RuntimeGraphicsPresentMode, RuntimeGraphicsPrimitiveTopology, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
     RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
     RuntimeGraphicsStreamSourceUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
@@ -35,7 +36,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 26;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 27;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -48,6 +49,7 @@ pub const D3D9_D3DPS_VERSION_3_0: u32 = 0xffff_0300;
 pub const D3D9_D3DFVF_XYZRHW: u32 = 0x004;
 pub const D3D9_D3DFVF_DIFFUSE: u32 = 0x040;
 pub const D3D9_D3DFVF_TEX1: u32 = 0x100;
+pub const D3D9_D3DPT_TRIANGLESTRIP: u32 = 5;
 pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
@@ -348,6 +350,15 @@ pub struct D3d9StreamSourcePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9DrawPrimitivePolicy {
+    pub profile_id: String,
+    pub primitive_type: u32,
+    pub start_vertex: u32,
+    pub primitive_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9RasterStatusPolicy {
     pub profile_id: String,
     pub display_profile_id: String,
@@ -412,6 +423,7 @@ pub struct D3d9CompatibilityPolicy {
     pub texture_binding: Option<D3d9TextureBindingPolicy>,
     pub flexible_vertex_format: Option<D3d9FlexibleVertexFormatPolicy>,
     pub stream_source: Option<D3d9StreamSourcePolicy>,
+    pub draw_primitive: Option<D3d9DrawPrimitivePolicy>,
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
@@ -420,11 +432,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v26() -> Self {
+    pub fn controlled_v27() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v26".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v27".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -563,6 +575,12 @@ impl D3d9CompatibilityPolicy {
                 offset_in_bytes: 0,
                 stride: 28,
             }),
+            draw_primitive: Some(D3d9DrawPrimitivePolicy {
+                profile_id: "primary-first-frame-triangle-strip-quad-draw-v1".to_owned(),
+                primitive_type: D3D9_D3DPT_TRIANGLESTRIP,
+                start_vertex: 0,
+                primitive_count: 2,
+            }),
             raster_status: Some(D3d9RasterStatusPolicy {
                 profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -607,6 +625,7 @@ impl D3d9CompatibilityPolicy {
         self.texture_binding = None;
         self.flexible_vertex_format = None;
         self.stream_source = None;
+        self.draw_primitive = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -622,6 +641,7 @@ impl D3d9CompatibilityPolicy {
         self.texture_binding = None;
         self.flexible_vertex_format = None;
         self.stream_source = None;
+        self.draw_primitive = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
@@ -905,6 +925,26 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-stream-source-profile-invalid",
                 "D3D9 stream-source profile must bind the reached transformed diffuse textured quad to stream zero",
+            ));
+        }
+        if let Some(draw) = self.draw_primitive.as_ref()
+            && (draw.profile_id != "primary-first-frame-triangle-strip-quad-draw-v1"
+                || draw.primitive_type != D3D9_D3DPT_TRIANGLESTRIP
+                || draw.start_vertex != 0
+                || draw.primitive_count != 2
+                || self.begin_scene.is_none()
+                || self.clear.is_none()
+                || self.initial_render_states.is_none()
+                || self.initial_sampler_states.is_none()
+                || self.initial_texture_stage_states.is_none()
+                || self.texture_binding.is_none()
+                || self.flexible_vertex_format.is_none()
+                || self.stream_source.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-draw-primitive-profile-invalid",
+                "D3D9 DrawPrimitive profile must describe the reached prepared triangle-strip quad submission",
             ));
         }
         if let Some(raster_status) = self.raster_status.as_ref()
@@ -1669,6 +1709,7 @@ fn dispatch_d3d9_device_frontend_call(
         65 => ("SetTexture", 2),
         67 => ("SetTextureStageState", 3),
         69 => ("SetSamplerState", 3),
+        81 => ("DrawPrimitive", 3),
         89 => ("SetFVF", 1),
         100 => ("SetStreamSource", 4),
         _ => {
@@ -1703,6 +1744,7 @@ fn dispatch_d3d9_device_frontend_call(
         65 => dispatch_set_texture(policy, call),
         67 => dispatch_set_texture_stage_state(policy, call),
         69 => dispatch_set_sampler_state(policy, call),
+        81 => dispatch_draw_primitive(policy, call),
         89 => dispatch_set_fvf(policy, call),
         100 => dispatch_set_stream_source(policy, call),
         _ => unreachable!(),
@@ -2688,6 +2730,90 @@ fn dispatch_set_stream_source(
     debug_assert_eq!(result.stream, stream);
     debug_assert_eq!(result.binding.offset_in_bytes, offset_in_bytes);
     debug_assert_eq!(result.binding.stride, stride);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
+fn dispatch_draw_primitive(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(draw_policy) = policy.draw_primitive.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-draw-primitive",
+            "draw-primitive-policy-disabled",
+            "D3D9 compatibility policy does not enable DrawPrimitive",
+        );
+    };
+    let primitive_type = call.frame().explicit_arguments[0];
+    let start_vertex = call.frame().explicit_arguments[1];
+    let primitive_count = call.frame().explicit_arguments[2];
+    if primitive_type != draw_policy.primitive_type
+        || start_vertex != draw_policy.start_vertex
+        || primitive_count != draw_policy.primitive_count
+    {
+        return call.complete(
+            ComReturnValue::HResult(D3D9_D3DERR_NOTAVAILABLE),
+            Vec::new(),
+        );
+    }
+    let capture =
+        match call
+            .runtime()
+            .plan_graphics_draw_capture(RuntimeGraphicsDrawCaptureRequest {
+                device_com_object_id: call.frame().object_id,
+                primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
+                start_vertex,
+                primitive_count,
+            }) {
+            Ok(capture) => capture,
+            Err(error)
+                if matches!(
+                    error.class,
+                    RuntimeStateErrorClass::InvalidInput | RuntimeStateErrorClass::NotFound
+                ) =>
+            {
+                return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+            }
+            Err(error) => return call.runtime_fault(error),
+        };
+    let vertex_range = capture.vertex_range();
+    let vertex_byte_length = match usize::try_from(vertex_range.byte_length()) {
+        Ok(byte_length) => byte_length,
+        Err(_) => {
+            return call.fault(
+                ComFaultClass::RuntimeDefect,
+                "d3d9-draw-primitive",
+                "draw-primitive-vertex-byte-length-invalid",
+                "planned D3D9 draw vertex byte length does not fit host accounting",
+            );
+        }
+    };
+    let vertex_data = match call.memory().read(vertex_range.start(), vertex_byte_length) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let plan = match call
+        .runtime()
+        .prepare_graphics_draw_submission(capture, vertex_data)
+    {
+        Ok(plan) => plan,
+        Err(error) if error.class == RuntimeStateErrorClass::InvalidInput => {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call.runtime().preflight_graphics_draw_submission(&plan) {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    let result = call.runtime_mut().commit_graphics_draw_submission(plan);
+    debug_assert_eq!(
+        result.submission.primitive_topology,
+        RuntimeGraphicsPrimitiveTopology::TriangleStrip
+    );
+    debug_assert_eq!(result.submission.start_vertex, start_vertex);
+    debug_assert_eq!(result.submission.primitive_count, primitive_count);
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
@@ -3855,7 +3981,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 43 | 57 | 65 | 67 | 69 | 89 | 100 => {
+            19 | 23 | 26 | 31 | 41 | 43 | 57 | 65 | 67 | 69 | 81 | 89 | 100 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

@@ -879,10 +879,21 @@ Native driverが受理する他FVFはpolicyへ暗黙昇格させない。Reached
 COM relationとsame-device ownershipを解決し、`RuntimeGraphicsDevice`へstream 0、logical vertex-buffer ID、offset 0、
 stride 28だけをplan／preflight／idempotent commitする。Bindingはnon-owningでCOM AddRefを保持せず、vertex-buffer
 final retirementは同じretirement commitで残存bindingをclearする。Nativeが受理するoffset 4、stride 0、stream 1、
-NULL unbindは到達policyへ暗黙昇格させない。TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、
-dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、stream binding、
-renderer resourceの第二のauthorityを持たない。他stage／resource binding、他vertex format、他stream binding、draw、
-Present、pixel backing、browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
+NULL unbindは到達policyへ暗黙昇格させない。
+
+Reached `DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2)`はactive scene、typed fixed-function state、stage-0 texture、FVF、
+stream-0 binding、live resource ownershipをmutation-free planで固定し、checked guest rangeを返す。Aggregateはそのrangeを
+authoritative `GuestMemory`から同期readし、graphics ownerが112-byte vertex data、render／sampler／texture-stage state、
+texture descriptor／contentをowning immutable submissionへprepareする。全generation、queue capacity、累積vertex-byte
+capacityをpreflightしてからback-bufferへtargeted commitし、失敗時はguest memory、queue、allocator、binding、generationを
+変更しない。Submissionはsource resource retirement後も成立し、live non-owning bindingのretirement clearとは独立する。
+Full-target Clearは同じchecked commitでpending submissionを破棄する。これによりguest bytesの後続変更やresource retirementで
+既に発行したcommandの意味が変わらず、renderer adapterはRust snapshotだけを消費できる。
+
+TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
+texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、renderer resourceの第二のauthorityを
+持たない。他stage／resource binding、他vertex format、他stream binding、他draw、`EndScene`、Present、pixel backing、
+browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

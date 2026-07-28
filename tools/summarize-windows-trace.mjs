@@ -86,6 +86,7 @@ const supportedObservations = new Set([
   "d3d9-set-texture",
   "d3d9-set-fvf",
   "d3d9-set-stream-source",
+  "d3d9-draw-primitive",
   "d3d9-initial-sampler-states",
   "d3d9-initial-texture-stage-states",
   "d3d9-initial-vertex-buffer",
@@ -2887,6 +2888,130 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const drawPrimitiveCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-draw-primitive-complete",
+  );
+  const requiresDrawPrimitiveCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-draw-primitive" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-draw-primitive-complete";
+  if (
+    drawPrimitiveCompletionEvents.length > 1 ||
+    (requiresDrawPrimitiveCompletion &&
+      drawPrimitiveCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-draw-primitive observation requires exactly one structured completion",
+    );
+  }
+  const drawPrimitiveObservations = drawPrimitiveCompletionEvents.map(
+    (completion) => {
+      const snapshot = completion.mainModuleCall;
+      const pair = pairsByCallId.get(snapshot?.callId);
+      const observation = pair?.leave.d3d9DrawPrimitive;
+      const instructions = snapshot?.immediateConsumer?.entry?.instructions;
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      if (
+        completion.profile !==
+          "x86-bgi-first-frame-triangle-strip-quad-draw-v1" ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Number.isInteger(completion.sequence) ||
+        pair === undefined ||
+        observation === undefined ||
+        snapshot.api !== "DrawPrimitive" ||
+        snapshot.interface !== "IDirect3DDevice9" ||
+        snapshot.vtableSlot !== 81 ||
+        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        JSON.stringify(snapshot.arguments) !==
+          JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== observation.result ||
+        snapshot.resultU32 !== observation.resultU32 ||
+        snapshot.primitiveType !== observation.primitiveType ||
+        snapshot.startVertex !== observation.startVertex ||
+        snapshot.primitiveCount !== observation.primitiveCount ||
+        snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+        snapshot.lastError !== observation.lastErrorAfter ||
+        JSON.stringify(snapshot.immediateConsumer) !==
+          JSON.stringify(observation.immediateConsumer) ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.api !== "DrawPrimitive" ||
+        pair.enter.interface !== "IDirect3DDevice9" ||
+        pair.enter.vtableSlot !== 81 ||
+        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== 0x5b402 ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 3 ||
+        BigInt(pair.enter.arguments[0]) !== 5n ||
+        BigInt(pair.enter.arguments[1]) !== 0n ||
+        BigInt(pair.enter.arguments[2]) !== 2n ||
+        observation.primitiveType !== 5 ||
+        observation.startVertex !== 0 ||
+        observation.primitiveCount !== 2 ||
+        BigInt(pair.leave.result) !== 0n ||
+        observation.result !== 0 ||
+        observation.resultU32 !== 0 ||
+        observation.lastErrorBefore !== 0 ||
+        pair.leave.lastError !== 0 ||
+        observation.lastErrorAfter !== 0 ||
+        !Array.isArray(instructions) ||
+        instructions[0]?.mnemonic !== "cmp" ||
+        !instructions[0].opStr.startsWith("dword ptr [") ||
+        !instructions[0].opStr.endsWith("], 0") ||
+        instructions[1]?.mnemonic !== "je" ||
+        instructions[12]?.mnemonic !== "mov" ||
+        !instructions[12].opStr.startsWith("eax, dword ptr [") ||
+        instructions[13]?.mnemonic !== "mov" ||
+        instructions[13].opStr !== "ecx, dword ptr [eax]" ||
+        instructions[14]?.mnemonic !== "mov" ||
+        instructions[14].opStr !== "edx, dword ptr [ecx + 0xa8]" ||
+        instructions[15]?.mnemonic !== "push" ||
+        instructions[15].opStr !== "eax" ||
+        instructions[16]?.mnemonic !== "call" ||
+        instructions[16].opStr !== "edx"
+      ) {
+        throw new Error(
+          "d3d9-draw-primitive completion violates its caller, topology, result, LastError, or immediate EndScene contract",
+        );
+      }
+      if (
+        completion.threadId !== pair.enter.threadId ||
+        pair.leave.threadId !== pair.enter.threadId ||
+        completion.sequence !== pair.leave.sequence + 1
+      ) {
+        throw new Error(
+          "d3d9-draw-primitive completion violates its thread or contiguous ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        threadId: pair.enter.threadId,
+        device: completion.device,
+        call: {
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          primitiveType: Number(BigInt(pair.enter.arguments[0])),
+          startVertex: Number(BigInt(pair.enter.arguments[1])),
+          primitiveCount: Number(BigInt(pair.enter.arguments[2])),
+          result: pair.leave.result,
+          lastErrorBefore: observation.lastErrorBefore,
+          lastError: pair.leave.lastError,
+          immediateConsumer: observation.immediateConsumer,
+        },
+      };
+    },
+  );
+
   const initialSamplerStateCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-initial-sampler-states-complete",
   );
@@ -4736,6 +4861,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       setTextureObservations,
       setFvfObservations,
       setStreamSourceObservations,
+      drawPrimitiveObservations,
       initialSamplerStateSequences,
       initialTextureStageStateSequences,
       rasterStatusObservations,

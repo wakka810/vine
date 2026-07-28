@@ -5648,3 +5648,37 @@ logical device 3／COM 21、logical vertex buffer 3、device generation 56、off
 9 instructions後、endpoint `0x01011540`、caller return `0x1005B402`の
 `IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81である。他stream／vertex buffer／offset／stride、NULL unbind、
 draw semantics、Present、pixel backing、browser rendererはこのevidenceからclaimしない。
+
+## 168. BGI first `DrawPrimitive` and controlled scene／state validity
+
+Focused primary captureは471,166 bytes／1,176 lines／SHA-256
+`98a5c86993c3b74d9b686fbf8f85087dc8b03ef8f035e2cbedcd496afa3997a6`、summaryは298,725 bytes／
+SHA-256 `6e6ce27b2724712ed9a1c9a1b8b4243b5f6d77c80e42790f83425fbc232652ca`で、1,174 events／548
+API pairsがbalancedである。Independent confirmation captureは470,045 bytes／1,172 lines／SHA-256
+`594419fb62809fd68a57558212442e7df403ca76f342906897abd2c33508bc78`、summaryは298,840 bytes／
+SHA-256 `d7c36039c0019d26e9ae11de76457a9dd29a16c4fdd67632ee1f98c9122f4a4f`で、1,170 events／546
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、primitive type 5
+(`D3DPT_TRIANGLESTRIP`)、start vertex 0、primitive count 2、`D3D_OK`／LastError 0、caller RVA
+`0x0005B402`を一致させる。Return後の最初の命令はHRESULTを検査せず、同じdeviceのvtable offset `0xA8`、
+slot 42 `EndScene`をcallしてreturn RVA `0x0005B43B`へ進む。Raw trace／summaryは`.work/windows-traces/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Controlled oracle `x86-d3d9-draw-primitive-state-validity-v1`はPE32／COFF-i386 executableである。Sourceは
+12,940 bytes／SHA-256 `b6173b334dc173fcc0239da4abd5b49c83cd2347101acded830a72fae8c04b8d`、objectは14,055
+bytes／SHA-256 `6a47254c4912db462f06201dbee2fc04c6ef2590ba9121bb903f269930fe06fb`、executableは6,656
+bytes／SHA-256 `f02ff1139edcc13555716d65b6dd37435b873fab1db349696b04b71e456efad5`である。独立二runは
+ともにexit 0で、scene外-before、required state不足、stream不足を`D3DERR_INVALIDCALL`、target／repeat、
+zero-count、out-of-range、triangle-list、scene外-afterを`D3D_OK`、全callのLastError sentinel 23,130
+(`0x5A5A`) preserve、device reference count `[2,2]`、vertex-buffer reference count `[1,1]`を一致させる。
+Runtimeはnative driverの広い受理を一般化せず、primaryで到達したactive scene、exact fixed-function state、
+same-device resources、triangle-strip／start 0／count 2だけをversioned policyへ昇格する。
+
+Canonical Node／Chromeはsequence 127,374、instruction 28,761,324、logical device 3／COM 21、device generation
+57、back-buffer content generation 2、submission／scene sequence 1、logical vertex buffer 3、logical texture 8、
+112-byte vertex SHA-256
+`405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362`を一致させる。Snapshotは
+Rust-ownedで、guest write、COM reference mutation、browser renderer resource、visible pixelを生成しない。次stopは
+8 instructions後、endpoint `0x010112D0`、caller return `0x1005B43B`の
+`IDirect3DDevice9::EndScene` slot 42である。他draw、EndScene／Present semantics、pixel backing、browser upload、
+device lossはこのevidenceからclaimしない。

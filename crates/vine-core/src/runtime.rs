@@ -111,16 +111,19 @@ pub use gdiplus::{
 };
 pub use graphics::{
     RUNTIME_BROWSER_RENDERER_ID_NAMESPACE, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,
-    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
+    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT,
+    RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
     RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE, RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT,
     RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_GRAPHICS_SURFACE_LIMIT,
     RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE, RUNTIME_GRAPHICS_TEXTURE_LIMIT,
     RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE, RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT,
     RuntimeBrowserRendererResourceId, RuntimeGraphicsBackBuffer, RuntimeGraphicsBackBufferClear,
     RuntimeGraphicsBackBufferClearResult, RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode,
-    RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsFlexibleVertexFormat,
-    RuntimeGraphicsFlexibleVertexFormatUpdateResult, RuntimeGraphicsFrontend,
-    RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation, RuntimeGraphicsRenderStateUpdate,
+    RuntimeGraphicsDevice, RuntimeGraphicsDeviceId, RuntimeGraphicsDrawSubmission,
+    RuntimeGraphicsDrawSubmissionResult, RuntimeGraphicsDrawTextureSnapshot,
+    RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsFlexibleVertexFormatUpdateResult,
+    RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsPresentation,
+    RuntimeGraphicsPrimitiveTopology, RuntimeGraphicsRenderStateUpdate,
     RuntimeGraphicsRenderStateUpdateResult, RuntimeGraphicsRenderStates,
     RuntimeGraphicsRendererAssociation, RuntimeGraphicsRendererOwnership,
     RuntimeGraphicsSamplerState, RuntimeGraphicsSamplerStateUpdate,
@@ -144,13 +147,13 @@ pub use graphics::{
 };
 pub(crate) use graphics::{
     RuntimeGraphicsBackBufferClearRequest, RuntimeGraphicsDeviceCreateRequest,
-    RuntimeGraphicsFlexibleVertexFormatUpdateRequest, RuntimeGraphicsRenderStateUpdateRequest,
-    RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
-    RuntimeGraphicsStreamSourceUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureBindingUpdateRequest, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureStageStateUpdateRequest,
-    RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsVertexBufferCreateRequest,
-    RuntimeGraphicsVertexBufferLockRequest,
+    RuntimeGraphicsDrawCaptureRequest, RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdateRequest,
+    RuntimeGraphicsSceneBeginRequest, RuntimeGraphicsStreamSourceUpdateRequest,
+    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureBindingUpdateRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    RuntimeGraphicsTextureStageStateUpdateRequest, RuntimeGraphicsTextureUpdateRequest,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLockRequest,
 };
 pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{

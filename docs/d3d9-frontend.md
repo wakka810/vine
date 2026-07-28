@@ -17,7 +17,7 @@ delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
 slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, slot 65
 `SetTexture`, slot 67 `SetTextureStageState`, slot 69 `SetSamplerState`, slot
-89 `SetFVF`, and slot 100 `SetStreamSource`
+81 `DrawPrimitive`, slot 89 `SetFVF`, and slot 100 `SetStreamSource`
 delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
 interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
@@ -781,7 +781,7 @@ resource. Seventeen instructions later both stop at device slot 100
 
 ## Bounded stream-zero source binding
 
-Version 26 adds `primary-first-frame-transformed-diffuse-textured-stream-zero-v1`
+Version 27 includes `primary-first-frame-transformed-diffuse-textured-stream-zero-v1`
 for device slot 100. The active policy accepts only stream 0, the live
 same-device vertex buffer, byte offset 0, and stride 28. The resulting
 `RuntimeGraphicsDevice.stream_sources.stream_zero` record contains the logical
@@ -814,6 +814,47 @@ They agree on device 3／COM 21, logical vertex buffer 3, offset 0, stride 28,
 device generation 56, reference count 5, zero guest writes, non-owning lifetime,
 idempotent generation behavior, and no renderer resource. Nine instructions
 later both stop at device slot 81 `DrawPrimitive(5,0,2)`.
+
+## Bounded immutable draw submission
+
+Version 27 adds `primary-first-frame-triangle-strip-quad-draw-v1` for device
+slot 81. The policy accepts only the reached
+`DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2)` while a scene is active and the exact
+reached render, sampler, texture-stage, texture, FVF, and stream-zero state is
+live. Planning resolves those same-device relations and computes the checked
+112-byte guest range. `GuestMemory` is read synchronously between the
+mutation-free capture plan and graphics preflight; the targeted commit appends
+one owning immutable draw submission to the Rust-owned back buffer.
+
+The submission snapshots four transformed／diffuse／textured vertices, the
+typed fixed-function state, and the logical texture descriptor and content.
+It therefore remains valid if the source vertex buffer or texture later
+retires; the live bindings remain non-owning and are still cleared by resource
+retirement. A later full-target Clear discards pending submissions in the same
+checked commit. The queue is bounded to 4,096 submissions and 1 MiB of captured
+vertex bytes. Missing scene or required state, wrong owner, unlocked or
+uninitialized resources, stale plans, capacity exhaustion, and invalid ranges
+fail before mutation. Other primitive types, ranges, layouts, and pipeline
+states return the profile-specific unsupported result without widening native
+driver permissiveness.
+
+Focused native traces agree on primitive type 5, start vertex 0, primitive
+count 2, `D3D_OK`, LastError 0, caller RVA `0x0005B402`, and an ignored result
+followed by device slot-42 `EndScene`. A controlled PE32/i386 oracle fixes
+`D3DERR_INVALIDCALL` outside a scene and with missing state／stream, successful
+target and repeat draws, LastError sentinel preservation, and unchanged device
+and vertex-buffer reference counts. Native acceptance of zero-count,
+out-of-range, triangle-list, and post-scene variants is intentionally not
+promoted into the reached runtime policy.
+
+Canonical Node and Chrome complete sequence 127,374 at instruction 28,761,324.
+They agree on device 3／COM 21, generation 57, back-buffer content generation 2,
+submission／scene sequence 1, logical vertex buffer 3, logical texture 8, and
+the 112-byte vertex snapshot SHA-256
+`405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362`.
+No guest bytes, COM references, browser renderer resources, or visible pixels
+are produced. Eight instructions later both stop at device slot 42 `EndScene`,
+endpoint `0x010112D0`, return address `0x1005B43B`.
 
 ## Versioned frontend and shared graphics boundary
 
@@ -854,6 +895,9 @@ the same owner-local plan／preflight／idempotent-commit boundary.
 Slot 100 `SetStreamSource` adds one non-owning stream-zero relation to the live
 same-device vertex buffer. The relation is cleared atomically if that vertex
 buffer retires while the device remains live.
+Slot 81 `DrawPrimitive` is the first consuming graphics transaction. It reads
+the checked guest vertex range and commits an owning immutable command snapshot
+without moving guest memory or Windows state into TypeScript.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -870,7 +914,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-set-stream-source
+npm run check:runtime:bgi -- --profile d3d9-draw-primitive
 npm run check:runtime:bgi-browser
 ```
 
@@ -911,9 +955,10 @@ lifecycle policy, and zero writes. Finally it records the exact two slot-69
 `SetSamplerState` transitions, the six slot-67 `SetTextureStageState` updates,
 and the slot-65 non-owning texture binding, including immutable device
   snapshots and three explicit post-sampler render-state rejections. It then
-  records the slot-89 typed FVF transition and slot-100 non-owning stream-zero
-  binding before stopping at device slot 81 `DrawPrimitive` without creating a browser renderer resource
-or a second graphics authority.
+  records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
+  binding, and slot-81 immutable triangle-strip draw submission before stopping
+  at device slot 42 `EndScene`, without creating a browser renderer resource,
+  visible pixels, or a second graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -954,7 +999,9 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   `IDirect3DDevice9::SetStreamSource` slot 100. The active
   `d3d9-set-stream-source` profile additionally enables only the exact
   stream-0／vertex-buffer／offset-0／stride-28 binding and stops at
-  `IDirect3DDevice9::DrawPrimitive` slot 81.
+  `IDirect3DDevice9::DrawPrimitive` slot 81. The active
+  `d3d9-draw-primitive` profile adds the exact first-frame triangle-strip quad
+  submission and stops at `IDirect3DDevice9::EndScene` slot 42.
 
 ## Non-claims
 
@@ -971,8 +1018,9 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
   linear `SetSamplerState` calls, the exact six stage-0
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
-  `SetTexture` binding, the exact typed FVF `0x144`, and the exact stream-0
-  source binding at offset 0／stride 28 are
+  `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
+  source binding at offset 0／stride 28, and one exact triangle-strip quad draw
+  submission are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
@@ -980,13 +1028,13 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
   filter variants, other texture stages／operations／arguments／resources,
   other vertex formats, other streams／vertex buffers／offsets／strides, NULL
-  stream unbind, draw, Present, Reset,
+  stream unbind, other draws, `EndScene`, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
   bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
-  texture-stage state, bounded texture binding, bounded FVF state, and bounded
-  stream-source binding create Rust logical state
+  texture-stage state, bounded texture binding, bounded FVF state, bounded
+  stream-source binding, and bounded immutable draw submission create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

@@ -23,6 +23,8 @@ pub const RUNTIME_GRAPHICS_TEXTURE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
+pub const RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT: usize = 4_096;
+pub const RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -80,6 +82,12 @@ pub enum RuntimeGraphicsTextureArgument {
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsFlexibleVertexFormat {
     XyzRhwDiffuseTexture1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsPrimitiveTopology {
+    TriangleStrip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
@@ -549,17 +557,49 @@ pub struct RuntimeGraphicsBackBufferClear {
     pub color_argb: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsDrawTextureSnapshot {
+    pub texture_id: RuntimeGraphicsTextureId,
+    pub descriptor: RuntimeGraphicsTextureDescriptor,
+    pub generation: u64,
+    pub content: RuntimeGraphicsTextureContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsDrawSubmission {
+    pub sequence: u64,
+    pub scene_sequence: u64,
+    pub primitive_topology: RuntimeGraphicsPrimitiveTopology,
+    pub start_vertex: u32,
+    pub primitive_count: u32,
+    pub vertex_count: u32,
+    pub flexible_vertex_format: RuntimeGraphicsFlexibleVertexFormat,
+    pub stream_source: RuntimeGraphicsStreamSourceBinding,
+    pub vertex_buffer_content_generation: u64,
+    pub vertex_data: Vec<u8>,
+    pub render_states: RuntimeGraphicsRenderStates,
+    pub sampler_states: RuntimeGraphicsSamplerStates,
+    pub texture_stage_states: RuntimeGraphicsTextureStageStates,
+    pub texture: RuntimeGraphicsDrawTextureSnapshot,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsBackBuffer {
     pub content_generation: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub draw_submissions: Vec<RuntimeGraphicsDrawSubmission>,
 }
 
 impl RuntimeGraphicsBackBuffer {
     fn is_pristine(&self) -> bool {
-        self.content_generation == 0 && self.uniform_clear.is_none()
+        self.content_generation == 0
+            && self.uniform_clear.is_none()
+            && self.draw_submissions.is_empty()
     }
 }
 
@@ -739,6 +779,14 @@ pub(crate) struct RuntimeGraphicsBackBufferClearRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsDrawCaptureRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+    pub primitive_topology: RuntimeGraphicsPrimitiveTopology,
+    pub start_vertex: u32,
+    pub primitive_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsSceneBeginRequest {
     pub device_com_object_id: RuntimeComObjectId,
 }
@@ -886,8 +934,56 @@ pub(crate) struct RuntimeGraphicsBackBufferClearPlan {
     content_generation: u64,
     next_content_generation: u64,
     previous_uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
+    previous_draw_submission_count: usize,
+    previous_draw_vertex_bytes: usize,
     clear: RuntimeGraphicsBackBufferClear,
     next_clear_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsDrawCapturePlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    content_generation: u64,
+    next_content_generation: u64,
+    expected_draw_submission_count: usize,
+    expected_draw_vertex_bytes: usize,
+    next_draw_sequence: u64,
+    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    vertex_buffer_generation: u64,
+    texture_id: RuntimeGraphicsTextureId,
+    texture_generation: u64,
+    vertex_range: GuestRange,
+    submission: RuntimeGraphicsDrawSubmission,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeGraphicsDrawResolvedState {
+    scene: RuntimeGraphicsScene,
+    flexible_vertex_format: RuntimeGraphicsFlexibleVertexFormat,
+    stream_source: RuntimeGraphicsStreamSourceBinding,
+    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
+    vertex_buffer_generation: u64,
+    vertex_buffer_content_generation: u64,
+    vertex_range: GuestRange,
+    render_states: RuntimeGraphicsRenderStates,
+    sampler_states: RuntimeGraphicsSamplerStates,
+    texture_stage_states: RuntimeGraphicsTextureStageStates,
+    texture: RuntimeGraphicsDrawTextureSnapshot,
+}
+
+impl RuntimeGraphicsDrawCapturePlan {
+    pub(crate) fn vertex_range(&self) -> GuestRange {
+        self.vertex_range
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsDrawSubmissionPlan {
+    capture: RuntimeGraphicsDrawCapturePlan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1075,6 +1171,15 @@ pub struct RuntimeGraphicsBackBufferClearResult {
     pub device_generation: u64,
     pub content_generation: u64,
     pub clear: RuntimeGraphicsBackBufferClear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsDrawSubmissionResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub device_generation: u64,
+    pub content_generation: u64,
+    pub submission: RuntimeGraphicsDrawSubmission,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1273,6 +1378,8 @@ pub(super) struct RuntimeGraphics {
     next_back_buffer_clear_sequence: u64,
     #[serde(skip_serializing_if = "is_initial_sequence")]
     next_scene_sequence: u64,
+    #[serde(skip_serializing_if = "is_initial_sequence")]
+    next_draw_sequence: u64,
     generation: u64,
 }
 
@@ -1299,6 +1406,7 @@ impl Default for RuntimeGraphics {
             next_texture_update_sequence: 1,
             next_back_buffer_clear_sequence: 1,
             next_scene_sequence: 1,
+            next_draw_sequence: 1,
             generation: 0,
         }
     }
@@ -2012,6 +2120,382 @@ impl RuntimeGraphics {
         })
     }
 
+    pub(super) fn plan_draw_capture(
+        &self,
+        request: RuntimeGraphicsDrawCaptureRequest,
+    ) -> Result<RuntimeGraphicsDrawCapturePlan, RuntimeStateError> {
+        validate_draw_capture_request(request)?;
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-draw-device-com-object-unknown",
+                    "logical draw submission requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        let resolved = self.resolve_draw_state(device, request)?;
+        let expected_draw_submission_count = device.back_buffer.draw_submissions.len();
+        if expected_draw_submission_count >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-draw-submission-capacity-reached",
+                "logical back-buffer draw-submission capacity is exhausted",
+            ));
+        }
+        let expected_draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)?;
+        let vertex_byte_length =
+            usize::try_from(resolved.vertex_range.byte_length()).map_err(|_| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-byte-length-invalid",
+                    "logical draw vertex byte length does not fit host accounting",
+                )
+            })?;
+        let next_draw_vertex_bytes = expected_draw_vertex_bytes
+            .checked_add(vertex_byte_length)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-byte-capacity-reached",
+                    "logical back-buffer captured vertex-byte capacity is exhausted",
+                )
+            })?;
+        if next_draw_vertex_bytes > RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-draw-vertex-byte-capacity-reached",
+                "logical back-buffer captured vertex-byte capacity is exhausted",
+            ));
+        }
+        let next_generation = checked_next_generation(self.generation)?;
+        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-device-generation-exhausted",
+                "logical graphics device generation is exhausted",
+            )
+        })?;
+        let next_content_generation = device
+            .back_buffer
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-back-buffer-content-generation-exhausted",
+                    "logical graphics back-buffer content generation is exhausted",
+                )
+            })?;
+        let next_draw_sequence = self.next_draw_sequence.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-draw-sequence-exhausted",
+                "logical graphics draw-submission sequence is exhausted",
+            )
+        })?;
+        let vertex_count = request
+            .primitive_count
+            .checked_add(2)
+            .expect("validated triangle-strip quad count must fit u32");
+        let submission = RuntimeGraphicsDrawSubmission {
+            sequence: self.next_draw_sequence,
+            scene_sequence: resolved.scene.sequence,
+            primitive_topology: request.primitive_topology,
+            start_vertex: request.start_vertex,
+            primitive_count: request.primitive_count,
+            vertex_count,
+            flexible_vertex_format: resolved.flexible_vertex_format,
+            stream_source: resolved.stream_source,
+            vertex_buffer_content_generation: resolved.vertex_buffer_content_generation,
+            vertex_data: Vec::new(),
+            render_states: resolved.render_states,
+            sampler_states: resolved.sampler_states,
+            texture_stage_states: resolved.texture_stage_states,
+            texture: resolved.texture,
+        };
+        Ok(RuntimeGraphicsDrawCapturePlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            content_generation: device.back_buffer.content_generation,
+            next_content_generation,
+            expected_draw_submission_count,
+            expected_draw_vertex_bytes,
+            next_draw_sequence,
+            vertex_buffer_id: resolved.vertex_buffer_id,
+            vertex_buffer_generation: resolved.vertex_buffer_generation,
+            texture_id: submission.texture.texture_id,
+            texture_generation: submission.texture.generation,
+            vertex_range: resolved.vertex_range,
+            submission,
+        })
+    }
+
+    pub(super) fn prepare_draw_submission(
+        &self,
+        mut capture: RuntimeGraphicsDrawCapturePlan,
+        vertex_data: Vec<u8>,
+    ) -> Result<RuntimeGraphicsDrawSubmissionPlan, RuntimeStateError> {
+        self.preflight_draw_capture(&capture)?;
+        let expected_byte_length =
+            usize::try_from(capture.vertex_range.byte_length()).map_err(|_| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-byte-length-invalid",
+                    "logical draw vertex byte length does not fit host accounting",
+                )
+            })?;
+        if vertex_data.len() != expected_byte_length {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-vertex-snapshot-length-mismatch",
+                "logical draw submission requires the complete planned vertex snapshot",
+            ));
+        }
+        capture.submission.vertex_data = vertex_data;
+        Ok(RuntimeGraphicsDrawSubmissionPlan { capture })
+    }
+
+    fn preflight_draw_capture(
+        &self,
+        plan: &RuntimeGraphicsDrawCapturePlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-draw-submission-plan-stale"));
+        };
+        let request = RuntimeGraphicsDrawCaptureRequest {
+            device_com_object_id: device.com_object_id,
+            primitive_topology: plan.submission.primitive_topology,
+            start_vertex: plan.submission.start_vertex,
+            primitive_count: plan.submission.primitive_count,
+        };
+        let resolved = self
+            .resolve_draw_state(device, request)
+            .map_err(|_| stale_plan("graphics-draw-submission-plan-stale"))?;
+        let draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)
+            .map_err(|_| stale_plan("graphics-draw-submission-plan-stale"))?;
+        if self.generation != plan.expected_generation
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || device.generation != plan.device_generation
+            || device.generation.checked_add(1) != Some(plan.next_device_generation)
+            || device.back_buffer.content_generation != plan.content_generation
+            || device.back_buffer.content_generation.checked_add(1)
+                != Some(plan.next_content_generation)
+            || device.back_buffer.draw_submissions.len() != plan.expected_draw_submission_count
+            || draw_vertex_bytes != plan.expected_draw_vertex_bytes
+            || plan.expected_draw_submission_count >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT
+            || plan
+                .expected_draw_vertex_bytes
+                .checked_add(plan.vertex_range.byte_length() as usize)
+                .is_none_or(|bytes| bytes > RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT)
+            || plan.submission.sequence != self.next_draw_sequence
+            || self.next_draw_sequence.checked_add(1) != Some(plan.next_draw_sequence)
+            || plan.submission.scene_sequence != resolved.scene.sequence
+            || plan.submission.vertex_count != plan.submission.primitive_count + 2
+            || plan.submission.flexible_vertex_format != resolved.flexible_vertex_format
+            || plan.submission.stream_source != resolved.stream_source
+            || plan.submission.vertex_buffer_content_generation
+                != resolved.vertex_buffer_content_generation
+            || plan.submission.render_states != resolved.render_states
+            || plan.submission.sampler_states != resolved.sampler_states
+            || plan.submission.texture_stage_states != resolved.texture_stage_states
+            || plan.submission.texture != resolved.texture
+            || plan.vertex_buffer_id != resolved.vertex_buffer_id
+            || plan.vertex_buffer_generation != resolved.vertex_buffer_generation
+            || plan.texture_id != resolved.texture.texture_id
+            || plan.texture_generation != resolved.texture.generation
+            || plan.vertex_range != resolved.vertex_range
+        {
+            return Err(stale_plan("graphics-draw-submission-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn preflight_draw_submission(
+        &self,
+        plan: &RuntimeGraphicsDrawSubmissionPlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.preflight_draw_capture(&plan.capture)?;
+        if plan.capture.submission.vertex_data.len()
+            != plan.capture.vertex_range.byte_length() as usize
+        {
+            return Err(stale_plan("graphics-draw-submission-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_draw_submission(
+        &mut self,
+        plan: RuntimeGraphicsDrawSubmissionPlan,
+    ) -> RuntimeGraphicsDrawSubmissionResult {
+        debug_assert!(self.preflight_draw_submission(&plan).is_ok());
+        let capture = plan.capture;
+        let submission = capture.submission;
+        let device = self
+            .devices
+            .get_mut(&capture.device_id)
+            .expect("preflighted graphics device disappeared");
+        device.back_buffer.content_generation = capture.next_content_generation;
+        device.back_buffer.draw_submissions.push(submission.clone());
+        device.generation = capture.next_device_generation;
+        self.next_draw_sequence = capture.next_draw_sequence;
+        self.generation = capture.next_generation;
+        RuntimeGraphicsDrawSubmissionResult {
+            device_id: device.id,
+            device_generation: device.generation,
+            content_generation: device.back_buffer.content_generation,
+            submission,
+        }
+    }
+
+    fn resolve_draw_state(
+        &self,
+        device: &RuntimeGraphicsDevice,
+        request: RuntimeGraphicsDrawCaptureRequest,
+    ) -> Result<RuntimeGraphicsDrawResolvedState, RuntimeStateError> {
+        validate_supported_draw_device_state(device)?;
+        let scene = device.active_scene.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-scene-inactive",
+                "logical draw submission requires an active device scene",
+            )
+        })?;
+        let flexible_vertex_format = device.flexible_vertex_format.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-flexible-vertex-format-missing",
+                "logical draw submission requires the supported typed vertex format",
+            )
+        })?;
+        let stream_source = device.stream_sources.stream_zero.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-stream-source-missing",
+                "logical draw submission requires a live stream-zero vertex buffer",
+            )
+        })?;
+        let vertex_buffer = self.vertex_buffer(stream_source.vertex_buffer_id)?;
+        self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)?;
+        if vertex_buffer.device_id != device.id
+            || vertex_buffer.active_lock.is_some()
+            || vertex_buffer.content_generation == 0
+            || vertex_buffer.descriptor.byte_length != 112
+            || vertex_buffer.descriptor.usage != RuntimeGraphicsVertexBufferUsage::WriteOnly
+            || vertex_buffer.descriptor.flexible_vertex_format != 0x144
+            || vertex_buffer.descriptor.pool != RuntimeGraphicsVertexBufferPool::Managed
+            || stream_source.offset_in_bytes != 0
+            || stream_source.stride != 28
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-vertex-buffer-state-invalid",
+                "logical draw submission requires the reached unlocked initialized quad vertex buffer",
+            ));
+        }
+        let vertex_count = request.primitive_count.checked_add(2).ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-vertex-count-overflow",
+                "logical draw vertex count overflowed",
+            )
+        })?;
+        let start_byte = u64::from(stream_source.offset_in_bytes)
+            .checked_add(u64::from(request.start_vertex) * u64::from(stream_source.stride))
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-range-overflow",
+                    "logical draw vertex offset overflowed",
+                )
+            })?;
+        let vertex_byte_length = u64::from(vertex_count)
+            .checked_mul(u64::from(stream_source.stride))
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-range-overflow",
+                    "logical draw vertex byte length overflowed",
+                )
+            })?;
+        let end_byte = start_byte.checked_add(vertex_byte_length).ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-vertex-range-overflow",
+                "logical draw vertex range overflowed",
+            )
+        })?;
+        if end_byte > u64::from(vertex_buffer.descriptor.byte_length)
+            || end_byte > vertex_buffer.backing.range.byte_length()
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-vertex-range-out-of-bounds",
+                "logical draw vertex range exceeds the bound vertex buffer",
+            ));
+        }
+        let vertex_address = u64::from(vertex_buffer.backing.range.start().0)
+            .checked_add(start_byte)
+            .and_then(|address| u32::try_from(address).ok())
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-draw-vertex-address-overflow",
+                    "logical draw vertex address exceeds the x86 guest address space",
+                )
+            })?;
+        let vertex_range = GuestRange::new(vertex_address, vertex_byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        let texture_id = device.texture_bindings.stage_zero.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-texture-missing",
+                "logical draw submission requires a live stage-zero texture",
+            )
+        })?;
+        let texture = self.texture(texture_id)?;
+        self.validate_texture_association(texture.com_object_id, texture.id)?;
+        if texture.device_id != device.id
+            || texture.descriptor.levels != 1
+            || texture.descriptor.usage != RuntimeGraphicsTextureUsage::None
+            || texture.descriptor.pool != RuntimeGraphicsTexturePool::Default
+            || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+            || texture.content.content_generation == 0
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-draw-texture-state-invalid",
+                "logical draw submission requires the reached initialized static DEFAULT texture",
+            ));
+        }
+        Ok(RuntimeGraphicsDrawResolvedState {
+            scene,
+            flexible_vertex_format,
+            stream_source,
+            vertex_buffer_id: vertex_buffer.id,
+            vertex_buffer_generation: vertex_buffer.generation,
+            vertex_buffer_content_generation: vertex_buffer.content_generation,
+            vertex_range,
+            render_states: device.render_states.clone(),
+            sampler_states: device.sampler_states.clone(),
+            texture_stage_states: device.texture_stage_states.clone(),
+            texture: RuntimeGraphicsDrawTextureSnapshot {
+                texture_id: texture.id,
+                descriptor: texture.descriptor,
+                generation: texture.generation,
+                content: texture.content.clone(),
+            },
+        })
+    }
+
     fn resolve_texture_binding_target(
         &self,
         device_id: RuntimeGraphicsDeviceId,
@@ -2064,6 +2548,8 @@ impl RuntimeGraphics {
             })?;
         self.validate_device_association(request.device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
+        let previous_draw_submission_count = device.back_buffer.draw_submissions.len();
+        let previous_draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)?;
         let next_generation = checked_next_generation(self.generation)?;
         let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
             RuntimeStateError::resource_limit(
@@ -2107,6 +2593,8 @@ impl RuntimeGraphics {
             content_generation: device.back_buffer.content_generation,
             next_content_generation,
             previous_uniform_clear: device.back_buffer.uniform_clear,
+            previous_draw_submission_count,
+            previous_draw_vertex_bytes,
             clear,
             next_clear_sequence,
         })
@@ -2127,6 +2615,8 @@ impl RuntimeGraphics {
             || device.back_buffer.content_generation.checked_add(1)
                 != Some(plan.next_content_generation)
             || device.back_buffer.uniform_clear != plan.previous_uniform_clear
+            || device.back_buffer.draw_submissions.len() != plan.previous_draw_submission_count
+            || draw_vertex_bytes(&device.back_buffer)? != plan.previous_draw_vertex_bytes
             || plan.clear.sequence != self.next_back_buffer_clear_sequence
             || self.next_back_buffer_clear_sequence.checked_add(1) != Some(plan.next_clear_sequence)
             || plan.clear.rect != full_back_buffer_rect(device.presentation)?
@@ -2147,6 +2637,7 @@ impl RuntimeGraphics {
             .expect("preflighted graphics device disappeared");
         device.back_buffer.content_generation = plan.next_content_generation;
         device.back_buffer.uniform_clear = Some(plan.clear);
+        device.back_buffer.draw_submissions.clear();
         device.generation = plan.next_device_generation;
         self.next_back_buffer_clear_sequence = plan.next_clear_sequence;
         self.generation = plan.next_generation;
@@ -4280,6 +4771,80 @@ fn validate_stream_source_update_request(
     Ok(())
 }
 
+fn validate_draw_capture_request(
+    request: RuntimeGraphicsDrawCaptureRequest,
+) -> Result<(), RuntimeStateError> {
+    if request.device_com_object_id.0 == 0
+        || request.primitive_topology != RuntimeGraphicsPrimitiveTopology::TriangleStrip
+        || request.start_vertex != 0
+        || request.primitive_count != 2
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-draw-capture-request-invalid",
+            "logical draw capture currently supports the reached four-vertex triangle-strip quad only",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_supported_draw_device_state(
+    device: &RuntimeGraphicsDevice,
+) -> Result<(), RuntimeStateError> {
+    let supported_render_states = RuntimeGraphicsRenderStates {
+        cull_mode: Some(RuntimeGraphicsCullMode::None),
+        depth_test_enabled: Some(false),
+        lighting_enabled: Some(false),
+        alpha_blend_enabled: Some(true),
+    };
+    let supported_sampler_states = RuntimeGraphicsSamplerStates {
+        sampler_zero: RuntimeGraphicsSamplerState {
+            min_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+            mag_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+        },
+    };
+    let supported_texture_stage_states = RuntimeGraphicsTextureStageStates {
+        stage_zero: RuntimeGraphicsTextureStageState {
+            color_operation: Some(RuntimeGraphicsTextureOperation::Modulate),
+            color_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+            color_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+            alpha_operation: Some(RuntimeGraphicsTextureOperation::SelectArgumentOne),
+            alpha_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+            alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+        },
+    };
+    if device.render_states != supported_render_states
+        || device.sampler_states != supported_sampler_states
+        || device.texture_stage_states != supported_texture_stage_states
+        || device.flexible_vertex_format
+            != Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-draw-fixed-function-state-incomplete",
+            "logical draw submission requires the reached fixed-function render, sampler, texture-stage, and vertex-format state",
+        ));
+    }
+    Ok(())
+}
+
+fn draw_vertex_bytes(back_buffer: &RuntimeGraphicsBackBuffer) -> Result<usize, RuntimeStateError> {
+    back_buffer
+        .draw_submissions
+        .iter()
+        .try_fold(0_usize, |total, submission| {
+            total
+                .checked_add(submission.vertex_data.len())
+                .ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "runtime-graphics",
+                        "graphics-draw-vertex-byte-accounting-overflow",
+                        "logical back-buffer captured vertex-byte accounting overflowed",
+                    )
+                })
+        })
+}
+
 fn full_back_buffer_rect(
     presentation: RuntimeGraphicsPresentation,
 ) -> Result<RuntimeRect, RuntimeStateError> {
@@ -4623,6 +5188,115 @@ mod tests {
             rect,
             color_ref: 0,
         }
+    }
+
+    fn prepared_draw_graphics() -> (
+        RuntimeGraphics,
+        RuntimeGraphicsDeviceId,
+        RuntimeGraphicsTextureId,
+        RuntimeGraphicsVertexBufferId,
+        GuestRange,
+    ) {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .plan_texture_creation(RuntimeGraphicsTextureCreateRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                descriptor: RuntimeGraphicsTextureDescriptor {
+                    width: 2_048,
+                    height: 1_024,
+                    levels: 1,
+                    usage: RuntimeGraphicsTextureUsage::None,
+                    color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+                    pool: RuntimeGraphicsTexturePool::Default,
+                },
+            })
+            .unwrap();
+        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
+        let vertex_buffer_plan = graphics
+            .plan_vertex_buffer_creation(
+                RuntimeGraphicsVertexBufferCreateRequest {
+                    device_com_object_id: RuntimeComObjectId(7),
+                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
+                        byte_length: 112,
+                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                        flexible_vertex_format: 0x144,
+                        pool: RuntimeGraphicsVertexBufferPool::Managed,
+                    },
+                },
+                ProcessAddressAllocationId(41),
+                backing_range,
+            )
+            .unwrap();
+        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+            vertex_buffer_plan,
+            RuntimeComObjectId(9),
+            MemoryOwnerId(23),
+        );
+        {
+            let texture = graphics.textures.get_mut(&texture.id).unwrap();
+            texture.content.content_generation = 1;
+            texture.generation = 1;
+        }
+        {
+            let vertex_buffer = graphics.vertex_buffers.get_mut(&vertex_buffer.id).unwrap();
+            vertex_buffer.content_generation = 1;
+            vertex_buffer.generation = 1;
+        }
+        {
+            let device = graphics.devices.get_mut(&device.id).unwrap();
+            device.render_states = RuntimeGraphicsRenderStates {
+                cull_mode: Some(RuntimeGraphicsCullMode::None),
+                depth_test_enabled: Some(false),
+                lighting_enabled: Some(false),
+                alpha_blend_enabled: Some(true),
+            };
+            device.sampler_states = RuntimeGraphicsSamplerStates {
+                sampler_zero: RuntimeGraphicsSamplerState {
+                    min_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+                    mag_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+                },
+            };
+            device.texture_stage_states = RuntimeGraphicsTextureStageStates {
+                stage_zero: RuntimeGraphicsTextureStageState {
+                    color_operation: Some(RuntimeGraphicsTextureOperation::Modulate),
+                    color_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+                    color_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+                    alpha_operation: Some(RuntimeGraphicsTextureOperation::SelectArgumentOne),
+                    alpha_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+                    alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+                },
+            };
+            device.texture_bindings.stage_zero = Some(texture.id);
+            device.flexible_vertex_format =
+                Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1);
+            device.stream_sources.stream_zero = Some(RuntimeGraphicsStreamSourceBinding {
+                vertex_buffer_id: vertex_buffer.id,
+                offset_in_bytes: 0,
+                stride: 28,
+            });
+            device.back_buffer.content_generation = 1;
+            device.back_buffer.uniform_clear = Some(RuntimeGraphicsBackBufferClear {
+                sequence: 1,
+                rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 800,
+                    bottom: 600,
+                },
+                color_argb: 0xff00_0000,
+            });
+            device.active_scene = Some(RuntimeGraphicsScene { sequence: 1 });
+        }
+        (
+            graphics,
+            device.id,
+            texture.id,
+            vertex_buffer.id,
+            backing_range,
+        )
     }
 
     #[test]
@@ -5586,6 +6260,172 @@ mod tests {
             "graphics-back-buffer-clear-sequence-exhausted"
         );
         assert_eq!(graphics, exhausted);
+    }
+
+    #[test]
+    fn draw_submissions_snapshot_prepared_state_and_clear_or_retirement_remain_safe() {
+        let (mut graphics, device_id, texture_id, vertex_buffer_id, backing_range) =
+            prepared_draw_graphics();
+        let request = RuntimeGraphicsDrawCaptureRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+            primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
+            start_vertex: 0,
+            primitive_count: 2,
+        };
+        let before_capture = graphics.clone();
+        let capture = graphics.plan_draw_capture(request).unwrap();
+        assert_eq!(
+            capture.vertex_range(),
+            GuestRange::new(backing_range.start(), 112).unwrap()
+        );
+        assert_eq!(graphics, before_capture);
+        let before_short_snapshot = graphics.clone();
+        assert_eq!(
+            graphics
+                .prepare_draw_submission(capture.clone(), vec![0; 111])
+                .unwrap_err()
+                .code,
+            "graphics-draw-vertex-snapshot-length-mismatch"
+        );
+        assert_eq!(graphics, before_short_snapshot);
+
+        let vertex_data = (0_u8..112).collect::<Vec<_>>();
+        let plan = graphics
+            .prepare_draw_submission(capture, vertex_data.clone())
+            .unwrap();
+        let stale = plan.clone();
+        graphics.preflight_draw_submission(&plan).unwrap();
+        assert_eq!(graphics, before_capture);
+        let result = graphics.commit_draw_submission(plan);
+        assert_eq!(result.device_id, device_id);
+        assert_eq!(result.content_generation, 2);
+        assert_eq!(result.submission.sequence, 1);
+        assert_eq!(result.submission.scene_sequence, 1);
+        assert_eq!(result.submission.vertex_count, 4);
+        assert_eq!(result.submission.vertex_data, vertex_data);
+        assert_eq!(result.submission.texture.texture_id, texture_id);
+        assert_eq!(result.submission.texture.content.content_generation, 1);
+        assert_eq!(
+            result.submission.stream_source.vertex_buffer_id,
+            vertex_buffer_id
+        );
+        assert_eq!(result.submission.vertex_buffer_content_generation, 1);
+        assert_eq!(
+            graphics.preflight_draw_submission(&stale).unwrap_err().code,
+            "graphics-draw-submission-plan-stale"
+        );
+        let committed_draws = graphics
+            .device(device_id)
+            .unwrap()
+            .back_buffer
+            .draw_submissions
+            .clone();
+        assert_eq!(committed_draws, vec![result.submission.clone()]);
+
+        let retirement = graphics
+            .plan_com_object_retirements(
+                &[RuntimeComObjectId(8), RuntimeComObjectId(9)]
+                    .into_iter()
+                    .collect(),
+            )
+            .unwrap()
+            .unwrap();
+        graphics
+            .preflight_com_object_retirement(&retirement)
+            .unwrap();
+        graphics.commit_com_object_retirement(retirement);
+        let retired_device = graphics.device(device_id).unwrap();
+        assert_eq!(retired_device.texture_bindings.stage_zero, None);
+        assert_eq!(retired_device.stream_sources.stream_zero, None);
+        assert_eq!(retired_device.back_buffer.draw_submissions, committed_draws);
+
+        let clear = graphics
+            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                color_argb: 0xff00_00ff,
+            })
+            .unwrap();
+        graphics.preflight_back_buffer_clear(&clear).unwrap();
+        graphics.commit_back_buffer_clear(clear);
+        let cleared = graphics.device(device_id).unwrap();
+        assert!(cleared.back_buffer.draw_submissions.is_empty());
+        assert_eq!(
+            cleared.back_buffer.uniform_clear.unwrap().color_argb,
+            0xff00_00ff
+        );
+    }
+
+    #[test]
+    fn draw_submission_limits_and_incomplete_state_fail_before_mutation() {
+        let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
+        let request = RuntimeGraphicsDrawCaptureRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+            primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
+            start_vertex: 0,
+            primitive_count: 2,
+        };
+        let capture = graphics.plan_draw_capture(request).unwrap();
+        let plan = graphics
+            .prepare_draw_submission(capture, vec![0x5a; 112])
+            .unwrap();
+        let seed = graphics.commit_draw_submission(plan).submission;
+
+        let mut count_limited = graphics.clone();
+        count_limited
+            .devices
+            .get_mut(&device_id)
+            .unwrap()
+            .back_buffer
+            .draw_submissions = vec![seed.clone(); RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT];
+        let before_count_limit = count_limited.clone();
+        assert_eq!(
+            count_limited.plan_draw_capture(request).unwrap_err().code,
+            "graphics-draw-submission-capacity-reached"
+        );
+        assert_eq!(count_limited, before_count_limit);
+
+        let mut byte_limited = graphics.clone();
+        let mut oversized = seed;
+        oversized.vertex_data = vec![0; RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT];
+        byte_limited
+            .devices
+            .get_mut(&device_id)
+            .unwrap()
+            .back_buffer
+            .draw_submissions = vec![oversized];
+        let before_byte_limit = byte_limited.clone();
+        assert_eq!(
+            byte_limited.plan_draw_capture(request).unwrap_err().code,
+            "graphics-draw-vertex-byte-capacity-reached"
+        );
+        assert_eq!(byte_limited, before_byte_limit);
+
+        let mut incomplete = graphics.clone();
+        incomplete.devices.get_mut(&device_id).unwrap().active_scene = None;
+        let before_incomplete = incomplete.clone();
+        assert_eq!(
+            incomplete.plan_draw_capture(request).unwrap_err().code,
+            "graphics-draw-scene-inactive"
+        );
+        assert_eq!(incomplete, before_incomplete);
+
+        for unsupported in [
+            RuntimeGraphicsDrawCaptureRequest {
+                start_vertex: 1,
+                ..request
+            },
+            RuntimeGraphicsDrawCaptureRequest {
+                primitive_count: 1,
+                ..request
+            },
+        ] {
+            let before = graphics.clone();
+            assert_eq!(
+                graphics.plan_draw_capture(unsupported).unwrap_err().code,
+                "graphics-draw-capture-request-invalid"
+            );
+            assert_eq!(graphics, before);
+        }
     }
 
     #[test]

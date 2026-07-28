@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 38 as const/u);
+assert.match(protocol, /protocolVersion = 39 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -46,6 +46,8 @@ assert.match(protocol, /d3d9-add-dirty-rect/u);
 assert.match(protocol, /d3d9-update-texture/u);
 assert.match(protocol, /RuntimeGraphicsTextureSnapshot/u);
 assert.match(protocol, /d3d9AddDirtyRect:/u);
+assert.match(protocol, /d3d9-draw-primitive/u);
+assert.match(protocol, /d3d9DrawPrimitive:/u);
 
 assert.match(
   worker,
@@ -86,6 +88,7 @@ assert.match(worker, /user32\.begin-paint\.full-client-logical-dc\.v1/u);
 assert.match(worker, /user32\.end-paint\.matching-session\.v1/u);
 assert.match(worker, /user32\.set-rect\.v1/u);
 assert.match(worker, /IDirect3DTexture9\.AddDirtyRect/u);
+assert.match(worker, /IDirect3DDevice9\.DrawPrimitive/u);
 
 assert.match(
   fullProbe,

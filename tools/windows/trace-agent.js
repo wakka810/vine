@@ -83,6 +83,9 @@ const focusedD3d9SetFvfObservation =
 const focusedD3d9SetStreamSourceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-set-stream-source");
+const focusedD3d9DrawPrimitiveObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-draw-primitive");
 const focusedD3d9InitialSamplerStatesObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-initial-sampler-states");
@@ -130,6 +133,7 @@ const focusedD3d9DeviceObservation =
   focusedD3d9SetTextureObservation ||
   focusedD3d9SetFvfObservation ||
   focusedD3d9SetStreamSourceObservation ||
+  focusedD3d9DrawPrimitiveObservation ||
   focusedD3d9InitialSamplerStatesObservation ||
   focusedD3d9InitialTextureStageStatesObservation ||
   focusedD3d9InitialVertexBufferObservation ||
@@ -183,6 +187,9 @@ let focusedD3d9SetFvfComplete = false;
 let focusedD3d9SetStreamSourceDevice = null;
 let focusedD3d9SetStreamSourceMainModuleCall = null;
 let focusedD3d9SetStreamSourceComplete = false;
+let focusedD3d9DrawPrimitiveDevice = null;
+let focusedD3d9DrawPrimitiveMainModuleCall = null;
+let focusedD3d9DrawPrimitiveComplete = false;
 let focusedD3d9InitialSamplerStateDevice = null;
 let focusedD3d9InitialSamplerStatesComplete = false;
 const focusedD3d9InitialSamplerStateCalls = [];
@@ -4914,6 +4921,30 @@ function attachIdirect3ddevice9(object) {
             focusedD3d9SetStreamSourceDevice ??= objectAddress;
             this.traceD3d9SetStreamSourceLastErrorBefore =
               Number(this.lastError) >>> 0;
+          } else if (focusedD3d9DrawPrimitiveObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const objectAddress = args[0].toString().toLowerCase();
+            const isPrimaryDrawPrimitive =
+              slot === 81 &&
+              caller.module?.toLowerCase() ===
+                Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5b402 &&
+              args[1].toUInt32() === 5 &&
+              args[2].toUInt32() === 0 &&
+              args[3].toUInt32() === 2 &&
+              focusedD3d9DrawPrimitiveMainModuleCall === null;
+            if (
+              focusedD3d9DrawPrimitiveComplete ||
+              !isPrimaryDrawPrimitive ||
+              (focusedD3d9DrawPrimitiveDevice !== null &&
+                objectAddress !== focusedD3d9DrawPrimitiveDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9DrawPrimitiveDevice ??= objectAddress;
+            this.traceD3d9DrawPrimitiveLastErrorBefore =
+              Number(this.lastError) >>> 0;
           } else if (focusedD3d9InitialSamplerStatesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -5183,6 +5214,20 @@ function attachIdirect3ddevice9(object) {
                   ),
                 }
               : null;
+          this.traceD3d9DrawPrimitive =
+            focusedD3d9DrawPrimitiveObservation && slot === 81
+              ? {
+                  primitiveType: args[1].toUInt32(),
+                  startVertex: args[2].toUInt32(),
+                  primitiveCount: args[3].toUInt32(),
+                  lastErrorBefore:
+                    this.traceD3d9DrawPrimitiveLastErrorBefore,
+                  immediateConsumer: snapshotInstructionsFollowingDirectJump(
+                    this.returnAddress,
+                    128,
+                  ),
+                }
+              : null;
           this.traceD3d9InitialSamplerState =
             focusedD3d9InitialSamplerStatesObservation && slot === 69
               ? {
@@ -5299,6 +5344,15 @@ function attachIdirect3ddevice9(object) {
                   resultU32: result.toUInt32(),
                   lastErrorAfter: lastError,
                 };
+          const d3d9DrawPrimitive =
+            this.traceD3d9DrawPrimitive === null
+              ? null
+              : {
+                  ...this.traceD3d9DrawPrimitive,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           const d3d9InitialSamplerState =
             this.traceD3d9InitialSamplerState === null
               ? null
@@ -5340,6 +5394,9 @@ function attachIdirect3ddevice9(object) {
               ...(d3d9SetStreamSource === null
                 ? {}
                 : { d3d9SetStreamSource }),
+              ...(d3d9DrawPrimitive === null
+                ? {}
+                : { d3d9DrawPrimitive }),
               ...(d3d9InitialSamplerState === null
                 ? {}
                 : { d3d9InitialSamplerState }),
@@ -5493,6 +5550,37 @@ function attachIdirect3ddevice9(object) {
               mainModuleCall: focusedD3d9SetStreamSourceMainModuleCall,
             });
             if (stopOnEvent === "d3d9-set-stream-source-complete") {
+              recv("vine-trace-stop", () => {}).wait();
+            }
+          }
+          if (
+            focusedD3d9DrawPrimitiveObservation &&
+            d3d9DrawPrimitive !== null
+          ) {
+            focusedD3d9DrawPrimitiveMainModuleCall = {
+              callId: this.traceFrame.callId,
+              api: name,
+              interface: "IDirect3DDevice9",
+              vtableSlot: slot,
+              object: this.traceObject,
+              arguments: this.traceArguments,
+              result: d3d9DrawPrimitive.result,
+              resultU32: d3d9DrawPrimitive.resultU32,
+              primitiveType: d3d9DrawPrimitive.primitiveType,
+              startVertex: d3d9DrawPrimitive.startVertex,
+              primitiveCount: d3d9DrawPrimitive.primitiveCount,
+              lastErrorBefore: d3d9DrawPrimitive.lastErrorBefore,
+              lastError: d3d9DrawPrimitive.lastErrorAfter,
+              immediateConsumer: d3d9DrawPrimitive.immediateConsumer,
+              caller: this.traceFrame.caller,
+            };
+            focusedD3d9DrawPrimitiveComplete = true;
+            emit("d3d9-draw-primitive-complete", {
+              profile: "x86-bgi-first-frame-triangle-strip-quad-draw-v1",
+              device: focusedD3d9DrawPrimitiveDevice,
+              mainModuleCall: focusedD3d9DrawPrimitiveMainModuleCall,
+            });
+            if (stopOnEvent === "d3d9-draw-primitive-complete") {
               recv("vine-trace-stop", () => {}).wait();
             }
           }

@@ -2957,6 +2957,207 @@ assert.throws(
   /violates its caller, binding, result, LastError, or immediate DrawPrimitive contract/,
 );
 
+const drawPrimitiveImmediateConsumer = makeInstructionWindow(
+  0x0045_b402,
+  128,
+  17,
+);
+setFixtureInstruction(
+  drawPrimitiveImmediateConsumer,
+  0,
+  "cmp",
+  "dword ptr [0x5517ec], 0",
+);
+setFixtureInstruction(drawPrimitiveImmediateConsumer, 1, "je", "0x45b42b");
+setFixtureInstruction(
+  drawPrimitiveImmediateConsumer,
+  12,
+  "mov",
+  "eax, dword ptr [0x5517c4]",
+);
+setFixtureInstruction(
+  drawPrimitiveImmediateConsumer,
+  13,
+  "mov",
+  "ecx, dword ptr [eax]",
+);
+setFixtureInstruction(
+  drawPrimitiveImmediateConsumer,
+  14,
+  "mov",
+  "edx, dword ptr [ecx + 0xa8]",
+);
+setFixtureInstruction(drawPrimitiveImmediateConsumer, 15, "push", "eax");
+setFixtureInstruction(drawPrimitiveImmediateConsumer, 16, "call", "edx");
+const drawPrimitiveCaller = {
+  address: "0x45b402",
+  module: "BGI.exe",
+  rva: 0x5b402,
+};
+const drawPrimitiveObservation = {
+  primitiveType: 5,
+  startVertex: 0,
+  primitiveCount: 2,
+  lastErrorBefore: 0,
+  immediateConsumer: drawPrimitiveImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const drawPrimitiveCompletionCall = {
+  callId: 1,
+  api: "DrawPrimitive",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 81,
+  object: "0x490000",
+  arguments: ["0x5", "0x0", "0x2"],
+  result: 0,
+  resultU32: 0,
+  primitiveType: 5,
+  startVertex: 0,
+  primitiveCount: 2,
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: drawPrimitiveImmediateConsumer,
+  caller: drawPrimitiveCaller,
+};
+const d3d9DrawPrimitiveEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "e".repeat(64),
+    python: "3.14.6",
+    frida: "17.15.4",
+    platform: "Windows-11-test",
+    arguments: {
+      seconds: 10,
+      killAfter: true,
+      stopOnEvent: "d3d9-draw-primitive-complete",
+      vtables: ["idirect3d9"],
+      observations: ["d3d9-draw-primitive"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "d3d9.dll",
+    path: "C:\\Windows\\System32\\d3d9.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: ["idirect3d9"],
+    selectedObservations: ["d3d9-draw-primitive"],
+  },
+  {
+    schema,
+    sequence: 3,
+    kind: "vtable-observed",
+    interface: "IDirect3DDevice9",
+    object: "0x490000",
+    vtable: "0x76020000",
+    slots: vtableSlots(idirect3ddevice9MethodNames, 0x7602_0000),
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 20,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: drawPrimitiveCaller,
+    module: "d3d9.dll",
+    api: "DrawPrimitive",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 81,
+    object: "0x490000",
+    arguments: ["0x5", "0x0", "0x2"],
+  },
+  {
+    schema,
+    sequence: 5,
+    threadId: 20,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: drawPrimitiveCaller,
+    durationMs: 1,
+    lastError: 0,
+    module: "d3d9.dll",
+    api: "DrawPrimitive",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 81,
+    object: "0x490000",
+    result: "0x0",
+    d3d9DrawPrimitive: drawPrimitiveObservation,
+  },
+  {
+    schema,
+    sequence: 6,
+    threadId: 20,
+    kind: "d3d9-draw-primitive-complete",
+    profile: "x86-bgi-first-frame-triangle-strip-quad-draw-v1",
+    device: "0x490000",
+    mainModuleCall: drawPrimitiveCompletionCall,
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-d3d9-draw-primitive-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const d3d9DrawPrimitiveSummary = summarizeTrace(
+  encode(d3d9DrawPrimitiveEvents),
+  "d3d9-draw-primitive-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9DrawPrimitiveSummary.d3d9.drawPrimitiveObservations[0].call,
+  {
+    sequence: 4,
+    caller: { module: "BGI.exe", rva: 0x5b402 },
+    primitiveType: 5,
+    startVertex: 0,
+    primitiveCount: 2,
+    result: "0x0",
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer: drawPrimitiveImmediateConsumer,
+  },
+);
+const missingDrawPrimitiveCompletion = d3d9DrawPrimitiveEvents.filter(
+  (event) => event.kind !== "d3d9-draw-primitive-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingDrawPrimitiveCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedDrawPrimitiveCount = structuredClone(d3d9DrawPrimitiveEvents);
+changedDrawPrimitiveCount.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+).d3d9DrawPrimitive.primitiveCount = 3;
+assert.throws(
+  () => summarizeTrace(encode(changedDrawPrimitiveCount)),
+  /violates its caller, topology, result, LastError, or immediate EndScene contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -5147,6 +5348,17 @@ d3d9SetStreamSourceSelection.find(
 ).selectedObservations = ["d3d9-set-stream-source"];
 assert.doesNotThrow(() =>
   summarizeTrace(encode(d3d9SetStreamSourceSelection)),
+);
+
+const d3d9DrawPrimitiveSelection = structuredClone(events);
+d3d9DrawPrimitiveSelection[0].arguments.observations = [
+  "d3d9-draw-primitive",
+];
+d3d9DrawPrimitiveSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-draw-primitive"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(d3d9DrawPrimitiveSelection)),
 );
 
 const windowDcSelection = structuredClone(events);

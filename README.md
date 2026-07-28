@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-set-stream-source`: 127372 calls across 122 endpoint contracts / 120 APIs, memory generation 235523 |
+| Runtime diagnostics | `d3d9-draw-primitive`: 127373 calls across 122 endpoint contracts / 120 APIs, memory generation 235524 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::DrawPrimitive(0x00000005, 0x00000000, 0x00000002)` at instruction 28761324: `com-method-unsupported` |
+| Next structured stop | `IDirect3DDevice9::EndScene()` at instruction 28761332: `com-method-unsupported` |
 
-The active semantic report is 577,641 bytes with SHA-256
-`baf03d79e5246eba02a4cd27034424be34fded841b4b001ed3061dd4ec3ebbda`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 585,550 bytes with SHA-256
+`a3b7e37654c7df75c7a2b2885b50dfb1170a93008df268cd502c1e8f9281e16a`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,7 +30,7 @@ The active semantic report is 577,641 bytes with SHA-256
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded raster-status query, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, and the reached typed FVF 0x144 are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, while stream binding, pixel storage, renderer, draw, and Present are not reached |
+| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded raster-status query, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, typed FVF 0x144, the exact non-owning stream-zero binding, and one owning immutable triangle-strip draw submission are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, while EndScene, pixel storage, renderer translation, Present, and visible primary pixels are not reached |
 | `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
