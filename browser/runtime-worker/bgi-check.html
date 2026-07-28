@@ -9,12 +9,14 @@
       main { width: min(720px, calc(100% - 32px)); margin: 48px auto; }
       h1 { margin: 0 0 16px; font-size: 24px; letter-spacing: 0; }
       output { display: block; padding: 16px; border: 1px solid #3b444c; border-radius: 6px; }
+      canvas { display: block; width: 100%; height: auto; margin-top: 16px; background: #000; border: 1px solid #3b444c; }
     </style>
   </head>
   <body data-check-status="running">
     <main>
       <h1>BGI Worker Check</h1>
       <output id="status">Starting</output>
+      <canvas id="surface" width="1280" height="720"></canvas>
     </main>
     <script type="module" src="./bgi-check.js"></script>
   </body>

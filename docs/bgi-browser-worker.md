@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-post-scene-present-gateway`, uses protocol
-`vine.browser-runtime-worker.v43`, and emits browser BGI report schema version 11.
+The active private profile is `d3d9-first-present`, uses protocol
+`vine.browser-runtime-worker.v44`, and emits browser BGI report schema version 12.
 It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
@@ -264,6 +264,30 @@ then stop at instruction 28,761,426 before COM slot 17
 `IDirect3DDevice9::Present` at `0x01011140`. No post-scene timer cycle, renderer
 resource, or visible pixel is claimed by this checkpoint.
 
+Protocol version 44 adds compatibility policy v30 and the bounded slot-17
+`Present(NULL,NULL,NULL,NULL)` vertical slice. Rust publishes the closed
+back-buffer content as immutable presented-frame sequence 1, advances logical
+device generation 59, and renews an empty discard back buffer at content
+generation 3. The Worker receives a transferred `OffscreenCanvas`, creates one
+`browser-resource:1` WebGL2 record with an explicit non-owning binding to COM
+object 21. Context, shaders, exact GPU storage, and bounded CPU staging are
+preflighted before guest execution; the record is published only after the
+immutable Rust snapshot and fixed-function state pass validation. The adapter
+then materializes synchronously before the guest resumes, uploads 8,388,608
+X8R8G8B8 texture bytes and 112 vertex bytes, draws one triangle strip into a
+1280x720 frame, reads center RGBA
+`[0,0,0,255]`, and observes WebGL `NO_ERROR`. Node creates no browser resource
+but records the same Windows-visible Present and discard semantics. Both agree
+on semantic digest
+`792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398`
+and memory digest
+`bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9`,
+then stop at instruction 28,761,433 before `WINMM.dll!timeGetTime` endpoint 8.
+The browser resource table, WebGL objects, and canvas are TypeScript authority;
+the device, COM identity, back-buffer, frame sequence, and discard lifecycle
+remain Rust authority. The black frame proves browser publication, not readable
+title rendering or a general swap-chain／device-loss implementation.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
@@ -299,8 +323,9 @@ fingerprint before and after execution.
 - The reached paint leaf does not claim general invalidation, overlapping or nested paint,
   background erase, clipping, queued paint dispatch, browser presentation, or arbitrary
   HDC operations.
-- The reached Clear does not claim partial rectangles, depth／stencil clears, pixel storage,
-  upload, draw, Present, device loss, or visible browser output.
+- The reached Clear itself does not claim partial rectangles, depth／stencil
+  clears, or pixel storage. Upload, draw, and publication occur only through
+  the separately bounded first-Present snapshot.
 - The reached AddDirtyRect stores only a bounded Rust-owned dirty region. The following
   UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
   not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
@@ -314,5 +339,6 @@ fingerprint before and after execution.
   closes the matching Rust-owned scene while preserving that submission. Other scene variants,
   other sampler／state／filter variants, the three rejected render states, other
   texture-stage／binding variants, other vertex formats, other stream bindings,
-  NULL stream unbind, other draws, Present, device loss,
-  and visible browser output remain unsupported.
+  NULL stream unbind, other draws, partial／redirected／dirty-region Present,
+  subsequent frames, resize, device／context loss and recovery, and readable
+  title output remain unsupported.

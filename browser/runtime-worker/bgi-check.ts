@@ -38,6 +38,10 @@ const scenario = parseScenario(searchParams.get("scenario"));
 const evidenceLevel =
   searchParams.get("evidence") === "full" ? "full" : "summary";
 const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
+const d3d9Canvas =
+  capabilityProfile === "d3d9-first-present"
+    ? requiredElement<HTMLCanvasElement>("#surface").transferControlToOffscreen()
+    : undefined;
 const sessionId = 1;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   worker.postMessage({
@@ -104,7 +108,7 @@ worker.addEventListener(
 
 worker.addEventListener("error", (event) => fail(new Error(event.message)));
 
-worker.postMessage({
+const startMessage = {
   type: "start-session",
   protocolVersion,
   sessionId,
@@ -139,7 +143,8 @@ worker.postMessage({
             capabilityProfile === "d3d9-end-scene" ||
             capabilityProfile === "d3d9-post-end-scene-raster-status" ||
             capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
-            capabilityProfile === "d3d9-post-scene-present-gateway"
+            capabilityProfile === "d3d9-post-scene-present-gateway" ||
+            capabilityProfile === "d3d9-first-present"
           ? 35_000_000
           : 20_000_000,
     watchdogWallMilliseconds:
@@ -166,7 +171,8 @@ worker.postMessage({
       capabilityProfile === "d3d9-end-scene" ||
       capabilityProfile === "d3d9-post-end-scene-raster-status" ||
       capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
-      capabilityProfile === "d3d9-post-scene-present-gateway"
+      capabilityProfile === "d3d9-post-scene-present-gateway" ||
+      capabilityProfile === "d3d9-first-present"
         ? 300_000
         : capabilityProfile === "shell32-drag-accept-files" ||
             capabilityProfile === "kernel32-archive-source-read"
@@ -174,7 +180,9 @@ worker.postMessage({
           : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
-} satisfies MainToWorkerMessage);
+  ...(d3d9Canvas === undefined ? {} : { d3d9Canvas }),
+} satisfies MainToWorkerMessage;
+worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
 
 function finish(report: SessionReport): void {
   window.clearInterval(heartbeat);
@@ -253,7 +261,8 @@ function parseCapabilityProfile(
     value === "d3d9-end-scene" ||
     value === "d3d9-post-end-scene-raster-status" ||
     value === "d3d9-post-raster-status-waitable-timer" ||
-    value === "d3d9-post-scene-present-gateway"
+    value === "d3d9-post-scene-present-gateway" ||
+    value === "d3d9-first-present"
     ? value
     : undefined;
 }

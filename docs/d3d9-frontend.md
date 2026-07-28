@@ -14,7 +14,7 @@ backing retirement use the generic COM plan／commit path.
 at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
-Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
+Its IUnknown methods, slot 17 `Present`, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
 slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 42 `EndScene`, slot 43 `Clear`, slot 65
 `SetTexture`, slot 67 `SetTextureStageState`, slot 69 `SetSamplerState`, slot
 81 `DrawPrimitive`, slot 89 `SetFVF`, and slot 100 `SetStreamSource`
@@ -892,6 +892,54 @@ endpoint at `0x01011160`, mapped through the stable D3D9 vtable as
 `IDirect3DDevice9::GetRasterStatus` slot 19. The intervening normal wait loop is
 not treated as an unsupported API.
 
+## Bounded first-frame Present
+
+Version 30 adds `primary-first-frame-full-back-buffer-present-v1` for device
+slot 17. The frontend accepts only the reached windowed full-frame form with
+all four optional arguments NULL. It resolves the live COM device, requires a
+closed scene with clear and draw content, and asks `RuntimeGraphics` for a
+mutation-free Present plan. Preflight covers the device, content, graphics, and
+Present generations. The targeted commit publishes the old back buffer as one
+immutable `presented_frame`, then creates a new empty content generation for
+the discard back buffer. Invalid arguments, an active scene, missing content,
+stale or duplicate plans, and generation exhaustion leave the device,
+allocator, frame sequence, and back buffer unchanged. Success returns
+`D3D_OK`, writes no guest bytes, and preserves LastError and COM references.
+
+Two focused native traces each contain one balanced slot-17 call from caller
+RVA `0x0005B7B1`. Source／destination RECT, destination-window override, and
+dirty-region pointers are all NULL; the result is `D3D_OK`; entry／exit
+LastError is 0; and the caller performs `test eax,eax` followed by a negative
+HRESULT branch. The runtime contract is based on those arguments and consumer
+semantics, not on the caller address, occurrence, or title hash.
+
+The Worker consumes the immutable frame synchronously before resuming the
+guest. Before guest execution, the transferred `OffscreenCanvas` and WebGL2
+adapter preflight the context, shaders, fixed-size texture／vertex GPU storage,
+and bounded CPU staging arrays. At Present, the adapter validates the complete
+reached fixed-function blend／sampler／texture-stage snapshot and exact geometry,
+materializes the X8R8G8B8 texture and 112-byte transformed quad into the
+preflighted capacity, and only then publishes the logical browser binding and
+issues one triangle-strip draw. It verifies the center pixel and WebGL error.
+TypeScript owns the browser resource table and its `browser-resource:1`
+identity; its binding to logical device 3／COM object 21 is explicit and
+non-owning. It does not become a second authority for Windows device, COM,
+back-buffer, or frame state.
+
+Canonical Node and Chrome complete sequence 127,377 at instruction 28,761,426
+with device generation 59, presented-frame sequence 1 and content generation
+2, followed by empty discard generation 3. Chrome publishes one 1280x720
+WebGL2 frame, uploads 8,388,608 texture bytes and 112 vertex bytes, reads center
+RGBA `[0,0,0,255]`, reports `NO_ERROR`, and completes the draw before guest
+resume. Node records the same Rust semantics without a browser resource. Both
+agree on semantic digest
+`792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398`
+and memory digest
+`bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9`,
+then stop at instruction 28,761,433 before `WINMM.dll!timeGetTime` endpoint 8.
+This first frame is visibly black; readable title content, subsequent Present
+cycles, resize, context loss, device loss, and recovery are not claimed.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -935,13 +983,16 @@ Slot 81 `DrawPrimitive` is the first consuming graphics transaction. It reads
 the checked guest vertex range and commits an owning immutable command snapshot
 without moving guest memory or Windows state into TypeScript.
 Slot 42 `EndScene` closes only the active Rust-owned scene lifecycle and
-preserves the immutable back-buffer content for a later renderer／Present
-gateway.
+preserves the immutable back-buffer content. Slot 17 `Present` moves that
+closed content into the Rust-owned immutable presented-frame snapshot, renews
+the discard back buffer, and lets the Worker materialize exactly that snapshot
+through a non-owning WebGL2 browser resource before guest resume.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
 Root creation and adapter-query leaves still do not allocate placeholder
-graphics state, and none of these gateways creates a renderer resource.
+graphics state. The browser renderer resource is created only by the reached
+Present gateway.
 
 This keeps the translation seam available without building frameworks for
 unreached or deferred APIs. D3D10／11 and DXGI remain outside active scope until
@@ -953,7 +1004,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-post-scene-present-gateway
+npm run check:runtime:bgi -- --profile d3d9-first-present
 npm run check:runtime:bgi-browser
 ```
 
@@ -998,9 +1049,10 @@ records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
 binding, slot-81 immutable triangle-strip draw submission, and slot-42
 active-to-inactive scene close followed by the deterministic post-scene
 slot-19 last-visible-line raster-status sample and the resulting slot-17
-Present gateway,
-without creating a browser renderer resource, visible pixels, or a second
-graphics authority.
+Present. Rust publishes the immutable closed-frame snapshot and renews its
+discard back buffer; Chrome creates one separately-namespaced non-owning WebGL2
+resource and draws the black 1280x720 frame before guest resume. Node and Chrome
+retain the same Rust-owned graphics semantics and terminal memory.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -1051,10 +1103,12 @@ eight-byte query without changing runtime graphics or COM state and stops
 before `kernel32.dll!SetWaitableTimer`. The historical
 `d3d9-post-raster-status-waitable-timer` profile captured one cycle produced by
 the former sample `1`; the 1,024-cycle bounded probe later classified that path
-as non-progress rather than required pacing. The active
+as non-progress rather than required pacing. The historical
 `d3d9-post-scene-present-gateway` profile uses policy v29, completes the same
 post-scene query with scanline 1079, and stops before
-`IDirect3DDevice9::Present` slot 17.
+`IDirect3DDevice9::Present` slot 17. The active `d3d9-first-present` profile
+uses policy v30, completes that exact full-frame Present, publishes the first
+browser frame, and stops before the already-supported `WINMM.dll!timeGetTime`.
 
 ## Non-claims
 
@@ -1074,8 +1128,9 @@ post-scene query with scanline 1079, and stops before
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
   source binding at offset 0／stride 28, one exact triangle-strip quad draw
-  submission, the matching active-to-inactive `EndScene`, and its immediate
-  deterministic last-visible-line raster-status sample are
+  submission, the matching active-to-inactive `EndScene`, its immediate
+  deterministic last-visible-line raster-status sample, and one all-NULL
+  full-frame discard `Present` are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
@@ -1083,15 +1138,17 @@ post-scene query with scanline 1079, and stops before
   `UpdateTexture`, partial／depth／stencil Clear, other scene variants, other sampler／state／
   filter variants, other texture stages／operations／arguments／resources,
   other vertex formats, other streams／vertex buffers／offsets／strides, NULL
-  stream unbind, other draws, Present, Reset,
-  and renderer output remain unsupported.
+  stream unbind, other draws, partial or redirected Present, dirty-region
+  Present, Reset, subsequent frame flow, resize, device／context loss, recovery,
+  and readable renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
   bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
   texture-stage state, bounded texture binding, bounded FVF state, bounded
-  stream-source binding, bounded immutable draw submission, and bounded scene close create Rust logical state
-  only. They do
-  not create a browser renderer resource,
-  Canvas／WebGL／WebGPU context, swap chain, or visible frame.
+  stream-source binding, bounded immutable draw submission, and bounded scene
+  close create Rust logical state only. The bounded Present is the sole current
+  exception: it publishes a Rust-owned immutable frame and creates one
+  non-owning Worker WebGL2 resource. It does not move Windows device／COM state
+  or authoritative back-buffer lifetime into TypeScript.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are
   not claimed.

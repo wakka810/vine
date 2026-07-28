@@ -139,14 +139,16 @@ non-owning static DEFAULT texture binding, the bounded typed FVF `0x144`, and
 the non-owning stream-0／offset-0／stride-28 vertex-buffer binding and the bounded
 triangle-strip `DrawPrimitive(5, 0, 2)` submission. The draw snapshots the reached
 fixed-function state, texture content, and 112 vertex bytes into Rust-owned logical
-back-buffer state without yet claiming visible pixels. It then closes the exact
-active scene through `IDirect3DDevice9::EndScene` slot 42 while preserving the
-draw content, samples the bounded post-scene `GetRasterStatus`, and completes
-the following logical waitable-timer arm/wait pacing cycle. The versioned
-checkpoint stops before the next slot-19 raster-status endpoint; no renderer
-resource, host clock authority, or visible pixels are claimed. Exact
-current artifact, report, blocker, and resume-condition identities remain
-manifest-owned.
+back-buffer state. It then closes the exact active scene through
+`IDirect3DDevice9::EndScene` slot 42, uses the caller-derived bounded
+`GetRasterStatus` progress sample, and executes the reached
+`Present(NULL,NULL,NULL,NULL)`. Rust publishes immutable frame sequence 1 and
+renews the discard back buffer; the Worker preflights bounded WebGL2 capacity
+before guest execution, validates the complete snapshot, and publishes one black
+1280x720 frame before guest resume. The active checkpoint stops before the
+already-supported `WINMM.dll!timeGetTime`; readable title content, subsequent
+frames, resize, and device／context loss recovery remain unclaimed. Exact current
+artifact, report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:
 

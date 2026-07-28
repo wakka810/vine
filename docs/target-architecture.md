@@ -806,7 +806,8 @@ logical device／resource／commandを渡すRust内部の`RuntimeGraphics` bound
 `CreateTexture` gatewayで最初のdevice-related logical texture descriptor、`GetSurfaceLevel` gatewayで
 最初のlogical texture subresource descriptor、`CreateVertexBuffer` gatewayで最初のguest-backed logical
 geometry resource、`SetRenderState` gatewayでreached typed device state、`Clear` gatewayでlogical back-buffer
-contentを所有するprivate Rust subsystemである。Window relation、
+content、`Present` gatewayでimmutable presented-frame sequenceとdiscard back-buffer renewalを所有するprivate Rust
+subsystemである。Window relation、
 normalized presentation、COM-object association、device-to-texture／texture-to-surface index、monotonic
 device／texture／surface／vertex-buffer IDとgeneration、device-to-vertex-buffer index、active lock、texture dirty region、stage-0 texture binding、typed flexible vertex format、stream-0 source binding、back-buffer
 content generationとclear sequenceを
@@ -897,10 +898,22 @@ device、stale／duplicate planはmutation前に`D3DERR_INVALIDCALL`またはtyp
 部分更新しない。これによりscene lifecycleはRust authorityのまま閉じ、後続renderer／Present gatewayは閉じたsceneの
 immutable back-buffer snapshotを明示的に消費できる。
 
-TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
-texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、renderer resourceの第二のauthorityを
-持たない。他stage／resource binding、他vertex format、他stream binding、他draw、他scene variant、Present、pixel backing、
-browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
+Reached `Present(NULL,NULL,NULL,NULL)`はlive COM-to-device relation、closed scene、clear／draw content、device／content／
+graphics／Present generationをmutation-free planへ固定する。全capacityとgenerationをpreflightした後、旧back bufferを
+immutable `presented_frame`としてpublishし、discard modeの新しいempty back-buffer generationへ一回で進める。
+Invalid argument、active scene、content不足、stale／duplicate plan、generation exhaustionはframe sequence、allocator、
+device、back buffer、guest memory、COM refcountを部分更新しない。Workerはguest execution前にtransferred
+`OffscreenCanvas`、WebGL context／shader、exact GPU storage、bounded CPU staging capacityをpreflightする。Rust snapshot
+publish後はguest resume前にcomplete fixed-function snapshotを検証し、preflight済みcapacityへ同期materializeしてから
+browser bindingをpublishする。TypeScript `BrowserResourceTable`はWebGL object／canvasと別namespaceのbrowser resource
+IDだけを所有し、Rust logical device／COM identityへのassociationはexplicit non-owningとする。Renderer failureはguestを
+再開する前にsession faultへし、Windows device stateの第二authorityや後追いpartial successを作らない。
+Context／device loss、resize、subsequent framesはそれぞれ到達時にgeneration／lifetime／cancel contractを追加する。
+
+TypeScriptはPresent前のimmutable snapshotを検証し、Present時だけbrowser resourceへmaterializeする。Texture content、
+dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、
+presented-frame lifetimeの第二authorityを持たない。他stage／resource binding、他vertex format、他stream binding、他draw、
+他scene variant、他Present variant、general pixel backing／readbackはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output
 span、既存surface identityまたは新規COM child registration、graphics surface capacityを全てpreflightする。

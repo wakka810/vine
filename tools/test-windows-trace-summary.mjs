@@ -3275,6 +3275,125 @@ assert.throws(
   /violates its caller, result, LastError, ignored HRESULT, or post-scene consumer contract/,
 );
 
+const presentImmediateConsumer = makeInstructionWindow(
+  0x0045_b7b1,
+  128,
+  3,
+);
+setFixtureInstruction(presentImmediateConsumer, 0, "test", "eax, eax");
+setFixtureInstruction(presentImmediateConsumer, 1, "js", "0x45b7cd");
+setFixtureInstruction(presentImmediateConsumer, 2, "call", "0x481eb0");
+const presentCaller = {
+  address: "0x45b7b1",
+  module: "BGI.exe",
+  rva: 0x5b7b1,
+};
+const presentObservation = {
+  sourceRectPointer: "0x0",
+  sourceRect: null,
+  destinationRectPointer: "0x0",
+  destinationRect: null,
+  destinationWindowOverride: "0x0",
+  dirtyRegionPointer: "0x0",
+  lastErrorBefore: 0,
+  immediateConsumer: presentImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const presentCompletionCall = {
+  callId: 1,
+  api: "Present",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 17,
+  object: "0x490000",
+  arguments: ["0x0", "0x0", "0x0", "0x0"],
+  result: 0,
+  resultU32: 0,
+  sourceRectPointer: "0x0",
+  sourceRect: null,
+  destinationRectPointer: "0x0",
+  destinationRect: null,
+  destinationWindowOverride: "0x0",
+  dirtyRegionPointer: "0x0",
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: presentImmediateConsumer,
+  caller: presentCaller,
+};
+const d3d9PresentEvents = structuredClone(d3d9EndSceneEvents);
+const presentTraceStart = d3d9PresentEvents.find(
+  (event) => event.kind === "trace-start",
+);
+presentTraceStart.arguments.stopOnEvent = "d3d9-present-complete";
+presentTraceStart.arguments.observations = ["d3d9-present"];
+d3d9PresentEvents.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-present"];
+const presentEnter = d3d9PresentEvents.find(
+  (event) => event.kind === "api-enter" && event.callId === 1,
+);
+presentEnter.caller = presentCaller;
+presentEnter.api = "Present";
+presentEnter.vtableSlot = 17;
+presentEnter.arguments = ["0x0", "0x0", "0x0", "0x0"];
+const presentLeave = d3d9PresentEvents.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+);
+presentLeave.caller = presentCaller;
+presentLeave.api = "Present";
+presentLeave.vtableSlot = 17;
+delete presentLeave.d3d9EndScene;
+presentLeave.d3d9Present = presentObservation;
+const presentCompletion = d3d9PresentEvents.find(
+  (event) => event.kind === "d3d9-end-scene-complete",
+);
+presentCompletion.kind = "d3d9-present-complete";
+presentCompletion.profile = "x86-bgi-first-frame-present-v1";
+presentCompletion.mainModuleCall = presentCompletionCall;
+d3d9PresentEvents.find(
+  (event) => event.kind === "trace-stop",
+).reason = "event-d3d9-present-complete-kill";
+const d3d9PresentSummary = summarizeTrace(
+  encode(d3d9PresentEvents),
+  "d3d9-present-fixture.jsonl",
+);
+assert.deepEqual(d3d9PresentSummary.d3d9.presentObservations[0].call, {
+  sequence: 4,
+  caller: { module: "BGI.exe", rva: 0x5b7b1 },
+  arguments: ["0x0", "0x0", "0x0", "0x0"],
+  sourceRectPointer: "0x0",
+  sourceRect: null,
+  destinationRectPointer: "0x0",
+  destinationRect: null,
+  destinationWindowOverride: "0x0",
+  dirtyRegionPointer: "0x0",
+  result: "0x0",
+  lastErrorBefore: 0,
+  lastError: 0,
+  hresultConsumed: true,
+  immediateConsumer: presentImmediateConsumer,
+});
+assert.throws(
+  () =>
+    summarizeTrace(
+      encode(
+        d3d9PresentEvents.filter(
+          (event) => event.kind !== "d3d9-present-complete",
+        ),
+      ),
+    ),
+  /requires exactly one structured completion/,
+);
+const changedPresentDestination = structuredClone(d3d9PresentEvents);
+changedPresentDestination.find(
+  (event) => event.kind === "api-enter" && event.callId === 1,
+).arguments[2] = "0x1";
+assert.throws(
+  () => summarizeTrace(encode(changedPresentDestination)),
+  /violates its caller, full-frame arguments, result, LastError, or HRESULT consumer contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -5484,6 +5603,13 @@ d3d9EndSceneSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-end-scene"];
 assert.doesNotThrow(() => summarizeTrace(encode(d3d9EndSceneSelection)));
+
+const d3d9PresentSelection = structuredClone(events);
+d3d9PresentSelection[0].arguments.observations = ["d3d9-present"];
+d3d9PresentSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-present"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9PresentSelection)));
 
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];

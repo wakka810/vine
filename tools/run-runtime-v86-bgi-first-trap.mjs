@@ -229,6 +229,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-post-end-scene-raster-status",
         "d3d9-post-raster-status-waitable-timer",
         "d3d9-post-scene-present-gateway",
+        "d3d9-first-present",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -378,6 +379,7 @@ assert(
       "d3d9-post-end-scene-raster-status",
       "d3d9-post-raster-status-waitable-timer",
       "d3d9-post-scene-present-gateway",
+      "d3d9-first-present",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -404,7 +406,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-end-scene" ||
     genericRuntimeCapability === "d3d9-post-end-scene-raster-status" ||
     genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer" ||
-    genericRuntimeCapability === "d3d9-post-scene-present-gateway"
+    genericRuntimeCapability === "d3d9-post-scene-present-gateway" ||
+    genericRuntimeCapability === "d3d9-first-present"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -709,11 +712,14 @@ const d3d9PostRasterStatusWaitableTimerCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-scene-present-gateway";
+const d3d9PresentCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-first-present";
 const d3d9PostRasterStatusWaitableTimerEnabled =
   d3d9PostRasterStatusWaitableTimerCheckpointEnabled;
 const d3d9PostEndSceneRasterStatusCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-end-scene-raster-status";
 const d3d9PostEndSceneRasterStatusEnabled =
+  d3d9PresentCheckpointEnabled ||
   d3d9PostScenePresentGatewayCheckpointEnabled ||
   d3d9PostRasterStatusWaitableTimerEnabled ||
   d3d9PostEndSceneRasterStatusCheckpointEnabled;
@@ -1126,8 +1132,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9PostScenePresentGatewayCheckpointEnabled
-      ? "v86-bgi-d3d9-post-scene-present-gateway"
+    ? d3d9PresentCheckpointEnabled
+      ? "v86-bgi-d3d9-first-present"
+      : d3d9PostScenePresentGatewayCheckpointEnabled
+        ? "v86-bgi-d3d9-post-scene-present-gateway"
       : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
         ? "v86-bgi-d3d9-post-raster-status-waitable-timer"
         : d3d9PostEndSceneRasterStatusCheckpointEnabled
@@ -5538,6 +5546,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9PresentCheckpointEnabled) {
+        validateD3d9PresentResult(genericResult);
       } else if (d3d9PostScenePresentGatewayCheckpointEnabled) {
         validateD3d9PostScenePresentGatewayResult(genericResult);
       } else if (d3d9PostRasterStatusWaitableTimerCheckpointEnabled) {
@@ -5823,8 +5833,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9PostScenePresentGatewayCheckpointEnabled
-            ? "bgi post-scene raster gate to Present"
+          : d3d9PresentCheckpointEnabled
+            ? "bgi IDirect3DDevice9::Present first-frame publication"
+            : d3d9PostScenePresentGatewayCheckpointEnabled
+              ? "bgi post-scene raster gate to Present"
             : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
               ? "bgi post-scene waitable-timer pacing cycle"
             : d3d9PostEndSceneRasterStatusCheckpointEnabled
@@ -6623,6 +6635,8 @@ async function runGenericRuntimeReentry({
                   : checkpointCompletion.capability ===
                       "d3d9-post-scene-present-gateway"
                     ? "d3d9-post-scene-present-gateway-checkpoint-complete"
+                  : checkpointCompletion.capability === "d3d9-first-present"
+                    ? "d3d9-first-present-checkpoint-complete"
                   : checkpointCompletion.capability ===
                       "kernel32-leave-critical-section-continuation"
                     ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
@@ -7584,6 +7598,24 @@ async function runGenericRuntimeReentry({
           memoryContentSha256: "",
         };
       }
+    }
+    if (
+      d3d9PresentCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 17 &&
+      call.symbol === "IDirect3DDevice9.Present"
+    ) {
+      checkpointCompletion = {
+        capability: "d3d9-first-present",
+        implementationId: "d3d9.present.discard-snapshot.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: continuation.instructionCount,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
     }
     if (
       d3d9PostRasterStatusWaitableTimerEnabled &&
@@ -21929,6 +21961,63 @@ function validateD3d9PostScenePresentGatewayResult(result) {
   );
 }
 
+function validateD3d9PresentResult(result) {
+  validateD3d9PostEndSceneRasterStatusResult(result, false);
+  assert.equal(result.fault, null);
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 17 &&
+      call.symbol === "IDirect3DDevice9.Present",
+  );
+  assert.equal(calls.length, 1, "IDirect3DDevice9::Present must complete once");
+  const call = calls[0];
+  assert.equal(call.sequence, 127_377);
+  assert.equal(call.occurrence, 1);
+  assert.equal(call.trapInstructionCount, 28_761_426);
+  assert.deepEqual(call.arguments, [0x0101_0004, 0, 0, 0, 0]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_b7b1);
+  assert.equal(call.stackPointerBefore, 0x006f_f280);
+  assert.equal(call.stackPointerAfter, 0x006f_f298);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.deepEqual(call.guestWrites, []);
+  const device = call.graphicsDevice;
+  assert(device, "Present completion omitted its Rust device snapshot");
+  assert.equal(device.id, 3);
+  assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+  assert.equal(device.frontend, "d3d9");
+  assert.equal(device.comObjectId, "21");
+  assert.equal(device.activeScene, undefined);
+  assert.equal(device.generation, 59);
+  assert.equal(device.presentedFrame?.sequence, 1);
+  assert.equal(device.presentedFrame?.backBuffer.contentGeneration, 2);
+  assert.equal(device.presentedFrame?.backBuffer.uniformClear?.sequence, 1);
+  assert.equal(device.presentedFrame?.backBuffer.drawSubmissions?.length, 1);
+  assert.equal(device.backBuffer.contentGeneration, 3);
+  assert.equal(device.backBuffer.uniformClear, undefined);
+  assert.equal(device.backBuffer.drawSubmissions, undefined);
+  assert.equal(device.renderer, undefined);
+  const checkpoint = result.checkpointCompletion;
+  assert(checkpoint, "first Present checkpoint is missing");
+  assert.equal(checkpoint.capability, "d3d9-first-present");
+  assert.equal(
+    checkpoint.implementationId,
+    "d3d9.present.discard-snapshot.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, call.sequence);
+  assert.equal(
+    checkpoint.lastCompletionInstructionCount,
+    call.trapInstructionCount,
+  );
+  assert(checkpoint.instructionCount > call.trapInstructionCount);
+  assert(checkpoint.nextEndpoint !== null);
+  assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -26916,6 +27005,23 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9EndSceneCall.graphicsDevice);
   }
+  const d3d9PresentCalls = d3d9PresentCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.interface === "IDirect3DDevice9" &&
+          call.vtableSlot === 17 &&
+          call.symbol === "IDirect3DDevice9.Present",
+      )
+    : [];
+  const d3d9PresentCall = d3d9PresentCalls[0] ?? null;
+  if (d3d9PresentCheckpointEnabled) {
+    assert.equal(
+      d3d9PresentCalls.length,
+      1,
+      "D3D9 Present report summary requires one completion",
+    );
+    assert(d3d9PresentCall.graphicsDevice?.presentedFrame);
+  }
   const d3d9PostEndSceneRasterStatusCalls = d3d9PostEndSceneRasterStatusEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
@@ -27014,8 +27120,10 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9PostScenePresentGatewayCheckpointEnabled
-          ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
+        : d3d9PresentCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-first-present"
+          : d3d9PostScenePresentGatewayCheckpointEnabled
+            ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
           : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
             ? "vine.v86-bgi-d3d9-post-raster-status-waitable-timer"
           : d3d9PostEndSceneRasterStatusCheckpointEnabled
@@ -27580,7 +27688,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -27596,7 +27704,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
             targetScope: "full-presentation-back-buffer",
@@ -27626,7 +27734,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9AddDirtyRect: {
             call: d3d9AddDirtyRectCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             addDirtyRectProfileId:
               "primary-recreated-system-memory-texture-dirty-rect-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -27643,7 +27751,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9UpdateTexture: {
             call: d3d9UpdateTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             updateTextureProfileId:
               "primary-recreated-system-memory-to-static-default-texture-update-v1",
             contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -27663,7 +27771,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9BeginScene: {
             call: d3d9BeginSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             beginSceneProfileId: "primary-first-frame-scene-begin-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device",
             lifecycle: "inactive-to-active",
@@ -27681,7 +27789,7 @@ function buildGenericRuntimeReentryReport({
             calls: d3d9InitialSamplerStateCalls,
             postSamplerRenderStateRejections:
               d3d9PostSamplerRenderStateRejections,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             samplerStateProfileId:
               "primary-first-frame-linear-sampler-states-v1",
             stateAuthority:
@@ -27698,7 +27806,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9InitialTextureStageStates: {
             calls: d3d9InitialTextureStageStateCalls,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             textureStageStateProfileId:
               "primary-first-frame-fixed-function-texture-stage-zero-v1",
             stateAuthority:
@@ -27715,7 +27823,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetTexture: {
             call: d3d9SetTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             textureBindingProfileId:
               "primary-first-frame-static-default-texture-stage-zero-v1",
             stateAuthority:
@@ -27734,7 +27842,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetFvf: {
             call: d3d9SetFvfCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             flexibleVertexFormatProfileId:
               "primary-first-frame-transformed-diffuse-textured-fvf-v1",
             stateAuthority:
@@ -27751,7 +27859,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetStreamSource: {
             call: d3d9SetStreamSourceCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             streamSourceProfileId:
               "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
             stateAuthority:
@@ -27773,7 +27881,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9DrawPrimitive: {
             call: d3d9DrawPrimitiveCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             drawPrimitiveProfileId:
               "primary-first-frame-triangle-strip-quad-draw-v1",
             stateAuthority:
@@ -27798,7 +27906,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9EndScene: {
             call: d3d9EndSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             endSceneProfileId: "primary-first-frame-scene-end-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
             lifecycle: "active-to-inactive",
@@ -27811,12 +27919,35 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
+    ...(d3d9PresentCheckpointEnabled
+      ? {
+          d3d9Present: {
+            call: d3d9PresentCall,
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+            presentProfileId:
+              "primary-first-frame-full-back-buffer-present-v1",
+            frameAuthority:
+              "rust-runtime-graphics-logical-device-presented-frame",
+            browserResourceAuthority: "typescript-browser-resource-table",
+            mutation: "validate-plan-preflight-targeted-commit",
+            presentMode: "discard",
+            sourceRectImplemented: false,
+            destinationRectImplemented: false,
+            destinationWindowOverrideImplemented: false,
+            dirtyRegionImplemented: false,
+            browserRendererResourceCreated: false,
+            visiblePixelsProduced: false,
+            asynchronousDeviceLossRecoveryImplemented: false,
+            failureAtomicity: true,
+          },
+        }
+      : {}),
     ...(d3d9PostEndSceneRasterStatusEnabled
       ? {
           d3d9PostEndSceneRasterStatus: {
             call: d3d9PostEndSceneRasterStatusCall,
             cumulativeCompletions: d3d9PostEndSceneRasterStatusCalls.length,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
             rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
             displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
             stateAuthority: "rust-d3d9-compatibility-policy",

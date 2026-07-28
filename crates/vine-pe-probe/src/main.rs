@@ -262,6 +262,7 @@ enum GenericRuntimeCapability {
     D3d9PostEndSceneRasterStatus,
     D3d9PostRasterStatusWaitableTimer,
     D3d9PostScenePresentGateway,
+    D3d9Present,
 }
 
 struct GenericRuntimeProcess {
@@ -2713,6 +2714,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
                     | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
                     | GenericRuntimeCapability::D3d9PostScenePresentGateway
+                    | GenericRuntimeCapability::D3d9Present
             )
         ) {
             let loader = kernel32_policy
@@ -3378,12 +3380,17 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let d3d9_present_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::D3d9Present)
+    );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
         Some(
             GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
                 | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
                 | GenericRuntimeCapability::D3d9PostScenePresentGateway
+                | GenericRuntimeCapability::D3d9Present
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3633,7 +3640,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9EndScene
             | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
             | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
-            | GenericRuntimeCapability::D3d9PostScenePresentGateway,
+            | GenericRuntimeCapability::D3d9PostScenePresentGateway
+            | GenericRuntimeCapability::D3d9Present,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3964,7 +3972,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v29();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v30();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -3997,6 +4005,9 @@ fn run_v86_generic_runtime_session(
     }
     if !d3d9_end_scene_enabled {
         d3d9_policy.end_scene = None;
+    }
+    if !d3d9_present_enabled {
+        d3d9_policy.present = None;
     }
     if !matches!(
         requested_capability,
@@ -6374,6 +6385,7 @@ fn run_v86_generic_runtime_session(
                         14 => d3d9_policy.get_device_caps.is_some(),
                         15 => d3d9_policy.get_adapter_monitor.is_some(),
                         16 => d3d9_policy.create_device.is_some(),
+                        17 => d3d9_present_enabled && d3d9_policy.present.is_some(),
                         18 => d3d9_policy.get_surface_level.is_some(),
                         19 => d3d9_policy.raster_status.is_some(),
                         21 => d3d9_add_dirty_rect_enabled && d3d9_policy.add_dirty_rect.is_some(),
@@ -6459,6 +6471,7 @@ fn run_v86_generic_runtime_session(
                                     | "SetStreamSource"
                                     | "DrawPrimitive"
                                     | "EndScene"
+                                    | "Present"
                             ) {
                             process
                                 .runtime
@@ -14189,6 +14202,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-post-scene-present-gateway" => {
                     GenericRuntimeCapability::D3d9PostScenePresentGateway
                 }
+                "d3d9-first-present" => GenericRuntimeCapability::D3d9Present,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

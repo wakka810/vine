@@ -1456,6 +1456,24 @@ atomic eight-byte writeを一致させる。Capability completionはinstruction 
 `IDirect3DDevice9::Present` slot 17／`0x01011140`として記録する。Host／browser scanout import、post-scene
 timer cycle、Present execution、renderer resource、visible pixelsはこのcheckpointのacceptanceへ含めない。
 
+続くfirst-Present gatewayはprotocol v44／browser report schema 12で検証する。Focused native trace二runは
+slot 17、caller RVA `0x5B7B1`、四つのoptional argumentが全てNULL、`D3D_OK`、LastError 0 preserve、
+`test eax,eax`後のnegative-HRESULT branchを一致させる。Rust model／dispatcher testsはclosed scene、clear／draw
+content、device／content／Present generationをplan／preflightし、content generation 2をimmutable frame sequence 1へ
+publishした後にempty discard generation 3を作るtargeted commitを固定する。Active scene、missing content、non-NULL
+argument、stale／duplicate plan、generation exhaustionはdevice、allocator、frame sequence、back buffer、guest bytes、COM
+refcountを不変にする。
+
+Node／Chromeはsequence 127,377／instruction 28,761,426、device 3／COM 21、device generation 59、zero guest writes、
+`D3D_OK`を一致させる。Chromeはguest execution前にtransferred `OffscreenCanvas`のWebGL2 context／shader、exact GPU
+storage、bounded CPU stagingをpreflightし、complete fixed-function snapshotの検証後だけresource `browser-resource:1`を
+non-owningでbindする。1280x720、texture upload 8,388,608 bytes、vertex upload 112 bytes、draw 1、center RGBA
+`[0,0,0,255]`、WebGL error 0、guest resume前renderを検証する。Nodeはbrowser resourceなしで同じRust semanticsを検証する。両者の
+semantic digestは`792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398`、memory digestは
+`bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9`で、checkpoint completionはinstruction
+28,761,433、次endpointは`WINMM.dll!timeGetTime` ID 8／`0x7F000070`である。Readable title content、partial／redirected／
+dirty-region Present、second frame、resize、context／device lossとrecoveryはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

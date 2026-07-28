@@ -17,15 +17,15 @@ use crate::runtime::{
     RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
     RuntimeGraphicsDrawCaptureRequest, RuntimeGraphicsFlexibleVertexFormat,
     RuntimeGraphicsFlexibleVertexFormatUpdateRequest, RuntimeGraphicsFrontend,
-    RuntimeGraphicsPresentMode, RuntimeGraphicsPrimitiveTopology, RuntimeGraphicsRenderStateUpdate,
-    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
-    RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
-    RuntimeGraphicsSceneEndRequest, RuntimeGraphicsStreamSourceUpdateRequest,
-    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureArgument,
-    RuntimeGraphicsTextureBindingUpdateRequest, RuntimeGraphicsTextureCreateRequest,
-    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
-    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureFilter,
-    RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
+    RuntimeGraphicsPresentMode, RuntimeGraphicsPresentRequest, RuntimeGraphicsPrimitiveTopology,
+    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsRenderStateUpdateRequest,
+    RuntimeGraphicsSamplerStateUpdate, RuntimeGraphicsSamplerStateUpdateRequest,
+    RuntimeGraphicsSceneBeginRequest, RuntimeGraphicsSceneEndRequest,
+    RuntimeGraphicsStreamSourceUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
+    RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureBindingUpdateRequest,
+    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
+    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
+    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureStageStateUpdateRequest,
     RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
@@ -37,7 +37,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 29;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 30;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -408,6 +408,16 @@ pub struct D3d9EndScenePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9PresentPolicy {
+    pub profile_id: String,
+    pub source_rect_must_be_null: bool,
+    pub destination_rect_must_be_null: bool,
+    pub destination_window_override_must_be_null: bool,
+    pub dirty_region_must_be_null: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
@@ -437,14 +447,15 @@ pub struct D3d9CompatibilityPolicy {
     pub update_texture: Option<D3d9UpdateTexturePolicy>,
     pub begin_scene: Option<D3d9BeginScenePolicy>,
     pub end_scene: Option<D3d9EndScenePolicy>,
+    pub present: Option<D3d9PresentPolicy>,
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v29() -> Self {
+    pub fn controlled_v30() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v29".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v30".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -620,6 +631,13 @@ impl D3d9CompatibilityPolicy {
             end_scene: Some(D3d9EndScenePolicy {
                 profile_id: "primary-first-frame-scene-end-v1".to_owned(),
             }),
+            present: Some(D3d9PresentPolicy {
+                profile_id: "primary-first-frame-full-back-buffer-present-v1".to_owned(),
+                source_rect_must_be_null: true,
+                destination_rect_must_be_null: true,
+                destination_window_override_must_be_null: true,
+                dirty_region_must_be_null: true,
+            }),
         }
     }
 
@@ -638,6 +656,7 @@ impl D3d9CompatibilityPolicy {
         self.stream_source = None;
         self.draw_primitive = None;
         self.end_scene = None;
+        self.present = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -655,6 +674,7 @@ impl D3d9CompatibilityPolicy {
         self.stream_source = None;
         self.draw_primitive = None;
         self.end_scene = None;
+        self.present = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
@@ -1031,6 +1051,21 @@ impl D3d9CompatibilityPolicy {
                 "d3d9-compatibility-policy",
                 "d3d9-end-scene-profile-invalid",
                 "D3D9 EndScene profile must close the reached first-frame logical scene",
+            ));
+        }
+        if let Some(present) = self.present.as_ref()
+            && (present.profile_id != "primary-first-frame-full-back-buffer-present-v1"
+                || !present.source_rect_must_be_null
+                || !present.destination_rect_must_be_null
+                || !present.destination_window_override_must_be_null
+                || !present.dirty_region_must_be_null
+                || self.end_scene.is_none()
+                || self.draw_primitive.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-present-profile-invalid",
+                "D3D9 Present profile must submit the reached closed first-frame full back buffer",
             ));
         }
         let coherent_profiles = [
@@ -1722,6 +1757,7 @@ fn dispatch_d3d9_device_frontend_call(
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
     let expected = match call.frame().vtable_slot {
+        17 => ("Present", 4),
         19 => ("GetRasterStatus", 2),
         23 => ("CreateTexture", 8),
         26 => ("CreateVertexBuffer", 6),
@@ -1758,6 +1794,7 @@ fn dispatch_d3d9_device_frontend_call(
         );
     }
     match call.frame().vtable_slot {
+        17 => dispatch_present(policy, call),
         19 => dispatch_get_raster_status(policy, call),
         23 => dispatch_create_texture(policy, call),
         26 => dispatch_create_vertex_buffer(policy, call),
@@ -1774,6 +1811,68 @@ fn dispatch_d3d9_device_frontend_call(
         100 => dispatch_set_stream_source(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_present(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(present_policy) = policy.present.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-present",
+            "present-policy-disabled",
+            "D3D9 compatibility policy does not enable Present",
+        );
+    };
+    debug_assert_eq!(
+        present_policy.profile_id,
+        "primary-first-frame-full-back-buffer-present-v1"
+    );
+    let [
+        source_rect,
+        destination_rect,
+        destination_window_override,
+        dirty_region,
+    ] = call.frame().explicit_arguments.as_slice()
+    else {
+        return call.fault(
+            ComFaultClass::RuntimeDefect,
+            "d3d9-present",
+            "present-abi-mismatch",
+            "D3D9 Present did not decode four explicit arguments",
+        );
+    };
+    if (present_policy.source_rect_must_be_null && *source_rect != 0)
+        || (present_policy.destination_rect_must_be_null && *destination_rect != 0)
+        || (present_policy.destination_window_override_must_be_null
+            && *destination_window_override != 0)
+        || (present_policy.dirty_region_must_be_null && *dirty_region != 0)
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let plan = match call
+        .runtime()
+        .plan_graphics_present(RuntimeGraphicsPresentRequest {
+            device_com_object_id: call.frame().object_id,
+        }) {
+        Ok(plan) => plan,
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput | RuntimeStateErrorClass::NotFound
+            ) =>
+        {
+            return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call.runtime().preflight_graphics_present(&plan) {
+        return call.runtime_fault(error);
+    }
+    let mut call = call;
+    call.runtime_mut().commit_graphics_present(plan);
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
 fn dispatch_begin_scene(
@@ -4043,7 +4142,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            19 | 23 | 26 | 31 | 41 | 42 | 43 | 57 | 65 | 67 | 69 | 81 | 89 | 100 => {
+            17 | 19 | 23 | 26 | 31 | 41 | 42 | 43 | 57 | 65 | 67 | 69 | 81 | 89 | 100 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

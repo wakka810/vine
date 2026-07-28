@@ -609,6 +609,13 @@ pub struct RuntimeGraphicsScene {
     pub sequence: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsPresentedFrame {
+    pub sequence: u64,
+    pub back_buffer: RuntimeGraphicsBackBuffer,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeGraphicsPresentMode {
@@ -667,6 +674,8 @@ pub struct RuntimeGraphicsDevice {
     pub back_buffer: RuntimeGraphicsBackBuffer,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_scene: Option<RuntimeGraphicsScene>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presented_frame: Option<RuntimeGraphicsPresentedFrame>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub renderer: Option<RuntimeGraphicsRendererAssociation>,
     pub generation: u64,
@@ -793,6 +802,11 @@ pub(crate) struct RuntimeGraphicsSceneBeginRequest {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsSceneEndRequest {
+    pub device_com_object_id: RuntimeComObjectId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsPresentRequest {
     pub device_com_object_id: RuntimeComObjectId,
 }
 
@@ -1013,6 +1027,19 @@ pub(crate) struct RuntimeGraphicsSceneEndPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsPresentPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    device_id: RuntimeGraphicsDeviceId,
+    device_generation: u64,
+    next_device_generation: u64,
+    next_back_buffer_content_generation: u64,
+    previous_presented_frame: Option<RuntimeGraphicsPresentedFrame>,
+    frame: RuntimeGraphicsPresentedFrame,
+    next_present_sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsTextureCreationPlan {
     expected_generation: u64,
     next_generation: u64,
@@ -1213,6 +1240,15 @@ pub struct RuntimeGraphicsSceneEndResult {
     pub scene: RuntimeGraphicsScene,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsPresentResult {
+    pub device_id: RuntimeGraphicsDeviceId,
+    pub device_generation: u64,
+    pub frame: RuntimeGraphicsPresentedFrame,
+    pub next_back_buffer_content_generation: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsTextureDirtyRegionMarkResult {
@@ -1403,6 +1439,8 @@ pub(super) struct RuntimeGraphics {
     next_scene_sequence: u64,
     #[serde(skip_serializing_if = "is_initial_sequence")]
     next_draw_sequence: u64,
+    #[serde(skip_serializing_if = "is_initial_sequence")]
+    next_present_sequence: u64,
     generation: u64,
 }
 
@@ -1430,6 +1468,7 @@ impl Default for RuntimeGraphics {
             next_back_buffer_clear_sequence: 1,
             next_scene_sequence: 1,
             next_draw_sequence: 1,
+            next_present_sequence: 1,
             generation: 0,
         }
     }
@@ -1516,6 +1555,7 @@ impl RuntimeGraphics {
             stream_sources: RuntimeGraphicsStreamSources::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             active_scene: None,
+            presented_frame: None,
             renderer: None,
             generation: plan.next_generation,
         };
@@ -2855,6 +2895,144 @@ impl RuntimeGraphics {
             device_id: device.id,
             device_generation: device.generation,
             scene: plan.scene,
+        }
+    }
+
+    pub(super) fn plan_present(
+        &self,
+        request: RuntimeGraphicsPresentRequest,
+    ) -> Result<RuntimeGraphicsPresentPlan, RuntimeStateError> {
+        if request.device_com_object_id.0 == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-present-request-invalid",
+                "logical presentation requires a non-null graphics device COM object",
+            ));
+        }
+        let device_id = self
+            .device_com_object_index
+            .get(&request.device_com_object_id)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-graphics",
+                    "graphics-present-device-com-object-unknown",
+                    "logical presentation requires a live graphics device COM object",
+                )
+            })?;
+        self.validate_device_association(request.device_com_object_id, device_id)?;
+        let device = self.device(device_id)?;
+        if device.active_scene.is_some() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-present-scene-active",
+                "logical presentation requires a closed graphics scene",
+            ));
+        }
+        if device.back_buffer.uniform_clear.is_none()
+            && device.back_buffer.draw_submissions.is_empty()
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-present-back-buffer-empty",
+                "logical presentation requires prepared back-buffer content",
+            ));
+        }
+        let next_generation = checked_next_generation(self.generation)?;
+        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-device-generation-exhausted",
+                "logical graphics device generation is exhausted",
+            )
+        })?;
+        let next_back_buffer_content_generation = device
+            .back_buffer
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-graphics",
+                    "graphics-back-buffer-content-generation-exhausted",
+                    "logical graphics back-buffer content generation is exhausted",
+                )
+            })?;
+        let frame = RuntimeGraphicsPresentedFrame {
+            sequence: self.next_present_sequence,
+            back_buffer: device.back_buffer.clone(),
+        };
+        let next_present_sequence = self.next_present_sequence.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-graphics",
+                "graphics-present-sequence-exhausted",
+                "logical graphics presentation sequence is exhausted",
+            )
+        })?;
+        Ok(RuntimeGraphicsPresentPlan {
+            expected_generation: self.generation,
+            next_generation,
+            device_id,
+            device_generation: device.generation,
+            next_device_generation,
+            next_back_buffer_content_generation,
+            previous_presented_frame: device.presented_frame.clone(),
+            frame,
+            next_present_sequence,
+        })
+    }
+
+    pub(super) fn preflight_present(
+        &self,
+        plan: &RuntimeGraphicsPresentPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(device) = self.devices.get(&plan.device_id) else {
+            return Err(stale_plan("graphics-present-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || device.generation != plan.device_generation
+            || device.generation.checked_add(1) != Some(plan.next_device_generation)
+            || device.active_scene.is_some()
+            || device.presented_frame != plan.previous_presented_frame
+            || plan.frame.sequence != self.next_present_sequence
+            || plan.frame.back_buffer != device.back_buffer
+            || device.back_buffer.content_generation.checked_add(1)
+                != Some(plan.next_back_buffer_content_generation)
+            || self.next_present_sequence.checked_add(1) != Some(plan.next_present_sequence)
+        {
+            return Err(stale_plan("graphics-present-plan-stale"));
+        }
+        if device.back_buffer.uniform_clear.is_none()
+            && device.back_buffer.draw_submissions.is_empty()
+        {
+            return Err(stale_plan("graphics-present-plan-stale"));
+        }
+        self.validate_device_association(device.com_object_id, device.id)
+    }
+
+    pub(super) fn commit_present(
+        &mut self,
+        plan: RuntimeGraphicsPresentPlan,
+    ) -> RuntimeGraphicsPresentResult {
+        debug_assert!(self.preflight_present(&plan).is_ok());
+        let device = self
+            .devices
+            .get_mut(&plan.device_id)
+            .expect("preflighted graphics device disappeared");
+        device.presented_frame = Some(plan.frame.clone());
+        device.back_buffer = RuntimeGraphicsBackBuffer {
+            content_generation: plan.next_back_buffer_content_generation,
+            uniform_clear: None,
+            draw_submissions: Vec::new(),
+        };
+        device.generation = plan.next_device_generation;
+        self.next_present_sequence = plan.next_present_sequence;
+        self.generation = plan.next_generation;
+        RuntimeGraphicsPresentResult {
+            device_id: device.id,
+            device_generation: device.generation,
+            frame: plan.frame,
+            next_back_buffer_content_generation: device.back_buffer.content_generation,
         }
     }
 
@@ -6707,6 +6885,116 @@ mod tests {
             "graphics-device-generation-exhausted"
         );
         assert_eq!(exhausted, before_exhausted);
+    }
+
+    #[test]
+    fn present_moves_closed_back_buffer_to_front_frame_and_rejects_invalid_or_stale_state_atomically()
+     {
+        let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
+        let draw = graphics
+            .plan_draw_capture(RuntimeGraphicsDrawCaptureRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+                primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
+                start_vertex: 0,
+                primitive_count: 2,
+            })
+            .unwrap();
+        let draw = graphics
+            .prepare_draw_submission(draw, vec![0x5a; 112])
+            .unwrap();
+        graphics.commit_draw_submission(draw);
+        let end = graphics
+            .plan_scene_end(RuntimeGraphicsSceneEndRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+            })
+            .unwrap();
+        graphics.commit_scene_end(end);
+
+        let request = RuntimeGraphicsPresentRequest {
+            device_com_object_id: RuntimeComObjectId(7),
+        };
+        let before_plan = graphics.clone();
+        let plan = graphics.plan_present(request).unwrap();
+        let stale = plan.clone();
+        graphics.preflight_present(&plan).unwrap();
+        assert_eq!(graphics, before_plan);
+        let previous_device_generation = graphics.device(device_id).unwrap().generation;
+        let result = graphics.commit_present(plan);
+        assert_eq!(result.device_id, device_id);
+        assert_eq!(result.device_generation, previous_device_generation + 1);
+        assert_eq!(result.frame.sequence, 1);
+        assert_eq!(result.frame.back_buffer.content_generation, 2);
+        assert_eq!(result.frame.back_buffer.draw_submissions.len(), 1);
+        assert_eq!(result.next_back_buffer_content_generation, 3);
+        let device = graphics.device(device_id).unwrap();
+        assert_eq!(device.presented_frame, Some(result.frame.clone()));
+        assert_eq!(device.back_buffer.content_generation, 3);
+        assert_eq!(device.back_buffer.uniform_clear, None);
+        assert!(device.back_buffer.draw_submissions.is_empty());
+        assert_eq!(graphics.next_present_sequence, 2);
+
+        let before_stale = graphics.clone();
+        assert_eq!(
+            graphics.preflight_present(&stale).unwrap_err().code,
+            "graphics-present-plan-stale"
+        );
+        assert_eq!(graphics, before_stale);
+        assert_eq!(
+            graphics.plan_present(request).unwrap_err().code,
+            "graphics-present-back-buffer-empty"
+        );
+        assert_eq!(graphics, before_stale);
+
+        for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
+            let before = graphics.clone();
+            let error = graphics
+                .plan_present(RuntimeGraphicsPresentRequest {
+                    device_com_object_id,
+                })
+                .unwrap_err();
+            assert!(matches!(
+                error.code,
+                "graphics-present-request-invalid" | "graphics-present-device-com-object-unknown"
+            ));
+            assert_eq!(graphics, before);
+        }
+
+        let (active, _, _, _, _) = prepared_draw_graphics();
+        let before_active = active.clone();
+        assert_eq!(
+            active.plan_present(request).unwrap_err().code,
+            "graphics-present-scene-active"
+        );
+        assert_eq!(active, before_active);
+
+        let (mut exhausted, exhausted_device_id, _, _, _) = prepared_draw_graphics();
+        let end = exhausted
+            .plan_scene_end(RuntimeGraphicsSceneEndRequest {
+                device_com_object_id: RuntimeComObjectId(7),
+            })
+            .unwrap();
+        exhausted.commit_scene_end(end);
+        exhausted.next_present_sequence = u64::MAX;
+        let before_sequence_exhausted = exhausted.clone();
+        assert_eq!(
+            exhausted.plan_present(request).unwrap_err().code,
+            "graphics-present-sequence-exhausted"
+        );
+        assert_eq!(exhausted, before_sequence_exhausted);
+
+        exhausted.next_present_sequence = 1;
+        exhausted
+            .devices
+            .get_mut(&exhausted_device_id)
+            .unwrap()
+            .back_buffer
+            .content_generation = u64::MAX;
+        let before_content_exhausted = exhausted.clone();
+        assert_eq!(
+            exhausted.plan_present(request).unwrap_err().code,
+            "graphics-back-buffer-content-generation-exhausted"
+        );
+        assert_eq!(exhausted, before_content_exhausted);
     }
 
     #[test]

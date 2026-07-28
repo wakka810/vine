@@ -5744,3 +5744,32 @@ Canonical Node／Chromeはsequence 127,376／instruction 28,761,389のeight-byte
 `c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e`を一致させ、追加timer cycleなしで
 instruction 28,761,426の`IDirect3DDevice9::Present` slot 17／`0x01011140`へ到達する。Present execution、
 renderer resource、visible outputは次checkpointであり、このevidenceから実装済みとしない。
+
+## 171. BGI first `Present` and browser publication boundary
+
+Focused primary captureは470,377 bytes／1,179 lines／SHA-256
+`5ffe696fec7fbb08e49321d25d20daa7574bdd6814e5f3111bac250f7dd1cfef`、summaryは298,678 bytes／
+SHA-256 `da210ac2a994ad37b584d43ed701543b77dfc587758154b04c2f7e43dc278694`で、1,177 events／550
+API pairsがbalancedである。Independent confirmation captureは471,348 bytes／1,179 lines／SHA-256
+`bd2ab4c7f5946e4db14056d720f08b2c6a34f7aab6c8422e04e29cf9cf926570`、summaryは298,685 bytes／
+SHA-256 `f64dd1fd4feea9569f04b26713ead1bfc1b6a666cb07eff09a3f6f121a44c489`で、同じ1,177 events／550
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、slot 17、source RECT、destination
+RECT、destination window override、dirty regionが全てNULL、`D3D_OK`、entry／exit LastError 0、caller RVA
+`0x0005B7B1`を一致させる。Callerはreturn直後に`test eax,eax; js ...`でnegative HRESULTだけをfailureとして扱う。
+Raw trace／summaryは`.work/windows-traces/`に保持しGitへ追加しない。Source executableは1,193,472 bytes／
+SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+このcaptureはreached full-frame contractとconsumer behaviorのoracleであり、native device pointer、thread ID、caller
+addressはartifact identityである。Runtime handlerはそれらやoccurrence／title hashで分岐せず、version 30 policyが
+all-NULL formだけを許可する。Active scene、content不足、non-NULL argument、stale／duplicate／exhausted failureは
+Rust owner／dispatcher model testでmutation-freeに固定し、unreached native Present variantを一般化しない。
+
+Canonical Node／Chromeはsequence 127,377／instruction 28,761,426、logical device 3／COM 21、reference count 5、
+device generation 59、presented frame sequence 1／content generation 2、empty discard generation 3、zero guest writesを
+一致させる。ChromeだけがTypeScript-owned `browser-resource:1`へnon-owning associationを作り、WebGL2で1280x720
+black frameをguest resume前にdrawする。Texture upload 8,388,608 bytes、vertex upload 112 bytes、center RGBA
+`[0,0,0,255]`、WebGL error 0をreceiptとして検証する。Semantic digestは
+`792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398`、memory digestは
+`bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9`で一致し、instruction 28,761,433の次endpoint
+`WINMM.dll!timeGetTime` ID 8／`0x7F000070`を記録する。Readable content、second frame、resize、partial／redirected
+Present、context／device lossとrecoveryはこのevidenceからclaimしない。
