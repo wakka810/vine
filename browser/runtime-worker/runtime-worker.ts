@@ -4,6 +4,7 @@ import {
   assertProtocolVersion,
   type HostCompletionMessage,
   type HostRequestMessage,
+  type KeyboardInputMessage,
   type MainToWorkerMessage,
   type PageLifecycleMessage,
   protocolVersion,
@@ -29,6 +30,8 @@ import {
   type RuntimeGraphicsTextureSnapshot,
   type RuntimeGraphicsTextureUpdateSnapshot,
   type RuntimeBrowserPresentationReceipt,
+  type RuntimeKeyboardEventReceipt,
+  type RuntimeKeyboardInputEvent,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -83,6 +86,7 @@ import { D3d9WebGl2Renderer } from "./d3d9-renderer.js";
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
+const MAX_PENDING_KEYBOARD_EVENTS = 256;
 const BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES = [
   0x09, 0x00, 0x01, 0x47, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xd0, 0x02, 0x00, 0x00, 0x00, 0x00,
@@ -320,14 +324,24 @@ function isD3d9Present(
 ): boolean {
   return (
     profile === "d3d9-first-present" ||
-    profile === "d3d9-post-present-continuation"
+    profile === "d3d9-post-present-continuation" ||
+    profile === "user32-async-key-state-input"
   );
 }
 
 function isD3d9PostPresentContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "d3d9-post-present-continuation";
+  return (
+    profile === "d3d9-post-present-continuation" ||
+    profile === "user32-async-key-state-input"
+  );
+}
+
+function isUser32AsyncKeyStateInput(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-async-key-state-input";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -618,6 +632,20 @@ interface WritableProfileHydratedMetadata {
   sha256: string;
 }
 
+interface KeyboardEventMetadata {
+  kind: "keyboard-event-ingested";
+  receipt: RuntimeKeyboardEventReceipt;
+  keyboard: {
+    profileId: string;
+    sourceFocused: boolean;
+    maximumVirtualKey: number;
+    aggregateModifierKeys: boolean;
+    clearOnSourceFocusLoss: boolean;
+    generation: number;
+    lastEventSequence: number;
+  };
+}
+
 interface CallbackCompletionMetadata {
   kind: "callback-complete";
   frameId: number;
@@ -791,6 +819,41 @@ function validByteArray(bytes: number[], trailingNul: boolean): boolean {
   );
 }
 
+function validateKeyboardInputEvent(event: RuntimeKeyboardInputEvent): void {
+  invariant(
+    typeof event.sequence === "string" &&
+      /^[1-9][0-9]*$/.test(event.sequence) &&
+      BigInt(event.sequence) <= BigInt(Number.MAX_SAFE_INTEGER),
+    "keyboard event sequence must be a positive lossless integer",
+  );
+  invariant(
+    event.kind === "focus-gained" ||
+      event.kind === "focus-lost" ||
+      event.kind === "key-down" ||
+      event.kind === "key-up",
+    "keyboard event kind is invalid",
+  );
+  invariant(typeof event.repeat === "boolean", "keyboard repeat flag is invalid");
+  if (event.kind === "focus-gained" || event.kind === "focus-lost") {
+    invariant(
+      event.virtualKey === null && !event.repeat,
+      "keyboard focus events cannot carry key state",
+    );
+    return;
+  }
+  invariant(
+    Number.isInteger(event.virtualKey) &&
+      event.virtualKey !== null &&
+      event.virtualKey > 0 &&
+      event.virtualKey <= 0xff,
+    "keyboard virtual key is outside the supported range",
+  );
+  invariant(
+    event.kind !== "key-up" || !event.repeat,
+    "keyboard key-up events cannot repeat",
+  );
+}
+
 function byteArraysEqual(left: number[], right: number[]): boolean {
   return (
     left.length === right.length &&
@@ -834,6 +897,7 @@ class BrowserRuntimeSession {
   #stopping = false;
   #terminalTask: Promise<void> | null = null;
   #runtimePrepared = false;
+  readonly #pendingKeyboardEvents: RuntimeKeyboardInputEvent[] = [];
   #initialThreadId = 0;
   #currentThreadId = 0;
   #liveThreadId: number | null = null;
@@ -982,6 +1046,11 @@ class BrowserRuntimeSession {
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256: null as string | null,
     supportedCalls: [] as SessionReport["supportedCalls"],
+    keyboardInput: {
+      receivedMessages: 0,
+      queuedBeforePrepare: 0,
+      receipts: [] as RuntimeKeyboardEventReceipt[],
+    },
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
     writableDirectoryCreates: [] as SessionReport["writableDirectoryCreates"],
@@ -998,6 +1067,7 @@ class BrowserRuntimeSession {
     updateWindow: null as SessionReport["updateWindow"],
     postPresentContinuation:
       null as SessionReport["postPresentContinuation"],
+    getAsyncKeyState: null as SessionReport["getAsyncKeyState"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -1199,6 +1269,7 @@ class BrowserRuntimeSession {
       this.#engine = engine;
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
+      this.#flushPendingKeyboardEvents();
       if (profileBackedWorkload) {
         this.#validatePreparedWritableProfile(preparedOutput.metadata);
         await this.#hydrateWritableProfileObjects();
@@ -1851,6 +1922,68 @@ class BrowserRuntimeSession {
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  ingestKeyboardInput(message: KeyboardInputMessage): void {
+    if (
+      message.sessionId !== this.#sessionId ||
+      this.#terminal ||
+      this.#stopping
+    ) {
+      return;
+    }
+    try {
+      validateKeyboardInputEvent(message.event);
+      this.#report.keyboardInput.receivedMessages += 1;
+      if (!this.#runtimePrepared) {
+        invariant(
+          this.#pendingKeyboardEvents.length < MAX_PENDING_KEYBOARD_EVENTS,
+          "pending keyboard input exceeded its bounded queue",
+        );
+        this.#pendingKeyboardEvents.push(structuredClone(message.event));
+        this.#report.keyboardInput.queuedBeforePrepare += 1;
+        return;
+      }
+      this.#commitKeyboardInput(message.event);
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  #flushPendingKeyboardEvents(): void {
+    for (const event of this.#pendingKeyboardEvents.splice(0)) {
+      this.#commitKeyboardInput(event);
+    }
+  }
+
+  #commitKeyboardInput(event: RuntimeKeyboardInputEvent): void {
+    const output = this.#requireBridge().ingestKeyboardEvent<KeyboardEventMetadata>(event);
+    invariant(
+      output.control.byteLength === 0 && output.payload.byteLength === 0,
+      "keyboard input unexpectedly changed guest memory",
+    );
+    const metadata = output.metadata;
+    const sequence = Number(BigInt(event.sequence));
+    invariant(
+      metadata.kind === "keyboard-event-ingested" &&
+        metadata.receipt.sequence === sequence &&
+        metadata.receipt.kind === event.kind &&
+        metadata.receipt.virtualKey === event.virtualKey &&
+        metadata.receipt.repeat === event.repeat &&
+        metadata.receipt.generation === metadata.keyboard.generation &&
+        metadata.keyboard.lastEventSequence === sequence &&
+        metadata.keyboard.maximumVirtualKey === 0xff &&
+        metadata.keyboard.aggregateModifierKeys === true &&
+        metadata.keyboard.clearOnSourceFocusLoss === true &&
+        metadata.receipt.affectedKeys.every(
+          (state) =>
+            Number.isInteger(state.virtualKey) &&
+            state.virtualKey > 0 &&
+            state.virtualKey <= 0xff,
+        ),
+      "Rust keyboard event receipt is inconsistent with the input protocol",
+    );
+    this.#report.keyboardInput.receipts.push(metadata.receipt);
   }
 
   // Host completions must reach Rust in request-issue order: the Node oracle
@@ -3257,7 +3390,8 @@ class BrowserRuntimeSession {
           checkpoint.capability === "d3d9-post-end-scene-raster-status" ||
           checkpoint.capability === "d3d9-post-raster-status-waitable-timer" ||
           checkpoint.capability === "d3d9-post-scene-present-gateway" ||
-          checkpoint.capability === "d3d9-first-present"
+          checkpoint.capability === "d3d9-first-present" ||
+          checkpoint.capability === "user32-async-key-state-input"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3316,6 +3450,8 @@ class BrowserRuntimeSession {
       "checkpoint-complete",
       checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
+        : checkpoint.capability === "user32-async-key-state-input"
+          ? "GetAsyncKeyState controlled keyboard input checkpoint completed"
         : checkpoint.capability === "d3d9-end-scene"
           ? "EndScene first-frame lifecycle checkpoint completed"
           : checkpoint.capability === "d3d9-post-end-scene-raster-status"
@@ -5790,6 +5926,88 @@ class BrowserRuntimeSession {
       this.#postPresentTimeGetTimeCall = structuredClone(call);
       return;
     }
+    if (
+      isUser32AsyncKeyStateInput(this.#configuration.capabilityProfile) &&
+      call.implementationId === "user32.get-async-key-state.v1"
+    ) {
+      const input = this.#report.keyboardInput;
+      const inputEvent = input.receipts[0];
+      invariant(
+        this.#report.getAsyncKeyState === null &&
+          this.#report.checkpointCompletion === null &&
+          call.sequence === 127_691 &&
+          this.#report.instructions === 29_325_480 &&
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetAsyncKeyState" &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === 0x11 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0xffff_8001 &&
+          call.returnAddress === 0x1006_8405 &&
+          call.stackPointerBefore === 0x006f_f53c &&
+          call.stackPointerAfter === 0x006f_f544 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          input.receivedMessages === 1 &&
+          input.queuedBeforePrepare === 1 &&
+          input.receipts.length === 1 &&
+          inputEvent?.sequence === 1 &&
+          inputEvent.kind === "key-down" &&
+          inputEvent.virtualKey === 0xa2 &&
+          inputEvent.repeat === false &&
+          inputEvent.sourceFocused === true &&
+          inputEvent.generation === 1 &&
+          inputEvent.affectedKeys.length === 2 &&
+          inputEvent.affectedKeys[0]?.virtualKey === 0x11 &&
+          inputEvent.affectedKeys[0].down === true &&
+          inputEvent.affectedKeys[0].pressedSinceLastQuery === true &&
+          inputEvent.affectedKeys[1]?.virtualKey === 0xa2 &&
+          inputEvent.affectedKeys[1].down === true &&
+          inputEvent.affectedKeys[1].pressedSinceLastQuery === true,
+        `GetAsyncKeyState browser input contract changed: ${JSON.stringify({
+          instructions: this.#report.instructions,
+          call,
+          input,
+        })}`,
+      );
+      this.#report.getAsyncKeyState = {
+        call: structuredClone(call),
+        compatibilityPolicyId:
+          "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+        keyboardProfileId: "foreground-focused-virtual-key-state-v1",
+        inputEvent: structuredClone(inputEvent),
+        stateAuthority: "rust-runtime-input-keyboard",
+        browserSourceAuthority: "typescript-browser-input-adapter",
+        returnEncoding:
+          "signed-short-high-bit-down-low-bit-pressed-since-query",
+        modifierAggregation: "side-specific-to-generic",
+        pressedBitConsumption: "queried-virtual-key-only",
+        sourceFocusRequired: true,
+        focusedForegroundWindowRequired: true,
+        lastErrorPolicy: "preserve",
+        guestMemoryMutation: false,
+        failureAtomicity: true,
+      };
+      this.#report.checkpointCompletion = {
+        capability: "user32-async-key-state-input",
+        implementationId: "user32.get-async-key-state.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        virtualKey: 0x11,
+        result: { action: "set", value: 0xffff_8001 },
+        lastError: 0,
+        inputEventSequence: 1,
+        inputVirtualKey: 0xa2,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
+      return;
+    }
     if (call.sequence !== 127_379) {
       return;
     }
@@ -7848,6 +8066,52 @@ class BrowserRuntimeSession {
         )}`,
       );
     }
+    if (
+      isUser32AsyncKeyStateInput(this.#configuration.capabilityProfile) &&
+      terminal.outcome === "checkpoint-complete"
+    ) {
+      const input = this.#report.keyboardInput;
+      const getAsyncKeyState = this.#report.getAsyncKeyState;
+      const checkpoint = this.#report.checkpointCompletion;
+      const pacing = this.#timerPacing.metrics();
+      invariant(
+        this.#report.supportedCallCount === 127_691 &&
+          this.#report.supportedCallSemanticsSha256 ===
+            "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070" &&
+          this.#report.firstUnsupported === null &&
+          getAsyncKeyState?.call.sequence === 127_691 &&
+          getAsyncKeyState.call.arguments[0] === 0x11 &&
+          "action" in getAsyncKeyState.call.result &&
+          getAsyncKeyState.call.result.action === "set" &&
+          getAsyncKeyState.call.result.value === 0xffff_8001 &&
+          input.receivedMessages === 1 &&
+          input.queuedBeforePrepare === 1 &&
+          input.receipts.length === 1 &&
+          checkpoint?.capability === "user32-async-key-state-input" &&
+          checkpoint.lastCompletionSequence === 127_691 &&
+          checkpoint.lastCompletionInstructionCount === 29_325_480 &&
+          checkpoint.instructionCount === 29_325_523 &&
+          checkpoint.nextEndpoint.id === 8 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+          checkpoint.memoryContentSha256 ===
+            "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4" &&
+          this.#waitForSingleObjectExCompletions === 9_205 &&
+          pacing.requests === 9_205 &&
+          pacing.completions === 9_205 &&
+          pacing.pending === 0,
+        `GetAsyncKeyState checkpoint report changed: ${JSON.stringify({
+          supportedCallCount: this.#report.supportedCallCount,
+          supportedCallSemanticsSha256:
+            this.#report.supportedCallSemanticsSha256,
+          input,
+          getAsyncKeyState,
+          checkpoint,
+          waitForSingleObjectExCompletions:
+            this.#waitForSingleObjectExCompletions,
+          pacing,
+        })}`,
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -8012,6 +8276,11 @@ worker.addEventListener(
               supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
               supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
               supportedCalls: [],
+              keyboardInput: {
+                receivedMessages: 0,
+                queuedBeforePrepare: 0,
+                receipts: [],
+              },
               sourceReads: [],
               writableCommits: [],
               writableDirectoryCreates: [],
@@ -8025,6 +8294,7 @@ worker.addEventListener(
               showWindowNormal: null,
               updateWindow: null,
               postPresentContinuation: null,
+              getAsyncKeyState: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,
@@ -8068,6 +8338,9 @@ worker.addEventListener(
         break;
       case "page-lifecycle":
         activeSession?.updatePageLifecycle(message);
+        break;
+      case "keyboard-input":
+        activeSession?.ingestKeyboardInput(message);
         break;
     }
   },

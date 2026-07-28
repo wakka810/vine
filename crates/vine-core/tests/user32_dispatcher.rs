@@ -15,24 +15,26 @@ use vine_core::{
     RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
     RuntimeCursorSource, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
     RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
-    RuntimeModule, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState,
-    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeUpdateWindowCallbackAction,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
-    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, begin_paint_contract,
-    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
-    dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy,
-    enable_menu_item_contract, end_paint_contract, enum_display_monitors_contract,
-    fill_rect_contract, gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
-    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
-    get_system_menu_contract, get_system_metrics_contract, imm_associate_context_contract,
-    imm_get_default_ime_wnd_contract, load_cursor_a_contract, load_icon_a_contract,
-    load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
-    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
-    swap_mouse_button_contract, update_window_contract, user32_contract_for_endpoint,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosOperation,
+    RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind,
+    RuntimeThreadId, RuntimeUpdateWindowCallbackAction, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
+    User32CompatibilityPolicy, begin_paint_contract, build_pe32_load_plan,
+    create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
+    dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy, enable_menu_item_contract,
+    end_paint_contract, enum_display_monitors_contract, fill_rect_contract,
+    gdi32_contract_for_endpoint, get_async_key_state_contract, get_client_rect_contract,
+    get_dc_contract, get_foreground_window_contract, get_monitor_info_a_contract,
+    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
+    imm_associate_context_contract, imm_get_default_ime_wnd_contract, load_cursor_a_contract,
+    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
+    send_message_a_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
+    set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
+    update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -120,6 +122,10 @@ const GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00
 const GET_FOREGROUND_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 100);
 const GET_FOREGROUND_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2280;
 const GET_FOREGROUND_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_390e);
+const GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e60);
+const GET_ASYNC_KEY_STATE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 104);
+const GET_ASYNC_KEY_STATE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22a0;
+const GET_ASYNC_KEY_STATE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_8405);
 const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
 const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
@@ -233,7 +239,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v26();
+        let policy = User32CompatibilityPolicy::controlled_v27();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -324,12 +330,8 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v26();
-        policy
-            .swap_mouse_button
-            .as_mut()
-            .expect("input profile")
-            .initial_mouse_buttons_swapped = initial_swapped;
+        let mut policy = User32CompatibilityPolicy::controlled_v27();
+        policy.input.initial_mouse_buttons_swapped = initial_swapped;
         let mut runtime = controlled_runtime();
         runtime
             .configure_input_profile(policy.input_profile().expect("input profile"))
@@ -421,7 +423,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v26();
+        let policy = User32CompatibilityPolicy::controlled_v27();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -512,7 +514,7 @@ impl SetRectFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v26(),
+            policy: User32CompatibilityPolicy::controlled_v27(),
         }
     }
 
@@ -684,7 +686,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v26(),
+            policy: User32CompatibilityPolicy::controlled_v27(),
         }
     }
 
@@ -930,7 +932,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v26(),
+            policy: User32CompatibilityPolicy::controlled_v27(),
         }
     }
 
@@ -1131,7 +1133,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v26(),
+            policy: User32CompatibilityPolicy::controlled_v27(),
         }
     }
 
@@ -1179,6 +1181,7 @@ struct RegisterClassFixture {
     begin_paint_endpoint: ApiEndpointIdentity,
     end_paint_endpoint: ApiEndpointIdentity,
     get_foreground_window_endpoint: ApiEndpointIdentity,
+    get_async_key_state_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
@@ -1282,6 +1285,10 @@ impl RegisterClassFixture {
             (
                 GET_FOREGROUND_WINDOW_IAT_ADDRESS,
                 GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
+            ),
+            (
+                GET_ASYNC_KEY_STATE_IAT_ADDRESS,
+                GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
             ),
             (
                 GET_CLIENT_RECT_IAT_ADDRESS,
@@ -1760,6 +1767,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_async_key_state_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(231),
+            address: GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1474),
+            iat_address: GET_ASYNC_KEY_STATE_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetAsyncKeyState".to_owned(),
+                hint: 249,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_client_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(199),
             address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
@@ -1942,6 +1964,7 @@ impl RegisterClassFixture {
                 begin_paint_endpoint.clone(),
                 end_paint_endpoint.clone(),
                 get_foreground_window_endpoint.clone(),
+                get_async_key_state_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
@@ -1978,6 +2001,8 @@ impl RegisterClassFixture {
                 end_paint_contract(end_paint_endpoint.clone()).expect("EndPaint contract"),
                 get_foreground_window_contract(get_foreground_window_endpoint.clone())
                     .expect("GetForegroundWindow contract"),
+                get_async_key_state_contract(get_async_key_state_endpoint.clone())
+                    .expect("GetAsyncKeyState contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
                     .expect("client rectangle contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -1999,13 +2024,16 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v26();
+        let policy = User32CompatibilityPolicy::controlled_v27();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
                 .configure_display_profile(policy.display_profile().expect("display profile"))
                 .expect("configure logical display for window placement");
         }
+        runtime
+            .configure_input_profile(policy.input_profile().expect("input profile"))
+            .expect("configure logical input");
         Self {
             memory,
             runtime,
@@ -2025,6 +2053,7 @@ impl RegisterClassFixture {
             begin_paint_endpoint,
             end_paint_endpoint,
             get_foreground_window_endpoint,
+            get_async_key_state_endpoint,
             get_client_rect_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
@@ -2461,6 +2490,19 @@ impl RegisterClassFixture {
             self.get_foreground_window_endpoint.clone(),
             GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER),
             GET_FOREGROUND_WINDOW_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_get_async_key_state(&mut self, virtual_key: u32) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
+            &[GET_ASYNC_KEY_STATE_RETURN_ADDRESS.0, virtual_key],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.get_async_key_state_endpoint.clone(),
+            GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
+            GET_ASYNC_KEY_STATE_RETURN_ADDRESS,
         )
     }
 
@@ -3392,6 +3434,34 @@ fn get_foreground_window_contract_is_zero_argument_stdcall_and_preserves_last_er
             nullable: true,
         }
     );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn get_async_key_state_contract_is_one_key_stdcall_with_signed_short_result() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(231),
+        address: GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1474),
+        iat_address: GET_ASYNC_KEY_STATE_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetAsyncKeyState".to_owned(),
+            hint: 249,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_async_key_state_contract(endpoint).expect("GetAsyncKeyState contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::I16);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
@@ -6674,6 +6744,199 @@ fn get_foreground_window_reads_process_relation_without_mutation() {
 }
 
 #[test]
+fn get_async_key_state_consumes_only_the_queried_press_bit_and_sign_extends_short() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture
+        .runtime
+        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: 1,
+            kind: RuntimeKeyboardSourceEventKind::KeyDown,
+            virtual_key: Some(0xa2),
+            repeat: false,
+        })
+        .expect("ingest left Control down");
+    fixture
+        .runtime
+        .set_current_last_error(0x1357_2468)
+        .expect("seed gated LastError");
+    let gated_keyboard = fixture.runtime.keyboard_state().cloned().unwrap();
+    let gated = match fixture.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected focus-gated completion, got {other:?}"),
+    };
+    assert_eq!(gated.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        gated.stack_pointer,
+        GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER + 8)
+    );
+    assert_eq!(gated.last_error, 0x1357_2468);
+    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &gated_keyboard);
+
+    fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .expect("seed active LastError");
+    let generic_first = match fixture.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected active generic Control completion, got {other:?}"),
+    };
+    assert_eq!(generic_first.eax, RegisterUpdate::Set(0xffff_8001));
+    assert_eq!(generic_first.last_error, 0x2468_1357);
+    assert_eq!(
+        fixture
+            .runtime
+            .keyboard_state()
+            .unwrap()
+            .key_state(0x11)
+            .unwrap(),
+        vine_core::RuntimeVirtualKeyState {
+            virtual_key: 0x11,
+            down: true,
+            pressed_since_last_query: false,
+        }
+    );
+    assert!(
+        fixture
+            .runtime
+            .keyboard_state()
+            .unwrap()
+            .key_state(0xa2)
+            .unwrap()
+            .pressed_since_last_query
+    );
+
+    let generic_second = match fixture.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated generic Control completion, got {other:?}"),
+    };
+    assert_eq!(generic_second.eax, RegisterUpdate::Set(0xffff_8000));
+    let side_first = match fixture.dispatch_get_async_key_state(0xa2) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected left Control completion, got {other:?}"),
+    };
+    assert_eq!(side_first.eax, RegisterUpdate::Set(0xffff_8001));
+
+    fixture
+        .runtime
+        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: 2,
+            kind: RuntimeKeyboardSourceEventKind::KeyDown,
+            virtual_key: Some(0xa2),
+            repeat: true,
+        })
+        .expect("ingest left Control repeat");
+    let side_repeat = match fixture.dispatch_get_async_key_state(0xa2) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated left Control completion, got {other:?}"),
+    };
+    assert_eq!(side_repeat.eax, RegisterUpdate::Set(0xffff_8000));
+
+    fixture
+        .runtime
+        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: 3,
+            kind: RuntimeKeyboardSourceEventKind::KeyUp,
+            virtual_key: Some(0xa2),
+            repeat: false,
+        })
+        .expect("ingest left Control up");
+    let released = match fixture.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected released generic Control completion, got {other:?}"),
+    };
+    assert_eq!(released.eax, RegisterUpdate::Set(0));
+}
+
+#[test]
+fn get_async_key_state_gates_invalid_or_unfocused_queries_without_partial_mutation() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: 1,
+            kind: RuntimeKeyboardSourceEventKind::KeyDown,
+            virtual_key: Some(0x41),
+            repeat: false,
+        })
+        .expect("ingest A down");
+    let before_invalid = fixture.runtime.keyboard_state().cloned().unwrap();
+    let invalid = match fixture.dispatch_get_async_key_state(0x100) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-key zero completion, got {other:?}"),
+    };
+    assert_eq!(invalid.eax, RegisterUpdate::Set(0));
+    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &before_invalid);
+
+    fixture
+        .runtime
+        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: 2,
+            kind: RuntimeKeyboardSourceEventKind::FocusLost,
+            virtual_key: None,
+            repeat: false,
+        })
+        .expect("ingest browser focus loss");
+    let before_unfocused = fixture.runtime.keyboard_state().cloned().unwrap();
+    let unfocused = match fixture.dispatch_get_async_key_state(0x41) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected source-focus-gated zero completion, got {other:?}"),
+    };
+    assert_eq!(unfocused.eax, RegisterUpdate::Set(0));
+    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &before_unfocused);
+    let state = fixture
+        .runtime
+        .keyboard_state()
+        .unwrap()
+        .key_state(0x41)
+        .unwrap();
+    assert!(!state.down);
+    assert!(!state.pressed_since_last_query);
+}
+
+#[test]
+fn get_async_key_state_policy_and_keyboard_authority_failures_are_atomic() {
+    let mut disabled = RegisterClassFixture::new();
+    disabled.policy.get_async_key_state = None;
+    let keyboard_before = disabled.runtime.keyboard_state().cloned();
+    let fault = match disabled.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled-policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "get-async-key-state-policy-disabled");
+    assert_eq!(disabled.runtime.keyboard_state(), keyboard_before.as_ref());
+
+    let mut missing = RegisterClassFixture::new();
+    missing.runtime = controlled_runtime();
+    let fault = match missing.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing-keyboard fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-keyboard-profile-missing");
+    assert!(missing.runtime.keyboard_state().is_none());
+
+    let mut mismatch = RegisterClassFixture::new();
+    mismatch.runtime = controlled_runtime();
+    let mut profile = mismatch.policy.input_profile().unwrap();
+    profile.keyboard.as_mut().unwrap().id = "different-keyboard-profile-v1".to_owned();
+    mismatch
+        .runtime
+        .configure_input_profile(profile)
+        .expect("configure mismatched keyboard authority");
+    let keyboard_before = mismatch.runtime.keyboard_state().cloned();
+    let fault = match mismatch.dispatch_get_async_key_state(0x11) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected mismatched-keyboard fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "logical-keyboard-profile-mismatch");
+    assert_eq!(mismatch.runtime.keyboard_state(), keyboard_before.as_ref());
+}
+
+#[test]
 fn set_window_pos_same_geometry_activation_commits_ordered_focus_and_ime_callbacks() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_with_small_icon();
@@ -8835,6 +9098,7 @@ fn swap_mouse_button_policy_and_authority_failures_are_atomic() {
         .configure_input_profile(RuntimeInputProfile {
             id: "different-input-profile-v1".to_owned(),
             initial_mouse_buttons_swapped: false,
+            keyboard: None,
         })
         .expect("configure mismatched input");
     let mapping_before = mismatch.runtime.mouse_button_mapping().cloned();

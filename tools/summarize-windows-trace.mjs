@@ -48,6 +48,7 @@ const supportedObservations = new Set([
   "show-window-normal",
   "update-window",
   "get-foreground-window",
+  "get-async-key-state",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
@@ -4801,6 +4802,152 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const getAsyncKeyStateCompletionEvents = events.filter(
+    (event) => event.kind === "get-async-key-state-complete",
+  );
+  const requiresGetAsyncKeyStateCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "get-async-key-state" &&
+    traceStart.arguments?.stopOnEvent === "get-async-key-state-complete";
+  if (
+    getAsyncKeyStateCompletionEvents.length > 1 ||
+    (requiresGetAsyncKeyStateCompletion &&
+      getAsyncKeyStateCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "get-async-key-state observation requires exactly one structured completion",
+    );
+  }
+
+  const getAsyncKeyStateScanVirtualKeys = [
+    14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
+    52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17,
+    1, 2, 4, 5, 6,
+  ];
+  const getAsyncKeyState = getAsyncKeyStateCompletionEvents.map(
+    (completion) => {
+      if (
+        completion.profile !==
+          "x86-bgi-get-async-key-state-initial-scan-v1" ||
+        !Number.isInteger(completion.leadingCallCount) ||
+        completion.leadingCallCount < 1 ||
+        completion.leadingCallCount > 128 ||
+        !Array.isArray(completion.leadingCalls) ||
+        completion.leadingCalls.length !== completion.leadingCallCount ||
+        !Array.isArray(completion.scanVirtualKeys) ||
+        JSON.stringify(completion.scanVirtualKeys) !==
+          JSON.stringify(getAsyncKeyStateScanVirtualKeys) ||
+        !Array.isArray(completion.mainModuleCalls) ||
+        completion.mainModuleCalls.length !==
+          getAsyncKeyStateScanVirtualKeys.length
+      ) {
+        throw new Error(
+          "get-async-key-state completion has an invalid initial scan shape",
+        );
+      }
+
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      const validateCall = (snapshot, expectedVirtualKey, label) => {
+        const pair = apiPairing.pairs.find(
+          (candidate) => candidate.enter.callId === snapshot.callId,
+        );
+        const instructions =
+          snapshot.immediateConsumer?.instructions?.instructions;
+        const frames =
+          snapshot.immediateConsumer?.frameCallerContinuations?.frames;
+        if (
+          pair === undefined ||
+          pair.enter.api !== "GetAsyncKeyState" ||
+          pair.enter.module.toLowerCase() !== "user32.dll" ||
+          pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+          pair.enter.caller?.rva !== 0x68405 ||
+          pair.enter.parentCallId !== null ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 1 ||
+          pair.enter.arguments[0] !== expectedVirtualKey ||
+          pair.enter.getAsyncKeyState?.virtualKey !== expectedVirtualKey ||
+          snapshot.virtualKey !== expectedVirtualKey ||
+          snapshot.returnAddress.toLowerCase() !==
+            pair.enter.caller.address.toLowerCase() ||
+          snapshot.resultU16 !== 0 ||
+          snapshot.resultI16 !== 0 ||
+          pair.leave.getAsyncKeyState?.resultU16 !== 0 ||
+          pair.leave.getAsyncKeyState?.resultI16 !== 0 ||
+          (Number(BigInt(pair.leave.result)) & 0xffff) !== 0 ||
+          snapshot.lastErrorBefore !== 0 ||
+          snapshot.lastError !== 0 ||
+          pair.enter.lastErrorBefore !== snapshot.lastErrorBefore ||
+          pair.leave.lastError !== snapshot.lastError ||
+          JSON.stringify(snapshot.immediateConsumer) !==
+            JSON.stringify(pair.enter.getAsyncKeyState?.immediateConsumer) ||
+          !Array.isArray(instructions) ||
+          instructions.length < 7 ||
+          instructions[0]?.mnemonic !== "movsx" ||
+          instructions[0]?.opStr?.toLowerCase() !== "edi, ax" ||
+          instructions[1]?.mnemonic !== "test" ||
+          instructions[1]?.opStr?.toLowerCase() !== "esi, esi" ||
+          instructions[2]?.mnemonic !== "je" ||
+          instructions[3]?.mnemonic !== "push" ||
+          instructions[3]?.opStr?.toLowerCase() !== "esi" ||
+          instructions[4]?.mnemonic !== "call" ||
+          instructions[4]?.opStr?.toLowerCase() !== "ebx" ||
+          instructions[5]?.mnemonic !== "movsx" ||
+          instructions[5]?.opStr?.toLowerCase() !== "ecx, ax" ||
+          instructions[6]?.mnemonic !== "or" ||
+          instructions[6]?.opStr?.toLowerCase() !== "edi, ecx" ||
+          !Array.isArray(frames) ||
+          frames.length === 0 ||
+          frames[0].caller?.module?.toLowerCase() !== executableModule
+        ) {
+          throw new Error(
+            `get-async-key-state ${label} does not match its paired idle-input trace and full-SHORT consumer`,
+          );
+        }
+        return {
+          sequence: pair.enter.sequence,
+          callId: pair.enter.callId,
+          virtualKey: expectedVirtualKey,
+          resultU16: 0,
+          resultI16: 0,
+          lastErrorBefore: 0,
+          lastError: 0,
+        };
+      };
+
+      const leadingCalls = completion.leadingCalls.map((snapshot, index) =>
+        validateCall(snapshot, 17, `leading call ${index}`),
+      );
+      const scanCalls = completion.mainModuleCalls.map((snapshot, index) =>
+        validateCall(
+          snapshot,
+          getAsyncKeyStateScanVirtualKeys[index],
+          `scan call ${index}`,
+        ),
+      );
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        leadingControlPollCount: completion.leadingCallCount,
+        leadingControlPolls: leadingCalls,
+        scanVirtualKeys: [...getAsyncKeyStateScanVirtualKeys],
+        scanCalls,
+        caller: {
+          module: executableModule,
+          rva: 0x68405,
+        },
+        consumer: {
+          profile: "sign-extend-and-optional-or-full-short-v1",
+          usesCurrentDownBit: true,
+          preservesPressedSinceLastQueryBit: true,
+        },
+        allResultsZero: true,
+        allPreserveLastError: true,
+      };
+    },
+  );
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -5280,6 +5427,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     user32: {
       getMonitorInfoA,
       getForegroundWindow,
+      getAsyncKeyState,
     },
     d3d9: {
       adapterIdentifiers,

@@ -5800,3 +5800,38 @@ Runtimeはzero-argument x86 stdcall contractから既存`RuntimeUser32` foregrou
 28,761,549、implementation `user32.get-foreground-window.v1`、return `0x1009390E`を一致させ、browser resourceを
 作らない。続くstructured stopはinstruction 29,325,480の`GetAsyncKeyState(VK_CONTROL)`であり、keyboard input
 semanticsはこのleafのevidenceからclaimしない。
+
+## 173. BGI initial `GetAsyncKeyState` scan and controlled input consumption
+
+Focused primary captureは2,259,565 bytes／2,344 lines／SHA-256
+`1501661f868d96178398addca11d7a6361e8d54c6ec6c9a330000c9b05b08962`、summaryは67,343 bytes／
+3,073 lines／SHA-256 `86524b86b6e904f4553111c855472cf0a0446fcfad2f26cc0978e7656a4dd24f`である。
+Independent confirmation captureは2,296,190 bytes／2,394 lines／SHA-256
+`2e83138aff0db640caf1068c8d9a7083e54e2ee2863f669c9468a127600b371c`、summaryは67,513 bytes／
+3,078 lines／SHA-256 `f7d8ab150681c4d14ed398c52a4b13c4630f77e9d5b65cdca3a9b08f8e62a442`である。
+両runともdiagnostics 0で、main-module caller RVA `0x00068405`から次の38-key scanを同じ順序で記録した。
+
+`[14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6]`
+
+全38 callは結果SHORT 0、entry／exit LastError 0である。Scan前の`VK_CONTROL` poll数はprimary 23、
+confirmation 24とwall-clock依存で異なるためartifact identityに留める。CallerはAXを符号拡張し、別callsiteでは
+複数queryのfull SHORTをORし、または`0x8000`でcurrent-down bitを検査する。したがってgoldenはnative keyboardの
+瞬間値ではなく、bit 15のcurrent-down、bit 0のpressed-since-query、signed SHORT、per-key query、LastError preserve、
+zero guest writesである。EIP、caller、poll数、host keyboard状態、title hashをsemantic handlerの分岐条件にしない。
+Raw trace／summaryは`.work/windows-traces/`だけに保持し、source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Runtimeは`RuntimeInput`が0–255のdown／pressed bit、source focus、event sequence、generationを所有し、
+side-specific Controlからgeneric `VK_CONTROL`へのrelationも同じownerで更新する。Browser main threadはW3C
+`KeyboardEvent.code`をWin32 virtual keyへ正規化してversioned Worker messageを送るだけで、Windows stateを持たない。
+Worker／Wasmを通じたdeterministic `ControlLeft` key-down sequence 1はgeneric key 17とside key 162をarmする。
+Primary sequence 127,691／instruction 29,325,480の`GetAsyncKeyState(17)`は`0x8001`をsigned SHORTとして
+EAX `0xFFFF8001`へ符号拡張し、LastError 0を保持し、guest bytesを変更しない。Generic keyのlow bitだけを消費し、
+side-specific bitは独立に残ることをmodel testで固定する。
+
+Canonical Nodeは127,691 calls／instruction 29,325,523、semantic digest
+`9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070`、memory digest
+`c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4`を記録する。Chromeも同じordered
+call、input receipt、result、semantic／memory digestを一致させ、次endpointをID 8／`0x7F000070`の
+`WINMM.dll!timeGetTime`として記録する。これは一件のprimary DOM／Worker／Wasm／Rust input consumptionを示すが、
+gameplay response、message input、pointer consumption、DirectInput keyboard device、IME text inputはclaimしない。

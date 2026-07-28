@@ -23,18 +23,18 @@ use vine_core::{
     RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
     RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
-    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
-    bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
-    complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
-    complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    RuntimeHeapInitialization, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
+    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
+    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
+    complete_kernel32_writable_commit, complete_kernel32_writable_directory_create,
+    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
+    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
+    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
     dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
@@ -303,6 +303,11 @@ impl Bridge {
             .ok_or_else(|| "browser runtime has not been prepared".to_owned())
     }
 
+    fn ingest_keyboard_event(&mut self, event: RuntimeKeyboardSourceEvent) -> Result<(), String> {
+        let metadata = self.runtime_mut()?.ingest_keyboard_event(event)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
     fn reconcile_writeback_input(
         &mut self,
         control_length: usize,
@@ -432,6 +437,21 @@ struct BrowserRuntime {
 }
 
 impl BrowserRuntime {
+    fn ingest_keyboard_event(
+        &mut self,
+        event: RuntimeKeyboardSourceEvent,
+    ) -> Result<Value, String> {
+        let receipt = self
+            .runtime
+            .ingest_keyboard_event(event)
+            .map_err(error_string)?;
+        Ok(json!({
+            "kind": "keyboard-event-ingested",
+            "receipt": receipt,
+            "keyboard": self.runtime.keyboard_state(),
+        }))
+    }
+
     fn hydrate_writable_profile_object(
         &mut self,
         object_id: u32,
@@ -475,13 +495,20 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v26();
+        let user32_policy = User32CompatibilityPolicy::controlled_v27();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
                 user32_policy
                     .display_profile()
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
+            )
+            .map_err(error_string)?;
+        runtime
+            .configure_input_profile(
+                user32_policy
+                    .input_profile()
+                    .ok_or_else(|| "controlled User32 policy has no input profile".to_owned())?,
             )
             .map_err(error_string)?;
         let d3d9_policy = D3d9CompatibilityPolicy::controlled_v30();
@@ -661,7 +688,7 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v26();
+        let user32_policy = User32CompatibilityPolicy::controlled_v27();
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
@@ -4579,6 +4606,44 @@ pub extern "C" fn vine_bridge_hydrate_writable_profile_object(
             u64::from(generation_low) | (u64::from(generation_high) << 32),
             input_length as usize,
         )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_ingest_keyboard_event(
+    sequence_low: u32,
+    sequence_high: u32,
+    kind: u32,
+    virtual_key: u32,
+    repeat: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let kind = match kind {
+            1 => RuntimeKeyboardSourceEventKind::FocusGained,
+            2 => RuntimeKeyboardSourceEventKind::FocusLost,
+            3 => RuntimeKeyboardSourceEventKind::KeyDown,
+            4 => RuntimeKeyboardSourceEventKind::KeyUp,
+            _ => return Err("keyboard event kind is outside the bridge ABI".to_owned()),
+        };
+        let virtual_key = if virtual_key == u32::MAX {
+            None
+        } else {
+            Some(
+                u16::try_from(virtual_key)
+                    .map_err(|_| "keyboard virtual key is outside the x86 range".to_owned())?,
+            )
+        };
+        let repeat = match repeat {
+            0 => false,
+            1 => true,
+            _ => return Err("keyboard repeat flag is outside the bridge ABI".to_owned()),
+        };
+        bridge.ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
+            kind,
+            virtual_key,
+            repeat,
+        })
     })
 }
 

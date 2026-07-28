@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 45 as const;
+export const protocolVersion = 46 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -39,7 +39,41 @@ export type BgiCapabilityProfile =
   | "d3d9-post-raster-status-waitable-timer"
   | "d3d9-post-scene-present-gateway"
   | "d3d9-first-present"
-  | "d3d9-post-present-continuation";
+  | "d3d9-post-present-continuation"
+  | "user32-async-key-state-input";
+
+export type RuntimeKeyboardSourceEventKind =
+  | "focus-gained"
+  | "focus-lost"
+  | "key-down"
+  | "key-up";
+
+export interface RuntimeKeyboardInputEvent {
+  sequence: string;
+  kind: RuntimeKeyboardSourceEventKind;
+  virtualKey: number | null;
+  repeat: boolean;
+}
+
+export interface RuntimeKeyboardEventReceipt {
+  sequence: number;
+  kind: RuntimeKeyboardSourceEventKind;
+  virtualKey: number | null;
+  repeat: boolean;
+  sourceFocused: boolean;
+  generation: number;
+  affectedKeys: Array<{
+    virtualKey: number;
+    down: boolean;
+    pressedSinceLastQuery: boolean;
+  }>;
+}
+
+export interface RuntimeKeyboardInputEvidence {
+  receivedMessages: number;
+  queuedBeforePrepare: number;
+  receipts: RuntimeKeyboardEventReceipt[];
+}
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -682,11 +716,19 @@ export interface PageLifecycleMessage {
   lifecycle: PageLifecycleSnapshot;
 }
 
+export interface KeyboardInputMessage {
+  type: "keyboard-input";
+  protocolVersion: typeof protocolVersion;
+  sessionId: number;
+  event: RuntimeKeyboardInputEvent;
+}
+
 export type MainToWorkerMessage =
   | StartSessionMessage
   | CancelSessionMessage
   | HostCompletionMessage
-  | PageLifecycleMessage;
+  | PageLifecycleMessage
+  | KeyboardInputMessage;
 
 export interface SessionStatusMessage {
   type: "session-status";
@@ -893,6 +935,7 @@ export interface SessionReport {
   supportedCallSemanticsAlgorithm: "sha256-canonical-json-v1";
   supportedCallSemanticsSha256: string | null;
   supportedCalls: RuntimeSupportedCallSnapshot[];
+  keyboardInput: RuntimeKeyboardInputEvidence;
   sourceReads: RuntimeSourceReadSnapshot[];
   writableCommits: RuntimeWritableCommitSnapshot[];
   writableDirectoryCreates: RuntimeWritableDirectoryCreateSnapshot[];
@@ -1022,6 +1065,22 @@ export interface SessionReport {
     foregroundWindowQueryCompleted: true;
     stateAuthority: "rust-runtime-user32-thread-and-process-window-relations";
     browserResourceCreated: false;
+  } | null;
+  getAsyncKeyState: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-input-v27";
+    keyboardProfileId: "foreground-focused-virtual-key-state-v1";
+    inputEvent: RuntimeKeyboardEventReceipt;
+    stateAuthority: "rust-runtime-input-keyboard";
+    browserSourceAuthority: "typescript-browser-input-adapter";
+    returnEncoding: "signed-short-high-bit-down-low-bit-pressed-since-query";
+    modifierAggregation: "side-specific-to-generic";
+    pressedBitConsumption: "queried-virtual-key-only";
+    sourceFocusRequired: true;
+    focusedForegroundWindowRequired: true;
+    lastErrorPolicy: "preserve";
+    guestMemoryMutation: false;
+    failureAtomicity: true;
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
@@ -1320,6 +1379,29 @@ export interface SessionReport {
         completionCount: 1;
         lastCompletionSequence: number;
         lastCompletionInstructionCount: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "user32-async-key-state-input";
+        implementationId: "user32.get-async-key-state.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        virtualKey: 0x11;
+        result: { action: "set"; value: 0xffff_8001 };
+        lastError: 0;
+        inputEventSequence: 1;
+        inputVirtualKey: 0xa2;
         instructionCount: number;
         nextEndpoint: {
           id: number;

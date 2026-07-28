@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-post-present-continuation`: 127690 calls across 123 endpoint contracts / 121 APIs, memory generation 235982 |
+| Runtime diagnostics | `user32-async-key-state-input`: 127691 calls across 124 endpoint contracts / 122 APIs, memory generation 235983 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `USER32.dll!GetAsyncKeyState(0x00000011)` at instruction 29325480: `endpoint-contract-missing` |
+| Next structured stop | `user32-async-key-state-input` completed 1 recurring waits by instruction 29325480; verification stopped at `WINMM.dll!timeGetTime` on instruction 29325523 (`user32-async-key-state-input-checkpoint-complete`) |
 
-The active semantic report is 574,651 bytes with SHA-256
-`07c9881d39f1aa5e77518fcc1d2071c188953dad79bdbf64b456d4a761f642f6`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 576,553 bytes with SHA-256
+`11f9cc103fa03e8db9edc5bcadbede66d4273b3c9d641a33f7fbf7fc44926923`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -31,7 +31,7 @@ The active semantic report is 574,651 bytes with SHA-256
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
 | `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, a level-zero surface and GDI fill, one locked vertex buffer, four fixed-function render states, the bounded initial and post-scene raster-status queries, full-target black Clear, the full-presentation RECT construction, authoritative texture update, first scene activation, sampler-zero MIN/MAG linear state, six stage-zero fixed-function texture-stage settings, one non-owning texture binding, typed FVF 0x144, the exact non-owning stream-zero binding, one owning immutable triangle-strip draw submission, the first scene lifecycle close, Rust-owned immutable presented-frame publication with discard back-buffer renewal, and synchronous Worker WebGL2 materialization into a non-owning browser resource are complete; the following three unprofiled render-state variants are explicitly rejected and ignored by the caller, and the first 1280x720 black browser frame is visible before guest resume, while readable title content, subsequent frames, resize, device loss, and recovery are not yet demonstrated |
-| `user-input-consumption` | User input consumption | `not-reached` | Logical input policy exists; primary DOM or DirectInput event consumption is not demonstrated |
+| `user-input-consumption` | User input consumption | `in-progress` | One deterministic ControlLeft event traverses the primary browser DOM adapter, versioned Worker protocol, Wasm bridge, and Rust-owned focused virtual-key state; primary GetAsyncKeyState(VK_CONTROL) consumes the generic pressed bit and returns signed 0x8001, while gameplay response, pointer consumption, queued messages, and DirectInput keyboard devices are not demonstrated |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
@@ -140,6 +140,7 @@ The active semantic report is 574,651 bytes with SHA-256
 - `USER32.dll!GetMonitorInfoA`
 - `WINMM.dll!timeGetTime`
 - `USER32.dll!GetForegroundWindow`
+- `USER32.dll!GetAsyncKeyState`
 - `DINPUT8.dll!DirectInput8Create`
 - `DSOUND.dll!#11`
 - `USER32.dll!SetTimer`

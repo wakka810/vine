@@ -4682,6 +4682,201 @@ assert.throws(
   /requires exactly one oracle and structured completion/,
 );
 
+const getAsyncKeyStateScanVirtualKeys = [
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
+  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17,
+  1, 2, 4, 5, 6,
+];
+const getAsyncKeyStateConsumer = {
+  instructions: {
+    address: "0x468405",
+    maximumInstructions: 16,
+    instructions: [
+      { address: "0x468405", mnemonic: "movsx", opStr: "edi, ax", size: 3 },
+      { address: "0x468408", mnemonic: "test", opStr: "esi, esi", size: 2 },
+      { address: "0x46840a", mnemonic: "je", opStr: "0x468414", size: 2 },
+      { address: "0x46840c", mnemonic: "push", opStr: "esi", size: 1 },
+      { address: "0x46840d", mnemonic: "call", opStr: "ebx", size: 2 },
+      { address: "0x46840f", mnemonic: "movsx", opStr: "ecx, ax", size: 3 },
+      { address: "0x468412", mnemonic: "or", opStr: "edi, ecx", size: 2 },
+    ],
+  },
+  frameCallerContinuations: {
+    maximumFrames: 6,
+    maximumInstructions: 24,
+    frames: [
+      {
+        depth: 0,
+        framePointer: "0x20001000",
+        caller: { address: "0x483530", module: "BGI.exe", rva: 0x83530 },
+        address: "0x483530",
+        maximumInstructions: 24,
+        instructions: [],
+      },
+    ],
+  },
+};
+const getAsyncKeyStateVirtualKeys = [17, ...getAsyncKeyStateScanVirtualKeys];
+const getAsyncKeyStateSnapshots = getAsyncKeyStateVirtualKeys.map(
+  (virtualKey, index) => ({
+    callId: index + 1,
+    returnAddress: "0x468405",
+    virtualKey,
+    resultU16: 0,
+    resultI16: 0,
+    lastErrorBefore: 0,
+    lastError: 0,
+    immediateConsumer: structuredClone(getAsyncKeyStateConsumer),
+  }),
+);
+const getAsyncKeyStateEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "d".repeat(64),
+    frida: "17.15.4",
+    arguments: {
+      seconds: 180,
+      killAfter: true,
+      stopOnEvent: "get-async-key-state-complete",
+      vtables: [],
+      observations: ["get-async-key-state"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "USER32.dll",
+    path: "C:\\Windows\\System32\\USER32.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 321,
+    selectedVtables: [],
+    selectedObservations: ["get-async-key-state"],
+  },
+  ...getAsyncKeyStateSnapshots.flatMap((snapshot, index) => [
+    {
+      schema,
+      sequence: 3 + index * 2,
+      threadId: 31,
+      kind: "api-enter",
+      callId: snapshot.callId,
+      parentCallId: null,
+      caller: { address: "0x468405", module: "BGI.exe", rva: 0x68405 },
+      module: "USER32.dll",
+      api: "GetAsyncKeyState",
+      arguments: [snapshot.virtualKey],
+      lastErrorBefore: 0,
+      getAsyncKeyState: {
+        virtualKey: snapshot.virtualKey,
+        immediateConsumer: structuredClone(getAsyncKeyStateConsumer),
+      },
+    },
+    {
+      schema,
+      sequence: 4 + index * 2,
+      threadId: 31,
+      kind: "api-leave",
+      callId: snapshot.callId,
+      parentCallId: null,
+      caller: { address: "0x468405", module: "BGI.exe", rva: 0x68405 },
+      module: "USER32.dll",
+      api: "GetAsyncKeyState",
+      result: "0x0",
+      durationMs: 0,
+      lastError: 0,
+      getAsyncKeyState: { resultU16: 0, resultI16: 0 },
+    },
+  ]),
+  {
+    schema,
+    sequence: 3 + getAsyncKeyStateSnapshots.length * 2,
+    threadId: 31,
+    kind: "get-async-key-state-complete",
+    profile: "x86-bgi-get-async-key-state-initial-scan-v1",
+    leadingCallCount: 1,
+    leadingCalls: [structuredClone(getAsyncKeyStateSnapshots[0])],
+    scanVirtualKeys: [...getAsyncKeyStateScanVirtualKeys],
+    mainModuleCalls: getAsyncKeyStateSnapshots
+      .slice(1)
+      .map((snapshot) => structuredClone(snapshot)),
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-get-async-key-state-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const getAsyncKeyStateSummary = summarizeTrace(
+  encode(getAsyncKeyStateEvents),
+  "get-async-key-state-fixture.jsonl",
+);
+assert.equal(getAsyncKeyStateSummary.user32.getAsyncKeyState.length, 1);
+assert.equal(
+  getAsyncKeyStateSummary.user32.getAsyncKeyState[0].leadingControlPollCount,
+  1,
+);
+assert.deepEqual(
+  getAsyncKeyStateSummary.user32.getAsyncKeyState[0].scanVirtualKeys,
+  getAsyncKeyStateScanVirtualKeys,
+);
+assert.deepEqual(
+  getAsyncKeyStateSummary.user32.getAsyncKeyState[0].consumer,
+  {
+    profile: "sign-extend-and-optional-or-full-short-v1",
+    usesCurrentDownBit: true,
+    preservesPressedSinceLastQueryBit: true,
+  },
+);
+
+const invalidGetAsyncKeyStateKey = structuredClone(getAsyncKeyStateEvents);
+invalidGetAsyncKeyStateKey.find(
+  (event) => event.kind === "get-async-key-state-complete",
+).mainModuleCalls[0].virtualKey = 0xff;
+assert.throws(
+  () => summarizeTrace(encode(invalidGetAsyncKeyStateKey)),
+  /scan call 0 does not match/,
+);
+
+const invalidGetAsyncKeyStateConsumer = structuredClone(
+  getAsyncKeyStateEvents,
+);
+invalidGetAsyncKeyStateConsumer.find(
+  (event) => event.kind === "get-async-key-state-complete",
+).mainModuleCalls[0].immediateConsumer.instructions.instructions[0].opStr =
+  "eax, ax";
+assert.throws(
+  () => summarizeTrace(encode(invalidGetAsyncKeyStateConsumer)),
+  /full-SHORT consumer/,
+);
+
+const missingGetAsyncKeyStateCompletion = getAsyncKeyStateEvents.filter(
+  (event) => event.kind !== "get-async-key-state-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingGetAsyncKeyStateCompletion)),
+  /requires exactly one structured completion/,
+);
+
 const largeIntegerSnapshot = (pointer, value) => {
   const bytes = Buffer.alloc(8);
   bytes.writeBigUInt64LE(BigInt(value));

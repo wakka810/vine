@@ -173,7 +173,12 @@ pub use imm32::{
     RUNTIME_IME_CONTEXT_LIMIT, RuntimeImeAssociationResult, RuntimeImeContext,
     RuntimeImeContextAssociation, RuntimeImeContextId, RuntimeImeContextReference,
 };
-pub use input::{RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult};
+pub use input::{
+    RuntimeAsyncKeyStateResult, RuntimeInputProfile, RuntimeKeyboardEventReceipt,
+    RuntimeKeyboardProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeKeyboardState, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
+    RuntimeVirtualKeyState,
+};
 pub use kernel::*;
 pub use messages::{
     RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,

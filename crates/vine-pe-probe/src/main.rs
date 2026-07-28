@@ -32,17 +32,18 @@ use vine_core::{
     RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
     RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
     RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
-    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeLogicalMonitor, RuntimeModule,
-    RuntimeModuleId, RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode,
-    RuntimeMutex, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimePageFaultResolution, RuntimeProcessId, RuntimeProcessLifecycleState,
-    RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
-    RuntimeThreadExecutionSelection, RuntimeThreadId, RuntimeThreadPriority, RuntimeThreadStack,
-    RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerClockState,
-    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowTimer,
-    RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
+    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeKeyboardEventReceipt,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeKeyboardState,
+    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey,
+    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
+    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
+    RuntimeStateErrorClass, RuntimeThreadExecutionSelection, RuntimeThreadId,
+    RuntimeThreadPriority, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
+    RuntimeTimerClockState, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
+    RuntimeWindowTimer, RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
     RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
@@ -264,6 +265,7 @@ enum GenericRuntimeCapability {
     D3d9PostScenePresentGateway,
     D3d9Present,
     D3d9PostPresentContinuation,
+    User32AsyncKeyStateInput,
 }
 
 struct GenericRuntimeProcess {
@@ -471,6 +473,10 @@ struct GenericRuntimeSessionReady {
     primary_monitor: Option<RuntimeLogicalMonitor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mouse_button_mapping: Option<vine_core::RuntimeMouseButtonMapping>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keyboard_state: Option<RuntimeKeyboardState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_keyboard_event_receipt: Option<RuntimeKeyboardEventReceipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_snapshot: Option<RuntimeSourceSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2717,6 +2723,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9PostScenePresentGateway
                     | GenericRuntimeCapability::D3d9Present
                     | GenericRuntimeCapability::D3d9PostPresentContinuation
+                    | GenericRuntimeCapability::User32AsyncKeyStateInput
             )
         ) {
             let loader = kernel32_policy
@@ -3387,7 +3394,12 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9Present
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
+                | GenericRuntimeCapability::User32AsyncKeyStateInput
         )
+    );
+    let get_async_key_state_input_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::User32AsyncKeyStateInput)
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
@@ -3397,6 +3409,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9PostScenePresentGateway
                 | GenericRuntimeCapability::D3d9Present
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
+                | GenericRuntimeCapability::User32AsyncKeyStateInput
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3648,7 +3661,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
             | GenericRuntimeCapability::D3d9PostScenePresentGateway
             | GenericRuntimeCapability::D3d9Present
-            | GenericRuntimeCapability::D3d9PostPresentContinuation,
+            | GenericRuntimeCapability::D3d9PostPresentContinuation
+            | GenericRuntimeCapability::User32AsyncKeyStateInput,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3807,7 +3821,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v26();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v27();
     if !matches!(
         user32_capability,
         Some(
@@ -4218,6 +4232,21 @@ fn run_v86_generic_runtime_session(
             })?)
             .map_err(runtime_state_error)?;
     }
+    let initial_keyboard_event_receipt = if get_async_key_state_input_enabled {
+        Some(
+            process
+                .runtime
+                .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+                    sequence: 1,
+                    kind: RuntimeKeyboardSourceEventKind::KeyDown,
+                    virtual_key: Some(0xa2),
+                    repeat: false,
+                })
+                .map_err(runtime_state_error)?,
+        )
+    } else {
+        None
+    };
     let fls_get_value_enabled = matches!(
         endpoint_capability,
         Some(
@@ -4631,6 +4660,10 @@ fn run_v86_generic_runtime_session(
             display_profile_id: process.runtime.display_profile_id().map(str::to_owned),
             primary_monitor: process.runtime.primary_monitor().cloned(),
             mouse_button_mapping: process.runtime.mouse_button_mapping().cloned(),
+            keyboard_state: get_async_key_state_input_enabled
+                .then(|| process.runtime.keyboard_state().cloned())
+                .flatten(),
+            initial_keyboard_event_receipt,
             source_snapshot: process.runtime.source_snapshot().cloned(),
             writable_profile: process.runtime.writable_profile().cloned(),
             initial_thread_stack,
@@ -14212,6 +14245,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-first-present" => GenericRuntimeCapability::D3d9Present,
                 "d3d9-post-present-continuation" => {
                     GenericRuntimeCapability::D3d9PostPresentContinuation
+                }
+                "user32-async-key-state-input" => {
+                    GenericRuntimeCapability::User32AsyncKeyStateInput
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx

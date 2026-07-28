@@ -259,6 +259,7 @@ pub struct ApiArgumentSchema {
 pub enum ApiReturnSchema {
     Void,
     U16,
+    I16,
     U32,
     HResult,
     Bool32,
@@ -520,6 +521,7 @@ impl ApiCallFrame {
 pub enum ApiReturnValue {
     Void,
     U16(u16),
+    I16(i16),
     U32(u32),
     HResult(ComHResult),
     Bool32(bool),
@@ -2774,6 +2776,9 @@ fn validate_return_value(
         (ApiReturnSchema::Void, ApiReturnValue::Void) => RegisterUpdate::Preserve,
         (ApiReturnSchema::U16, ApiReturnValue::U16(value)) => {
             RegisterUpdate::Set(u32::from(*value))
+        }
+        (ApiReturnSchema::I16, ApiReturnValue::I16(value)) => {
+            RegisterUpdate::Set((*value as i32) as u32)
         }
         (ApiReturnSchema::U32, ApiReturnValue::U32(value)) => RegisterUpdate::Set(*value),
         (ApiReturnSchema::HResult, ApiReturnValue::HResult(value)) => {

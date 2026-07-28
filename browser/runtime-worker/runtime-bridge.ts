@@ -5,7 +5,10 @@ import {
   memoryPageSize,
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
-import type { RuntimeCurrentDirectoryA } from "./protocol.js";
+import type {
+  RuntimeCurrentDirectoryA,
+  RuntimeKeyboardInputEvent,
+} from "./protocol.js";
 
 export type RegisterUpdate =
   | { action: "preserve" }
@@ -220,6 +223,13 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     generationLow: number,
     generationHigh: number,
     inputLength: number,
+  ): number;
+  vine_bridge_ingest_keyboard_event(
+    sequenceLow: number,
+    sequenceHigh: number,
+    kind: number,
+    virtualKey: number,
+    repeat: number,
   ): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
@@ -503,6 +513,40 @@ export class RuntimeBridge {
         low,
         high,
         bytes.byteLength,
+      ),
+    );
+  }
+
+  ingestKeyboardEvent<T = Record<string, unknown>>(
+    event: RuntimeKeyboardInputEvent,
+  ): BridgeOutput<T> {
+    invariant(
+      /^(0|[1-9][0-9]*)$/.test(event.sequence),
+      "keyboard event sequence is not a canonical unsigned integer",
+    );
+    const sequence = BigInt(event.sequence);
+    const [low, high] = splitU64(sequence);
+    const kind = {
+      "focus-gained": 1,
+      "focus-lost": 2,
+      "key-down": 3,
+      "key-up": 4,
+    }[event.kind];
+    invariant(kind !== undefined, "keyboard event kind is outside the bridge ABI");
+    invariant(
+      event.virtualKey === null ||
+        (Number.isInteger(event.virtualKey) &&
+          event.virtualKey > 0 &&
+          event.virtualKey <= 0xff),
+      "keyboard event virtual key is outside the supported range",
+    );
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_ingest_keyboard_event(
+        low,
+        high,
+        kind,
+        event.virtualKey ?? 0xffff_ffff,
+        Number(event.repeat),
       ),
     );
   }

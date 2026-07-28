@@ -20,7 +20,7 @@ use crate::runtime::{
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
     RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest, RuntimeCursorResource,
     RuntimeCursorSource, RuntimeDisplayProfile, RuntimeEndPaintRequest, RuntimeIconResource,
-    RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeRect,
+    RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeKeyboardProfile, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
@@ -35,7 +35,7 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 26;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 27;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -55,6 +55,7 @@ pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
+pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
 pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
 pub const GET_DC_IMPLEMENTATION: &str = "user32.get-dc.window-or-screen-acquisition.v2";
 pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1";
@@ -317,12 +318,31 @@ pub struct User32SystemMenuPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32GetAsyncKeyStatePolicy {
+    pub profile_id: String,
+    pub minimum_virtual_key: u16,
+    pub maximum_virtual_key: u16,
+    pub require_source_focus: bool,
+    pub require_focused_foreground_window: bool,
+    pub consume_pressed_since_last_query: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SwapMouseButtonPolicy {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
     pub enum_display_monitors: Option<RuntimeDisplayProfile>,
-    pub swap_mouse_button: Option<RuntimeInputProfile>,
+    pub input: RuntimeInputProfile,
+    pub swap_mouse_button: Option<User32SwapMouseButtonPolicy>,
+    pub get_async_key_state: Option<User32GetAsyncKeyStatePolicy>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_image_a: Option<User32LoadImageAPolicy>,
     pub send_message_a: Option<User32SendMessageAPolicy>,
@@ -343,11 +363,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v26() -> Self {
+    pub fn controlled_v27() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-window-frame-change-show-update-paint-v26"
+            id: "user32-single-monitor-window-frame-change-show-update-paint-input-v27"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -364,9 +384,27 @@ impl User32CompatibilityPolicy {
                     bottom: 1032,
                 },
             }),
-            swap_mouse_button: Some(RuntimeInputProfile {
+            input: RuntimeInputProfile {
                 id: "normal-mouse-buttons-v1".to_owned(),
                 initial_mouse_buttons_swapped: false,
+                keyboard: Some(RuntimeKeyboardProfile {
+                    id: "foreground-focused-virtual-key-state-v1".to_owned(),
+                    initial_source_focused: true,
+                    maximum_virtual_key: 0xff,
+                    aggregate_modifier_keys: true,
+                    clear_on_source_focus_loss: true,
+                }),
+            },
+            swap_mouse_button: Some(User32SwapMouseButtonPolicy {
+                profile_id: "normal-mouse-buttons-v1".to_owned(),
+            }),
+            get_async_key_state: Some(User32GetAsyncKeyStatePolicy {
+                profile_id: "foreground-focused-virtual-key-state-v1".to_owned(),
+                minimum_virtual_key: 0,
+                maximum_virtual_key: 0xff,
+                require_source_focus: true,
+                require_focused_foreground_window: true,
+                consume_pressed_since_last_query: true,
             }),
             load_icon_a: Some(User32LoadIconAPolicy {
                 profile_id: "module-shared-large-icon-32x32-v1".to_owned(),
@@ -565,17 +603,44 @@ impl User32CompatibilityPolicy {
                 ));
             }
         }
-        if let Some(profile) = self.swap_mouse_button.as_ref()
-            && (profile.id.is_empty()
-                || profile.id.len() > 128
-                || !profile.id.is_ascii()
-                || profile.id.as_bytes().contains(&0))
-        {
+        if !valid_profile_id(&self.input.id) {
             return Err(ApiFault::runtime_defect(
                 "user32-compatibility-policy",
                 "user32-input-profile-invalid",
                 "User32 logical input profile requires a bounded nonempty ASCII identity",
             ));
+        }
+        if let Some(profile) = self.swap_mouse_button.as_ref()
+            && (!valid_profile_id(&profile.profile_id) || profile.profile_id != self.input.id)
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-swap-mouse-button-profile-invalid",
+                "User32 SwapMouseButton policy must reference the configured logical input profile",
+            ));
+        }
+        if let Some(profile) = self.get_async_key_state.as_ref() {
+            let keyboard = self.input.keyboard.as_ref();
+            if !valid_profile_id(&profile.profile_id)
+                || profile.minimum_virtual_key != 0
+                || profile.maximum_virtual_key != 0xff
+                || !profile.require_source_focus
+                || !profile.require_focused_foreground_window
+                || !profile.consume_pressed_since_last_query
+                || keyboard.is_none_or(|keyboard| {
+                    keyboard.id != profile.profile_id
+                        || !keyboard.initial_source_focused
+                        || keyboard.maximum_virtual_key != profile.maximum_virtual_key
+                        || !keyboard.aggregate_modifier_keys
+                        || !keyboard.clear_on_source_focus_loss
+                })
+            {
+                return Err(ApiFault::runtime_defect(
+                    "user32-compatibility-policy",
+                    "user32-get-async-key-state-profile-invalid",
+                    "User32 GetAsyncKeyState policy requires the bounded focused 8-bit virtual-key input profile",
+                ));
+            }
         }
         if let Some(profile) = self.load_icon_a.as_ref()
             && (!valid_profile_id(&profile.profile_id)
@@ -1018,7 +1083,7 @@ impl User32CompatibilityPolicy {
     }
 
     pub fn input_profile(&self) -> Option<RuntimeInputProfile> {
-        self.swap_mouse_button.clone()
+        Some(self.input.clone())
     }
 }
 
@@ -1130,6 +1195,12 @@ pub fn dispatch_user32_api_with_policy(
         },
         GET_FOREGROUND_WINDOW_IMPLEMENTATION => {
             match handle_get_foreground_window(contract, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        GET_ASYNC_KEY_STATE_IMPLEMENTATION => {
+            match handle_get_async_key_state(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -1319,8 +1390,9 @@ fn handle_swap_mouse_button(
             "User32 policy is enabled but the Rust input subsystem has no mouse button profile",
         )
     })?;
-    if mapping.profile_id != profile.id
-        || mapping.initial_swapped != profile.initial_mouse_buttons_swapped
+    if mapping.profile_id != profile.profile_id
+        || mapping.profile_id != policy.input.id
+        || mapping.initial_swapped != policy.input.initial_mouse_buttons_swapped
     {
         return Err(ApiFault::runtime_defect(
             "user32-input",
@@ -1486,6 +1558,76 @@ fn handle_get_foreground_window(
         namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
         value: handle,
     }))
+}
+
+fn handle_get_async_key_state(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let profile = policy.get_async_key_state.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-input",
+            "get-async-key-state-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical asynchronous key state",
+                policy.id
+            ),
+        )
+    })?;
+    let virtual_key = required_argument(contract, frame, 0, "virtual key")?;
+    let keyboard = session.runtime().keyboard_state().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-input",
+            "logical-keyboard-profile-missing",
+            "User32 policy is enabled but the Rust input subsystem has no keyboard profile",
+        )
+    })?;
+    if keyboard.profile_id != profile.profile_id
+        || keyboard.maximum_virtual_key != profile.maximum_virtual_key
+        || !keyboard.aggregate_modifier_keys
+        || !keyboard.clear_on_source_focus_loss
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-input",
+            "logical-keyboard-profile-mismatch",
+            "Rust input authority does not match the selected User32 keyboard profile",
+        ));
+    }
+    if virtual_key < u32::from(profile.minimum_virtual_key)
+        || virtual_key > u32::from(profile.maximum_virtual_key)
+    {
+        return Ok(ApiImmediate::new(ApiReturnValue::I16(0)));
+    }
+    if profile.require_source_focus && !keyboard.source_focused {
+        return Ok(ApiImmediate::new(ApiReturnValue::I16(0)));
+    }
+    if profile.require_focused_foreground_window {
+        let focused = session
+            .runtime()
+            .focused_window_handle()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let foreground = session
+            .runtime()
+            .foreground_window_handle()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        if focused.is_none() || focused != foreground {
+            return Ok(ApiImmediate::new(ApiReturnValue::I16(0)));
+        }
+    }
+    let result = session
+        .runtime_mut()
+        .query_async_key_state(virtual_key)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-input",
+                "logical-virtual-key-range-mismatch",
+                "validated User32 virtual key is outside the Rust input authority",
+            )
+        })?;
+    Ok(ApiImmediate::new(ApiReturnValue::I16(result.value)))
 }
 
 fn handle_set_rect(contract: &ApiContract, frame: &ApiCallFrame) -> Result<ApiImmediate, ApiFault> {
@@ -5901,6 +6043,7 @@ pub fn user32_contract_for_endpoint(
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
         "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
+        "GetAsyncKeyState" => Ok(Some(get_async_key_state_contract(endpoint)?)),
         "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
         "MonitorFromWindow" => Ok(Some(monitor_from_window_contract(endpoint)?)),
         "GetMonitorInfoA" => Ok(Some(get_monitor_info_a_contract(endpoint)?)),
@@ -6268,6 +6411,25 @@ pub fn get_foreground_window_contract(
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_FOREGROUND_WINDOW_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_async_key_state_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![u32_argument("virtualKey")],
+            return_value: ApiReturnSchema::I16,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_ASYNC_KEY_STATE_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -6703,7 +6865,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v26();
+        let policy = User32CompatibilityPolicy::controlled_v27();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -6740,6 +6902,23 @@ mod tests {
         let update_window = policy.update_window.as_ref().unwrap();
         assert_eq!(update_window.paint_message, WM_PAINT);
         assert_eq!(update_window.callback_result, 0);
+        let keyboard = policy
+            .input_profile()
+            .unwrap()
+            .keyboard
+            .expect("keyboard profile");
+        assert_eq!(keyboard.id, "foreground-focused-virtual-key-state-v1");
+        assert!(keyboard.initial_source_focused);
+        assert_eq!(keyboard.maximum_virtual_key, 0xff);
+        assert!(keyboard.aggregate_modifier_keys);
+        assert!(keyboard.clear_on_source_focus_loss);
+        let get_async_key_state = policy.get_async_key_state.as_ref().unwrap();
+        assert_eq!(get_async_key_state.profile_id, keyboard.id);
+        assert_eq!(get_async_key_state.minimum_virtual_key, 0);
+        assert_eq!(get_async_key_state.maximum_virtual_key, 0xff);
+        assert!(get_async_key_state.require_source_focus);
+        assert!(get_async_key_state.require_focused_foreground_window);
+        assert!(get_async_key_state.consume_pressed_since_last_query);
 
         let mut invalid = policy;
         invalid
@@ -6753,7 +6932,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v27();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -6765,14 +6944,37 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v26();
-        invalid_input.swap_mouse_button.as_mut().unwrap().id.clear();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v27();
+        invalid_input.input.id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_keyboard = User32CompatibilityPolicy::controlled_v27();
+        invalid_keyboard
+            .input
+            .keyboard
+            .as_mut()
+            .unwrap()
+            .aggregate_modifier_keys = false;
+        assert_eq!(
+            invalid_keyboard.validate().unwrap_err().code,
+            "user32-get-async-key-state-profile-invalid"
+        );
+
+        let mut invalid_async_key = User32CompatibilityPolicy::controlled_v27();
+        invalid_async_key
+            .get_async_key_state
+            .as_mut()
+            .unwrap()
+            .maximum_virtual_key = 0xfe;
+        assert_eq!(
+            invalid_async_key.validate().unwrap_err().code,
+            "user32-get-async-key-state-profile-invalid"
+        );
+
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v27();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -6783,28 +6985,28 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v27();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v27();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_update = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_update = User32CompatibilityPolicy::controlled_v27();
         invalid_update.update_window.as_mut().unwrap().paint_message = WM_PAINT + 1;
         assert_eq!(
             invalid_update.validate().unwrap_err().code,
             "user32-update-window-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v27();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -6815,7 +7017,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v27();
         invalid_timer
             .set_timer
             .as_mut()
@@ -6826,14 +7028,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v27();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v27();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -6844,7 +7046,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v27();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -6855,7 +7057,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v27();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -6866,7 +7068,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v27();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -6878,7 +7080,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v27();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -6889,7 +7091,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v27();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -6900,7 +7102,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v27();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -6911,7 +7113,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v26();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v27();
         invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

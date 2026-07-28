@@ -38,6 +38,9 @@ const focusedUpdateWindowObservation =
 const focusedGetForegroundWindowObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("get-foreground-window");
+const focusedGetAsyncKeyStateObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("get-async-key-state");
 const focusedSetWindowPosStateObservation =
   focusedSetWindowPosSizeObservation ||
   focusedSetWindowPosFrameChangeMoveObservation;
@@ -456,6 +459,15 @@ let getForegroundWindowOracleScheduled = false;
 let getForegroundWindowOracleCall = null;
 let getForegroundWindowOracleComplete = false;
 let getForegroundWindowOracleEvidence = null;
+let getAsyncKeyStateCompletionRecorded = false;
+const getAsyncKeyStateMainModuleCalls = [];
+const getAsyncKeyStateInitialScanVirtualKeys = [
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
+  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
+  2, 4, 5, 6,
+];
+let getAsyncKeyStateScanMatchLength = 0;
+let getAsyncKeyStateScanStart = 0;
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -9908,6 +9920,123 @@ function scheduleGetForegroundWindowOracle(module) {
     } catch (error) {
       emit("get-foreground-window-oracle-error", { error: error.message });
     }
+  });
+}
+
+function attachGetAsyncKeyStateHook(module) {
+  const name = "GetAsyncKeyState";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("GetAsyncKeyState export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      if (
+        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase()
+      ) {
+        this.traceFrame = null;
+        return;
+      }
+      this.virtualKey = args[0].toInt32();
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = {
+        instructions: snapshotInstructions(this.returnAddress, 16),
+        frameCallerContinuations: snapshotX86FrameCallerContinuations(
+          this.context,
+          6,
+          24,
+        ),
+      };
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.virtualKey],
+          lastErrorBefore: this.lastErrorBefore,
+          getAsyncKeyState: {
+            virtualKey: this.virtualKey,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultU32 = result.toUInt32();
+      const resultU16 = resultU32 & 0xffff;
+      const resultI16 = (resultU16 << 16) >> 16;
+      const lastError = Number(this.lastError) >>> 0;
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          getAsyncKeyState: { resultU16, resultI16 },
+        },
+        this.lastError,
+      );
+      if (getAsyncKeyStateCompletionRecorded) {
+        return;
+      }
+      getAsyncKeyStateMainModuleCalls.push({
+        callId: this.traceFrame.callId,
+        returnAddress: this.returnAddress.toString(),
+        virtualKey: this.virtualKey,
+        resultU16,
+        resultI16,
+        lastErrorBefore: this.lastErrorBefore,
+        lastError,
+        immediateConsumer: this.immediateConsumer,
+      });
+      if (
+        this.virtualKey ===
+        getAsyncKeyStateInitialScanVirtualKeys[getAsyncKeyStateScanMatchLength]
+      ) {
+        if (getAsyncKeyStateScanMatchLength === 0) {
+          getAsyncKeyStateScanStart =
+            getAsyncKeyStateMainModuleCalls.length - 1;
+        }
+        getAsyncKeyStateScanMatchLength += 1;
+      } else {
+        getAsyncKeyStateScanMatchLength =
+          this.virtualKey === getAsyncKeyStateInitialScanVirtualKeys[0] ? 1 : 0;
+        if (getAsyncKeyStateScanMatchLength === 1) {
+          getAsyncKeyStateScanStart =
+            getAsyncKeyStateMainModuleCalls.length - 1;
+        }
+      }
+      if (
+        getAsyncKeyStateScanMatchLength ===
+        getAsyncKeyStateInitialScanVirtualKeys.length
+      ) {
+        getAsyncKeyStateCompletionRecorded = true;
+        emit("get-async-key-state-complete", {
+          profile: "x86-bgi-get-async-key-state-initial-scan-v1",
+          leadingCallCount: getAsyncKeyStateScanStart,
+          leadingCalls: getAsyncKeyStateMainModuleCalls
+            .slice(0, getAsyncKeyStateScanStart)
+            .map((call) => ({ ...call })),
+          scanVirtualKeys: [...getAsyncKeyStateInitialScanVirtualKeys],
+          mainModuleCalls: getAsyncKeyStateMainModuleCalls
+            .slice(getAsyncKeyStateScanStart)
+            .map((call) => ({ ...call })),
+        });
+        if (stopOnEvent === "get-async-key-state-complete") {
+          recv("vine-trace-stop", () => {}).wait();
+        }
+      }
+    },
   });
 }
 
@@ -25751,6 +25880,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetForegroundWindow",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      focusedGetAsyncKeyStateObservation
+    ) {
+      try {
+        attachGetAsyncKeyStateHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetAsyncKeyState",
           error: error.message,
         });
       }

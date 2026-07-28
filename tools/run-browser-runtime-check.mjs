@@ -80,8 +80,11 @@ const d3d9PostRasterStatusWaitableTimerProfile =
   bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayProfile =
   bgiProfile === "d3d9-post-scene-present-gateway";
+const user32AsyncKeyStateInputProfile =
+  bgiProfile === "user32-async-key-state-input";
 const d3d9PostPresentContinuationProfile =
-  bgiProfile === "d3d9-post-present-continuation";
+  bgiProfile === "d3d9-post-present-continuation" ||
+  user32AsyncKeyStateInputProfile;
 const d3d9PresentProfile =
   bgiProfile === "d3d9-first-present" ||
   d3d9PostPresentContinuationProfile;
@@ -791,6 +794,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
         "d3d9-post-present-continuation",
+        "user32-async-key-state-input",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -834,6 +838,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
         "d3d9-post-present-continuation",
+        "user32-async-key-state-input",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -877,6 +882,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
         "d3d9-post-present-continuation",
+        "user32-async-key-state-input",
       ].includes(bgiProfile) && scenario === "success"
         ? d3d9PostPresentContinuationProfile
           ? 2_014
@@ -919,6 +925,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-leave-critical-section-continuation" ||
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section" ||
+        user32AsyncKeyStateInputProfile ||
         (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);
       assert.equal(
         evidence.report.outcome,
@@ -2665,6 +2672,90 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.postPresentContinuation, null);
       }
+      if (user32AsyncKeyStateInputProfile) {
+        assert.deepEqual(evidence.report.keyboardInput, {
+          receivedMessages: 1,
+          queuedBeforePrepare: 1,
+          receipts: [
+            {
+              sequence: 1,
+              kind: "key-down",
+              virtualKey: 0xa2,
+              repeat: false,
+              sourceFocused: true,
+              generation: 1,
+              affectedKeys: [
+                {
+                  virtualKey: 0x11,
+                  down: true,
+                  pressedSinceLastQuery: true,
+                },
+                {
+                  virtualKey: 0xa2,
+                  down: true,
+                  pressedSinceLastQuery: true,
+                },
+              ],
+            },
+          ],
+        });
+        const asyncKey = evidence.report.getAsyncKeyState;
+        assert(
+          asyncKey !== null,
+          "Chrome Worker omitted GetAsyncKeyState input evidence",
+        );
+        assert.deepEqual(asyncKey.call, {
+          sequence: 127_691,
+          module: "user32.dll",
+          symbol: "GetAsyncKeyState",
+          arguments: [0x11],
+          result: { action: "set", value: 0xffff_8001 },
+          implementationId: "user32.get-async-key-state.v1",
+          returnAddress: 0x1006_8405,
+          stackPointerBefore: 0x006f_f53c,
+          stackPointerAfter: 0x006f_f544,
+          lastError: 0,
+          guestWrites: [],
+        });
+        assert.equal(
+          asyncKey.compatibilityPolicyId,
+          "user32-single-monitor-window-frame-change-show-update-paint-input-v27",
+        );
+        assert.equal(
+          asyncKey.keyboardProfileId,
+          "foreground-focused-virtual-key-state-v1",
+        );
+        assert.deepEqual(
+          asyncKey.inputEvent,
+          evidence.report.keyboardInput.receipts[0],
+        );
+        assert.equal(asyncKey.stateAuthority, "rust-runtime-input-keyboard");
+        assert.equal(
+          asyncKey.browserSourceAuthority,
+          "typescript-browser-input-adapter",
+        );
+        assert.equal(
+          asyncKey.returnEncoding,
+          "signed-short-high-bit-down-low-bit-pressed-since-query",
+        );
+        assert.equal(asyncKey.modifierAggregation, "side-specific-to-generic");
+        assert.equal(
+          asyncKey.pressedBitConsumption,
+          "queried-virtual-key-only",
+        );
+        assert.equal(asyncKey.sourceFocusRequired, true);
+        assert.equal(asyncKey.focusedForegroundWindowRequired, true);
+        assert.equal(asyncKey.lastErrorPolicy, "preserve");
+        assert.equal(asyncKey.guestMemoryMutation, false);
+        assert.equal(asyncKey.failureAtomicity, true);
+      } else {
+        assert.deepEqual(evidence.report.keyboardInput, {
+          receivedMessages: 0,
+          queuedBeforePrepare: 0,
+          receipts: [],
+        });
+        assert.equal(evidence.report.getAsyncKeyState, null);
+      }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
         assert(
@@ -3643,6 +3734,32 @@ function normalizePostPresentContinuation(snapshot) {
   };
 }
 
+function normalizeGetAsyncKeyState(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    call: {
+      ...normalizeSemanticCall(snapshot.call),
+      implementationId: snapshot.call.implementationId,
+    },
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    keyboardProfileId: snapshot.keyboardProfileId,
+    inputEvent: snapshot.inputEvent,
+    stateAuthority: snapshot.stateAuthority,
+    browserSourceAuthority: snapshot.browserSourceAuthority,
+    returnEncoding: snapshot.returnEncoding,
+    modifierAggregation: snapshot.modifierAggregation,
+    pressedBitConsumption: snapshot.pressedBitConsumption,
+    sourceFocusRequired: snapshot.sourceFocusRequired,
+    focusedForegroundWindowRequired:
+      snapshot.focusedForegroundWindowRequired,
+    lastErrorPolicy: snapshot.lastErrorPolicy,
+    guestMemoryMutation: snapshot.guestMemoryMutation,
+    failureAtomicity: snapshot.failureAtomicity,
+  };
+}
+
 function normalizeD3d9RecreatedTextures(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -4055,6 +4172,11 @@ function validateBgiEquivalence(browser, oracle) {
     "Chrome Worker post-Present continuation differs from the Node oracle",
   );
   assert.deepEqual(
+    normalizeGetAsyncKeyState(browser.report.getAsyncKeyState),
+    normalizeGetAsyncKeyState(oracle.getAsyncKeyState),
+    "Chrome Worker GetAsyncKeyState input evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),
     normalizeD3d9RecreatedTextures(oracle.d3d9RecreatedTextures),
     "Chrome Worker D3D9 recreated texture evidence differs from the Node oracle",
@@ -4299,6 +4421,25 @@ function validateBgiEquivalence(browser, oracle) {
           lastError: oracleCheckpoint.lastError,
         },
         "Chrome Worker critical-section acquisition differs from the Node oracle",
+      );
+    }
+    if (oracleCheckpoint.capability === "user32-async-key-state-input") {
+      assert.deepEqual(
+        {
+          virtualKey: browserCheckpoint.virtualKey,
+          result: browserCheckpoint.result,
+          lastError: browserCheckpoint.lastError,
+          inputEventSequence: browserCheckpoint.inputEventSequence,
+          inputVirtualKey: browserCheckpoint.inputVirtualKey,
+        },
+        {
+          virtualKey: oracleCheckpoint.virtualKey,
+          result: oracleCheckpoint.result,
+          lastError: oracleCheckpoint.lastError,
+          inputEventSequence: oracleCheckpoint.inputEventSequence,
+          inputVirtualKey: oracleCheckpoint.inputVirtualKey,
+        },
+        "Chrome Worker async-key checkpoint differs from the Node oracle",
       );
     }
     return;

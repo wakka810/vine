@@ -53,6 +53,7 @@ SUPPORTED_OBSERVATIONS = (
     "show-window-normal",
     "update-window",
     "get-foreground-window",
+    "get-async-key-state",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",

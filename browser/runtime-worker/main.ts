@@ -2,12 +2,20 @@ import { Cpu, createIcons, Database, Play, RotateCcw, Square, Volume2 } from "lu
 
 import { observePageLifecycle } from "./page-lifecycle.js";
 import {
+  focusSourceEvent,
+  keyboardSourceEvent,
+  pointerSourceEvent,
+  virtualKeyForKeyboardCode,
+  virtualKeyForPointerButton,
+} from "./keyboard-input.js";
+import {
   assertProtocolVersion,
   type HostRequestMessage,
   type MainToWorkerMessage,
   protocolVersion,
   type SessionMode,
   type SessionReport,
+  type RuntimeKeyboardInputEvent,
   type WorkerToMainMessage,
 } from "./protocol.js";
 
@@ -66,6 +74,7 @@ const audioMetric = requiredElement<HTMLElement>("audio-value");
 const storageMetric = requiredElement<HTMLElement>("storage-value");
 const heartbeatMetric = requiredElement<HTMLElement>("heartbeat-value");
 const modeFromUrl = parseMode(new URL(location.href).searchParams.get("scenario"));
+canvas.tabIndex = 0;
 
 let nextSessionId = 1;
 let activeSessionId: number | null = null;
@@ -81,6 +90,9 @@ let pixelRgba: string | null = null;
 let toneHz: number | null = null;
 let persistentByte: number | null = null;
 let hostServiceError: Error | null = null;
+let nextKeyboardSequence = 1;
+let inputSourceFocused = true;
+const pressedPointerVirtualKeys = new Set<number>();
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   if (activeSessionId !== null) {
     worker.postMessage({
@@ -103,6 +115,13 @@ runButton.addEventListener("click", () => {
 });
 cancelButton.addEventListener("click", cancelSession);
 resetButton.addEventListener("click", resetView);
+window.addEventListener("keydown", (event) => handleKeyboardEvent(event, "key-down"));
+window.addEventListener("keyup", (event) => handleKeyboardEvent(event, "key-up"));
+window.addEventListener("blur", () => sendFocusEvent(false));
+window.addEventListener("focus", () => sendFocusEvent(true));
+canvas.addEventListener("pointerdown", (event) => handlePointerEvent(event, "key-down"));
+canvas.addEventListener("pointerup", (event) => handlePointerEvent(event, "key-up"));
+canvas.addEventListener("pointercancel", (event) => handlePointerEvent(event, "key-up"));
 
 worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) => {
   const message = event.data;
@@ -138,6 +157,9 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
   activeSessionId = sessionId;
   activeMode = mode;
   hostServiceError = null;
+  nextKeyboardSequence = 1;
+  inputSourceFocused = true;
+  pressedPointerVirtualKeys.clear();
   pixelRgba = null;
   toneHz = null;
   persistentByte = null;
@@ -169,10 +191,87 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
     configuration,
   };
   worker.postMessage(message);
+  if (!document.hasFocus()) {
+    sendFocusEvent(false);
+  }
   return new Promise<RuntimeEvidence>((resolve, reject) => {
     resolveSession = resolve;
     rejectSession = reject;
   });
+}
+
+function handleKeyboardEvent(
+  event: KeyboardEvent,
+  kind: "key-down" | "key-up",
+): void {
+  if (
+    activeSessionId === null ||
+    !inputSourceFocused ||
+    virtualKeyForKeyboardCode(event.code) === null
+  ) {
+    return;
+  }
+  const input = keyboardSourceEvent(
+    nextKeyboardSequence,
+    kind,
+    event.code,
+    event.repeat,
+  );
+  if (input !== null) {
+    event.preventDefault();
+    sendKeyboardInput(input);
+  }
+}
+
+function handlePointerEvent(
+  event: PointerEvent,
+  kind: "key-down" | "key-up",
+): void {
+  if (activeSessionId === null || !inputSourceFocused) {
+    return;
+  }
+  const virtualKey = virtualKeyForPointerButton(event.button);
+  if (virtualKey === null) {
+    return;
+  }
+  if (kind === "key-down") {
+    if (pressedPointerVirtualKeys.has(virtualKey)) {
+      return;
+    }
+    pressedPointerVirtualKeys.add(virtualKey);
+    canvas.focus({ preventScroll: true });
+  } else if (!pressedPointerVirtualKeys.delete(virtualKey)) {
+    return;
+  }
+  const input = pointerSourceEvent(nextKeyboardSequence, kind, event.button);
+  if (input !== null) {
+    event.preventDefault();
+    sendKeyboardInput(input);
+  }
+}
+
+function sendFocusEvent(focused: boolean): void {
+  if (activeSessionId === null || inputSourceFocused === focused) {
+    return;
+  }
+  inputSourceFocused = focused;
+  if (!focused) {
+    pressedPointerVirtualKeys.clear();
+  }
+  sendKeyboardInput(focusSourceEvent(nextKeyboardSequence, focused));
+}
+
+function sendKeyboardInput(event: RuntimeKeyboardInputEvent): void {
+  if (activeSessionId === null) {
+    return;
+  }
+  worker.postMessage({
+    type: "keyboard-input",
+    protocolVersion,
+    sessionId: activeSessionId,
+    event,
+  } satisfies MainToWorkerMessage);
+  nextKeyboardSequence += 1;
 }
 
 function cancelSession(): void {

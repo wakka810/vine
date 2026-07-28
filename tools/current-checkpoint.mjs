@@ -173,9 +173,14 @@ export function validateCurrentCheckpoint(manifest) {
   const d3d9PostRasterStatusWaitableTimerActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-raster-status-waitable-timer";
-  const d3d9PostPresentContinuationActive =
+  const user32AsyncKeyStateInputActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-async-key-state-input";
+  const d3d9PostPresentStructuredStopActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-present-continuation";
+  const d3d9PostPresentContinuationActive =
+    user32AsyncKeyStateInputActive || d3d9PostPresentStructuredStopActive;
   const d3d9FirstPresentActive =
     d3d9PostPresentContinuationActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-first-present";
@@ -529,7 +534,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = d3d9PostPresentContinuationActive
+  const profileExpectations = user32AsyncKeyStateInputActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_909,
+        browserMappingDirtyPages: 110_070,
+        browserSuccessExecutionTransitions: 417_660,
+        latestSchema: "vine.v86-bgi-user32-async-key-state-input",
+        latestWritebackBatches: 127_790,
+        latestWritebackDirtyPages: 176_489,
+        latestWritebackChangedBytes: 6_647_203,
+        latestHostDeltaBatches: 106_909,
+        latestFinalMemoryGeneration: 235_983,
+        semanticCallDigestSha256:
+          "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070",
+        memoryContentSha256:
+          "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4",
+      }
+    : d3d9PostPresentContinuationActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_909,
@@ -2268,7 +2290,11 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (d3d9PostPresentContinuationActive ? 13 : 12) ||
+      (user32AsyncKeyStateInputActive
+        ? 14
+        : d3d9PostPresentStructuredStopActive
+          ? 13
+          : 12) ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
@@ -5944,7 +5970,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("runtime::audio::"),
       )
       .join(",") !==
-      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::timers::tests::window_timer_registration_replacement_and_teardown_preserve_identity,runtime::timers::tests::window_timer_capacity_rejection_is_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
+      "runtime::displays::tests::configuration_is_single_owner_and_rejects_invalid_geometry_without_mutation,runtime::input::tests::configuration_and_swaps_are_planned_and_generation_tracks_only_changes,runtime::input::tests::modifier_events_aggregate_and_queries_consume_only_the_requested_pressed_bit,runtime::input::tests::event_and_query_plans_are_stale_safe_and_focus_loss_clears_keys,runtime::input::tests::invalid_or_missing_profiles_fail_without_mutation,runtime::user32::tests::shared_icon_plans_reuse_identity_and_teardown_atomically,runtime::user32::tests::shared_cursor_identity_and_cross_resource_plans_are_atomic,runtime::user32::tests::shared_cursor_capacity_failure_preserves_identity_and_allocators,runtime::user32::tests::window_class_registration_is_module_scoped_case_folded_and_failure_atomic,runtime::user32::tests::invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity,runtime::user32::tests::logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks,runtime::user32::tests::small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits,runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic,runtime::timers::tests::begin_end_pairing_counts_duplicates_and_rejects_stale_plans,runtime::timers::tests::capacity_overflow_and_teardown_are_failure_atomic,runtime::timers::tests::waitable_timer_creation_retirement_and_capacity_are_planned,runtime::timers::tests::window_timer_registration_replacement_and_teardown_preserve_identity,runtime::timers::tests::window_timer_capacity_rejection_is_failure_atomic,runtime::heaps::tests::stale_or_duplicate_plans_preserve_all_heap_collections,runtime::files::tests::source_snapshot_paths_are_case_insensitive_and_mount_bounded,runtime::files::tests::read_plans_advance_cursor_only_after_matching_completion,runtime::modules::tests::dll_lifecycle_plan_commits_private_pending_callback_state,runtime::thread::tests::callback_and_exit_plans_commit_in_explicit_order,runtime::waits::tests::wake_plans_preserve_fifo_and_remove_only_during_commit,runtime::com::tests::stale_or_duplicate_plans_preserve_com_identity_and_refcounts" ||
     representativeSubsystemTests
       .filter((test) => test.startsWith("runtime::gdi::"))
       .join(",") !==
@@ -5999,7 +6025,7 @@ export function validateCurrentCheckpoint(manifest) {
           !test.startsWith("kernel32_virtual_memory_dispatcher::"),
       )
       .join(",") !==
-      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,source_file_gateway::get_file_attributes_a_projects_only_registered_vfs_paths,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
+      "runtime_heap_backing::private_heap_backing_is_atomic_reusable_and_process_owned,runtime_large_heap_materialization::large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot,runtime_dll_lifecycle::guest_import_graph_drives_atomic_dll_process_lifecycle,runtime_system_module_load::dynamic_runtime_system_load_owns_identity_reference_and_attached_state,runtime_lifecycle::process_and_thread_lifecycle_separates_exit_request_from_waitable_completion,runtime_wait_queue::wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit,com_iunknown_foundation::x86_iunknown_abi_owns_identity_refcounts_and_structured_stops,user32_dispatcher::callback_preparation_failures_preserve_memory_and_frame_allocator,user32_dispatcher::swap_mouse_button_policy_and_authority_failures_are_atomic,user32_dispatcher::get_async_key_state_gates_invalid_or_unfocused_queries_without_partial_mutation,user32_dispatcher::get_async_key_state_policy_and_keyboard_authority_failures_are_atomic,user32_dispatcher::load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity,user32_dispatcher::load_image_a_negative_variants_are_failure_atomic,user32_dispatcher::load_cursor_a_negative_variants_are_failure_atomic,user32_dispatcher::register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom,user32_dispatcher::get_system_metrics_rejects_unreached_or_inconsistent_profiles_without_mutation,user32_dispatcher::create_window_ex_a_preflight_and_callback_rejection_do_not_leave_live_windows,user32_dispatcher::set_window_pos_rejects_unreached_variants_and_invalid_state_atomically,user32_dispatcher::set_window_pos_callback_result_failures_do_not_publish_window_state,user32_dispatcher::system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation,user32_dispatcher::live_system_menu_identity_is_window_owned_reused_and_failure_atomic,user32_dispatcher::window_dc_fill_slice_preserves_identity_lifetime_and_failure_atomicity,user32_dispatcher::screen_dc_acquisition_and_release_preserve_null_window_native_lifetime,winmm_dispatcher::time_period_policy_and_lifecycle_failures_are_atomic,runtime_waitable_timer::waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic,source_file_gateway::source_file_api_slice_opens_reads_seeks_and_closes_atomically,source_file_gateway::source_file_sharing_mount_and_pending_exit_paths_preserve_authority,source_file_gateway::get_file_attributes_a_projects_only_registered_vfs_paths,d3d9_dispatcher::direct3d_create9_installs_bounded_root_identity_and_retires_atomically,d3d9_dispatcher::get_adapter_display_mode_reads_logical_geometry_and_writes_one_atomic_mode,d3d9_dispatcher::get_adapter_display_mode_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_adapter_identifier_writes_one_policy_owned_virtual_identity,d3d9_dispatcher::get_adapter_identifier_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::get_device_caps_writes_one_bounded_virtual_capability_profile,d3d9_dispatcher::get_device_caps_negative_paths_preserve_memory_and_authority,d3d9_dispatcher::check_device_type_accepts_the_bounded_windowed_and_fullscreen_band,d3d9_dispatcher::check_device_type_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::check_device_format_accepts_the_bounded_texture_usage_band,d3d9_dispatcher::check_device_format_failure_classes_preserve_memory_and_authority,d3d9_dispatcher::direct3d_create9_contract_and_resource_exhaustion_fail_before_publication" ||
     representativeAtomicTests.filter(
       (test) =>
         test ===
@@ -12043,6 +12069,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.swapMouseButtonVariants",
     errors,
   );
+  const getAsyncKeyStateVariants = requireStringArray(
+    user32Policy.getAsyncKeyStateVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.getAsyncKeyStateVariants",
+    errors,
+  );
   const loadIconVariants = requireStringArray(
     user32Policy.loadIconVariants,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadIconVariants",
@@ -12125,11 +12156,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 26 ||
+    user32Policy.schemaVersion !== 27 ||
     user32Policy.id !==
-      "user32-single-monitor-window-frame-change-show-update-paint-v26" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-input-v27" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v26" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v27" ||
     user32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
@@ -12194,6 +12225,26 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.browserDisplayTopologyImported !== false ||
     user32Policy.hostMouseButtonMappingImported !== false ||
     user32Policy.browserMouseButtonMappingImported !== false ||
+    user32Policy.keyboardProfileId !==
+      "foreground-focused-virtual-key-state-v1" ||
+    user32Policy.keyboardInitialSourceFocused !== true ||
+    user32Policy.keyboardMaximumVirtualKey !== 255 ||
+    user32Policy.keyboardModifierAggregation !==
+      "left-and-right-shift-control-menu-to-generic-virtual-key" ||
+    user32Policy.keyboardFocusLossPolicy !==
+      "clear-all-down-and-pressed-state" ||
+    user32Policy.keyboardEventOrdering !== "strict-monotonic-source-sequence" ||
+    getAsyncKeyStateVariants.join(",") !==
+      "focused-foreground-current-down-and-pressed-since-query,invalid-key-zero,unfocused-source-zero,missing-focused-foreground-window-zero" ||
+    user32Policy.getAsyncKeyStateReturn !==
+      "signed-short-high-bit-down-low-bit-pressed" ||
+    user32Policy.getAsyncKeyStatePressedBitPolicy !==
+      "consume-only-queried-virtual-key-after-successful-focused-query" ||
+    user32Policy.getAsyncKeyStateMutation !==
+      "input-owner-query-plan-stale-check-targeted-commit" ||
+    user32Policy.getAsyncKeyStateLastErrorPolicy !== "preserve" ||
+    user32Policy.browserKeyboardInputImported !== true ||
+    user32Policy.keyboardFailureAtomicity !== true ||
     user32Policy.logicalIconAuthority !== "runtime/user32.rs::RuntimeUser32" ||
     user32Policy.loadIconProfileId !== "module-shared-large-icon-32x32-v1" ||
     user32Policy.loadIconTargetWidth !== 32 ||
@@ -13943,7 +13994,7 @@ export function validateCurrentCheckpoint(manifest) {
       setWindowPosImplementationId ||
     latestEvidence.setWindowPosResizePolicySchemaVersion !== 23 ||
     latestEvidence.setWindowPosResizePolicyId !==
-      "user32-single-monitor-window-frame-change-show-update-paint-v26" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-input-v27" ||
     latestEvidence.setWindowPosResizeProfileId !==
       "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4" ||
     latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !==
@@ -18529,7 +18580,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (setWindowPosFrameChangeMoveActive
+      (user32AsyncKeyStateInputActive
+        ? "Rust-owned focused virtual-key state with versioned browser input ingress and signed-short GetAsyncKeyState query semantics"
+        : setWindowPosFrameChangeMoveActive
         ? "Rust-owned SetWindowPos frame-change move callback transaction over RuntimeUser32 geometry authority"
         : d3d9RecreatedTexturesActive
           ? "Rust-owned D3D9 recreated-texture band over transactional RuntimeGraphics and RuntimeCom authority"
@@ -20905,16 +20958,17 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
-  if (active.profile === "d3d9-post-present-continuation") {
+  if (d3d9PostPresentContinuationActive) {
     if (
-      currentStop.kind !== "api-endpoint" ||
-      currentStop.endpointKind !== "runtime-system-export" ||
-      currentStop.endpointId !== 231 ||
-      currentStop.api !== "USER32.dll!GetAsyncKeyState" ||
-      currentStop.arguments?.join(",") !== "0x00000011" ||
-      currentStop.endpointAddress !== "0x7f000e60" ||
-      currentStop.iatAddress !== "0x100d1474" ||
-      currentStop.returnAddress !== "0x10068405"
+      d3d9PostPresentStructuredStopActive &&
+      (currentStop.kind !== "api-endpoint" ||
+        currentStop.endpointKind !== "runtime-system-export" ||
+        currentStop.endpointId !== 231 ||
+        currentStop.api !== "USER32.dll!GetAsyncKeyState" ||
+        currentStop.arguments?.join(",") !== "0x00000011" ||
+        currentStop.endpointAddress !== "0x7f000e60" ||
+        currentStop.iatAddress !== "0x100d1474" ||
+        currentStop.returnAddress !== "0x10068405")
     ) {
       errors.push("post-Present continuation next endpoint is invalid");
     }
@@ -21024,6 +21078,130 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGetForegroundWindowExecutableHashUnchanged !== true
     ) {
       errors.push("native GetForegroundWindow evidence is invalid");
+    }
+  }
+  if (user32AsyncKeyStateInputActive) {
+    for (const [label, evidence] of [
+      ["browser BGI", bgiBrowserEvidence],
+      ["latest", latestEvidence],
+    ]) {
+      if (
+        (evidence.getAsyncKeyStateCompletions ??
+          evidence.getAsyncKeyStateNodeCompletions) !== 1 ||
+        evidence.keyboardInputReceivedMessages !== 1 ||
+        evidence.keyboardInputQueuedBeforePrepare !== 1 ||
+        evidence.keyboardInputReceiptSequence !== 1 ||
+        evidence.keyboardInputReceiptKind !== "key-down" ||
+        evidence.keyboardInputReceiptVirtualKey !== 162 ||
+        evidence.keyboardInputReceiptRepeat !== false ||
+        evidence.keyboardInputReceiptSourceFocused !== true ||
+        evidence.keyboardInputReceiptGeneration !== 1 ||
+        evidence.keyboardInputReceiptAffectedVirtualKeys?.join(",") !==
+          "17,162" ||
+        evidence.getAsyncKeyStateSequence !== 127_691 ||
+        evidence.getAsyncKeyStateInstructionCount !== 29_325_480 ||
+        evidence.getAsyncKeyStateArguments?.join(",") !== "0x00000011" ||
+        evidence.getAsyncKeyStateResult !== "0xffff8001" ||
+        evidence.getAsyncKeyStateReturnAddress !== "0x10068405" ||
+        evidence.getAsyncKeyStateStackPointers?.join(",") !==
+          "0x006ff53c,0x006ff544" ||
+        evidence.getAsyncKeyStateLastError !== 0 ||
+        evidence.getAsyncKeyStateGuestWriteBytes !== 0 ||
+        evidence.getAsyncKeyStateImplementationId !==
+          "user32.get-async-key-state.v1" ||
+        evidence.getAsyncKeyStateCompatibilityPolicyId !==
+          "user32-single-monitor-window-frame-change-show-update-paint-input-v27" ||
+        evidence.getAsyncKeyStateKeyboardProfileId !==
+          "foreground-focused-virtual-key-state-v1" ||
+        evidence.getAsyncKeyStateStateAuthority !==
+          "runtime/input.rs::RuntimeInput" ||
+        evidence.getAsyncKeyStateBrowserSourceAuthority !==
+          "typescript-browser-input-adapter" ||
+        evidence.getAsyncKeyStateReturnEncoding !==
+          "signed-short-high-bit-down-low-bit-pressed-since-query" ||
+        evidence.getAsyncKeyStateModifierAggregation !==
+          "side-specific-to-generic" ||
+        evidence.getAsyncKeyStatePressedBitConsumption !==
+          "queried-virtual-key-only" ||
+        evidence.getAsyncKeyStateSourceFocusRequired !== true ||
+        evidence.getAsyncKeyStateFocusedForegroundWindowRequired !== true ||
+        evidence.getAsyncKeyStateLastErrorPolicy !== "preserve" ||
+        evidence.getAsyncKeyStateGuestMemoryMutation !== false ||
+        evidence.getAsyncKeyStateFailureAtomicity !== true ||
+        evidence.getAsyncKeyStateNodeCompletions !== 1 ||
+        evidence.getAsyncKeyStateChromeCompletions !== 1 ||
+        evidence.getAsyncKeyStateNodeChromeOrderedSemanticsMatched !== true
+      ) {
+        errors.push(`${label} GetAsyncKeyState input evidence is invalid`);
+      }
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "user32-async-key-state-input" ||
+        completion.implementationId !== "user32.get-async-key-state.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 127_691 ||
+        completion.lastCompletionInstructionCount !== 29_325_480 ||
+        completion.virtualKey !== 17 ||
+        completion.result !== "0xffff8001" ||
+        completion.lastError !== 0 ||
+        completion.inputEventSequence !== 1 ||
+        completion.inputVirtualKey !== 162 ||
+        completion.instructionCount !== 29_325_523 ||
+        completion.nextEndpoint?.endpointId !== 8 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+        completion.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+        completion.memoryContentSha256 !==
+          "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4"
+      ) {
+        errors.push(`${label} GetAsyncKeyState checkpoint evidence is invalid`);
+      }
+    }
+    if (
+      latestEvidence.getAsyncKeyStateImplemented !== true ||
+      latestEvidence.getAsyncKeyStateOccurrence !== 1 ||
+      latestEvidence.nativeGetAsyncKeyStatePrimaryTraceBytes !== 2_259_565 ||
+      latestEvidence.nativeGetAsyncKeyStatePrimaryTraceLines !== 2_344 ||
+      latestEvidence.nativeGetAsyncKeyStatePrimaryTraceSha256 !==
+        "1501661f868d96178398addca11d7a6361e8d54c6ec6c9a330000c9b05b08962" ||
+      latestEvidence.nativeGetAsyncKeyStatePrimarySummaryBytes !== 67_343 ||
+      latestEvidence.nativeGetAsyncKeyStatePrimarySummaryLines !== 3_073 ||
+      latestEvidence.nativeGetAsyncKeyStatePrimarySummarySha256 !==
+        "86524b86b6e904f4553111c855472cf0a0446fcfad2f26cc0978e7656a4dd24f" ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationTraceBytes !==
+        2_296_190 ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationTraceLines !== 2_394 ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationTraceSha256 !==
+        "2e83138aff0db640caf1068c8d9a7083e54e2ee2863f669c9468a127600b371c" ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationSummaryBytes !==
+        67_513 ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationSummaryLines !==
+        3_078 ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationSummarySha256 !==
+        "f7d8ab150681c4d14ed398c52a4b13c4630f77e9d5b65cdca3a9b08f8e62a442" ||
+      latestEvidence.nativeGetAsyncKeyStateTraceDiagnostics !== 0 ||
+      latestEvidence.nativeGetAsyncKeyStateProfile !==
+        "x86-bgi-get-async-key-state-initial-scan-v1" ||
+      latestEvidence.nativeGetAsyncKeyStateLeadingControlPollCounts?.join(",") !==
+        "23,24" ||
+      latestEvidence.nativeGetAsyncKeyStateCallsPerTrace !== 38 ||
+      latestEvidence.nativeGetAsyncKeyStateScanVirtualKeys?.join(",") !==
+        "14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6" ||
+      latestEvidence.nativeGetAsyncKeyStateCallerRva !== "0x00068405" ||
+      latestEvidence.nativeGetAsyncKeyStateAllResultsZero !== true ||
+      latestEvidence.nativeGetAsyncKeyStateAllPreserveLastError !== true ||
+      latestEvidence.nativeGetAsyncKeyStateConsumerProfile !==
+        "sign-extend-and-optional-or-full-short-v1" ||
+      latestEvidence.nativeGetAsyncKeyStateUsesCurrentDownBit !== true ||
+      latestEvidence.nativeGetAsyncKeyStatePreservesPressedSinceLastQueryBit !==
+        true ||
+      latestEvidence.nativeGetAsyncKeyStateExecutableHashUnchanged !== true
+    ) {
+      errors.push("native GetAsyncKeyState evidence is invalid");
     }
   }
   if (active.profile === "d3d9-post-scene-present-gateway") {

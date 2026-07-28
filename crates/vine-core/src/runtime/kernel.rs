@@ -124,7 +124,9 @@ use super::imm32::{
     RuntimeImeContextId, RuntimeImm32,
 };
 use super::input::{
-    RuntimeInput, RuntimeInputProfile, RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
+    RuntimeAsyncKeyStateResult, RuntimeInput, RuntimeInputProfile, RuntimeKeyboardEventReceipt,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardState, RuntimeMouseButtonMapping,
+    RuntimeSwapMouseButtonResult,
 };
 use super::messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
 use super::messages::{RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage};
@@ -883,6 +885,28 @@ impl RuntimeKernel {
     ) -> Result<RuntimeSwapMouseButtonResult, RuntimeStateError> {
         let plan = self.input.plan_mouse_button_swap(swapped)?;
         self.input.commit_mouse_button_swap(plan)
+    }
+
+    pub fn keyboard_state(&self) -> Option<&RuntimeKeyboardState> {
+        self.input.keyboard_state()
+    }
+
+    pub fn ingest_keyboard_event(
+        &mut self,
+        event: RuntimeKeyboardSourceEvent,
+    ) -> Result<RuntimeKeyboardEventReceipt, RuntimeStateError> {
+        let plan = self.input.plan_keyboard_event(event)?;
+        self.input.commit_keyboard_event(plan)
+    }
+
+    pub fn query_async_key_state(
+        &mut self,
+        virtual_key: u32,
+    ) -> Result<Option<RuntimeAsyncKeyStateResult>, RuntimeStateError> {
+        let Some(plan) = self.input.plan_async_key_state_query(virtual_key)? else {
+            return Ok(None);
+        };
+        self.input.commit_async_key_state_query(plan).map(Some)
     }
 
     pub fn begin_timer_period(

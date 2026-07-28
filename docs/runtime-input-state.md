@@ -2,36 +2,76 @@
 
 ## Status
 
-- Status: implemented foundation
+- Status: keyboard input gateway and mouse-button mapping implemented
 - Authority: `runtime/input.rs::RuntimeInput`
-- First reached API: `USER32.dll!SwapMouseButton`
+- Reached User32 APIs: `SwapMouseButton`, `GetAsyncKeyState`
 - DirectInput gateway: root identity and reached empty game-controller enumeration implemented
 
 Logical input state is guest-visible Windows state and therefore belongs to the
-Rust runtime. Browser main-thread adapters may normalize DOM events, but they do
-not own mouse-button mapping, focus, capture, key state, timestamps, or a second
-Windows input clock.
+Rust runtime. Browser main-thread adapters normalize DOM keyboard, focus, and
+pointer events into a versioned Worker message, but they do not own focus,
+mouse-button mapping, virtual-key state, pressed-since-query state, generation,
+or a second Windows input clock.
+
+## Keyboard state and browser ingress
+
+The bounded keyboard profile `foreground-focused-virtual-key-state-v1` owns:
+
+- source-focus state and a strictly increasing source-event sequence;
+- current-down and pressed-since-last-query bits for virtual keys 0 through 255;
+- side-specific and generic Shift／Control／Alt aggregation;
+- owner-local generation and the last accepted event sequence.
+
+The browser adapter translates stable W3C `KeyboardEvent.code` values and
+pointer buttons to Win32 virtual keys. It tags each focus, key, or pointer event
+with one monotonic session-local sequence and sends only the normalized event to
+the Worker. Up to 256 events may queue before runtime preparation. The Worker
+validates the protocol shape, preserves order, and calls the Wasm bridge; Rust
+then validates and commits the authoritative state. Queue capacity, malformed
+messages, stale sequences, unsupported virtual keys, and profile mismatch fail
+before Rust state mutation.
+
+Key-down sets the current-down bit and, unless it is a repeat or duplicate,
+arms the pressed-since-query bit. Key-up clears current-down without clearing an
+already armed pressed bit. Side-specific modifiers also update their generic
+modifier relation. Querying one virtual key consumes only that key's pressed
+bit. Source-focus loss clears all down and pressed bits atomically; events while
+unfocused cannot create down state. Browser focus is an input source fact, not
+the authority for the runtime foreground-window relation.
+
+`GetAsyncKeyState` returns a signed x86 `SHORT`: bit 15 reports current-down and
+bit 0 reports pressed since the previous query. The dispatcher sign-extends the
+16-bit result into EAX, preserves LastError, and writes no guest memory. A
+matching focused source and focused foreground logical window are required.
+Invalid virtual keys, an unfocused source, or a missing foreground relation
+return zero without consuming the pressed bit or mutating state.
+
+The primary checkpoint posts one deterministic `ControlLeft` key-down event
+through the same browser protocol used by live DOM input. Rust aggregates it to
+`VK_CONTROL`; the first primary `GetAsyncKeyState(VK_CONTROL)` consumes
+`0x8001` and returns sign-extended `0xFFFF8001`. This demonstrates one bounded
+primary DOM／Worker／Wasm／Rust input-consumption path. It does not yet
+demonstrate gameplay response or DirectInput keyboard-device state.
 
 ## Mouse-button mapping
 
-The initial input slice owns one configured mapping record:
+The input owner also keeps one configured mouse-button mapping record:
 
 - bounded profile identity;
 - initial primary／secondary mapping;
 - current swapped state;
 - owner-local generation.
 
-Configuration is a mutation-free plan followed by a single configure-once
-commit. `SwapMouseButton` plans against the current generation and swapped
-value, rejects stale commits, returns the previous mapping, and commits only the
+Configuration is a mutation-free plan followed by a configure-once commit.
+`SwapMouseButton` plans against the current generation and swapped value,
+rejects stale commits, returns the previous mapping, and commits only the
 requested current value. An idempotent request does not increment generation.
 The controlled browser profile begins unswapped and imports neither the native
 host setting nor a DOM/browser preference.
 
-The owner exposes immutable mapping inspection and a targeted swap operation to
-`RuntimeKernel`. It does not expose its internal optional state for mutation.
 Future User32 message translation and DirectInput mouse state must consult this
-same owner; they must not install independent button-remapping tables.
+same owner; they must not install independent button-remapping or virtual-key
+tables.
 
 ## DirectInput 8 root boundary
 
@@ -54,66 +94,58 @@ parallel COM object or DirectInput state.
 The primary workload reaches slot 4 `IDirectInput8A::EnumDevices` with device
 class 4 (`DI8DEVCLASS_GAMECTRL`), callback `0x1005BEF0`, reference 0, and flags
 1 (`DIEDFL_ATTACHEDONLY`). Two native runs return `S_OK` without invoking the
-callback. A controlled x86 oracle confirms the same zero-device result for this
-class while keyboard, pointer, all-device, and device classes do invoke the
-callback on the host.
-
-`Dinput8CompatibilityPolicy` version 1 therefore exposes only the exact reached
-empty attached-game-controller catalog. The COM frontend validates the class,
-flags, callback pointer, root identity, and policy before completion. Invalid
-class／flags／NULL callback return `E_INVALIDARG`; valid but unreached variants
-remain structured unsupported. The reached completion writes no guest bytes,
-does not schedule a callback, and does not mutate COM, input, allocator,
-LastError, or memory generation. A policy that claims a nonzero device count is
-rejected before dispatch because callback scheduling and device publication are
-not implemented yet. Browser TypeScript imports no host or DOM device catalog.
+callback. `Dinput8CompatibilityPolicy` version 1 therefore exposes only this
+exact empty attached-game-controller catalog. Invalid class／flags／NULL callback
+return `E_INVALIDARG`; valid but unreached variants remain structured
+unsupported. The reached completion writes no guest bytes, schedules no
+callback, and mutates neither COM nor input state.
 
 ## Failure ordering
 
-The User32 handler validates, in order:
+User32 input operations validate, before mutation:
 
-1. compatibility-policy identity and input-profile shape;
-2. policy enablement for the mapping API;
-3. decoded x86 argument availability;
-4. configured Rust owner and exact profile match;
-5. owner-local generation and expected previous value at commit.
+1. compatibility-policy identity, enablement, and exact input-profile shape;
+2. decoded x86 arguments and virtual-key range;
+3. configured Rust owner and exact profile match;
+4. source-event sequence, source-focus state, and foreground-window relation;
+5. owner-local generation and expected before-image at targeted commit.
 
-Policy-disabled, missing-owner, mismatched-profile, stale-plan, and generation
-overflow faults occur without guest writes, LastError change, partial input
-mutation, or allocator consumption. Browser resources do not participate in
-this synchronous transaction.
+Policy-disabled, missing-owner, mismatched-profile, stale-event, stale-plan,
+capacity, and generation-overflow faults leave guest memory, LastError,
+allocator state, input bits, event sequence, and generation unchanged. Browser
+resources do not participate in the synchronous query transaction.
 
 ## Policy version
 
-`vine.user32-compatibility-policy` version 2 adds the logical input profile to
-the existing display profile. Version 1 remains historical evidence; it is not
-deserialized or migrated because User32 policy is currently constructed as an
-internal typed profile and is not a persisted user format. Reverting the
-checkpoint means selecting the prior implementation commit and version-1
-evidence, not interpreting a version-2 record as version 1.
+`vine.user32-compatibility-policy` version 27 adds the bounded keyboard profile
+and `GetAsyncKeyState` contract to the existing display, window, paint, and
+mouse-mapping policy. Older versions remain historical evidence; the policy is
+an internal typed runtime profile rather than a persisted user format, so no
+cross-version deserialization or migration is claimed.
 
 ## Verification
 
-Owner tests cover configure-once, invalid profile, idempotent generation,
-changed mapping, and stale commit. Dispatcher tests cover x86 stdcall cleanup,
-BOOL previous-state results, both possible initial states, the reached two-call
-restore sequence, LastError preservation, zero guest writes, policy-disabled,
-missing-owner, and mismatched-owner atomicity.
+Owner tests cover configure-once validation, strict source-event ordering,
+repeat／duplicate behavior, side-to-generic modifier aggregation, per-key
+pressed-bit consumption, key-up, focus loss, and stale commits. Dispatcher
+tests cover x86 stdcall cleanup, signed-SHORT extension, first／repeat queries,
+side-specific state independence, key-up, invalid and unfocused queries,
+LastError preservation, zero guest writes, and policy／authority failure
+atomicity.
 
-Mouse-mapping evidence is documented in
-[bgi-swap-mouse-button.md](bgi-swap-mouse-button.md). Current DirectInput native,
-Node, Chrome, and benchmark evidence is recorded in
-[windows-native-evidence.md](windows-native-evidence.md),
-[testing-and-acceptance.md](testing-and-acceptance.md), and
-[bgi-browser-benchmark.md](bgi-browser-benchmark.md).
+The native primary and confirmation traces, controlled Node semantic run, and
+Chrome Worker run are recorded in
+[windows-native-evidence.md](windows-native-evidence.md). Mouse-mapping evidence
+remains in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
 ## Non-claims
 
-This foundation does not yet ingest DOM input, emit mouse messages, implement
-focus／capture, expose button count or metrics, provide keyboard state, enumerate
-callback-producing DirectInput variants, create keyboard／mouse devices, acquire
-them, or serve device state. The only enumeration claim is the exact empty
-attached-game-controller query above. It does not change the host OS mapping.
-Those later slices must extend this owner or introduce a separately justified
-input owner by lifetime and failure domain; TypeScript remains an adapter, not
-Windows-state authority.
+This checkpoint does not claim `GetKeyboardState`, message-queue keyboard or
+mouse translation, capture, raw input, callback-producing DirectInput variants,
+keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
+general device state. Pointer normalization is present at the adapter boundary,
+but primary pointer consumption is not demonstrated. The bounded controlled
+Control event proves transport and one User32 consumer only; arbitrary live
+gameplay input, IME text composition, browser shortcut suppression, and game
+response remain future scenario evidence. It does not change host OS input
+state, and TypeScript remains an adapter rather than Windows-state authority.
