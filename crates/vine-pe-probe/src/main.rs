@@ -261,6 +261,7 @@ enum GenericRuntimeCapability {
     D3d9EndScene,
     D3d9PostEndSceneRasterStatus,
     D3d9PostRasterStatusWaitableTimer,
+    D3d9PostScenePresentGateway,
 }
 
 struct GenericRuntimeProcess {
@@ -2711,6 +2712,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9EndScene
                     | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
                     | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
+                    | GenericRuntimeCapability::D3d9PostScenePresentGateway
             )
         ) {
             let loader = kernel32_policy
@@ -3381,6 +3383,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
                 | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
+                | GenericRuntimeCapability::D3d9PostScenePresentGateway
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3629,7 +3632,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9DrawPrimitive
             | GenericRuntimeCapability::D3d9EndScene
             | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
-            | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer,
+            | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
+            | GenericRuntimeCapability::D3d9PostScenePresentGateway,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3960,7 +3964,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v28();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v29();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -14181,6 +14185,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "d3d9-post-raster-status-waitable-timer" => {
                     GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
+                }
+                "d3d9-post-scene-present-gateway" => {
+                    GenericRuntimeCapability::D3d9PostScenePresentGateway
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx

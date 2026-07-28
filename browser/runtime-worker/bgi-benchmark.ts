@@ -342,7 +342,8 @@ function runSession(
         capabilityProfile === "d3d9-draw-primitive" ||
         capabilityProfile === "d3d9-end-scene" ||
         capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-        capabilityProfile === "d3d9-post-raster-status-waitable-timer"
+        capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
+        capabilityProfile === "d3d9-post-scene-present-gateway"
           ? 35_000_000
           : 20_000_000,
       watchdogWallMilliseconds:
@@ -368,7 +369,8 @@ function runSession(
         capabilityProfile === "d3d9-draw-primitive" ||
         capabilityProfile === "d3d9-end-scene" ||
         capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-        capabilityProfile === "d3d9-post-raster-status-waitable-timer"
+        capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
+        capabilityProfile === "d3d9-post-scene-present-gateway"
           ? 300_000
           : capabilityProfile === "shell32-drag-accept-files" ||
               capabilityProfile === "kernel32-archive-source-read"
@@ -415,7 +417,8 @@ function parseCapabilityProfile(
     value === "d3d9-draw-primitive" ||
     value === "d3d9-end-scene" ||
     value === "d3d9-post-end-scene-raster-status" ||
-    value === "d3d9-post-raster-status-waitable-timer"
+    value === "d3d9-post-raster-status-waitable-timer" ||
+    value === "d3d9-post-scene-present-gateway"
     ? value
     : undefined;
 }

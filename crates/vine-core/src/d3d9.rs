@@ -37,7 +37,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 28;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 29;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -440,11 +440,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v28() -> Self {
+    pub fn controlled_v29() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v28".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v29".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -590,10 +590,10 @@ impl D3d9CompatibilityPolicy {
                 primitive_count: 2,
             }),
             raster_status: Some(D3d9RasterStatusPolicy {
-                profile_id: "primary-stable-nonblank-scanline-v1".to_owned(),
+                profile_id: "primary-stable-last-visible-scanline-v2".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
                 in_v_blank: false,
-                scan_line: 1,
+                scan_line: 1_079,
             }),
             clear: Some(D3d9ClearPolicy {
                 profile_id: "primary-full-render-target-black-v1".to_owned(),
@@ -961,16 +961,16 @@ impl D3d9CompatibilityPolicy {
             ));
         }
         if let Some(raster_status) = self.raster_status.as_ref()
-            && (!valid_policy_id(&raster_status.profile_id)
+            && (raster_status.profile_id != "primary-stable-last-visible-scanline-v2"
                 || !valid_policy_id(&raster_status.display_profile_id)
                 || raster_status.in_v_blank
-                || raster_status.scan_line == 0
+                || raster_status.scan_line != 1_079
                 || self.create_device.is_none())
         {
             return Err(ApiFault::runtime_defect(
                 "d3d9-compatibility-policy",
                 "d3d9-raster-status-profile-invalid",
-                "D3D9 raster-status profile must describe one deterministic nonblank nonzero scanline on a logical device",
+                "D3D9 raster-status profile must describe the deterministic last visible scanline of the primary logical display",
             ));
         }
         if let Some(clear) = self.clear.as_ref()

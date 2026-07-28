@@ -403,11 +403,12 @@ browser renderer allocation.
 
 ## Bounded raster status
 
-Version 19 retains `primary-stable-nonblank-scanline-v1` for device slot 19
+Version 29 uses `primary-stable-last-visible-scanline-v2` for device slot 19
 `GetRasterStatus(0, output)`. The policy returns one fully initialized
-`D3DRASTER_STATUS`: normalized `InVBlank=FALSE` and `ScanLine=1`. These values
-are a deterministic compatibility sample, not imported host or browser scanout
-state. Rust first resolves the live device COM object to its
+`D3DRASTER_STATUS`: normalized `InVBlank=FALSE` and `ScanLine=1079`, the final
+visible line of the versioned virtual 1920x1080 display. This is a deterministic
+compatibility sample, not imported host or browser scanout state. Rust first
+resolves the live device COM object to its
 `RuntimeGraphicsDevice`, verifies the primary display profile and swap-chain
 index, preflights the complete eight-byte output span, and publishes one atomic
 guest write. The call preserves LastError, reference counts, graphics state,
@@ -419,15 +420,22 @@ unknown／retired COM-to-graphics relation, inconsistent display authority, or
 disabled policy faults before any guest byte changes. TypeScript owns no raster
 counter or Windows status object.
 
-Two focused native runs each capture the first slot-19 call from RVA `0x5AEDD`.
-One observes nonblank scanline `1200`; the other observes VBlank with scanline
-`0`. The immediate consumer checks HRESULT, branches on `InVBlank`, and consumes
-the scanline; its outer caller accepts either success or the VBlank sentinel,
-repeats sampling, and yields with `Sleep(0)`. Thus the changing native values
-are host artifact observations, while the consumer contract admits Vine's
-stable nonblank sample. Node and Chrome both complete call 17,866 at instruction
-11,808,586 with output `0000000001000000`, then stop 40 instructions later at
-`kernel32.dll!QueryPerformanceFrequency`.
+Focused native observations include nonblank scanlines `1200`, `189`, and `834`,
+plus a VBlank sample at scanline `0`. These changing values are host artifact
+observations. The wrapper at RVA `0x5AEC0` clamps the native line to its display
+maximum; the caller at RVA `0x5B730` exits when the line wraps below the previous
+sample or reaches `ceil(max / 2)`, otherwise waits 1 ms and resamples. A bounded
+Node probe with the former fixed sample `1` repeated exactly 1,024
+`GetRasterStatus -> SetWaitableTimer -> WaitForSingleObjectEx` cycles without
+changing guest memory, proving that sample did not satisfy the reached progress
+contract. Version 29 therefore selects the stateless last-visible-line sample;
+it does not branch on EIP, caller, occurrence, title hash, or a browser clock.
+
+Node and Chrome complete the initial call 17,866 at instruction 11,668,493 with
+output `0000000037040000`. In the first-frame post-scene path they both complete
+sequence 127,376 at instruction 28,761,389 and reach
+`IDirect3DDevice9::Present` slot 17 at instruction 28,761,426, without another
+timer arm, graphics-state mutation, renderer resource, or visible pixels.
 
 ## Bounded level-zero surface retrieval
 
@@ -945,7 +953,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-post-raster-status-waitable-timer
+npm run check:runtime:bgi -- --profile d3d9-post-scene-present-gateway
 npm run check:runtime:bgi-browser
 ```
 
@@ -989,8 +997,8 @@ snapshots and three explicit post-sampler render-state rejections. It then
 records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
 binding, slot-81 immutable triangle-strip draw submission, and slot-42
 active-to-inactive scene close followed by the deterministic post-scene
-slot-19 raster-status sample and its logical waitable-timer arm/wait pacing
-cycle,
+slot-19 last-visible-line raster-status sample and the resulting slot-17
+Present gateway,
 without creating a browser renderer resource, visible pixels, or a second
 graphics authority.
 
@@ -1040,10 +1048,13 @@ submission and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
 and completes before the next post-scene slot-19 raster-status query. The historical
 `d3d9-post-end-scene-raster-status` profile completes that deterministic
 eight-byte query without changing runtime graphics or COM state and stops
-before `kernel32.dll!SetWaitableTimer`. The active
-`d3d9-post-raster-status-waitable-timer` profile completes the following
-timer-1 arm and finite alertable wait using the Rust-owned logical timer clock,
-then stops before the next slot-19 raster-status query.
+before `kernel32.dll!SetWaitableTimer`. The historical
+`d3d9-post-raster-status-waitable-timer` profile captured one cycle produced by
+the former sample `1`; the 1,024-cycle bounded probe later classified that path
+as non-progress rather than required pacing. The active
+`d3d9-post-scene-present-gateway` profile uses policy v29, completes the same
+post-scene query with scanline 1079, and stops before
+`IDirect3DDevice9::Present` slot 17.
 
 ## Non-claims
 
@@ -1063,9 +1074,8 @@ then stops before the next slot-19 raster-status query.
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
   source binding at offset 0／stride 28, one exact triangle-strip quad draw
-  submission, the matching active-to-inactive `EndScene`, its immediate
-  deterministic raster-status sample, and the following bounded logical
-  waitable-timer pacing cycle are
+  submission, the matching active-to-inactive `EndScene`, and its immediate
+  deterministic last-visible-line raster-status sample are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other

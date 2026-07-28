@@ -79,8 +79,9 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-post-raster-status-waitable-timer` and uses
-protocol `vine.browser-runtime-worker.v42`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-post-scene-present-gateway`, uses protocol
+`vine.browser-runtime-worker.v43`, and emits browser BGI report schema version 11.
+It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -243,6 +244,25 @@ agree on the ordered calls, final memory content, and one requested／completed
 host delay, while the Rust logical clock remains authoritative and no host wall
 clock value is imported. The checkpoint stops at instruction 28,761,476 before
 the next slot-19 `IDirect3DDevice9::GetRasterStatus` query.
+
+That version-42 result was a valid timer transaction but not a valid progress
+policy. A bounded Node diagnostic repeated the same raster／timer-arm／timer-wait
+cycle 1,024 times with unchanged terminal memory. Focused native sampling added
+nonblank lines 189 and 834 to the existing 1200／VBlank-0 observations, while
+immutable caller disassembly established the actual exit rule: RVA `0x5B730`
+returns when the clamped scanline wraps or reaches `ceil(max / 2)`. The fixed
+sample 1 can do neither.
+
+Protocol version 43 therefore carries D3D9 compatibility policy v29 and its
+stateless virtual-display sample `{ InVBlank: FALSE, ScanLine: 1079 }`. It has no
+callsite, occurrence, title-hash, host-scanout, or browser-scanout branch. Node
+and Chrome complete sequence 127,376 at instruction 28,761,389, agree on semantic
+digest `0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6`
+and memory digest
+`c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e`,
+then stop at instruction 28,761,426 before COM slot 17
+`IDirect3DDevice9::Present` at `0x01011140`. No post-scene timer cycle, renderer
+resource, or visible pixel is claimed by this checkpoint.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-post-raster-status-waitable-timer`: 127377 calls across 122 endpoint contracts / 120 APIs, memory generation 235529 |
+| Runtime diagnostics | `d3d9-post-scene-present-gateway`: 127375 calls across 122 endpoint contracts / 120 APIs, memory generation 235527 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `d3d9-post-raster-status-waitable-timer` completed 1 post-scene timer arm/wait cycle by instruction 28761452; verification stopped at `IDirect3DDevice9::GetRasterStatus` on instruction 28761476 (`post-scene-waitable-timer-checkpoint-complete`) |
+| Next structured stop | `d3d9-post-scene-present-gateway` completed 1 post-scene raster gate by instruction 28761389; verification stopped at `IDirect3DDevice9::Present` on instruction 28761426 (`d3d9-post-scene-present-gateway-checkpoint-complete`) |
 
-The active semantic report is 561,111 bytes with SHA-256
-`456efd128b067cfa7046b0af1ed5a23ae3f06b32af2cc12cf1fc795e4a35144d`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 561,038 bytes with SHA-256
+`32e1b2395eeeb73d5d598c1ef8b03b93403bc9763de9b702ac33de74922d999a`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

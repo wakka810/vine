@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 42 as const/u);
+assert.match(protocol, /protocolVersion = 43 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -53,6 +53,7 @@ assert.match(protocol, /d3d9EndScene:/u);
 assert.match(protocol, /d3d9-post-end-scene-raster-status/u);
 assert.match(protocol, /d3d9PostEndSceneRasterStatus:/u);
 assert.match(protocol, /d3d9-post-raster-status-waitable-timer/u);
+assert.match(protocol, /d3d9-post-scene-present-gateway/u);
 
 assert.match(
   worker,

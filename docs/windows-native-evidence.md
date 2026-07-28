@@ -3840,15 +3840,14 @@ observed LastError 0、8-byte full output overwriteを示す。Primaryは`InVBla
 confirmationは`InVBlank=TRUE／ScanLine=0`であり、具体値はhost scanoutに依存するartifact observationである。
 Immediate consumerはHRESULTを検査し、`InVBlank`で分岐してscanlineを上限比較へ使い、VBlank時は
 `0x81000000`を返す。Outer consumer RVA `0x0006A263`は`S_OK`とそのsentinelの両方を受理し、再sampleして
-`Sleep(0)`でyieldする。このためVineはcaller／hashで分岐せず、versioned policyの安定したnonblank
-`ScanLine=1`を返せる。Native device／output pointerはopaque identityとして扱う。
+`Sleep(0)`でyieldする。この時点のsingle-call evidenceだけでは安定値1のscenario progressは立証されず、
+後続のpost-scene caller evidenceでversion 29 policyを再評価した。Native device／output pointerはopaque
+identityとして扱う。
 
-Node／Chromeはcall sequence 17,866、instruction 11,808,586、arguments
+Node／Chromeはcall sequence 17,866、instruction 11,668,493、arguments
 `0x01010004／0／0x006FFCF0`、return `0x1005AEDD`、output
-`0000000001000000`を一致させる。次stopはinstruction 11,808,626の
-`kernel32.dll!QueryPerformanceFrequency(0x006FFCF0)`、endpoint ID 66／`0x7F000410`、IAT
-`0x100D11B0`、return `0x10091FD7`、reason `endpoint-contract-missing`である。Renderer、draw、Present、
-host／browser scanout importはこのcheckpointで実装済みとしない。
+`0000000037040000`を一致させる。Renderer、draw、Present、host／browser scanout importはこのcheckpointで
+実装済みとしない。
 
 ## 126. BGI high-resolution performance clock
 
@@ -5711,3 +5710,37 @@ active sceneなし、back-buffer content generation 2、既存draw submission保
 次のowned endpointを`0x01011160`の`IDirect3DDevice9::GetRasterStatus` slot 19として記録する。Opaque endpoint ID 0は
 prepared API catalog外のCOM methodを示すevidence identityで、guest semanticsには使わない。他scene variant、Present、
 pixel backing、browser upload、device lossはこのevidenceからclaimしない。
+
+## 170. BGI post-scene raster progress contract
+
+Post-scene loopの成立性を判定するため、同じimmutable distributionからfocused raster seriesを二回取得した。
+4-second captureは1,788,219 bytes／5,165 lines／SHA-256
+`5129d5885b8e32dcaf3f54f0a6ae5e8c0da472b300641216254a8e393059422a`でnonblank scanline 189を、
+20-second captureは2,444,037 bytes／7,232 lines／SHA-256
+`fc52e75b222012728dc9a39ebbf0fe2b513651a9a34cddb473159c4f6fec48ec`でnonblank scanline 834を記録した。
+各captureの前後にdistribution配下のrelative path／size／mtime inventoryとBGI SHA-256を比較し、変更file 0、
+BGI 1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`不変を確認した。Raw traceは
+`.work/windows-traces/`だけに保持する。
+
+Paused-process disassemblyでは、slot-19 wrapper RVA `0x0005AEC0`がnative `ScanLine`をhelper RVA
+`0x0005AEB0`由来のdisplay maximumへclampする。Caller RVA `0x0005B730`はthreshold
+`max - floor(max / 2) = ceil(max / 2)`を作り、新sampleがprevious sample未満へwrapするかthreshold以上なら
+returnし、それ以外は1 ms wait helperを経て再sampleする。Disassembly中はtargetを実行せず、同じdistribution
+auditでsource不変を再確認した。したがってEIP／callsiteはsemantic handlerの分岐条件ではなく、progress
+contractを理解するconsumer evidenceである。
+
+旧policyのfixed scanline 1を使うbounded Node probeは1,024回の
+`GetRasterStatus -> SetWaitableTimer -> WaitForSingleObjectEx`を繰り返し、最初のsequence
+127,376–127,378から最後の130,445–130,447まで同じorderingを保ち、terminal memory digestも
+`fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a`のままだった。これはtimer
+semanticsのfailureではなく、scanline 1がcaller thresholdへ到達できないfeasibility evidenceである。
+
+Version 29 runtime policyはvirtual 1920x1080 displayのlast visible line 1079を`InVBlank=FALSE`で返す。
+Host／browser scanout、clock、caller、occurrence、title hashをimportせず、runtime graphics／COM stateも変更しない。
+Canonical Node／Chromeはsequence 127,376／instruction 28,761,389のeight-byte output
+`0000000037040000`、semantic digest
+`0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6`、memory digest
+`c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e`を一致させ、追加timer cycleなしで
+instruction 28,761,426の`IDirect3DDevice9::Present` slot 17／`0x01011140`へ到達する。Present execution、
+renderer resource、visible outputは次checkpointであり、このevidenceから実装済みとしない。

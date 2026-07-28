@@ -366,13 +366,15 @@ Plan／preflight／commitはstale、wrong device、generation exhaustion、unsup
 partial mutationせず、same-value reapplyはsuccess／zero generation deltaとする。Node／Chromeは四completion、
 call digest、logical values、browser-owned render-state tableとrendererが未生成であることを比較する。続くslot 19
 `GetRasterStatus`はtwo-word／HRESULT ABI、swap chain 0、exact eight-byte output
-`0000000001000000`、LastError／device refcount／logical state不変を固定する。NULL／invalid swap chainは
+`0000000037040000`、LastError／device refcount／logical state不変を固定する。NULL／invalid swap chainは
 `D3DERR_INVALIDCALL`、unwritable output、disabled policy、wrong／retired COM-to-graphics relation、
 display-authority mismatchはguest bytesと全authorityをpartial mutationしない。Native focused evidenceは
-非VBlank scanline 1200とVBlank／scanline 0の両variant、およびcallerがHRESULT、VBlank、scanlineを消費して
-outer loopが`Sleep(0)`でyieldすることを固定する。Hostの具体scanlineはartifact observationでありpolicyへ
-importしない。Node／Chromeはcall 17,866を同じ順序・outputで完了し、次の`QueryPerformanceFrequency` stopと
-memory digestを一致させる。
+非VBlank scanline 1200／189／834とVBlank／scanline 0、およびwrapperがnative lineをdisplay maxへclampし、
+caller RVA `0x5B730`がline wrapまたは`ceil(max / 2)`到達でreturnすることを固定する。旧fixed sample 1を使う
+1,024-cycle bounded probeは同じraster／timer-arm／timer-wait sequenceと不変memoryを再現するため、progress
+oracleを満たさない。Hostの具体scanlineはartifact observationとしてpolicyへimportせず、version 29はvirtual
+1920x1080 displayのlast visible line 1079をstatelessに返す。Node／Chromeはcall 17,866を同じ順序・outputで
+完了し、post-sceneではsequence 127,376からinstruction 28,761,426の`Present` slot 17へ進むことを一致させる。
 Reached slot 43 `Clear`はsix-word／HRESULT ABI、exact
 `(Count=0, pRects=NULL, D3DCLEAR_TARGET, ARGB=0xFF000000, Z=1.0f, Stencil=0)`だけを許可する。
 Rust owner testはpristineからuniform clearへのcontent generation、owner-local sequence、full presentation rect、
@@ -1444,6 +1446,15 @@ device 3／COM 21、device generation 58、active sceneなし、back-buffer gene
 renderer resource／visible pixelsなしを一致させる。Capability checkpointはinstruction 28,761,389で完了し、次のowned
 endpointを`IDirect3DDevice9::GetRasterStatus` slot 19／`0x01011160`として固定する。続く通常wait loopをunsupported stopとは
 扱わない。他scene variant、renderer translation、Present、pixel backing、browser upload／visible outputはacceptanceへ含めない。
+
+続くpost-scene raster gatewayはprotocol v43／browser report schema 11で検証する。Node／Chromeは
+`GetRasterStatus(0,0x006FF280)`をsequence 127,376／instruction 28,761,389で完了し、output
+`0000000037040000`、scanline 1079、COM refcount 5、zero graphics／reference mutation、LastError preserve、
+atomic eight-byte writeを一致させる。Capability completionはinstruction 28,761,426、semantic digest
+`0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6`、memory digest
+`c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e`を固定し、次のowned endpointを
+`IDirect3DDevice9::Present` slot 17／`0x01011140`として記録する。Host／browser scanout import、post-scene
+timer cycle、Present execution、renderer resource、visible pixelsはこのcheckpointのacceptanceへ含めない。
 
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。

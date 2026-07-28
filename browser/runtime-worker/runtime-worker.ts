@@ -295,7 +295,8 @@ function isD3d9PostEndSceneRasterStatus(
 ): boolean {
   return (
     profile === "d3d9-post-end-scene-raster-status" ||
-    isD3d9PostRasterStatusWaitableTimer(profile)
+    isD3d9PostRasterStatusWaitableTimer(profile) ||
+    isD3d9PostScenePresentGateway(profile)
   );
 }
 
@@ -303,6 +304,12 @@ function isD3d9PostRasterStatusWaitableTimer(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "d3d9-post-raster-status-waitable-timer";
+}
+
+function isD3d9PostScenePresentGateway(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-post-scene-present-gateway";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -3178,7 +3185,8 @@ class BrowserRuntimeSession {
         this.#requirePrepared().runtime.kernel32Policy ===
           (checkpoint.capability === "d3d9-end-scene" ||
           checkpoint.capability === "d3d9-post-end-scene-raster-status" ||
-          checkpoint.capability === "d3d9-post-raster-status-waitable-timer"
+          checkpoint.capability === "d3d9-post-raster-status-waitable-timer" ||
+          checkpoint.capability === "d3d9-post-scene-present-gateway"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3196,7 +3204,15 @@ class BrowserRuntimeSession {
             module: "<com>",
             symbol: { kind: "name" as const, name: "interface-1-slot-19" },
           }
-        : undefined);
+        : checkpoint.capability === "d3d9-post-scene-present-gateway" &&
+            endpointAddress === 0x0101_1140
+          ? {
+              id: 0,
+              address: endpointAddress,
+              module: "<com>",
+              symbol: { kind: "name" as const, name: "interface-1-slot-17" },
+            }
+          : undefined);
     invariant(
       endpoint !== undefined,
       "BGI capability checkpoint endpoint is not owned",
@@ -3235,6 +3251,8 @@ class BrowserRuntimeSession {
             ? "Post-EndScene raster-status checkpoint completed"
             : checkpoint.capability === "d3d9-post-raster-status-waitable-timer"
               ? "Post-scene waitable-timer pacing checkpoint completed"
+              : checkpoint.capability === "d3d9-post-scene-present-gateway"
+                ? "Post-scene raster gate to Present checkpoint completed"
               : checkpoint.capability ===
                   "kernel32-leave-critical-section-continuation"
                 ? "LeaveCriticalSection continuation checkpoint completed"
@@ -4642,7 +4660,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -4711,7 +4729,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -4768,7 +4786,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9AddDirtyRect = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       addDirtyRectProfileId:
         "primary-recreated-system-memory-texture-dirty-rect-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -4860,7 +4878,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9UpdateTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       updateTextureProfileId:
         "primary-recreated-system-memory-to-static-default-texture-update-v1",
       contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -4914,7 +4932,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9BeginScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       beginSceneProfileId: "primary-first-frame-scene-begin-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device",
       lifecycle: "inactive-to-active",
@@ -5027,7 +5045,7 @@ class BrowserRuntimeSession {
       this.#report.d3d9InitialSamplerStates = {
         calls: [first, second],
         postSamplerRenderStateRejections: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
         samplerStateProfileId: "primary-first-frame-linear-sampler-states-v1",
         stateAuthority: "rust-runtime-graphics-logical-device-sampler-states",
         mutation: "validate-plan-preflight-targeted-idempotent-commit",
@@ -5114,7 +5132,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9InitialTextureStageStates = {
         calls: [first, second, third, fourth, fifth, sixth],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
         textureStageStateProfileId:
           "primary-first-frame-fixed-function-texture-stage-zero-v1",
         stateAuthority:
@@ -5169,7 +5187,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       textureBindingProfileId:
         "primary-first-frame-static-default-texture-stage-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-texture-bindings",
@@ -5224,7 +5242,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetFvf = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       flexibleVertexFormatProfileId:
         "primary-first-frame-transformed-diffuse-textured-fvf-v1",
       stateAuthority:
@@ -5286,7 +5304,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetStreamSource = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       streamSourceProfileId:
         "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-stream-sources",
@@ -5369,7 +5387,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9DrawPrimitive = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1",
       stateAuthority:
         "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
@@ -5430,7 +5448,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9EndScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
       endSceneProfileId: "primary-first-frame-scene-end-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
       lifecycle: "active-to-inactive",
@@ -5491,7 +5509,8 @@ class BrowserRuntimeSession {
         write?.address === call.arguments[2] &&
         write.bytes.length === 8 &&
         write.bytes.every(
-          (byte, index) => byte === [0, 0, 0, 0, 1, 0, 0, 0][index],
+          (byte, index) =>
+            byte === [0, 0, 0, 0, 0x37, 0x04, 0, 0][index],
         ) &&
         call.graphicsDevice === undefined,
       "post-EndScene D3D9 GetRasterStatus ABI or deterministic sample changed",
@@ -5499,13 +5518,13 @@ class BrowserRuntimeSession {
     this.#report.d3d9PostEndSceneRasterStatus = {
       call: structuredClone(call),
       cumulativeCompletions: this.#d3d9RasterStatusCompletionCount,
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
-      rasterStatusProfileId: "primary-stable-nonblank-scanline-v1",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+      rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
       displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
       stateAuthority: "rust-d3d9-compatibility-policy",
       outputBytes: 8,
       inVBlank: false,
-      scanLine: 1,
+      scanLine: 1_079,
       runtimeStateMutation: false,
       referenceCountMutation: false,
       lastErrorPolicy: "preserve",
@@ -5515,6 +5534,21 @@ class BrowserRuntimeSession {
       browserRendererResourceCreated: false,
       visiblePixelsProduced: false,
     };
+    if (isD3d9PostScenePresentGateway(this.#configuration.capabilityProfile)) {
+      this.#report.checkpointCompletion = {
+        capability: "d3d9-post-scene-present-gateway",
+        implementationId: "d3d9.get-raster-status.last-visible-sample.v2",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
+      return;
+    }
     if (
       this.#configuration.capabilityProfile !==
       "d3d9-post-end-scene-raster-status"

@@ -228,6 +228,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-end-scene",
         "d3d9-post-end-scene-raster-status",
         "d3d9-post-raster-status-waitable-timer",
+        "d3d9-post-scene-present-gateway",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -376,6 +377,7 @@ assert(
       "d3d9-end-scene",
       "d3d9-post-end-scene-raster-status",
       "d3d9-post-raster-status-waitable-timer",
+      "d3d9-post-scene-present-gateway",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -401,7 +403,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-draw-primitive" ||
     genericRuntimeCapability === "d3d9-end-scene" ||
     genericRuntimeCapability === "d3d9-post-end-scene-raster-status" ||
-    genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer"
+    genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer" ||
+    genericRuntimeCapability === "d3d9-post-scene-present-gateway"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -704,10 +707,15 @@ const dragAcceptFilesEnabled =
   genericRuntimeCapability === "shell32-drag-accept-files";
 const d3d9PostRasterStatusWaitableTimerCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer";
+const d3d9PostScenePresentGatewayCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-post-scene-present-gateway";
+const d3d9PostRasterStatusWaitableTimerEnabled =
+  d3d9PostRasterStatusWaitableTimerCheckpointEnabled;
 const d3d9PostEndSceneRasterStatusCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-end-scene-raster-status";
 const d3d9PostEndSceneRasterStatusEnabled =
-  d3d9PostRasterStatusWaitableTimerCheckpointEnabled ||
+  d3d9PostScenePresentGatewayCheckpointEnabled ||
+  d3d9PostRasterStatusWaitableTimerEnabled ||
   d3d9PostEndSceneRasterStatusCheckpointEnabled;
 const d3d9EndSceneEnabled =
   d3d9PostEndSceneRasterStatusEnabled ||
@@ -1118,10 +1126,12 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-      ? "v86-bgi-d3d9-post-raster-status-waitable-timer"
-      : d3d9PostEndSceneRasterStatusCheckpointEnabled
-        ? "v86-bgi-d3d9-post-end-scene-raster-status"
+    ? d3d9PostScenePresentGatewayCheckpointEnabled
+      ? "v86-bgi-d3d9-post-scene-present-gateway"
+      : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+        ? "v86-bgi-d3d9-post-raster-status-waitable-timer"
+        : d3d9PostEndSceneRasterStatusCheckpointEnabled
+          ? "v86-bgi-d3d9-post-end-scene-raster-status"
         : d3d9EndSceneCheckpointEnabled
           ? "v86-bgi-d3d9-end-scene"
           : d3d9DrawPrimitiveCheckpointEnabled
@@ -5528,6 +5538,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9PostScenePresentGatewayCheckpointEnabled) {
+        validateD3d9PostScenePresentGatewayResult(genericResult);
       } else if (d3d9PostRasterStatusWaitableTimerCheckpointEnabled) {
         validateD3d9PostRasterStatusWaitableTimerResult(genericResult);
       } else if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
@@ -5811,8 +5823,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-            ? "bgi post-scene waitable-timer pacing cycle"
+          : d3d9PostScenePresentGatewayCheckpointEnabled
+            ? "bgi post-scene raster gate to Present"
+            : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+              ? "bgi post-scene waitable-timer pacing cycle"
             : d3d9PostEndSceneRasterStatusCheckpointEnabled
               ? "bgi post-EndScene IDirect3DDevice9::GetRasterStatus completion"
               : d3d9EndSceneCheckpointEnabled
@@ -6606,6 +6620,9 @@ async function runGenericRuntimeReentry({
                 : checkpointCompletion.capability ===
                     "d3d9-post-raster-status-waitable-timer"
                   ? "d3d9-post-raster-status-waitable-timer-checkpoint-complete"
+                  : checkpointCompletion.capability ===
+                      "d3d9-post-scene-present-gateway"
+                    ? "d3d9-post-scene-present-gateway-checkpoint-complete"
                   : checkpointCompletion.capability ===
                       "kernel32-leave-critical-section-continuation"
                     ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
@@ -7541,7 +7558,20 @@ async function runGenericRuntimeReentry({
       sequence === d3d9PostEndSceneSequence + 1
     ) {
       d3d9PostEndSceneRasterStatusSequence = sequence;
-      if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
+      if (d3d9PostScenePresentGatewayCheckpointEnabled) {
+        checkpointCompletion = {
+          capability: "d3d9-post-scene-present-gateway",
+          implementationId:
+            "d3d9.get-raster-status.last-visible-sample.v2",
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: continuation.instructionCount,
+          instructionCount: 0,
+          nextEndpoint: null,
+          memoryContentSha256: "",
+        };
+      } else if (d3d9PostEndSceneRasterStatusCheckpointEnabled) {
         checkpointCompletion = {
           capability: "d3d9-post-end-scene-raster-status",
           implementationId: "d3d9.get-raster-status.deterministic-sample.v1",
@@ -7556,7 +7586,7 @@ async function runGenericRuntimeReentry({
       }
     }
     if (
-      d3d9PostRasterStatusWaitableTimerCheckpointEnabled &&
+      d3d9PostRasterStatusWaitableTimerEnabled &&
       call.implementationId ===
         "kernel32.set-waitable-timer.relative-one-shot.v1" &&
       d3d9PostEndSceneRasterStatusSequence !== null &&
@@ -7574,7 +7604,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      d3d9PostRasterStatusWaitableTimerCheckpointEnabled &&
+      d3d9PostRasterStatusWaitableTimerEnabled &&
       call.implementationId ===
         "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
       d3d9PostRasterStatusTimerArm !== null &&
@@ -21728,12 +21758,7 @@ function validateD3d9PostEndSceneRasterStatusResult(
       call.vtableSlot === 19 &&
       call.symbol === "IDirect3DDevice9.GetRasterStatus",
   );
-  assert.equal(
-    calls.at(-1)?.sequence,
-    127_376,
-    "post-EndScene checkpoint did not complete the raster-status call immediately after EndScene",
-  );
-  const call = calls.at(-1);
+  const call = calls.find(({ sequence }) => sequence === 127_376);
   assert(call, "post-EndScene raster-status call is missing");
   assert.equal(call.occurrence, 785);
   assert.equal(call.trapInstructionCount, 28_761_389);
@@ -21747,7 +21772,7 @@ function validateD3d9PostEndSceneRasterStatusResult(
   assert.equal(call.objectRetired, false);
   assert.equal(call.guestWrites.length, 1);
   assert.equal(call.guestWrites[0].address, call.arguments[2]);
-  assert.deepEqual(call.guestWrites[0].bytes, [0, 0, 0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(call.guestWrites[0].bytes, [0, 0, 0, 0, 0x37, 0x04, 0, 0]);
   assert.equal(call.guestWrites[0].result.bytesWritten, 8);
   assert.equal(call.guestWrites[0].result.dirtyPages, 1);
   assert.equal(call.graphicsDevice, undefined);
@@ -21781,14 +21806,17 @@ function validateD3d9PostEndSceneRasterStatusResult(
   );
 }
 
-function validateD3d9PostRasterStatusWaitableTimerResult(result) {
+function validateD3d9PostRasterStatusWaitableTimerResult(
+  result,
+  validateCheckpoint = true,
+) {
   validateD3d9PostEndSceneRasterStatusResult(result, false);
   const armCalls = result.supportedCalls.filter(
     (call) =>
       call.implementationId ===
       "kernel32.set-waitable-timer.relative-one-shot.v1",
   );
-  const arm = armCalls.at(-1);
+  const arm = armCalls.find(({ sequence }) => sequence === 127_377);
   assert(arm, "post-scene pacing checkpoint omitted its timer arm");
   assert.equal(arm.sequence, 127_377);
   assert.equal(arm.occurrence, 9_188);
@@ -21814,7 +21842,7 @@ function validateD3d9PostRasterStatusWaitableTimerResult(result) {
       call.implementationId ===
       "kernel32.wait-for-single-object-ex.waitable-timer.v1",
   );
-  const wait = waitCalls.at(-1);
+  const wait = waitCalls.find(({ sequence }) => sequence === 127_378);
   assert(wait, "post-scene pacing checkpoint omitted its timer wait");
   assert.equal(wait.sequence, arm.sequence + 1);
   assert.equal(wait.occurrence, 9_187);
@@ -21835,7 +21863,9 @@ function validateD3d9PostRasterStatusWaitableTimerResult(result) {
   assert.equal(wait.waitableTimer?.timerClock?.generation, 9_187);
   assert.equal(wait.waitableTimer?.nextWaitRegistrationId, 9_188);
 
-  const pacing = result.timerPacing.at(-1);
+  const pacing = result.timerPacing.find(
+    ({ sequence }) => sequence === wait.sequence,
+  );
   assert(pacing, "post-scene pacing checkpoint omitted host-delay evidence");
   assert.equal(pacing.sequence, wait.sequence);
   assert.equal(pacing.delayMilliseconds, 1);
@@ -21847,6 +21877,9 @@ function validateD3d9PostRasterStatusWaitableTimerResult(result) {
   assert.equal(pacing.pacing, "deterministic-node-ack");
 
   assert.equal(result.fault, null);
+  if (!validateCheckpoint) {
+    return;
+  }
   const checkpoint = result.checkpointCompletion;
   assert(checkpoint, "post-scene pacing checkpoint is missing");
   assert.equal(checkpoint.capability, "d3d9-post-raster-status-waitable-timer");
@@ -21867,6 +21900,33 @@ function validateD3d9PostRasterStatusWaitableTimerResult(result) {
   assert(checkpoint.instructionCount > wait.trapInstructionCount);
   assert(checkpoint.nextEndpoint !== null);
   assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
+function validateD3d9PostScenePresentGatewayResult(result) {
+  validateD3d9PostEndSceneRasterStatusResult(result, false);
+  assert.equal(result.fault, null);
+  const checkpoint = result.checkpointCompletion;
+  assert(checkpoint, "post-scene Present gateway checkpoint is missing");
+  assert.equal(checkpoint.capability, "d3d9-post-scene-present-gateway");
+  assert.equal(
+    checkpoint.implementationId,
+    "d3d9.get-raster-status.last-visible-sample.v2",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 127_376);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 28_761_389);
+  assert.equal(checkpoint.instructionCount, 28_761_426);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1140,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-17" },
+  });
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e",
+  );
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -26300,6 +26360,15 @@ function buildGenericRuntimeReentryReport({
           "kernel32.set-waitable-timer.relative-one-shot.v1",
       )
     : [];
+  const d3d9PostScenePacingCycleCount =
+    d3d9PostRasterStatusWaitableTimerCheckpointEnabled ? 1 : 0;
+  if (d3d9PostRasterStatusWaitableTimerEnabled) {
+    assert(
+      Number.isSafeInteger(d3d9PostScenePacingCycleCount) &&
+        d3d9PostScenePacingCycleCount > 0,
+      "post-scene pacing report has no completed cycle count",
+    );
+  }
   const setWaitableTimerCall = setWaitableTimerCalls[0] ?? null;
   if (setWaitableTimerEnabled) {
     assert(
@@ -26312,8 +26381,8 @@ function buildGenericRuntimeReentryReport({
           assert.equal(
             setWaitableTimerCalls.length,
             d3d9RecreatedTexturesCheckpointEnabled
-              ? d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-                ? 9_188
+              ? d3d9PostRasterStatusWaitableTimerEnabled
+                ? 9_187 + d3d9PostScenePacingCycleCount
                 : 9_187
               : createDirectoryACheckpointEnabled
                 ? 6_974
@@ -26352,8 +26421,8 @@ function buildGenericRuntimeReentryReport({
           assert.equal(
             waitForSingleObjectExCalls.length,
             d3d9RecreatedTexturesCheckpointEnabled
-              ? d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-                ? 9_187
+              ? d3d9PostRasterStatusWaitableTimerEnabled
+                ? 9_186 + d3d9PostScenePacingCycleCount
                 : 9_186
               : createDirectoryACheckpointEnabled
                 ? 6_974
@@ -26387,14 +26456,13 @@ function buildGenericRuntimeReentryReport({
       assert.equal(pacing.delayMilliseconds, 1);
       assert.equal(pacing.registrationId, String(index + 1));
       const postScenePacing =
-        d3d9PostRasterStatusWaitableTimerCheckpointEnabled &&
-        index === genericResult.timerPacing.length - 1;
+        d3d9PostRasterStatusWaitableTimerEnabled && index >= 9_186;
       assert.equal(pacing.timerId, postScenePacing ? "1" : "2");
       assert.equal(pacing.targetTime100ns, String((index + 1) * 5_000));
       assert.equal(pacing.timerClockGeneration, String(index));
       assert.equal(
         pacing.armGeneration,
-        String(postScenePacing ? 1 : index + 1),
+        String(postScenePacing ? index - 9_185 : index + 1),
       );
       assert.equal(pacing.outcome, "object-signaled");
       assert.equal(pacing.pacing, "deterministic-node-ack");
@@ -26863,7 +26931,9 @@ function buildGenericRuntimeReentryReport({
   if (d3d9PostEndSceneRasterStatusEnabled) {
     assert.equal(
       d3d9PostEndSceneRasterStatusCalls.length,
-      784,
+      d3d9PostRasterStatusWaitableTimerEnabled
+        ? 783 + d3d9PostScenePacingCycleCount
+        : 784,
       "post-EndScene raster-status report summary has an unexpected cumulative completion count",
     );
     assert(
@@ -26944,8 +27014,10 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-          ? "vine.v86-bgi-d3d9-post-raster-status-waitable-timer"
+        : d3d9PostScenePresentGatewayCheckpointEnabled
+          ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
+          : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+            ? "vine.v86-bgi-d3d9-post-raster-status-waitable-timer"
           : d3d9PostEndSceneRasterStatusCheckpointEnabled
             ? "vine.v86-bgi-d3d9-post-end-scene-raster-status"
             : d3d9EndSceneCheckpointEnabled
@@ -27508,7 +27580,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -27524,7 +27596,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
             targetScope: "full-presentation-back-buffer",
@@ -27554,7 +27626,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9AddDirtyRect: {
             call: d3d9AddDirtyRectCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             addDirtyRectProfileId:
               "primary-recreated-system-memory-texture-dirty-rect-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -27571,7 +27643,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9UpdateTexture: {
             call: d3d9UpdateTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             updateTextureProfileId:
               "primary-recreated-system-memory-to-static-default-texture-update-v1",
             contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -27591,7 +27663,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9BeginScene: {
             call: d3d9BeginSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             beginSceneProfileId: "primary-first-frame-scene-begin-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device",
             lifecycle: "inactive-to-active",
@@ -27609,7 +27681,7 @@ function buildGenericRuntimeReentryReport({
             calls: d3d9InitialSamplerStateCalls,
             postSamplerRenderStateRejections:
               d3d9PostSamplerRenderStateRejections,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             samplerStateProfileId:
               "primary-first-frame-linear-sampler-states-v1",
             stateAuthority:
@@ -27626,7 +27698,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9InitialTextureStageStates: {
             calls: d3d9InitialTextureStageStateCalls,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             textureStageStateProfileId:
               "primary-first-frame-fixed-function-texture-stage-zero-v1",
             stateAuthority:
@@ -27643,7 +27715,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetTexture: {
             call: d3d9SetTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             textureBindingProfileId:
               "primary-first-frame-static-default-texture-stage-zero-v1",
             stateAuthority:
@@ -27662,7 +27734,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetFvf: {
             call: d3d9SetFvfCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             flexibleVertexFormatProfileId:
               "primary-first-frame-transformed-diffuse-textured-fvf-v1",
             stateAuthority:
@@ -27679,7 +27751,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetStreamSource: {
             call: d3d9SetStreamSourceCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             streamSourceProfileId:
               "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
             stateAuthority:
@@ -27701,7 +27773,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9DrawPrimitive: {
             call: d3d9DrawPrimitiveCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             drawPrimitiveProfileId:
               "primary-first-frame-triangle-strip-quad-draw-v1",
             stateAuthority:
@@ -27726,7 +27798,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9EndScene: {
             call: d3d9EndSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
             endSceneProfileId: "primary-first-frame-scene-end-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
             lifecycle: "active-to-inactive",
@@ -27744,13 +27816,13 @@ function buildGenericRuntimeReentryReport({
           d3d9PostEndSceneRasterStatus: {
             call: d3d9PostEndSceneRasterStatusCall,
             cumulativeCompletions: d3d9PostEndSceneRasterStatusCalls.length,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28",
-            rasterStatusProfileId: "primary-stable-nonblank-scanline-v1",
+            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v29",
+            rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
             displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
             stateAuthority: "rust-d3d9-compatibility-policy",
             outputBytes: 8,
             inVBlank: false,
-            scanLine: 1,
+            scanLine: 1_079,
             runtimeStateMutation: false,
             referenceCountMutation: false,
             lastErrorPolicy: "preserve",
