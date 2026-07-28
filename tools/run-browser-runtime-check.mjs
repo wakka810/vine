@@ -80,7 +80,11 @@ const d3d9PostRasterStatusWaitableTimerProfile =
   bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayProfile =
   bgiProfile === "d3d9-post-scene-present-gateway";
-const d3d9PresentProfile = bgiProfile === "d3d9-first-present";
+const d3d9PostPresentContinuationProfile =
+  bgiProfile === "d3d9-post-present-continuation";
+const d3d9PresentProfile =
+  bgiProfile === "d3d9-first-present" ||
+  d3d9PostPresentContinuationProfile;
 const d3d9PostEndSceneRasterStatusProfile =
   d3d9PresentProfile ||
   d3d9PostRasterStatusWaitableTimerProfile ||
@@ -135,7 +139,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v44";
+const runtimeProtocol = "vine.browser-runtime-worker.v45";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -786,6 +790,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-raster-status-waitable-timer",
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
+        "d3d9-post-present-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -828,6 +833,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-raster-status-waitable-timer",
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
+        "d3d9-post-present-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -870,8 +876,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-post-raster-status-waitable-timer",
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
+        "d3d9-post-present-continuation",
       ].includes(bgiProfile) && scenario === "success"
-        ? d3d9RecreatedTexturesProfile
+        ? d3d9PostPresentContinuationProfile
+          ? 2_014
+          : d3d9RecreatedTexturesProfile
           ? 2_010
           : createDirectoryAProfile
             ? 1_526
@@ -910,7 +919,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-leave-critical-section-continuation" ||
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section" ||
-        d3d9EndSceneProfile;
+        (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);
       assert.equal(
         evidence.report.outcome,
         capabilityCheckpoint ? "checkpoint-complete" : "structured-stop",
@@ -950,7 +959,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-create-directory-a" ||
         setWindowPosRepeatActivationProfile
       ) {
-        const pacingCount = d3d9RecreatedTexturesProfile
+        const pacingCount = d3d9PostPresentContinuationProfile
+          ? 9_205
+          : d3d9RecreatedTexturesProfile
           ? d3d9PostRasterStatusWaitableTimerProfile
             ? 9_187
             : 9_186
@@ -1082,6 +1093,17 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                     offset: 7_312,
                     requestedBytes: 1_530,
                     transferredBytes: 1_530,
+                    succeeded: true,
+                  },
+                ]
+              : []),
+            ...(d3d9PostPresentContinuationProfile
+              ? [
+                  {
+                    objectId: 2,
+                    offset: 9_729,
+                    requestedBytes: 3_001,
+                    transferredBytes: 3_001,
                     succeeded: true,
                   },
                 ]
@@ -1544,6 +1566,17 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             stackPointer: 0x006f_f674,
             arguments: [0x4801_0001, 0x000f, 0, 0],
           },
+          ...(d3d9PostPresentContinuationProfile
+            ? [
+                {
+                  action: "return",
+                  sequence: 127_352,
+                  frameId: 30,
+                  instructionCount: 28_761_544,
+                  result: 0,
+                },
+              ]
+            : []),
         ]);
         assert.deepEqual(
           {
@@ -1674,7 +1707,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(update.paintSessionRetired, true);
         assert.equal(update.deviceContextRetired, true);
         assert.equal(update.failureAtomicity, true);
-        assert.equal(update.callbackActiveAtStop, true);
+        assert.equal(
+          update.callbackActiveAtStop,
+          !d3d9PostPresentContinuationProfile,
+        );
         assert.equal(update.browserResourceCreated, false);
       } else {
         assert.equal(evidence.report.updateWindow, null);
@@ -2586,6 +2622,48 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(present.failureAtomicity, true);
       } else {
         assert.equal(evidence.report.d3d9Present, null);
+      }
+      if (d3d9PostPresentContinuationProfile) {
+        const continuation = evidence.report.postPresentContinuation;
+        assert(
+          continuation !== null,
+          "Chrome Worker omitted the post-Present continuation evidence",
+        );
+        assert.deepEqual(continuation.timeGetTimeCall, {
+          sequence: 127_378,
+          module: "winmm.dll",
+          symbol: "timeGetTime",
+          arguments: [],
+          result: { action: "set", value: 3_601_007 },
+          implementationId: "winmm.time-get-time.v1",
+          returnAddress: 0x1009_1ebf,
+          stackPointerBefore: 0x006f_f290,
+          stackPointerAfter: 0x006f_f294,
+          lastError: 0,
+          guestWrites: [],
+        });
+        assert.deepEqual(continuation.getForegroundWindowCall, {
+          sequence: 127_379,
+          module: "user32.dll",
+          symbol: "GetForegroundWindow",
+          arguments: [],
+          result: { action: "set", value: 0x4801_0001 },
+          implementationId: "user32.get-foreground-window.v1",
+          returnAddress: 0x1009_390e,
+          stackPointerBefore: 0x006f_f68c,
+          stackPointerAfter: 0x006f_f690,
+          lastError: 0,
+          guestWrites: [],
+        });
+        assert.equal(continuation.updateWindowCallbackReturned, true);
+        assert.equal(continuation.foregroundWindowQueryCompleted, true);
+        assert.equal(
+          continuation.stateAuthority,
+          "rust-runtime-user32-thread-and-process-window-relations",
+        );
+        assert.equal(continuation.browserResourceCreated, false);
+      } else {
+        assert.equal(evidence.report.postPresentContinuation, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -3522,8 +3600,13 @@ function normalizeUpdateWindow(snapshot) {
   return {
     callCount: snapshot.callCount,
     call: {
-      ...snapshot.call,
+      sequence: snapshot.call.sequence,
       module: snapshot.call.module.toLowerCase(),
+      symbol: snapshot.call.symbol,
+      occurrence: snapshot.call.occurrence,
+      trapInstructionCount: snapshot.call.trapInstructionCount,
+      arguments: snapshot.call.arguments,
+      pendingCallback: true,
     },
     callbackEvents: snapshot.callbackEvents,
     beginPaint: normalizePaintCall(snapshot.beginPaint),
@@ -3538,6 +3621,24 @@ function normalizeUpdateWindow(snapshot) {
     deviceContextRetired: snapshot.deviceContextRetired,
     failureAtomicity: snapshot.failureAtomicity,
     callbackActiveAtStop: snapshot.callbackActiveAtStop,
+    browserResourceCreated: snapshot.browserResourceCreated,
+  };
+}
+
+function normalizePostPresentContinuation(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  const normalizeCall = (call) => ({
+    ...normalizeSemanticCall(call),
+    implementationId: call.implementationId,
+  });
+  return {
+    timeGetTimeCall: normalizeCall(snapshot.timeGetTimeCall),
+    getForegroundWindowCall: normalizeCall(snapshot.getForegroundWindowCall),
+    updateWindowCallbackReturned: snapshot.updateWindowCallbackReturned,
+    foregroundWindowQueryCompleted: snapshot.foregroundWindowQueryCompleted,
+    stateAuthority: snapshot.stateAuthority,
     browserResourceCreated: snapshot.browserResourceCreated,
   };
 }
@@ -3947,6 +4048,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizeUpdateWindow(browser.report.updateWindow),
     normalizeUpdateWindow(oracle.updateWindow),
     "Chrome Worker UpdateWindow paint lifecycle differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizePostPresentContinuation(browser.report.postPresentContinuation),
+    normalizePostPresentContinuation(oracle.postPresentContinuation),
+    "Chrome Worker post-Present continuation differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),

@@ -54,6 +54,7 @@ pub const LOAD_CURSOR_A_IMPLEMENTATION: &str = "user32.load-cursor-a.v1";
 pub const REGISTER_CLASS_EX_A_IMPLEMENTATION: &str = "user32.register-class-ex-a.v1";
 pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v1";
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
+pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
 pub const GET_DC_IMPLEMENTATION: &str = "user32.get-dc.window-or-screen-acquisition.v2";
 pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1";
@@ -1127,6 +1128,12 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        GET_FOREGROUND_WINDOW_IMPLEMENTATION => {
+            match handle_get_foreground_window(contract, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         SET_RECT_IMPLEMENTATION => match handle_set_rect(contract, frame) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
@@ -1464,6 +1471,21 @@ fn handle_get_client_rect(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
         .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_get_foreground_window(
+    contract: &ApiContract,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = session
+        .runtime()
+        .foreground_window_handle()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .unwrap_or(0);
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+        value: handle,
+    }))
 }
 
 fn handle_set_rect(contract: &ApiContract, frame: &ApiCallFrame) -> Result<ApiImmediate, ApiFault> {
@@ -5878,6 +5900,7 @@ pub fn user32_contract_for_endpoint(
         "RegisterClassExA" => Ok(Some(register_class_ex_a_contract(endpoint)?)),
         "GetSystemMetrics" => Ok(Some(get_system_metrics_contract(endpoint)?)),
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
+        "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
         "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
         "MonitorFromWindow" => Ok(Some(monitor_from_window_contract(endpoint)?)),
         "GetMonitorInfoA" => Ok(Some(get_monitor_info_a_contract(endpoint)?)),
@@ -6223,6 +6246,28 @@ pub fn get_client_rect_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CLIENT_RECT_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_foreground_window_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: Vec::new(),
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_FOREGROUND_WINDOW_IMPLEMENTATION.to_owned(),
     })
 }
 

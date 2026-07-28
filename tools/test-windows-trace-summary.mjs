@@ -4410,6 +4410,278 @@ assert.throws(
   /requires exactly one oracle and structured completion/,
 );
 
+const getForegroundWindowConsumer = {
+  instructions: {
+    address: "0x49390e",
+    maximumInstructions: 12,
+    instructions: [
+      { address: "0x49390e", mnemonic: "xor", opStr: "ecx, ecx", size: 2 },
+      {
+        address: "0x493910",
+        mnemonic: "cmp",
+        opStr: "eax, dword ptr [0x551fd4]",
+        size: 6,
+      },
+      {
+        address: "0x493916",
+        mnemonic: "mov",
+        opStr: "eax, dword ptr [0x552004]",
+        size: 5,
+      },
+      { address: "0x49391b", mnemonic: "sete", opStr: "cl", size: 3 },
+      {
+        address: "0x49391e",
+        mnemonic: "mov",
+        opStr: "dword ptr [0x551ffc], ecx",
+        size: 6,
+      },
+      { address: "0x493924", mnemonic: "ret", opStr: "", size: 1 },
+    ],
+  },
+  frameCallerContinuations: {
+    maximumFrames: 6,
+    maximumInstructions: 20,
+    frames: [
+      {
+        depth: 0,
+        framePointer: "0x20001000",
+        caller: { address: "0x483530", module: "BGI.exe", rva: 0x83530 },
+        address: "0x483530",
+        maximumInstructions: 20,
+        instructions: [],
+      },
+    ],
+  },
+};
+const getForegroundWindowOracleCalls = [0, 87, 0x1234_5678].map(
+  (sentinel) => ({
+    sentinel,
+    systemResult: "0x52010001",
+    hookResult: "0x52010001",
+    hookLastErrorAfter: sentinel,
+    systemLastError: sentinel,
+    hookResultMatches: true,
+    hookPreservesLastError: true,
+    systemPreservesLastError: true,
+  }),
+);
+const getForegroundWindowEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-28T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "c".repeat(64),
+    frida: "17.15.4",
+    arguments: {
+      seconds: 180,
+      killAfter: true,
+      stopOnEvent: "get-foreground-window-complete",
+      vtables: [],
+      observations: ["get-foreground-window"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "USER32.dll",
+    path: "C:\\Windows\\System32\\USER32.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 321,
+    selectedVtables: [],
+    selectedObservations: ["get-foreground-window"],
+  },
+  {
+    schema,
+    sequence: 3,
+    threadId: 31,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: { address: "0x49390e", module: "BGI.exe", rva: 0x9390e },
+    module: "USER32.dll",
+    api: "GetForegroundWindow",
+    arguments: [],
+    lastErrorBefore: 0,
+    getForegroundWindow: {
+      immediateConsumer: getForegroundWindowConsumer,
+    },
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 31,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: { address: "0x49390e", module: "BGI.exe", rva: 0x9390e },
+    module: "USER32.dll",
+    api: "GetForegroundWindow",
+    result: "0x52010001",
+    durationMs: 0,
+    lastError: 0,
+    getForegroundWindow: { result: "0x52010001" },
+  },
+  ...getForegroundWindowOracleCalls.flatMap((call, index) => [
+    {
+      schema,
+      sequence: 5 + index * 2,
+      threadId: 41,
+      kind: "api-enter",
+      callId: 2 + index,
+      parentCallId: null,
+      caller: {
+        address: "0x70001000",
+        module: "frida-agent.dll",
+        rva: 0x1000,
+      },
+      module: "USER32.dll",
+      api: "GetForegroundWindow",
+      arguments: [],
+      lastErrorBefore: call.sentinel,
+      getForegroundWindow: { immediateConsumer: null },
+    },
+    {
+      schema,
+      sequence: 6 + index * 2,
+      threadId: 41,
+      kind: "api-leave",
+      callId: 2 + index,
+      parentCallId: null,
+      caller: {
+        address: "0x70001000",
+        module: "frida-agent.dll",
+        rva: 0x1000,
+      },
+      module: "USER32.dll",
+      api: "GetForegroundWindow",
+      result: "0x52010001",
+      durationMs: 0,
+      lastError: call.sentinel,
+      getForegroundWindow: { result: "0x52010001" },
+    },
+  ]),
+  {
+    schema,
+    sequence: 11,
+    threadId: 41,
+    kind: "get-foreground-window-oracle",
+    profile: "x86-get-foreground-window-stable-identity-v1",
+    calls: getForegroundWindowOracleCalls,
+    foregroundWindow: "0x52010001",
+    allResultsMatchHooks: true,
+    allResultsStable: true,
+    allResultsNonNull: true,
+    allPreserveLastError: true,
+  },
+  {
+    schema,
+    sequence: 12,
+    threadId: 41,
+    kind: "get-foreground-window-complete",
+    profile: "x86-bgi-get-foreground-window-v1",
+    oracleProfile: "x86-get-foreground-window-stable-identity-v1",
+    quiescenceMilliseconds: 250,
+    mainModuleCalls: [
+      {
+        callId: 1,
+        returnAddress: "0x49390e",
+        result: "0x52010001",
+        lastErrorBefore: 0,
+        lastError: 0,
+        immediateConsumer: getForegroundWindowConsumer,
+      },
+    ],
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-28T00:00:01.000Z",
+    reason: "event-get-foreground-window-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const getForegroundWindowSummary = summarizeTrace(
+  encode(getForegroundWindowEvents),
+  "get-foreground-window-fixture.jsonl",
+);
+assert.equal(getForegroundWindowSummary.user32.getForegroundWindow.length, 1);
+assert.equal(
+  getForegroundWindowSummary.user32.getForegroundWindow[0].mainModuleCall
+    .caller.rva,
+  0x9390e,
+);
+assert.equal(
+  getForegroundWindowSummary.user32.getForegroundWindow[0].mainModuleCall
+    .resultMatchesOracleForegroundWindow,
+  true,
+);
+assert.deepEqual(
+  getForegroundWindowSummary.user32.getForegroundWindow[0].mainModuleCall
+    .consumer,
+  {
+    profile: "compare-foreground-to-main-window-store-flag-v1",
+    mainWindowHandleRva: "0x00151fd4",
+    continuationValueRva: "0x00152004",
+    equalityFlagRva: "0x00151ffc",
+  },
+);
+
+const invalidGetForegroundWindowConsumer = structuredClone(
+  getForegroundWindowEvents,
+);
+for (const event of invalidGetForegroundWindowConsumer) {
+  const consumer =
+    event.kind === "api-enter"
+      ? event.getForegroundWindow?.immediateConsumer
+      : event.kind === "get-foreground-window-complete"
+        ? event.mainModuleCalls[0].immediateConsumer
+        : null;
+  if (consumer !== null && consumer !== undefined) {
+    consumer.instructions.instructions[1].opStr =
+      "eax, dword ptr [0x551fd8]";
+  }
+}
+assert.throws(
+  () => summarizeTrace(encode(invalidGetForegroundWindowConsumer)),
+  /observed foreground identity comparison/,
+);
+
+const invalidGetForegroundWindowOracle = structuredClone(
+  getForegroundWindowEvents,
+);
+invalidGetForegroundWindowOracle.find(
+  (event) => event.kind === "get-foreground-window-oracle",
+).calls[1].systemLastError = 0;
+assert.throws(
+  () => summarizeTrace(encode(invalidGetForegroundWindowOracle)),
+  /oracle call 1 violates its identity or LastError contract/,
+);
+
+const missingGetForegroundWindowCompletion = getForegroundWindowEvents.filter(
+  (event) => event.kind !== "get-foreground-window-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingGetForegroundWindowCompletion)),
+  /requires exactly one oracle and structured completion/,
+);
+
 const largeIntegerSnapshot = (pointer, value) => {
   const bytes = Buffer.alloc(8);
   bytes.writeBigUInt64LE(BigInt(value));

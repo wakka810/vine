@@ -79,8 +79,9 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-first-present`, uses protocol
-`vine.browser-runtime-worker.v44`, and emits browser BGI report schema version 12.
+The post-Present continuation profile is `d3d9-post-present-continuation`, uses
+protocol `vine.browser-runtime-worker.v45`, and emits browser BGI report schema
+version 13.
 It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
@@ -287,6 +288,21 @@ The browser resource table, WebGL objects, and canvas are TypeScript authority;
 the device, COM identity, back-buffer, frame sequence, and discard lifecycle
 remain Rust authority. The black frame proves browser publication, not readable
 title rendering or a general swap-chain／device-loss implementation.
+
+Protocol version 45 resumes the guest after that synchronous publication. The
+pending `WM_PAINT` callback calls the already-implemented zero-argument
+`timeGetTime`, returns frame 30 with result zero, and leaves no active callback.
+The next `GetForegroundWindow` reads the existing Rust-owned foreground relation,
+returns logical HWND `0x48010001`, preserves LastError, writes no guest bytes, and
+does not create or consult a browser window resource. Node and Chrome agree on
+the ordered continuation at sequences 127,378 and 127,379, semantic digest
+`ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617`,
+and terminal memory digest
+`6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321`.
+The profile then stops before `GetAsyncKeyState(VK_CONTROL)` at instruction
+29,325,480. No keyboard state has been consumed yet; browser event ownership,
+Rust input transition semantics, focus gating, and the high-bit／low-bit return
+contract belong to the following input gateway.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

@@ -318,7 +318,16 @@ function isD3d9PostScenePresentGateway(
 function isD3d9Present(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "d3d9-first-present";
+  return (
+    profile === "d3d9-first-present" ||
+    profile === "d3d9-post-present-continuation"
+  );
+}
+
+function isD3d9PostPresentContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-post-present-continuation";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -877,8 +886,12 @@ class BrowserRuntimeSession {
   readonly #setWindowPosFrameChangeMoveNestedMoveEvents: RuntimeSetWindowPosFrameChangeMoveCallbackEvent[] =
     [];
   #updateWindowEntry: RuntimeUpdateWindowEntrySnapshot | null = null;
-  #updateWindowCallbackEvent: RuntimeUpdateWindowCallbackEvent | null = null;
+  #updateWindowCallbackEvent: Extract<
+    RuntimeUpdateWindowCallbackEvent,
+    { action: "enter" }
+  > | null = null;
   #beginPaintCall: RuntimeBeginPaintCallSnapshot | null = null;
+  #postPresentTimeGetTimeCall: RuntimeSupportedCallSnapshot | null = null;
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #d3d9PostRasterStatusTimerArm: {
@@ -983,6 +996,8 @@ class BrowserRuntimeSession {
       null as SessionReport["setWindowPosFrameChangeMove"],
     showWindowNormal: null as SessionReport["showWindowNormal"],
     updateWindow: null as SessionReport["updateWindow"],
+    postPresentContinuation:
+      null as SessionReport["postPresentContinuation"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -1018,7 +1033,7 @@ class BrowserRuntimeSession {
     invariant(
       !isD3d9Present(configuration.capabilityProfile) ||
         d3d9Canvas !== undefined,
-      "first Present profile requires a transferred OffscreenCanvas",
+      "D3D9 Present profile requires a transferred OffscreenCanvas",
     );
     this.#d3d9Renderer =
       d3d9Canvas === undefined ? null : new D3d9WebGl2Renderer(d3d9Canvas);
@@ -4348,6 +4363,7 @@ class BrowserRuntimeSession {
         this.#report.getFileAttributesA.lastCall = attributeCall;
       }
     }
+    this.#recordPostPresentContinuationCall(call);
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4451,12 +4467,14 @@ class BrowserRuntimeSession {
     }
     if (
       completion.implementationId ===
-        "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
-      this.#configuration.capabilityProfile ===
-        "kernel32-wait-for-single-object-ex"
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1"
     ) {
       this.#waitForSingleObjectExCompletions += 1;
-      if (this.#waitForSingleObjectExCompletions === 3) {
+      if (
+        this.#configuration.capabilityProfile ===
+          "kernel32-wait-for-single-object-ex" &&
+        this.#waitForSingleObjectExCompletions === 3
+      ) {
         this.#report.checkpointCompletion = {
           capability: "kernel32-wait-for-single-object-ex",
           implementationId:
@@ -5718,18 +5736,98 @@ class BrowserRuntimeSession {
       asynchronousDeviceLossRecoveryImplemented: false,
       failureAtomicity: true,
     };
-    this.#report.checkpointCompletion = {
-      capability: "d3d9-first-present",
-      implementationId: "d3d9.present.discard-snapshot.v1",
-      requiredCompletions: 1,
-      completionCount: 1,
-      lastCompletionSequence: call.sequence,
-      lastCompletionInstructionCount: this.#report.instructions,
-      instructionCount: 0,
-      nextEndpoint: { id: 0, address: 0 },
-      memoryContentSha256: "",
+    if (this.#configuration.capabilityProfile === "d3d9-first-present") {
+      this.#report.checkpointCompletion = {
+        capability: "d3d9-first-present",
+        implementationId: "d3d9.present.discard-snapshot.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordPostPresentContinuationCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (!isD3d9PostPresentContinuation(this.#configuration.capabilityProfile)) {
+      return;
+    }
+    if (call.sequence === 127_378) {
+      const update = this.#report.updateWindow;
+      invariant(
+          this.#postPresentTimeGetTimeCall === null &&
+          this.#report.postPresentContinuation === null &&
+          update !== null &&
+          update.callbackActiveAtStop === true &&
+          update.callbackEvents.length === 1 &&
+          update.callbackEvents[0]?.action === "enter" &&
+          call.module.toLowerCase() === "winmm.dll" &&
+          call.symbol === "timeGetTime" &&
+          this.#report.instructions === 28_761_433 &&
+          call.arguments.length === 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 3_601_007 &&
+          call.implementationId === "winmm.time-get-time.v1" &&
+          call.returnAddress === 0x1009_1ebf &&
+          call.stackPointerBefore === 0x006f_f290 &&
+          call.stackPointerAfter === 0x006f_f294 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0,
+        `post-Present timeGetTime continuation changed: ${JSON.stringify({
+          instructions: this.#report.instructions,
+          call,
+          callbackActiveAtStop: update?.callbackActiveAtStop,
+          callbackEvents: update?.callbackEvents,
+        })}`,
+      );
+      this.#postPresentTimeGetTimeCall = structuredClone(call);
+      return;
+    }
+    if (call.sequence !== 127_379) {
+      return;
+    }
+    const timeGetTimeCall = this.#postPresentTimeGetTimeCall;
+    const update = this.#report.updateWindow;
+    invariant(
+      timeGetTimeCall !== null &&
+        this.#report.postPresentContinuation === null &&
+        update !== null &&
+        update.callbackActiveAtStop === false &&
+        update.callbackEvents.length === 2 &&
+        update.callbackEvents[1]?.action === "return" &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "GetForegroundWindow" &&
+        this.#report.instructions === 28_761_549 &&
+        call.arguments.length === 0 &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 0x4801_0001 &&
+        call.implementationId === "user32.get-foreground-window.v1" &&
+        call.returnAddress === 0x1009_390e &&
+        call.stackPointerBefore === 0x006f_f68c &&
+        call.stackPointerAfter === 0x006f_f690 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0,
+      `GetForegroundWindow ABI or Rust foreground relation changed: ${JSON.stringify(
+        { instructions: this.#report.instructions, call },
+      )}`,
+    );
+    this.#report.postPresentContinuation = {
+      timeGetTimeCall,
+      getForegroundWindowCall: structuredClone(call),
+      updateWindowCallbackReturned: true,
+      foregroundWindowQueryCompleted: true,
+      stateAuthority:
+        "rust-runtime-user32-thread-and-process-window-relations",
+      browserResourceCreated: false,
     };
-    this.#bgiCheckpointPending = true;
   }
 
   #recordSetRectCall(call: RuntimeSupportedCallSnapshot): void {
@@ -6118,6 +6216,34 @@ class BrowserRuntimeSession {
         sequence !== undefined,
         "BGI callback completion has no reserved call sequence",
       );
+      if (
+        isD3d9PostPresentContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+        sequence === 127_352
+      ) {
+        const update = this.#report.updateWindow;
+        invariant(
+          update !== null &&
+            update.callbackActiveAtStop === true &&
+            update.callbackEvents.length === 1 &&
+            update.callbackEvents[0]?.action === "enter" &&
+            update.callbackEvents[0].frameId === metadata.frameId &&
+            metadata.frameId === 30 &&
+            metadata.remainingDepth === 0 &&
+            this.#report.instructions === 28_761_544 &&
+            result === 0,
+          "UpdateWindow callback return identity or ordering changed",
+        );
+        update.callbackEvents.push({
+          action: "return",
+          sequence,
+          frameId: metadata.frameId,
+          instructionCount: this.#report.instructions,
+          result,
+        });
+        update.callbackActiveAtStop = false;
+      }
       this.#recordSetWindowPosFrameChangeCallbackReturn(
         sequence,
         metadata.frameId,
@@ -7329,6 +7455,8 @@ class BrowserRuntimeSession {
       requestId: this.#pendingHostRequests.first()?.requestId ?? null,
     });
     const execution = this.#execution.snapshot();
+    let completedTerminal = terminal;
+    try {
     invariant(
       this.#report.supportedCallCount === this.#semanticCallDigest.count(),
       "BGI semantic call digest count diverged from completed sequence identity",
@@ -7473,7 +7601,7 @@ class BrowserRuntimeSession {
         update !== null &&
           update.call.sequence === 127_352 &&
           update.call.pendingCallback === true &&
-          update.callbackEvents[0].frameId === 30 &&
+          update.callbackEvents[0]?.frameId === 30 &&
           update.beginPaint.sequence === 127_353 &&
           update.beginPaint.paint.livePaintSessions === 1 &&
           update.beginPaint.paint.liveDeviceContexts === 1 &&
@@ -7481,7 +7609,11 @@ class BrowserRuntimeSession {
           update.endPaint.paint.livePaintSessions === 0 &&
           update.endPaint.paint.liveDeviceContexts === 0 &&
           firstUnsupported?.capabilityCluster ===
-            (isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+            (isD3d9PostPresentContinuation(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-api-contract"
+              : isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
               ? "d3d9-idirect3ddevice9-method"
               : isSetRect(this.#configuration.capabilityProfile)
                 ? "d3d9-idirect3dtexture9-method"
@@ -7646,6 +7778,76 @@ class BrowserRuntimeSession {
         "UpdateWindow report omitted its pending callback or paint-session lifecycle",
       );
     }
+    if (
+      isD3d9PostPresentContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      terminal.outcome === "structured-stop"
+    ) {
+      const continuation = this.#report.postPresentContinuation;
+      const update = this.#report.updateWindow;
+      const stop = this.#report.firstUnsupported;
+      const fault = stop?.fault as
+        | { class?: string; stage?: string; code?: string }
+        | undefined;
+      const pacing = this.#timerPacing.metrics();
+      invariant(
+        this.#report.supportedCallCount === 127_690 &&
+          this.#report.supportedCallSemanticsSha256 ===
+            "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617" &&
+          continuation !== null &&
+          continuation.timeGetTimeCall.sequence === 127_378 &&
+          continuation.getForegroundWindowCall.sequence === 127_379 &&
+          update !== null &&
+          update.callbackActiveAtStop === false &&
+          update.callbackEvents.length === 2 &&
+          update.callbackEvents[1]?.action === "return" &&
+          update.callbackEvents[1].instructionCount === 28_761_544 &&
+          this.#waitForSingleObjectExCompletions === 9_205 &&
+          pacing.requests === 9_205 &&
+          pacing.completions === 9_205 &&
+          pacing.pending === 0 &&
+          stop !== null &&
+          stop.instructionCount === 29_325_480 &&
+          stop.memoryContentSha256 ===
+            "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321" &&
+          stop.capabilityCluster === "user32-api-contract" &&
+          stop.endpoint !== null &&
+          typeof stop.endpoint === "object" &&
+          "id" in stop.endpoint &&
+          stop.endpoint.id === 231 &&
+          "address" in stop.endpoint &&
+          stop.endpoint.address === 0x7f00_0e60 &&
+          "module" in stop.endpoint &&
+          typeof stop.endpoint.module === "string" &&
+          stop.endpoint.module.toLowerCase() === "user32.dll" &&
+          "symbol" in stop.endpoint &&
+          typeof stop.endpoint.symbol === "object" &&
+          stop.endpoint.symbol !== null &&
+          "kind" in stop.endpoint.symbol &&
+          stop.endpoint.symbol.kind === "name" &&
+          "name" in stop.endpoint.symbol &&
+          stop.endpoint.symbol.name === "GetAsyncKeyState" &&
+          fault?.class === "unsupported" &&
+          fault.stage === "api-dispatch" &&
+          fault.code === "endpoint-contract-missing",
+        `post-Present continuation report or GetAsyncKeyState stop changed: ${JSON.stringify(
+          {
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            continuation,
+            callbackActiveAtStop: update?.callbackActiveAtStop,
+            callbackEvents: update?.callbackEvents,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+            stop,
+            fault,
+          },
+        )}`,
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -7660,6 +7862,15 @@ class BrowserRuntimeSession {
         "summary BGI evidence retained detailed call payloads",
       );
     }
+    } catch (error) {
+      completedTerminal = {
+        outcome: "fault",
+        exitCode: null,
+        pendingHostCalls: this.#pendingHostRequests.size(),
+        pendingCallbacks: 0,
+        error: `runtime report validation failed: ${String(error)}`,
+      };
+    }
     this.#terminal = true;
     for (const resolve of this.#runnableResolvers.splice(0)) {
       resolve();
@@ -7670,7 +7881,7 @@ class BrowserRuntimeSession {
       sessionId: this.#sessionId,
       report: {
         evidenceLevel: this.#configuration.evidenceLevel,
-        ...terminal,
+        ...completedTerminal,
         elapsedMilliseconds: performance.now() - this.#startedAt,
         ...this.#report,
         timerPacing: this.#timerPacing.metrics(),
@@ -7813,6 +8024,7 @@ worker.addEventListener(
               setWindowPosFrameChangeMove: null,
               showWindowNormal: null,
               updateWindow: null,
+              postPresentContinuation: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,

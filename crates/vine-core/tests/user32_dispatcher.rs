@@ -26,13 +26,13 @@ use vine_core::{
     dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy,
     enable_menu_item_contract, end_paint_contract, enum_display_monitors_contract,
     fill_rect_contract, gdi32_contract_for_endpoint, get_client_rect_contract, get_dc_contract,
-    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
-    get_system_metrics_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    monitor_from_window_contract, register_class_ex_a_contract, release_dc_contract,
-    send_message_a_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
-    set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
-    update_window_contract, user32_contract_for_endpoint,
+    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
+    get_system_menu_contract, get_system_metrics_contract, imm_associate_context_contract,
+    imm_get_default_ime_wnd_contract, load_cursor_a_contract, load_icon_a_contract,
+    load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
+    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
+    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
+    swap_mouse_button_contract, update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -116,6 +116,10 @@ const END_PAINT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2260;
 const BEGIN_PAINT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_28d9);
 const END_PAINT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_28e5);
 const PAINT_STRUCT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2f00);
+const GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0af0);
+const GET_FOREGROUND_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 100);
+const GET_FOREGROUND_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2280;
+const GET_FOREGROUND_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_390e);
 const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
 const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
@@ -1174,6 +1178,7 @@ struct RegisterClassFixture {
     update_window_endpoint: ApiEndpointIdentity,
     begin_paint_endpoint: ApiEndpointIdentity,
     end_paint_endpoint: ApiEndpointIdentity,
+    get_foreground_window_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
@@ -1274,6 +1279,10 @@ impl RegisterClassFixture {
             (UPDATE_WINDOW_IAT_ADDRESS, UPDATE_WINDOW_ENDPOINT_ADDRESS),
             (BEGIN_PAINT_IAT_ADDRESS, BEGIN_PAINT_ENDPOINT_ADDRESS),
             (END_PAINT_IAT_ADDRESS, END_PAINT_ENDPOINT_ADDRESS),
+            (
+                GET_FOREGROUND_WINDOW_IAT_ADDRESS,
+                GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
+            ),
             (
                 GET_CLIENT_RECT_IAT_ADDRESS,
                 GET_CLIENT_RECT_ENDPOINT_ADDRESS,
@@ -1736,6 +1745,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_foreground_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(176),
+            address: GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1398),
+            iat_address: GET_FOREGROUND_WINDOW_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetForegroundWindow".to_owned(),
+                hint: 301,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_client_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(199),
             address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
@@ -1917,6 +1941,7 @@ impl RegisterClassFixture {
                 update_window_endpoint.clone(),
                 begin_paint_endpoint.clone(),
                 end_paint_endpoint.clone(),
+                get_foreground_window_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
@@ -1951,6 +1976,8 @@ impl RegisterClassFixture {
                     .expect("window paint contract"),
                 begin_paint_contract(begin_paint_endpoint.clone()).expect("BeginPaint contract"),
                 end_paint_contract(end_paint_endpoint.clone()).expect("EndPaint contract"),
+                get_foreground_window_contract(get_foreground_window_endpoint.clone())
+                    .expect("GetForegroundWindow contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
                     .expect("client rectangle contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -1997,6 +2024,7 @@ impl RegisterClassFixture {
             update_window_endpoint,
             begin_paint_endpoint,
             end_paint_endpoint,
+            get_foreground_window_endpoint,
             get_client_rect_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
@@ -2420,6 +2448,19 @@ impl RegisterClassFixture {
             self.end_paint_endpoint.clone(),
             GuestAddress(END_PAINT_STACK_POINTER),
             END_PAINT_RETURN_ADDRESS,
+        )
+    }
+
+    fn dispatch_get_foreground_window(&mut self) -> DispatchOutcome {
+        self.write_live_words(
+            GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER),
+            &[GET_FOREGROUND_WINDOW_RETURN_ADDRESS.0],
+        );
+        self.acknowledge_pending_delta();
+        self.dispatch_endpoint(
+            self.get_foreground_window_endpoint.clone(),
+            GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER),
+            GET_FOREGROUND_WINDOW_RETURN_ADDRESS,
         )
     }
 
@@ -3317,6 +3358,40 @@ fn get_system_metrics_contract_is_one_index_stdcall_and_preserves_last_error() {
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert_eq!(contract.abi.arguments.len(), 1);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn get_foreground_window_contract_is_zero_argument_stdcall_and_preserves_last_error() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(176),
+        address: GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1398),
+        iat_address: GET_FOREGROUND_WINDOW_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetForegroundWindow".to_owned(),
+            hint: 301,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_foreground_window_contract(endpoint).expect("GetForegroundWindow contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert!(contract.abi.arguments.is_empty());
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: "vine.logical-window.v1".to_owned(),
+            nullable: true,
+        }
+    );
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
@@ -6557,6 +6632,45 @@ fn set_window_pos_commits_show_and_hide_after_ordered_nested_callbacks() {
             .callback_frames
             .is_empty()
     );
+}
+
+#[test]
+fn get_foreground_window_reads_process_relation_without_mutation() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture
+        .runtime
+        .set_current_last_error(0x1357_2468)
+        .expect("seed empty foreground LastError");
+    let empty_runtime = fixture.runtime.clone();
+    let empty = match fixture.dispatch_get_foreground_window() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected empty foreground completion, got {other:?}"),
+    };
+    assert_eq!(empty.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        empty.stack_pointer,
+        GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER + 4)
+    );
+    assert_eq!(fixture.runtime, empty_runtime);
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1357_2468);
+
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .expect("seed active foreground LastError");
+    let active_runtime = fixture.runtime.clone();
+    let active = match fixture.dispatch_get_foreground_window() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected active foreground completion, got {other:?}"),
+    };
+    assert_eq!(active.eax, RegisterUpdate::Set(window_handle));
+    assert_eq!(
+        active.stack_pointer,
+        GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER + 4)
+    );
+    assert_eq!(fixture.runtime, active_runtime);
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x2468_1357);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 44 as const;
+export const protocolVersion = 45 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -38,7 +38,8 @@ export type BgiCapabilityProfile =
   | "d3d9-post-end-scene-raster-status"
   | "d3d9-post-raster-status-waitable-timer"
   | "d3d9-post-scene-present-gateway"
-  | "d3d9-first-present";
+  | "d3d9-first-present"
+  | "d3d9-post-present-continuation";
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -355,7 +356,7 @@ export interface RuntimeUpdateWindowEntrySnapshot {
   pendingCallback: true;
 }
 
-export interface RuntimeUpdateWindowCallbackEvent {
+export interface RuntimeUpdateWindowCallbackEntryEvent {
   action: "enter";
   sequence: number;
   frameId: number;
@@ -364,6 +365,18 @@ export interface RuntimeUpdateWindowCallbackEvent {
   stackPointer: number;
   arguments: [number, 0x000f, 0, 0];
 }
+
+export interface RuntimeUpdateWindowCallbackReturnEvent {
+  action: "return";
+  sequence: number;
+  frameId: number;
+  instructionCount: number;
+  result: number;
+}
+
+export type RuntimeUpdateWindowCallbackEvent =
+  | RuntimeUpdateWindowCallbackEntryEvent
+  | RuntimeUpdateWindowCallbackReturnEvent;
 
 export interface RuntimePaintSessionSnapshot {
   windowId: number;
@@ -987,7 +1000,7 @@ export interface SessionReport {
   updateWindow: {
     callCount: 1;
     call: RuntimeUpdateWindowEntrySnapshot;
-    callbackEvents: [RuntimeUpdateWindowCallbackEvent];
+    callbackEvents: RuntimeUpdateWindowCallbackEvent[];
     beginPaint: RuntimeBeginPaintCallSnapshot;
     endPaint: RuntimeEndPaintCallSnapshot;
     windowAuthority: "rust-runtime-user32-logical-window";
@@ -999,7 +1012,15 @@ export interface SessionReport {
     paintSessionRetired: true;
     deviceContextRetired: true;
     failureAtomicity: true;
-    callbackActiveAtStop: true;
+    callbackActiveAtStop: boolean;
+    browserResourceCreated: false;
+  } | null;
+  postPresentContinuation: {
+    timeGetTimeCall: RuntimeSupportedCallSnapshot;
+    getForegroundWindowCall: RuntimeSupportedCallSnapshot;
+    updateWindowCallbackReturned: true;
+    foregroundWindowQueryCompleted: true;
+    stateAuthority: "rust-runtime-user32-thread-and-process-window-relations";
     browserResourceCreated: false;
   } | null;
   d3d9RecreatedTextures: {

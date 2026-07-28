@@ -1474,6 +1474,23 @@ semantic digestは`792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3
 28,761,433、次endpointは`WINMM.dll!timeGetTime` ID 8／`0x7F000070`である。Readable title content、partial／redirected／
 dirty-region Present、second frame、resize、context／device lossとrecoveryはacceptanceへ含めない。
 
+<!-- BEGIN FROZEN HISTORICAL EVIDENCE -->
+続くpost-Present continuationはprotocol v45／browser report schema 13で一つのcohesive acceptanceにする。
+Node／Chromeは`Present`後の`timeGetTime`をsequence 127,378／instruction 28,761,433で完了し、shared
+process tick 3,601,007、次tick 3,601,008、LastError preserve、zero guest writesを一致させる。同じ
+`WM_PAINT` frame 30がinstruction 28,761,544でresult 0を返した後、`GetForegroundWindow`をsequence
+127,379／instruction 28,761,549で完了し、Rust-owned foreground relationのlogical HWND
+`0x48010001`、zero-argument stdcall cleanup、LastError preserve、zero mutationを一致させる。NULL foreground
+relationもRust dispatcher testで0を返し、logical window／LastError／guest memoryを変更しないことを固定する。
+TypeScriptはWindows foreground identityを所有せず、browser resourceを作成しない。
+
+Canonical stopは127,690 supported calls／29,325,480 instructions、semantic digest
+`ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617`、memory digest
+`6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321`で、次endpointは
+`USER32.dll!GetAsyncKeyState(0x11)` ID 231／`0x7F000E60`である。このcheckpointはinputを未消費とし、
+keyboard event transport、focus／foreground gating、pressed-since-last-query bit、repeat、multi-key stateをclaimしない。
+<!-- END FROZEN HISTORICAL EVIDENCE -->
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

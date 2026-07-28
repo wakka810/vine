@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-first-present`: 127376 calls across 122 endpoint contracts / 120 APIs, memory generation 235528 |
+| Runtime diagnostics | `d3d9-post-present-continuation`: 127690 calls across 123 endpoint contracts / 121 APIs, memory generation 235982 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `d3d9-first-present` completed 1 first frame presentations by instruction 28761426; verification stopped at `WINMM.dll!timeGetTime` on instruction 28761433 (`d3d9-first-present-checkpoint-complete`) |
+| Next structured stop | `USER32.dll!GetAsyncKeyState(0x00000011)` at instruction 29325480: `endpoint-contract-missing` |
 
-The active semantic report is 569,369 bytes with SHA-256
-`289ed9c6cfbd491a7560154dcde1b08b3232e8d3613ad7d6bf13b3eebbf227e5`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 574,651 bytes with SHA-256
+`07c9881d39f1aa5e77518fcc1d2071c188953dad79bdbf64b456d4a761f642f6`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -139,6 +139,7 @@ The active semantic report is 569,369 bytes with SHA-256
 - `USER32.dll!MonitorFromWindow`
 - `USER32.dll!GetMonitorInfoA`
 - `WINMM.dll!timeGetTime`
+- `USER32.dll!GetForegroundWindow`
 - `DINPUT8.dll!DirectInput8Create`
 - `DSOUND.dll!#11`
 - `USER32.dll!SetTimer`

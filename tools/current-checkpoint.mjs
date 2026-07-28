@@ -173,7 +173,11 @@ export function validateCurrentCheckpoint(manifest) {
   const d3d9PostRasterStatusWaitableTimerActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-raster-status-waitable-timer";
+  const d3d9PostPresentContinuationActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "d3d9-post-present-continuation";
   const d3d9FirstPresentActive =
+    d3d9PostPresentContinuationActive ||
     root.activeRuntimeCheckpoint?.profile === "d3d9-first-present";
   const d3d9PostScenePresentGatewayActive =
     d3d9FirstPresentActive ||
@@ -304,7 +308,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = d3d9PostRasterStatusWaitableTimerActive
+  const timerCycleCount = d3d9PostPresentContinuationActive
+    ? 9_205
+    : d3d9PostRasterStatusWaitableTimerActive
     ? 9_187
     : d3d9RecreatedTexturesActive
       ? 9_186
@@ -321,12 +327,16 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? 7
                   : 3;
-  const timerArmCount = d3d9PostRasterStatusWaitableTimerActive
+  const timerArmCount = d3d9PostPresentContinuationActive
+    ? 9_205
+    : d3d9PostRasterStatusWaitableTimerActive
     ? 9_188
     : d3d9RecreatedTexturesActive
       ? 9_187
       : timerCycleCount;
-  const timerSetSequences = d3d9PostRasterStatusWaitableTimerActive
+  const timerSetSequences = d3d9PostPresentContinuationActive
+    ? "18681,127648"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "18681,127377"
     : d3d9RecreatedTexturesActive
       ? "18681,127344"
@@ -343,7 +353,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
-  const timerSetInstructionCounts = d3d9PostRasterStatusWaitableTimerActive
+  const timerSetInstructionCounts = d3d9PostPresentContinuationActive
+    ? "11974074,28874710"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "11974074,28761446"
     : d3d9RecreatedTexturesActive
       ? "11974074,28759195"
@@ -360,7 +372,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = d3d9PostRasterStatusWaitableTimerActive
+  const timerWaitSequences = d3d9PostPresentContinuationActive
+    ? "18682,127649"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "18682,127378"
     : d3d9RecreatedTexturesActive
       ? "18682,127337"
@@ -377,7 +391,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = d3d9PostRasterStatusWaitableTimerActive
+  const timerWaitInstructionCounts = d3d9PostPresentContinuationActive
+    ? "11974080,28874716"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "11974080,28761452"
     : d3d9RecreatedTexturesActive
       ? "11974080,28759054"
@@ -394,7 +410,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = d3d9PostRasterStatusWaitableTimerActive
+  const timerGenerations = d3d9PostPresentContinuationActive
+    ? "1,9205"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "1,1"
     : d3d9RecreatedTexturesActive
       ? "1,9186"
@@ -411,10 +429,14 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = d3d9PostRasterStatusWaitableTimerActive
+  const timerClockGenerations = d3d9PostPresentContinuationActive
+    ? "1,9205"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = d3d9PostRasterStatusWaitableTimerActive
+  const timerDeadlines = d3d9PostPresentContinuationActive
+    ? "5000,46025000"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "5000,45935000"
     : d3d9RecreatedTexturesActive
       ? "5000,45930000"
@@ -431,7 +453,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = d3d9PostRasterStatusWaitableTimerActive
+  const timerPacingRequestIds = d3d9PostPresentContinuationActive
+    ? "3,9216"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "3,9198"
     : d3d9RecreatedTexturesActive
       ? "3,9197"
@@ -448,7 +472,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = d3d9PostRasterStatusWaitableTimerActive
+  const timerPacingRegistrationIds = d3d9PostPresentContinuationActive
+    ? "1,9205"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : d3d9RecreatedTexturesActive
       ? "1,9186"
@@ -465,7 +491,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = d3d9PostRasterStatusWaitableTimerActive
+  const timerPacingClockGenerations = d3d9PostPresentContinuationActive
+    ? "0,9204"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "0,9186"
     : d3d9RecreatedTexturesActive
       ? "0,9185"
@@ -482,7 +510,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = d3d9PostRasterStatusWaitableTimerActive
+  const timerNextRegistrationIds = d3d9PostPresentContinuationActive
+    ? "2,9206"
+    : d3d9PostRasterStatusWaitableTimerActive
     ? "2,9188"
     : d3d9RecreatedTexturesActive
       ? "2,9187"
@@ -499,7 +529,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = d3d9FirstPresentActive
+  const profileExpectations = d3d9PostPresentContinuationActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 106_909,
+        browserMappingDirtyPages: 110_070,
+        browserSuccessExecutionTransitions: 417_657,
+        latestSchema: "vine.v86-bgi-d3d9-post-present-continuation",
+        latestWritebackBatches: 127_789,
+        latestWritebackDirtyPages: 176_488,
+        latestWritebackChangedBytes: 6_647_194,
+        latestHostDeltaBatches: 106_909,
+        latestFinalMemoryGeneration: 235_982,
+        semanticCallDigestSha256:
+          "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617",
+        memoryContentSha256:
+          "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321",
+      }
+    : d3d9FirstPresentActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 106_770,
@@ -1435,9 +1482,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v44") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v45") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v44",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v45",
     );
   }
   if (
@@ -2220,7 +2267,8 @@ export function validateCurrentCheckpoint(manifest) {
           ? "compact"
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
-    bgiBrowserEvidence.browserReportSchemaVersion !== 12 ||
+    bgiBrowserEvidence.browserReportSchemaVersion !==
+      (d3d9PostPresentContinuationActive ? 13 : 12) ||
     bgiBrowserEvidence.nodeOracleReportBytes > 2 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 2 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
@@ -2254,7 +2302,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (d3d9RecreatedTexturesActive
+      (d3d9PostPresentContinuationActive
+        ? 2_014
+        : d3d9RecreatedTexturesActive
         ? 2_010
         : createDirectoryAActive
           ? 1_526
@@ -2289,7 +2339,13 @@ export function validateCurrentCheckpoint(manifest) {
       1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (createDirectoryAActive ? 10 : archiveSourceReadActive ? 5 : 2) ||
+      (d3d9PostPresentContinuationActive
+        ? 11
+        : createDirectoryAActive
+          ? 10
+          : archiveSourceReadActive
+            ? 5
+            : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
     bgiBrowserEvidence.callbackEntries !==
       (updateWindowActive
@@ -3050,8 +3106,10 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.setWindowPosActivationForegroundWindow !==
       "0x48010001" ||
     bgiBrowserEvidence.setWindowPosActivationOrderedSemanticsMatched !== true ||
-    bgiBrowserEvidence.timeGetTimeCompletions !== 0 ||
-    bgiBrowserEvidence.timeGetTimeReached !== false ||
+    bgiBrowserEvidence.timeGetTimeCompletions !==
+      (d3d9PostPresentContinuationActive ? 1 : 0) ||
+    bgiBrowserEvidence.timeGetTimeReached !==
+      d3d9PostPresentContinuationActive ||
     bgiBrowserEvidence.timeGetTimeImplementationId !==
       "winmm.time-get-time.v1" ||
     bgiBrowserEvidence.timeGetTimePolicyProfileId !==
@@ -3306,7 +3364,8 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.updateWindowPaintSessionRetired !== true ||
       bgiBrowserEvidence.updateWindowDeviceContextRetired !== true ||
       bgiBrowserEvidence.updateWindowFailureAtomicity !== true ||
-      bgiBrowserEvidence.updateWindowCallbackActiveAtStop !== true ||
+      bgiBrowserEvidence.updateWindowCallbackActiveAtStop !==
+        !d3d9PostPresentContinuationActive ||
       bgiBrowserEvidence.updateWindowBrowserResourceCreated !== false ||
       bgiBrowserEvidence.updateWindowNodeChromeOrderedSemanticsMatched !== true)
   ) {
@@ -12827,7 +12886,7 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.nativeTimeGetTimeConsumerFrameCallerRva !== "0x00083144" ||
     latestEvidence.nativeTimeGetTimeExecutableHashUnchanged !== true ||
     latestEvidence.timeGetTimeImplemented !== true ||
-    latestEvidence.timeGetTimeReached !== false ||
+    latestEvidence.timeGetTimeReached !== d3d9PostPresentContinuationActive ||
     latestEvidence.timeGetTimeImplementationId !== "winmm.time-get-time.v1" ||
     latestEvidence.timeGetTimePolicyProfileId !==
       "shared-process-tick-count-increment-1-v1" ||
@@ -12840,10 +12899,13 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.timeGetTimeHostClockImported !== false ||
     latestEvidence.timeGetTimeBrowserClockImported !== false ||
     latestEvidence.timeGetTimeFailureAtomicity !== true ||
-    latestEvidence.timeGetTimeNodeCompletions !== 0 ||
-    latestEvidence.timeGetTimeChromeCompletions !== 0 ||
+    latestEvidence.timeGetTimeNodeCompletions !==
+      (d3d9PostPresentContinuationActive ? 1 : 0) ||
+    latestEvidence.timeGetTimeChromeCompletions !==
+      (d3d9PostPresentContinuationActive ? 1 : 0) ||
     latestEvidence.timeGetTimeNodeChromeReachabilityMatched !== true ||
-    latestEvidence.tickCountNextValue !== 3_601_004
+    latestEvidence.tickCountNextValue !==
+      (d3d9PostPresentContinuationActive ? 3_601_008 : 3_601_004)
   ) {
     errors.push("latest WinMM timer and shared-clock evidence is invalid");
   }
@@ -18964,7 +19026,8 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.updateWindowPaintSessionRetired !== true ||
       latestEvidence.updateWindowDeviceContextRetired !== true ||
       latestEvidence.updateWindowFailureAtomicity !== true ||
-      latestEvidence.updateWindowCallbackActiveAtStop !== true ||
+      latestEvidence.updateWindowCallbackActiveAtStop !==
+        !d3d9PostPresentContinuationActive ||
       latestEvidence.updateWindowBrowserOwnsLogicalWindowState !== false ||
       latestEvidence.updateWindowBrowserResourceCreated !== false ||
       latestEvidence.updateWindowNodeCompletions !== 3 ||
@@ -20840,6 +20903,127 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push(`${label} first Present checkpoint evidence is invalid`);
       }
+    }
+  }
+  if (active.profile === "d3d9-post-present-continuation") {
+    if (
+      currentStop.kind !== "api-endpoint" ||
+      currentStop.endpointKind !== "runtime-system-export" ||
+      currentStop.endpointId !== 231 ||
+      currentStop.api !== "USER32.dll!GetAsyncKeyState" ||
+      currentStop.arguments?.join(",") !== "0x00000011" ||
+      currentStop.endpointAddress !== "0x7f000e60" ||
+      currentStop.iatAddress !== "0x100d1474" ||
+      currentStop.returnAddress !== "0x10068405"
+    ) {
+      errors.push("post-Present continuation next endpoint is invalid");
+    }
+    for (const [label, evidence] of [
+      ["browser BGI", bgiBrowserEvidence],
+      ["latest", latestEvidence],
+    ]) {
+      if (
+        evidence.timeGetTimeReached !== true ||
+        (evidence.timeGetTimeCompletions ??
+          evidence.timeGetTimeNodeCompletions) !== 1 ||
+        evidence.timeGetTimeSequence !== 127_378 ||
+        evidence.timeGetTimeInstructionCount !== 28_761_433 ||
+        evidence.timeGetTimeResult !== 3_601_007 ||
+        evidence.timeGetTimeReturnAddress !== "0x10091ebf" ||
+        evidence.timeGetTimeStackPointers?.join(",") !==
+          "0x006ff290,0x006ff294" ||
+        evidence.timeGetTimeLastError !== 0 ||
+        evidence.timeGetTimeGuestWriteBytes !== 0 ||
+        (evidence.getForegroundWindowCompletions ??
+          evidence.getForegroundWindowNodeCompletions) !== 1 ||
+        evidence.getForegroundWindowSequence !== 127_379 ||
+        evidence.getForegroundWindowInstructionCount !== 28_761_549 ||
+        evidence.getForegroundWindowArguments?.length !== 0 ||
+        evidence.getForegroundWindowResult !== "0x48010001" ||
+        evidence.getForegroundWindowReturnAddress !== "0x1009390e" ||
+        evidence.getForegroundWindowStackPointers?.join(",") !==
+          "0x006ff68c,0x006ff690" ||
+        evidence.getForegroundWindowLastError !== 0 ||
+        evidence.getForegroundWindowGuestWriteBytes !== 0 ||
+        evidence.getForegroundWindowImplementationId !==
+          "user32.get-foreground-window.v1" ||
+        evidence.getForegroundWindowStateAuthority !==
+          "runtime/user32.rs::RuntimeUser32" ||
+        evidence.getForegroundWindowHandleNamespace !==
+          "vine.logical-window.v1" ||
+        evidence.getForegroundWindowNullableWhenNoForegroundWindow !== true ||
+        evidence.getForegroundWindowLastErrorPolicy !== "preserve" ||
+        evidence.getForegroundWindowMutation !== false ||
+        evidence.getForegroundWindowBrowserResourceCreated !== false ||
+        evidence.getForegroundWindowNodeCompletions !== 1 ||
+        evidence.getForegroundWindowChromeCompletions !== 1 ||
+        evidence.getForegroundWindowNodeChromeOrderedSemanticsMatched !==
+          true ||
+        evidence.postPresentContinuationUpdateWindowCallbackReturned !== true ||
+        evidence.postPresentContinuationForegroundWindowQueryCompleted !==
+          true ||
+        evidence.postPresentContinuationCallbackReturnSequence !== 127_352 ||
+        evidence.postPresentContinuationCallbackReturnFrameId !== 30 ||
+        evidence.postPresentContinuationCallbackReturnInstructionCount !==
+          28_761_544 ||
+        evidence.postPresentContinuationCallbackResult !== 0 ||
+        evidence.postPresentContinuationTimeGetTimeInsideCallback !== true ||
+        evidence.updateWindowCallbackActiveAtStop !== false
+      ) {
+        errors.push(`${label} post-Present continuation evidence is invalid`);
+      }
+    }
+    if (
+      latestEvidence.nativeGetForegroundWindowPrimaryTraceBytes !== 1_611_952 ||
+      latestEvidence.nativeGetForegroundWindowPrimaryTraceLines !== 5_015 ||
+      latestEvidence.nativeGetForegroundWindowPrimaryTraceSha256 !==
+        "5955c5b34836ef1cb2c971ed94aa775879f3a890a8dddf8c181728cf30b996b4" ||
+      latestEvidence.nativeGetForegroundWindowPrimaryBalancedApiPairs !==
+        2_469 ||
+      latestEvidence.nativeGetForegroundWindowPrimarySummaryBytes !== 54_679 ||
+      latestEvidence.nativeGetForegroundWindowPrimarySummaryLines !== 2_543 ||
+      latestEvidence.nativeGetForegroundWindowPrimarySummarySha256 !==
+        "d999469df380c55adfb58d59f44ad2f03ba31173f999a3db7037400ef8172f9b" ||
+      latestEvidence.nativeGetForegroundWindowConfirmationTraceBytes !==
+        1_611_751 ||
+      latestEvidence.nativeGetForegroundWindowConfirmationTraceLines !==
+        5_015 ||
+      latestEvidence.nativeGetForegroundWindowConfirmationTraceSha256 !==
+        "91a389ecc5f8853d67931764cdb09ea412ee192ac1b5ec7b59091f3078f05c9b" ||
+      latestEvidence.nativeGetForegroundWindowConfirmationBalancedApiPairs !==
+        2_469 ||
+      latestEvidence.nativeGetForegroundWindowConfirmationSummaryBytes !==
+        54_684 ||
+      latestEvidence.nativeGetForegroundWindowConfirmationSummaryLines !==
+        2_543 ||
+      latestEvidence.nativeGetForegroundWindowConfirmationSummarySha256 !==
+        "9f572776d1f8dbaccd6782c23c99f121185a0af5e6ad256ec439879d3a834e09" ||
+      latestEvidence.nativeGetForegroundWindowTraceDiagnostics !== 0 ||
+      latestEvidence.nativeGetForegroundWindowProfile !==
+        "x86-bgi-get-foreground-window-v1" ||
+      latestEvidence.nativeGetForegroundWindowOracleProfile !==
+        "x86-get-foreground-window-stable-identity-v1" ||
+      latestEvidence.nativeGetForegroundWindowOracleSentinels?.join(",") !==
+        "0,87,305419896" ||
+      latestEvidence.nativeGetForegroundWindowOracleCallsPerTrace !== 3 ||
+      latestEvidence.nativeGetForegroundWindowOracleResultsMatchHooks !== true ||
+      latestEvidence.nativeGetForegroundWindowOraclePreservesLastError !== true ||
+      latestEvidence.nativeGetForegroundWindowMainCallsPerTrace !== 1 ||
+      latestEvidence.nativeGetForegroundWindowCallerRva !== "0x0009390e" ||
+      latestEvidence.nativeGetForegroundWindowLastError !== 0 ||
+      latestEvidence.nativeGetForegroundWindowResultNonzero !== true ||
+      latestEvidence.nativeGetForegroundWindowResultMatchesOracle !== true ||
+      latestEvidence.nativeGetForegroundWindowConsumerProfile !==
+        "compare-foreground-to-main-window-store-flag-v1" ||
+      latestEvidence.nativeGetForegroundWindowMainWindowHandleRva !==
+        "0x00151fd4" ||
+      latestEvidence.nativeGetForegroundWindowEqualityFlagRva !==
+        "0x00151ffc" ||
+      latestEvidence.nativeGetForegroundWindowContinuationValueRva !==
+        "0x00152004" ||
+      latestEvidence.nativeGetForegroundWindowExecutableHashUnchanged !== true
+    ) {
+      errors.push("native GetForegroundWindow evidence is invalid");
     }
   }
   if (active.profile === "d3d9-post-scene-present-gateway") {

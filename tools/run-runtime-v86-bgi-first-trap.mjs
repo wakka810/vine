@@ -230,6 +230,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-post-raster-status-waitable-timer",
         "d3d9-post-scene-present-gateway",
         "d3d9-first-present",
+        "d3d9-post-present-continuation",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -380,6 +381,7 @@ assert(
       "d3d9-post-raster-status-waitable-timer",
       "d3d9-post-scene-present-gateway",
       "d3d9-first-present",
+      "d3d9-post-present-continuation",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -407,7 +409,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-post-end-scene-raster-status" ||
     genericRuntimeCapability === "d3d9-post-raster-status-waitable-timer" ||
     genericRuntimeCapability === "d3d9-post-scene-present-gateway" ||
-    genericRuntimeCapability === "d3d9-first-present"
+    genericRuntimeCapability === "d3d9-first-present" ||
+    genericRuntimeCapability === "d3d9-post-present-continuation"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -714,12 +717,16 @@ const d3d9PostScenePresentGatewayCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-scene-present-gateway";
 const d3d9PresentCheckpointEnabled =
   genericRuntimeCapability === "d3d9-first-present";
+const d3d9PostPresentContinuationEnabled =
+  genericRuntimeCapability === "d3d9-post-present-continuation";
+const d3d9PresentEnabled =
+  d3d9PresentCheckpointEnabled || d3d9PostPresentContinuationEnabled;
 const d3d9PostRasterStatusWaitableTimerEnabled =
   d3d9PostRasterStatusWaitableTimerCheckpointEnabled;
 const d3d9PostEndSceneRasterStatusCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-end-scene-raster-status";
 const d3d9PostEndSceneRasterStatusEnabled =
-  d3d9PresentCheckpointEnabled ||
+  d3d9PresentEnabled ||
   d3d9PostScenePresentGatewayCheckpointEnabled ||
   d3d9PostRasterStatusWaitableTimerEnabled ||
   d3d9PostEndSceneRasterStatusCheckpointEnabled;
@@ -1132,8 +1139,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9PresentCheckpointEnabled
-      ? "v86-bgi-d3d9-first-present"
+    ? d3d9PostPresentContinuationEnabled
+      ? "v86-bgi-d3d9-post-present-continuation"
+      : d3d9PresentCheckpointEnabled
+        ? "v86-bgi-d3d9-first-present"
       : d3d9PostScenePresentGatewayCheckpointEnabled
         ? "v86-bgi-d3d9-post-scene-present-gateway"
       : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
@@ -5546,6 +5555,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (d3d9PostPresentContinuationEnabled) {
+        validateD3d9PostPresentContinuationResult(genericResult);
       } else if (d3d9PresentCheckpointEnabled) {
         validateD3d9PresentResult(genericResult);
       } else if (d3d9PostScenePresentGatewayCheckpointEnabled) {
@@ -5833,7 +5844,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9PresentCheckpointEnabled
+          : d3d9PostPresentContinuationEnabled
+            ? "bgi post-Present continuation"
+            : d3d9PresentCheckpointEnabled
             ? "bgi IDirect3DDevice9::Present first-frame publication"
             : d3d9PostScenePresentGatewayCheckpointEnabled
               ? "bgi post-scene raster gate to Present"
@@ -8531,7 +8544,7 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(
     ready.implementedApiContracts,
     declaredDispatches.length +
-      4 +
+      5 +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -21961,9 +21974,10 @@ function validateD3d9PostScenePresentGatewayResult(result) {
   );
 }
 
-function validateD3d9PresentResult(result) {
-  validateD3d9PostEndSceneRasterStatusResult(result, false);
-  assert.equal(result.fault, null);
+function validateD3d9PresentResult(result, validateCheckpoint = true) {
+  if (validateCheckpoint) {
+    validateD3d9PostEndSceneRasterStatusResult(result, false);
+  }
   const calls = result.supportedCalls.filter(
     (call) =>
       call.interface === "IDirect3DDevice9" &&
@@ -21999,6 +22013,10 @@ function validateD3d9PresentResult(result) {
   assert.equal(device.backBuffer.uniformClear, undefined);
   assert.equal(device.backBuffer.drawSubmissions, undefined);
   assert.equal(device.renderer, undefined);
+  if (!validateCheckpoint) {
+    return;
+  }
+  assert.equal(result.fault, null);
   const checkpoint = result.checkpointCompletion;
   assert(checkpoint, "first Present checkpoint is missing");
   assert.equal(checkpoint.capability, "d3d9-first-present");
@@ -22016,6 +22034,108 @@ function validateD3d9PresentResult(result) {
   assert(checkpoint.instructionCount > call.trapInstructionCount);
   assert(checkpoint.nextEndpoint !== null);
   assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+}
+
+function validateD3d9PostPresentContinuationResult(result) {
+  validateD3d9PresentResult(result, false);
+  assert.equal(result.checkpointCompletion, undefined);
+  assert(result.fault, "post-Present continuation did not reach a structured stop");
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 127_690);
+  assert.equal(result.callbackEvents.length, 60);
+  assert.deepEqual(result.callbackEvents.at(-1), {
+    action: "return",
+    sequence: 127_352,
+    frameId: 30,
+    instructionCount: 28_761_544,
+    result: 0,
+  });
+  assert.equal(result.schedulerContinuation.selectionCount, 2_014);
+  assert.equal(result.writebacks.length, 127_789);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    176_488,
+  );
+  assert.equal(result.hostDeltas.length, 106_909);
+  assert.equal(result.finalGeneration, 235_982);
+  const present = result.supportedCalls.find(
+    (call) => call.sequence === 127_377,
+  );
+  const timeGetTime = result.supportedCalls.find(
+    (call) => call.sequence === 127_378,
+  );
+  const getForegroundWindow = result.supportedCalls.find(
+    (call) => call.sequence === 127_379,
+  );
+  assert(present, "post-Present continuation omitted Present");
+  assert(timeGetTime, "post-Present continuation omitted timeGetTime");
+  assert.equal(timeGetTime.module.toLowerCase(), "winmm.dll");
+  assert.equal(timeGetTime.symbol, "timeGetTime");
+  assert.equal(timeGetTime.occurrence, 4);
+  assert.equal(timeGetTime.trapInstructionCount, 28_761_433);
+  assert.deepEqual(timeGetTime.arguments, []);
+  assert.deepEqual(timeGetTime.result, {
+    action: "set",
+    value: 3_601_007,
+  });
+  assert.equal(timeGetTime.implementationId, "winmm.time-get-time.v1");
+  assert.equal(timeGetTime.returnAddress, 0x1009_1ebf);
+  assert.equal(timeGetTime.stackPointerBefore, 0x006f_f290);
+  assert.equal(timeGetTime.stackPointerAfter, 0x006f_f294);
+  assert.equal(timeGetTime.lastError, 0);
+  assert.deepEqual(timeGetTime.guestWrites, []);
+  assert.deepEqual(timeGetTime.tickCount, {
+    returnedTickCount: 3_601_007,
+    nextTickCount: 3_601_008,
+    incrementPerRead: 1,
+  });
+  assert.equal(timeGetTime.sequence, present.sequence + 1);
+  assert(
+    getForegroundWindow,
+    "post-Present continuation omitted GetForegroundWindow",
+  );
+  assert.equal(getForegroundWindow.module.toLowerCase(), "user32.dll");
+  assert.equal(getForegroundWindow.symbol, "GetForegroundWindow");
+  assert.equal(getForegroundWindow.occurrence, 1);
+  assert.equal(getForegroundWindow.trapInstructionCount, 28_761_549);
+  assert.deepEqual(getForegroundWindow.arguments, []);
+  assert.deepEqual(getForegroundWindow.result, {
+    action: "set",
+    value: 0x4801_0001,
+  });
+  assert.equal(
+    getForegroundWindow.implementationId,
+    "user32.get-foreground-window.v1",
+  );
+  assert.equal(getForegroundWindow.returnAddress, 0x1009_390e);
+  assert.equal(getForegroundWindow.stackPointerBefore, 0x006f_f68c);
+  assert.equal(getForegroundWindow.stackPointerAfter, 0x006f_f690);
+  assert.equal(getForegroundWindow.lastError, 0);
+  assert.deepEqual(getForegroundWindow.guestWrites, []);
+  assert.equal(getForegroundWindow.sequence, timeGetTime.sequence + 1);
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 231);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0e60);
+  assert.equal(result.fault.endpoint.endpoint.module, "user32.dll");
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "GetAsyncKeyState",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1474);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.terminal.instructionCount, 29_325_480);
+  assert.equal(result.fault.memory.generation, 235_982);
+  assert.equal(result.fault.memory.acknowledgedGeneration, 235_982);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321",
+  );
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -26450,8 +26570,15 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const d3d9PostScenePacingCycleCount =
-    d3d9PostRasterStatusWaitableTimerCheckpointEnabled ? 1 : 0;
-  if (d3d9PostRasterStatusWaitableTimerEnabled) {
+    d3d9PostPresentContinuationEnabled
+      ? 18
+      : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+        ? 1
+        : 0;
+  if (
+    d3d9PostRasterStatusWaitableTimerEnabled ||
+    d3d9PostPresentContinuationEnabled
+  ) {
     assert(
       Number.isSafeInteger(d3d9PostScenePacingCycleCount) &&
         d3d9PostScenePacingCycleCount > 0,
@@ -26470,7 +26597,8 @@ function buildGenericRuntimeReentryReport({
           assert.equal(
             setWaitableTimerCalls.length,
             d3d9RecreatedTexturesCheckpointEnabled
-              ? d3d9PostRasterStatusWaitableTimerEnabled
+              ? d3d9PostRasterStatusWaitableTimerEnabled ||
+                d3d9PostPresentContinuationEnabled
                 ? 9_187 + d3d9PostScenePacingCycleCount
                 : 9_187
               : createDirectoryACheckpointEnabled
@@ -26510,8 +26638,11 @@ function buildGenericRuntimeReentryReport({
           assert.equal(
             waitForSingleObjectExCalls.length,
             d3d9RecreatedTexturesCheckpointEnabled
-              ? d3d9PostRasterStatusWaitableTimerEnabled
-                ? 9_186 + d3d9PostScenePacingCycleCount
+              ? d3d9PostRasterStatusWaitableTimerEnabled ||
+                d3d9PostPresentContinuationEnabled
+                ? 9_186 +
+                  d3d9PostScenePacingCycleCount +
+                  (d3d9PostPresentContinuationEnabled ? 1 : 0)
                 : 9_186
               : createDirectoryACheckpointEnabled
                 ? 6_974
@@ -26777,8 +26908,10 @@ function buildGenericRuntimeReentryReport({
     );
     assert.equal(
       updateWindowCallbackEvents.length,
-      1,
-      "UpdateWindow report summary requires one active WM_PAINT callback",
+      d3d9PostPresentContinuationEnabled ? 2 : 1,
+      d3d9PostPresentContinuationEnabled
+        ? "post-Present continuation requires one balanced WM_PAINT callback"
+        : "UpdateWindow report summary requires one active WM_PAINT callback",
     );
     assert.equal(beginPaintCalls.length, 1);
     assert.equal(endPaintCalls.length, 1);
@@ -27005,7 +27138,7 @@ function buildGenericRuntimeReentryReport({
     );
     assert(d3d9EndSceneCall.graphicsDevice);
   }
-  const d3d9PresentCalls = d3d9PresentCheckpointEnabled
+  const d3d9PresentCalls = d3d9PresentEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
           call.interface === "IDirect3DDevice9" &&
@@ -27014,13 +27147,44 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const d3d9PresentCall = d3d9PresentCalls[0] ?? null;
-  if (d3d9PresentCheckpointEnabled) {
+  if (d3d9PresentEnabled) {
     assert.equal(
       d3d9PresentCalls.length,
       1,
       "D3D9 Present report summary requires one completion",
     );
     assert(d3d9PresentCall.graphicsDevice?.presentedFrame);
+  }
+  const postPresentTimeGetTimeCall = d3d9PostPresentContinuationEnabled
+    ? genericResult.supportedCalls.find(
+        (call) =>
+          call.sequence === d3d9PresentCall?.sequence + 1 &&
+          call.module.toLowerCase() === "winmm.dll" &&
+          call.symbol === "timeGetTime" &&
+          call.implementationId === "winmm.time-get-time.v1",
+      ) ?? null
+    : null;
+  if (d3d9PostPresentContinuationEnabled) {
+    assert(
+      postPresentTimeGetTimeCall,
+      "post-Present report summary requires the following timeGetTime completion",
+    );
+  }
+  const postPresentGetForegroundWindowCall =
+    d3d9PostPresentContinuationEnabled
+      ? genericResult.supportedCalls.find(
+          (call) =>
+            call.sequence === postPresentTimeGetTimeCall?.sequence + 1 &&
+            call.module.toLowerCase() === "user32.dll" &&
+            call.symbol === "GetForegroundWindow" &&
+            call.implementationId === "user32.get-foreground-window.v1",
+        ) ?? null
+      : null;
+  if (d3d9PostPresentContinuationEnabled) {
+    assert(
+      postPresentGetForegroundWindowCall,
+      "post-Present report summary requires the following GetForegroundWindow completion",
+    );
   }
   const d3d9PostEndSceneRasterStatusCalls = d3d9PostEndSceneRasterStatusEnabled
     ? genericResult.supportedCalls.filter(
@@ -27035,13 +27199,21 @@ function buildGenericRuntimeReentryReport({
       (call) => call.sequence === d3d9EndSceneCall?.sequence + 1,
     ) ?? null;
   if (d3d9PostEndSceneRasterStatusEnabled) {
-    assert.equal(
-      d3d9PostEndSceneRasterStatusCalls.length,
-      d3d9PostRasterStatusWaitableTimerEnabled
-        ? 783 + d3d9PostScenePacingCycleCount
-        : 784,
-      "post-EndScene raster-status report summary has an unexpected cumulative completion count",
-    );
+    if (d3d9PostPresentContinuationEnabled) {
+      assert.equal(
+        d3d9PostEndSceneRasterStatusCalls.length,
+        784,
+        "post-Present continuation changed the completed first-frame raster-status series",
+      );
+    } else {
+      assert.equal(
+        d3d9PostEndSceneRasterStatusCalls.length,
+        d3d9PostRasterStatusWaitableTimerEnabled
+          ? 783 + d3d9PostScenePacingCycleCount
+          : 784,
+        "post-EndScene raster-status report summary has an unexpected cumulative completion count",
+      );
+    }
     assert(
       d3d9PostEndSceneRasterStatusCall,
       "post-EndScene raster-status report summary requires the call immediately after EndScene",
@@ -27120,7 +27292,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : d3d9PresentCheckpointEnabled
+        : d3d9PostPresentContinuationEnabled
+          ? "vine.v86-bgi-d3d9-post-present-continuation"
+          : d3d9PresentCheckpointEnabled
           ? "vine.v86-bgi-d3d9-first-present"
           : d3d9PostScenePresentGatewayCheckpointEnabled
             ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
@@ -27919,7 +28093,7 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    ...(d3d9PresentCheckpointEnabled
+    ...(d3d9PresentEnabled
       ? {
           d3d9Present: {
             call: d3d9PresentCall,
@@ -27939,6 +28113,19 @@ function buildGenericRuntimeReentryReport({
             visiblePixelsProduced: false,
             asynchronousDeviceLossRecoveryImplemented: false,
             failureAtomicity: true,
+          },
+        }
+      : {}),
+    ...(d3d9PostPresentContinuationEnabled
+      ? {
+          postPresentContinuation: {
+            timeGetTimeCall: postPresentTimeGetTimeCall,
+            getForegroundWindowCall: postPresentGetForegroundWindowCall,
+            updateWindowCallbackReturned: true,
+            foregroundWindowQueryCompleted: true,
+            stateAuthority:
+              "rust-runtime-user32-thread-and-process-window-relations",
+            browserResourceCreated: false,
           },
         }
       : {}),
@@ -28016,7 +28203,7 @@ function buildGenericRuntimeReentryReport({
             paintSessionRetired: true,
             deviceContextRetired: true,
             failureAtomicity: true,
-            callbackActiveAtStop: true,
+            callbackActiveAtStop: !d3d9PostPresentContinuationEnabled,
             browserResourceCreated: false,
           },
         }

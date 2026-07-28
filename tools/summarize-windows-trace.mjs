@@ -47,6 +47,7 @@ const supportedObservations = new Set([
   "set-window-pos-frame-change-move",
   "show-window-normal",
   "update-window",
+  "get-foreground-window",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
@@ -4595,6 +4596,211 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     };
   });
 
+  const getForegroundWindowOracleEvents = events.filter(
+    (event) => event.kind === "get-foreground-window-oracle",
+  );
+  const getForegroundWindowCompletionEvents = events.filter(
+    (event) => event.kind === "get-foreground-window-complete",
+  );
+  const requiresGetForegroundWindowCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "get-foreground-window" &&
+    traceStart.arguments?.stopOnEvent === "get-foreground-window-complete";
+  if (
+    getForegroundWindowOracleEvents.length > 1 ||
+    getForegroundWindowCompletionEvents.length > 1 ||
+    (requiresGetForegroundWindowCompletion &&
+      (getForegroundWindowOracleEvents.length !== 1 ||
+        getForegroundWindowCompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "get-foreground-window observation requires exactly one oracle and structured completion",
+    );
+  }
+
+  const getForegroundWindow = getForegroundWindowCompletionEvents.map(
+    (completion) => {
+      const oracle = getForegroundWindowOracleEvents[0];
+      const sentinels = [0, 87, 0x1234_5678];
+      if (
+        oracle === undefined ||
+        oracle.profile !== "x86-get-foreground-window-stable-identity-v1" ||
+        !Array.isArray(oracle.calls) ||
+        oracle.calls.length !== sentinels.length ||
+        typeof oracle.foregroundWindow !== "string" ||
+        BigInt(oracle.foregroundWindow) === 0n ||
+        oracle.allResultsMatchHooks !== true ||
+        oracle.allResultsStable !== true ||
+        oracle.allResultsNonNull !== true ||
+        oracle.allPreserveLastError !== true ||
+        completion.profile !== "x86-bgi-get-foreground-window-v1" ||
+        completion.oracleProfile !== oracle.profile ||
+        completion.quiescenceMilliseconds !== 250 ||
+        !Array.isArray(completion.mainModuleCalls) ||
+        completion.mainModuleCalls.length !== 1 ||
+        completion.sequence <= oracle.sequence
+      ) {
+        throw new Error(
+          "get-foreground-window completion or oracle has invalid structure",
+        );
+      }
+
+      const oraclePairs = apiPairing.pairs.filter(
+        (pair) =>
+          pair.enter.api === "GetForegroundWindow" &&
+          pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll",
+      );
+      if (oraclePairs.length !== sentinels.length) {
+        throw new Error(
+          "get-foreground-window oracle calls do not match their paired traces",
+        );
+      }
+      const oracleCalls = oracle.calls.map((call, index) => {
+        const pair = oraclePairs[index];
+        const sentinel = sentinels[index];
+        if (
+          !isU32(call.sentinel) ||
+          call.sentinel !== sentinel ||
+          typeof call.systemResult !== "string" ||
+          typeof call.hookResult !== "string" ||
+          BigInt(call.systemResult) === 0n ||
+          call.systemResult.toLowerCase() !==
+            oracle.foregroundWindow.toLowerCase() ||
+          call.hookResult.toLowerCase() !== call.systemResult.toLowerCase() ||
+          call.hookLastErrorAfter !== sentinel ||
+          call.systemLastError !== sentinel ||
+          call.hookResultMatches !== true ||
+          call.hookPreservesLastError !== true ||
+          call.systemPreservesLastError !== true ||
+          pair.enter.module.toLowerCase() !== "user32.dll" ||
+          pair.enter.parentCallId !== null ||
+          !Array.isArray(pair.enter.arguments) ||
+          pair.enter.arguments.length !== 0 ||
+          pair.enter.lastErrorBefore !== sentinel ||
+          pair.leave.lastError !== sentinel ||
+          pair.leave.result.toLowerCase() !== call.systemResult.toLowerCase() ||
+          pair.leave.getForegroundWindow?.result.toLowerCase() !==
+            call.systemResult.toLowerCase()
+        ) {
+          throw new Error(
+            `get-foreground-window oracle call ${index} violates its identity or LastError contract`,
+          );
+        }
+        return {
+          ...call,
+          callId: pair.enter.callId,
+          sequence: pair.enter.sequence,
+        };
+      });
+
+      const snapshot = completion.mainModuleCalls[0];
+      const pair = apiPairing.pairs.find(
+        (candidate) => candidate.enter.callId === snapshot.callId,
+      );
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      if (
+        pair === undefined ||
+        pair.enter.api !== "GetForegroundWindow" ||
+        pair.enter.module.toLowerCase() !== "user32.dll" ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== 0x9390e ||
+        pair.enter.parentCallId !== null ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 0 ||
+        snapshot.returnAddress.toLowerCase() !==
+          pair.enter.caller.address.toLowerCase() ||
+        snapshot.result.toLowerCase() !== pair.leave.result.toLowerCase() ||
+        snapshot.result.toLowerCase() !==
+          oracle.foregroundWindow.toLowerCase() ||
+        snapshot.lastErrorBefore !== pair.enter.lastErrorBefore ||
+        snapshot.lastError !== pair.leave.lastError ||
+        snapshot.lastErrorBefore !== snapshot.lastError ||
+        pair.leave.getForegroundWindow?.result.toLowerCase() !==
+          snapshot.result.toLowerCase() ||
+        JSON.stringify(snapshot.immediateConsumer) !==
+          JSON.stringify(pair.enter.getForegroundWindow?.immediateConsumer)
+      ) {
+        throw new Error(
+          "get-foreground-window completion does not match its primary paired trace",
+        );
+      }
+
+      const consumer = snapshot.immediateConsumer;
+      const instructions = consumer?.instructions?.instructions;
+      const frames = consumer?.frameCallerContinuations?.frames;
+      const expectedInstructions = [
+        ["xor", "ecx, ecx"],
+        ["cmp", null],
+        ["mov", null],
+        ["sete", "cl"],
+        ["mov", null],
+        ["ret", ""],
+      ];
+      const moduleBase =
+        BigInt(pair.enter.caller.address) - BigInt(pair.enter.caller.rva);
+      const operandRva = (operand) => {
+        const match = /0x[0-9a-f]+/iu.exec(operand ?? "");
+        return match === null ? null : Number(BigInt(match[0]) - moduleBase);
+      };
+      if (
+        consumer === null ||
+        typeof consumer !== "object" ||
+        consumer.instructions?.address?.toLowerCase() !==
+          snapshot.returnAddress.toLowerCase() ||
+        !Array.isArray(instructions) ||
+        instructions.length < expectedInstructions.length ||
+        expectedInstructions.some(
+          ([mnemonic, opStr], index) =>
+            instructions[index]?.mnemonic !== mnemonic ||
+            (opStr !== null &&
+              instructions[index]?.opStr?.toLowerCase() !== opStr),
+        ) ||
+        operandRva(instructions[1].opStr) !== 0x151fd4 ||
+        operandRva(instructions[2].opStr) !== 0x152004 ||
+        operandRva(instructions[4].opStr) !== 0x151ffc ||
+        !Array.isArray(frames) ||
+        frames.length === 0 ||
+        frames[0].caller?.module?.toLowerCase() !== executableModule
+      ) {
+        throw new Error(
+          "get-foreground-window primary consumer is not the observed foreground identity comparison",
+        );
+      }
+
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        oracle: {
+          sequence: oracle.sequence,
+          profile: oracle.profile,
+          foregroundWindow: oracle.foregroundWindow,
+          calls: oracleCalls,
+        },
+        mainModuleCall: {
+          sequence: pair.enter.sequence,
+          callId: pair.enter.callId,
+          threadId: pair.enter.threadId,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          result: snapshot.result,
+          lastErrorBefore: snapshot.lastErrorBefore,
+          lastError: snapshot.lastError,
+          resultMatchesOracleForegroundWindow: true,
+          consumer: {
+            profile: "compare-foreground-to-main-window-store-flag-v1",
+            mainWindowHandleRva: "0x00151fd4",
+            continuationValueRva: "0x00152004",
+            equalityFlagRva: "0x00151ffc",
+          },
+        },
+      };
+    },
+  );
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -5073,6 +5279,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
     user32: {
       getMonitorInfoA,
+      getForegroundWindow,
     },
     d3d9: {
       adapterIdentifiers,

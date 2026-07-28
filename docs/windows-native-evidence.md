@@ -5773,3 +5773,30 @@ black frameをguest resume前にdrawする。Texture upload 8,388,608 bytes、ve
 `bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9`で一致し、instruction 28,761,433の次endpoint
 `WINMM.dll!timeGetTime` ID 8／`0x7F000070`を記録する。Readable content、second frame、resize、partial／redirected
 Present、context／device lossとrecoveryはこのevidenceからclaimしない。
+
+## 172. BGI post-Present `GetForegroundWindow` consumer relation
+
+Focused primary captureは1,611,952 bytes／5,015 lines／SHA-256
+`5955c5b34836ef1cb2c971ed94aa775879f3a890a8dddf8c181728cf30b996b4`、summaryは54,679 bytes／
+2,543 lines／SHA-256 `d999469df380c55adfb58d59f44ad2f03ba31173f999a3db7037400ef8172f9b`で、
+5,013 events／2,469 API pairsがbalancedである。Independent confirmation captureは1,611,751 bytes／
+5,015 lines／SHA-256 `91a389ecc5f8853d67931764cdb09ea412ee192ac1b5ec7b59091f3078f05c9b`、
+summaryは54,684 bytes／2,543 lines／SHA-256
+`9f572776d1f8dbaccd6782c23c99f121185a0af5e6ad256ec439879d3a834e09`で、同じ5,013 events／
+2,469 balanced pairsである。両runともdiagnostics 0で、three-call oracleはLastError sentinel 0、87、
+`0x12345678`を保持し、system callとhook callが同じstable nonzero foreground HWNDを返す。Primary main-module
+callもoracle HWNDと一致し、entry／exit LastErrorは0である。Raw trace／summaryは`.work/windows-traces/`だけに
+保持する。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Caller return RVA `0x0009390E`はEAXをmain-window global RVA `0x00151FD4`と比較し、等価booleanを
+RVA `0x00151FFC`へ保存して、continuation value RVA `0x00152004`を返す。したがってgoldenはnative HWNDの
+数値ではなく、foreground identityと既存main-window identityのrelation、nullable HWND、LastError preserve、
+zero guest writeである。EIP、callsite、native HWND、title hashはsemantic handlerの分岐条件にしない。
+
+Runtimeはzero-argument x86 stdcall contractから既存`RuntimeUser32` foreground relationを読み、logical HWND
+`0x48010001`を返す。Relationがないmodel caseは0を返し、どちらもruntime state、LastError、guest memoryを
+変更しない。Canonical Node／Chromeは`WM_PAINT` callback return後のsequence 127,379／instruction
+28,761,549、implementation `user32.get-foreground-window.v1`、return `0x1009390E`を一致させ、browser resourceを
+作らない。続くstructured stopはinstruction 29,325,480の`GetAsyncKeyState(VK_CONTROL)`であり、keyboard input
+semanticsはこのleafのevidenceからclaimしない。

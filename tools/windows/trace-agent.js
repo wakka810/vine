@@ -35,6 +35,9 @@ const focusedShowWindowNormalObservation =
   selectedObservations.has("show-window-normal");
 const focusedUpdateWindowObservation =
   selectedObservations.size === 1 && selectedObservations.has("update-window");
+const focusedGetForegroundWindowObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("get-foreground-window");
 const focusedSetWindowPosStateObservation =
   focusedSetWindowPosSizeObservation ||
   focusedSetWindowPosFrameChangeMoveObservation;
@@ -446,6 +449,13 @@ const activeUpdateWindowCallsByThread = new Map();
 let updateWindowOracleScheduled = false;
 let updateWindowOracleComplete = false;
 let updateWindowOracleEvidence = null;
+let getForegroundWindowCompletionRecorded = false;
+let getForegroundWindowDrainCheckScheduled = false;
+const getForegroundWindowMainModuleCalls = [];
+let getForegroundWindowOracleScheduled = false;
+let getForegroundWindowOracleCall = null;
+let getForegroundWindowOracleComplete = false;
+let getForegroundWindowOracleEvidence = null;
 let loadCursorAOracleScheduled = false;
 let loadCursorAOracleCall = null;
 let loadCursorAOracleComplete = false;
@@ -9685,6 +9695,218 @@ function scheduleUpdateWindowOracle(module) {
       maybeCompleteUpdateWindowObservation();
     } catch (error) {
       emit("update-window-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompleteGetForegroundWindowObservation() {
+  if (
+    getForegroundWindowCompletionRecorded ||
+    !getForegroundWindowOracleComplete ||
+    getForegroundWindowMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteGetForegroundWindowObservation, 10);
+    return;
+  }
+  if (getForegroundWindowDrainCheckScheduled) {
+    return;
+  }
+  getForegroundWindowDrainCheckScheduled = true;
+  const expectedNextCallId = nextCallId;
+  setTimeout(() => {
+    getForegroundWindowDrainCheckScheduled = false;
+    if (getForegroundWindowCompletionRecorded) {
+      return;
+    }
+    if (activeCallsByThread.size !== 0 || nextCallId !== expectedNextCallId) {
+      maybeCompleteGetForegroundWindowObservation();
+      return;
+    }
+    getForegroundWindowCompletionRecorded = true;
+    emit("get-foreground-window-complete", {
+      profile: "x86-bgi-get-foreground-window-v1",
+      oracleProfile: getForegroundWindowOracleEvidence.profile,
+      quiescenceMilliseconds: 250,
+      mainModuleCalls: getForegroundWindowMainModuleCalls.map((call) => ({
+        ...call,
+      })),
+    });
+    if (stopOnEvent === "get-foreground-window-complete") {
+      recv("vine-trace-stop", () => {}).wait();
+    }
+  }, 250);
+}
+
+function attachGetForegroundWindowHook(module) {
+  const name = "GetForegroundWindow";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("GetForegroundWindow export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter() {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      this.mainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase();
+      this.oracleCaller =
+        callerModule === "frida-agent.dll" &&
+        getForegroundWindowOracleCall !== null;
+      if (!this.mainModuleCaller && !this.oracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      if (this.oracleCaller) {
+        this.lastError = getForegroundWindowOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = this.mainModuleCaller
+        ? {
+            instructions: snapshotInstructions(this.returnAddress, 12),
+            frameCallerContinuations: snapshotX86FrameCallerContinuations(
+              this.context,
+              6,
+              20,
+            ),
+          }
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [],
+          lastErrorBefore: this.lastErrorBefore,
+          getForegroundWindow: {
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const value = result.toString();
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        getForegroundWindowOracleCall.hookResult = value;
+        getForegroundWindowOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: value,
+          getForegroundWindow: { result: value },
+        },
+        this.lastError,
+      );
+      if (
+        this.mainModuleCaller &&
+        getForegroundWindowMainModuleCalls.length === 0
+      ) {
+        getForegroundWindowMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          result: value,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleGetForegroundWindowOracle(module);
+      }
+    },
+  });
+}
+
+function scheduleGetForegroundWindowOracle(module) {
+  if (getForegroundWindowOracleScheduled) {
+    return;
+  }
+  getForegroundWindowOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const address = findExport(module, "GetForegroundWindow");
+      if (address === null) {
+        throw new Error("GetForegroundWindow export is unavailable");
+      }
+      const getForegroundWindow = new SystemFunction(
+        address,
+        "pointer",
+        [],
+        "stdcall",
+      );
+      const invoke = (sentinel) => {
+        getForegroundWindowOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = getForegroundWindow();
+          const systemResult = outcome.value.toString();
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            getForegroundWindowOracleCall.hookResult === null ||
+            getForegroundWindowOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error(
+              "GetForegroundWindow oracle did not pass through the hook",
+            );
+          }
+          return {
+            sentinel,
+            systemResult,
+            hookResult: getForegroundWindowOracleCall.hookResult,
+            hookLastErrorAfter:
+              getForegroundWindowOracleCall.hookLastErrorAfter,
+            systemLastError,
+            hookResultMatches:
+              getForegroundWindowOracleCall.hookResult === systemResult,
+            hookPreservesLastError:
+              getForegroundWindowOracleCall.hookLastErrorAfter === sentinel,
+            systemPreservesLastError: systemLastError === sentinel,
+          };
+        } finally {
+          getForegroundWindowOracleCall = null;
+        }
+      };
+      const calls = [0, 87, 0x1234_5678].map(invoke);
+      getForegroundWindowOracleEvidence = {
+        profile: "x86-get-foreground-window-stable-identity-v1",
+        calls,
+        foregroundWindow: calls[0].systemResult,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allResultsStable: calls.every(
+          (call) => call.systemResult === calls[0].systemResult,
+        ),
+        allResultsNonNull: calls.every(
+          (call) => BigInt(call.systemResult) !== 0n,
+        ),
+        allPreserveLastError: calls.every(
+          (call) =>
+            call.hookPreservesLastError && call.systemPreservesLastError,
+        ),
+      };
+      getForegroundWindowOracleComplete = true;
+      emit(
+        "get-foreground-window-oracle",
+        getForegroundWindowOracleEvidence,
+      );
+      maybeCompleteGetForegroundWindowObservation();
+    } catch (error) {
+      emit("get-foreground-window-oracle-error", { error: error.message });
     }
   });
 }
@@ -25515,6 +25737,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "UpdateWindow",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      focusedGetForegroundWindowObservation
+    ) {
+      try {
+        attachGetForegroundWindowHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "GetForegroundWindow",
           error: error.message,
         });
       }

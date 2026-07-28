@@ -263,6 +263,7 @@ enum GenericRuntimeCapability {
     D3d9PostRasterStatusWaitableTimer,
     D3d9PostScenePresentGateway,
     D3d9Present,
+    D3d9PostPresentContinuation,
 }
 
 struct GenericRuntimeProcess {
@@ -2715,6 +2716,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
                     | GenericRuntimeCapability::D3d9PostScenePresentGateway
                     | GenericRuntimeCapability::D3d9Present
+                    | GenericRuntimeCapability::D3d9PostPresentContinuation
             )
         ) {
             let loader = kernel32_policy
@@ -3382,7 +3384,10 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let d3d9_present_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9Present)
+        Some(
+            GenericRuntimeCapability::D3d9Present
+                | GenericRuntimeCapability::D3d9PostPresentContinuation
+        )
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
@@ -3391,6 +3396,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
                 | GenericRuntimeCapability::D3d9PostScenePresentGateway
                 | GenericRuntimeCapability::D3d9Present
+                | GenericRuntimeCapability::D3d9PostPresentContinuation
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3641,7 +3647,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
             | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
             | GenericRuntimeCapability::D3d9PostScenePresentGateway
-            | GenericRuntimeCapability::D3d9Present,
+            | GenericRuntimeCapability::D3d9Present
+            | GenericRuntimeCapability::D3d9PostPresentContinuation,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -14203,6 +14210,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::D3d9PostScenePresentGateway
                 }
                 "d3d9-first-present" => GenericRuntimeCapability::D3d9Present,
+                "d3d9-post-present-continuation" => {
+                    GenericRuntimeCapability::D3d9PostPresentContinuation
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

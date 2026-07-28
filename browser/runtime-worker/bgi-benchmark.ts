@@ -311,7 +311,8 @@ function runSession(
 ): Promise<SessionReport> {
   invariant(activeSession === null, "BGI benchmark session overlap");
   const d3d9Canvas =
-    capabilityProfile === "d3d9-first-present"
+    capabilityProfile === "d3d9-first-present" ||
+    capabilityProfile === "d3d9-post-present-continuation"
       ? new OffscreenCanvas(1_280, 720)
       : undefined;
   const startMessage = {
@@ -348,7 +349,8 @@ function runSession(
         capabilityProfile === "d3d9-post-end-scene-raster-status" ||
         capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
         capabilityProfile === "d3d9-post-scene-present-gateway" ||
-        capabilityProfile === "d3d9-first-present"
+        capabilityProfile === "d3d9-first-present" ||
+        capabilityProfile === "d3d9-post-present-continuation"
           ? 35_000_000
           : 20_000_000,
       watchdogWallMilliseconds:
@@ -376,7 +378,8 @@ function runSession(
         capabilityProfile === "d3d9-post-end-scene-raster-status" ||
         capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
         capabilityProfile === "d3d9-post-scene-present-gateway" ||
-        capabilityProfile === "d3d9-first-present"
+        capabilityProfile === "d3d9-first-present" ||
+        capabilityProfile === "d3d9-post-present-continuation"
           ? 300_000
           : capabilityProfile === "shell32-drag-accept-files" ||
               capabilityProfile === "kernel32-archive-source-read"
@@ -427,7 +430,8 @@ function parseCapabilityProfile(
     value === "d3d9-post-end-scene-raster-status" ||
     value === "d3d9-post-raster-status-waitable-timer" ||
     value === "d3d9-post-scene-present-gateway" ||
-    value === "d3d9-first-present"
+    value === "d3d9-first-present" ||
+    value === "d3d9-post-present-continuation"
     ? value
     : undefined;
 }

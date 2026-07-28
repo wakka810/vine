@@ -52,6 +52,7 @@ SUPPORTED_OBSERVATIONS = (
     "set-window-pos-frame-change-move",
     "show-window-normal",
     "update-window",
+    "get-foreground-window",
     "load-cursor-a",
     "register-class-ex-a",
     "create-window-ex-a",
