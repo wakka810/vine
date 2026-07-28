@@ -59,7 +59,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 12);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 13);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -407,12 +407,11 @@ for (const [label, evidence, expected] of [
     "checkpoint digest",
   ],
   [
-    "checkpoint endpoint identity mismatch",
+    "structured stop mismatch",
     mutated((value) => {
-      value.semantic.node.checkpointCompletion.nextEndpoint.symbol.name =
-        "interface-1-slot-20";
+      value.semantic.nextStructuredStop.reason = "test-mismatch";
     }),
-    "checkpointCompletion.nextEndpoint.identity",
+    "evidence.semantic.nextStructuredStop.reason",
   ],
   [
     "dirty execution input",
