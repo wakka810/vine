@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-28T06:07:27.161Z",
+  "recordedAt": "2026-07-28T11:18:45.884Z",
   "repository": {
-    "implementationCommit": "f091dc248c0105a3db4bfbe41539becb23185b13",
-    "implementationTree": "9a4024768e7a9ca470132038eb2e286eb33bbbcb",
-    "headCommit": "f091dc248c0105a3db4bfbe41539becb23185b13",
+    "implementationCommit": "1bbc243eaec2e7b6060100cde1fea16f156211f9",
+    "implementationTree": "0812fd051f2c244a4ec1be7f932b8792d3b219b5",
+    "headCommit": "1bbc243eaec2e7b6060100cde1fea16f156211f9",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-end-scene",
-    "runtimeProfile": "d3d9-end-scene",
+    "runtimeCheckpoint": "d3d9-post-end-scene-raster-status",
+    "runtimeProfile": "d3d9-post-end-scene-raster-status",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-end-scene",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-post-end-scene-raster-status",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v40",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v41",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,66 +70,68 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 122,
-      "supportedCalls": 127374,
-      "callSemanticsSha256": "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
-      "instructions": 28761389,
-      "finalGeneration": 235525,
-      "memoryContentSha256": "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
+      "supportedCalls": 127375,
+      "callSemanticsSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+      "instructions": 28761446,
+      "finalGeneration": 235527,
+      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
       "checkpointCompletion": {
-        "capability": "d3d9-end-scene",
-        "implementationId": "d3d9.end-scene.logical-scene-close.v1",
+        "capability": "d3d9-post-end-scene-raster-status",
+        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127375,
-        "lastCompletionInstructionCount": 28761332,
-        "instructionCount": 28761389,
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389,
+        "instructionCount": 28761446,
         "nextEndpoint": {
-          "id": 0,
-          "address": 16847200,
-          "module": "<com>",
+          "id": 118,
+          "address": 2130708304,
+          "module": "KERNEL32.dll",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-19"
+            "name": "SetWaitableTimer"
           }
         },
-        "memoryContentSha256": "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438"
+        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
       },
-      "writebackBatches": 127473,
-      "dirtyPages": 175995,
-      "changedBytes": 6619956,
-      "hostDeltaBatches": 106769
+      "writebackBatches": 127474,
+      "dirtyPages": 175996,
+      "changedBytes": 6620003,
+      "hostDeltaBatches": 106770
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 127374,
-      "callSemanticsSha256": "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
-      "instructions": 28761389,
-      "finalGeneration": 236963,
-      "memoryContentSha256": "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
+      "supportedCalls": 127375,
+      "callSemanticsSha256": "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+      "instructions": 28761446,
+      "finalGeneration": 236965,
+      "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
       "checkpointCompletion": {
-        "capability": "d3d9-end-scene",
-        "implementationId": "d3d9.end-scene.logical-scene-close.v1",
+        "capability": "d3d9-post-end-scene-raster-status",
+        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127375,
-        "lastCompletionInstructionCount": 28761332,
-        "instructionCount": 28761389,
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389,
+        "instructionCount": 28761446,
         "nextEndpoint": {
-          "id": 0,
-          "address": 16847200,
-          "module": "<com>",
+          "address": 2130708304,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292160,
+          "id": 118,
+          "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-19"
+            "name": "SetWaitableTimer"
           }
         },
-        "memoryContentSha256": "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438"
+        "memoryContentSha256": "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc"
       },
-      "wasmBridgeCalls": 373348,
+      "wasmBridgeCalls": 373351,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 416561,
+          "transitionCount": 416563,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -176,26 +178,28 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "d3d9-post-end-scene-raster-status",
-      "pausedHistoricalCheckpoint": "d3d9-end-scene",
-      "instructionCount": 28761389,
-      "capabilityCluster": "d3d9-first-frame-scene-lifecycle",
-      "reason": "end-scene-checkpoint-complete",
+      "nextCheckpoint": "d3d9-post-raster-status-waitable-timer",
+      "pausedHistoricalCheckpoint": "d3d9-post-end-scene-raster-status",
+      "instructionCount": 28761446,
+      "capabilityCluster": "d3d9-first-frame-post-scene-pacing",
+      "reason": "post-end-scene-raster-status-checkpoint-complete",
       "completion": {
-        "capability": "d3d9-end-scene",
-        "implementationId": "d3d9.end-scene.logical-scene-close.v1",
+        "capability": "d3d9-post-end-scene-raster-status",
+        "implementationId": "d3d9.get-raster-status.deterministic-sample.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 127375,
-        "lastCompletionInstructionCount": 28761332
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389
       },
       "nextEndpoint": {
-        "endpointKind": "com-method",
-        "endpointId": 0,
-        "api": "IDirect3DDevice9::GetRasterStatus",
-        "endpointAddress": "0x01011160",
-        "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-19"
+        "endpointKind": "runtime-system-export",
+        "endpointId": 118,
+        "api": "kernel32.dll!SetWaitableTimer",
+        "endpointAddress": "0x7f000750",
+        "iatAddress": "0x100d1280",
+        "observedModule": "KERNEL32.dll",
+        "observedSymbol": "SetWaitableTimer",
+        "disposition": "declared-runtime-export"
       }
     },
     "cleanup": {
@@ -211,14 +215,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-end-scene/report.json",
-      "bytes": 559180,
-      "sha256": "ef0d231643a09fc75b83ded14f860c0d6ea1175dc0bec0f9467de85ee71d9e65"
+      "path": ".work/v86-bgi-d3d9-post-end-scene-raster-status/report.json",
+      "bytes": 561027,
+      "sha256": "625767eb2f976303702c493656f7c6e7998800b200c7ea755ea9d4a4f05062ec"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1934846,
-      "sha256": "a0440c0f47d6a786c6532139d9e69ed3c59f33ea99395c62457b265e27af2c16"
+      "bytes": 1936721,
+      "sha256": "4fcfa45df2d00faab7f28262c30d50363646355c21609d7b4936702aff0081ae"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -233,7 +237,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "1502cfd483d8797573b670c17fe0cf5262221a111bddc5822929f45783d88ad3"
+      "sha256": "958aa2aae71d577ed28a40fa0ca50df4841ab7526fbb20c0ab0cd30110b2a5a0"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -270,5 +274,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "36690452e794c5d21cb914af40b2d9e625279e2704b158c46a7609ba5790088a"
+  "payloadSha256": "1ded03791c6d41810e7891f6c88d84a59cc76dbfe7522425536d12d37b6b5960"
 }
