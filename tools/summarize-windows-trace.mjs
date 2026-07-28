@@ -87,6 +87,7 @@ const supportedObservations = new Set([
   "d3d9-set-fvf",
   "d3d9-set-stream-source",
   "d3d9-draw-primitive",
+  "d3d9-end-scene",
   "d3d9-initial-sampler-states",
   "d3d9-initial-texture-stage-states",
   "d3d9-initial-vertex-buffer",
@@ -3012,6 +3013,114 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const endSceneCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-end-scene-complete",
+  );
+  const requiresEndSceneCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-end-scene" &&
+    traceStart.arguments?.stopOnEvent === "d3d9-end-scene-complete";
+  if (
+    endSceneCompletionEvents.length > 1 ||
+    (requiresEndSceneCompletion && endSceneCompletionEvents.length !== 1)
+  ) {
+    throw new Error(
+      "d3d9-end-scene observation requires exactly one structured completion",
+    );
+  }
+  const endSceneObservations = endSceneCompletionEvents.map((completion) => {
+    const snapshot = completion.mainModuleCall;
+    const pair = pairsByCallId.get(snapshot?.callId);
+    const observation = pair?.leave.d3d9EndScene;
+    const instructions = snapshot?.immediateConsumer?.entry?.instructions;
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
+    if (
+      completion.profile !== "x86-bgi-first-frame-end-scene-v1" ||
+      typeof completion.device !== "string" ||
+      !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+      BigInt(completion.device) === 0n ||
+      !Number.isInteger(completion.sequence) ||
+      pair === undefined ||
+      observation === undefined ||
+      snapshot.api !== "EndScene" ||
+      snapshot.interface !== "IDirect3DDevice9" ||
+      snapshot.vtableSlot !== 42 ||
+      snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+      JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+      snapshot.result !== observation.result ||
+      snapshot.resultU32 !== observation.resultU32 ||
+      snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+      snapshot.lastError !== observation.lastErrorAfter ||
+      JSON.stringify(snapshot.immediateConsumer) !==
+        JSON.stringify(observation.immediateConsumer) ||
+      snapshot.caller?.module !== pair.enter.caller?.module ||
+      snapshot.caller?.rva !== pair.enter.caller?.rva ||
+      pair.enter.parentCallId !== null ||
+      pair.enter.api !== "EndScene" ||
+      pair.enter.interface !== "IDirect3DDevice9" ||
+      pair.enter.vtableSlot !== 42 ||
+      pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+      pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+      pair.enter.caller?.rva !== 0x5b43b ||
+      !Array.isArray(pair.enter.arguments) ||
+      pair.enter.arguments.length !== 0 ||
+      BigInt(pair.leave.result) !== 0n ||
+      observation.result !== 0 ||
+      observation.resultU32 !== 0 ||
+      observation.lastErrorBefore !== 0 ||
+      pair.leave.lastError !== 0 ||
+      observation.lastErrorAfter !== 0 ||
+      !Array.isArray(instructions) ||
+      instructions[0]?.mnemonic !== "mov" ||
+      !instructions[0].opStr.startsWith("eax, dword ptr [") ||
+      instructions[1]?.mnemonic !== "test" ||
+      instructions[1].opStr !== "eax, eax" ||
+      instructions[2]?.mnemonic !== "je" ||
+      instructions[3]?.mnemonic !== "mov" ||
+      instructions[3].opStr !== "ecx, dword ptr [eax]" ||
+      instructions[4]?.mnemonic !== "mov" ||
+      instructions[4].opStr !== "edx, dword ptr [ecx + 0x18]" ||
+      instructions[5]?.mnemonic !== "push" ||
+      instructions[5].opStr !== "1" ||
+      instructions[6]?.mnemonic !== "push" ||
+      instructions[6].opStr !== "eax" ||
+      instructions[7]?.mnemonic !== "call" ||
+      instructions[7].opStr !== "edx"
+    ) {
+      throw new Error(
+        "d3d9-end-scene completion violates its caller, result, LastError, ignored HRESULT, or post-scene consumer contract",
+      );
+    }
+    if (
+      completion.threadId !== pair.enter.threadId ||
+      pair.leave.threadId !== pair.enter.threadId ||
+      completion.sequence !== pair.leave.sequence + 1
+    ) {
+      throw new Error(
+        "d3d9-end-scene completion violates its thread or contiguous ordering contract",
+      );
+    }
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      threadId: pair.enter.threadId,
+      device: completion.device,
+      call: {
+        sequence: pair.enter.sequence,
+        caller: {
+          module: pair.enter.caller.module,
+          rva: pair.enter.caller.rva,
+        },
+        result: pair.leave.result,
+        lastErrorBefore: observation.lastErrorBefore,
+        lastError: pair.leave.lastError,
+        immediateConsumer: observation.immediateConsumer,
+      },
+    };
+  });
+
   const initialSamplerStateCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-initial-sampler-states-complete",
   );
@@ -4862,6 +4971,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       setFvfObservations,
       setStreamSourceObservations,
       drawPrimitiveObservations,
+      endSceneObservations,
       initialSamplerStateSequences,
       initialTextureStageStateSequences,
       rasterStatusObservations,

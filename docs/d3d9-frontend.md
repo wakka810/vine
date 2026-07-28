@@ -15,7 +15,7 @@ at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
 Its IUnknown methods, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
-slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 43 `Clear`, slot 65
+slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 42 `EndScene`, slot 43 `Clear`, slot 65
 `SetTexture`, slot 67 `SetTextureStageState`, slot 69 `SetSamplerState`, slot
 81 `DrawPrimitive`, slot 89 `SetFVF`, and slot 100 `SetStreamSource`
 delegate to implemented handlers. `CreateTexture`
@@ -856,6 +856,35 @@ No guest bytes, COM references, browser renderer resources, or visible pixels
 are produced. Eight instructions later both stop at device slot 42 `EndScene`,
 endpoint `0x010112D0`, return address `0x1005B43B`.
 
+## Bounded first-frame scene close
+
+Version 28 adds `primary-first-frame-scene-end-v1` for device slot 42. The
+frontend accepts `EndScene` only for the live device with an active scene.
+`RuntimeGraphics` owns the lifecycle transition: planning captures the device,
+scene, and owner generations without mutation; preflight rejects stale plans;
+the targeted commit clears only `active_scene` and advances the device and
+graphics generations. Back-buffer clear state and immutable draw submissions
+remain unchanged. An outside or repeated `EndScene` returns
+`D3DERR_INVALIDCALL` before mutation, while success preserves LastError, guest
+memory, COM reference counts, and browser-resource state.
+
+Focused primary traces agree on one `D3D_OK` call on the same device and thread,
+zero explicit arguments, LastError 0, caller RVA `0x0005B43B`, and an ignored
+HRESULT overwritten by the following global-pointer test and optional
+interface slot-6 call. The shared controlled PE32/i386 scene-lifecycle oracle
+fixes first begin／end success, nested `BeginScene`, outside／repeated `EndScene`
+as `D3DERR_INVALIDCALL`, a successful second cycle, LastError sentinel
+preservation, and unchanged device reference counts.
+
+Canonical Node and Chrome complete sequence 127,375 at instruction 28,761,332.
+They agree on device 3／COM 21, generation 58, no active scene, back-buffer
+content generation 2, the retained draw submission, reference count 5, and zero
+guest writes. No renderer resource or visible pixel is produced. The profile
+then stops deliberately at instruction 28,761,389, before the next owned COM
+endpoint at `0x01011160`, mapped through the stable D3D9 vtable as
+`IDirect3DDevice9::GetRasterStatus` slot 19. The intervening normal wait loop is
+not treated as an unsupported API.
+
 ## Versioned frontend and shared graphics boundary
 
 D3D8, D3D9, and any future D3D10／11 support remain separate guest-facing
@@ -898,6 +927,9 @@ buffer retires while the device remains live.
 Slot 81 `DrawPrimitive` is the first consuming graphics transaction. It reads
 the checked guest vertex range and commits an owning immutable command snapshot
 without moving guest memory or Windows state into TypeScript.
+Slot 42 `EndScene` closes only the active Rust-owned scene lifecycle and
+preserves the immutable back-buffer content for a later renderer／Present
+gateway.
 The vertex-buffer `Lock`／`Unlock` pair exposes only its checked Rust-owned guest
 backing and records lock and content generations; it does not allocate browser
 GPU memory.
@@ -914,7 +946,7 @@ explicitly reopened.
 cargo test -p vine-core --test d3d9_dispatcher --locked
 npm run check:toolchain
 npm run check:runtime:browser-worker
-npm run check:runtime:bgi -- --profile d3d9-draw-primitive
+npm run check:runtime:bgi -- --profile d3d9-end-scene
 npm run check:runtime:bgi-browser
 ```
 
@@ -956,9 +988,10 @@ lifecycle policy, and zero writes. Finally it records the exact two slot-69
 and the slot-65 non-owning texture binding, including immutable device
   snapshots and three explicit post-sampler render-state rejections. It then
   records the slot-89 typed FVF transition, slot-100 non-owning stream-zero
-  binding, and slot-81 immutable triangle-strip draw submission before stopping
-  at device slot 42 `EndScene`, without creating a browser renderer resource,
-  visible pixels, or a second graphics authority.
+  binding, slot-81 immutable triangle-strip draw submission, and slot-42
+  active-to-inactive scene close before the post-scene raster-status checkpoint,
+  without creating a browser renderer resource, visible pixels, or a second
+  graphics authority.
 
 Historical D3D9 runners expose only the frontend methods enabled by their bounded
 evidence policy. Thus `d3d9-get-adapter-count` stops at slot 15 and
@@ -1001,7 +1034,9 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   stream-0／vertex-buffer／offset-0／stride-28 binding and stops at
   `IDirect3DDevice9::DrawPrimitive` slot 81. The active
   `d3d9-draw-primitive` profile adds the exact first-frame triangle-strip quad
-  submission and stops at `IDirect3DDevice9::EndScene` slot 42.
+  submission and stops at `IDirect3DDevice9::EndScene` slot 42. The active
+  `d3d9-end-scene` profile closes that exact scene, preserves its draw content,
+  and completes before the next post-scene slot-19 raster-status query.
 
 ## Non-claims
 
@@ -1019,22 +1054,22 @@ at `IDirect3DDevice9::SetTexture` slot 65. The historical `d3d9-set-texture`
   linear `SetSamplerState` calls, the exact six stage-0
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
-  source binding at offset 0／stride 28, and one exact triangle-strip quad draw
-  submission are
+  source binding at offset 0／stride 28, one exact triangle-strip quad draw
+  submission, and the matching active-to-inactive `EndScene` are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
   surface／texture storage, vertex declarations, other resource locks, other
   device/resource state, partial dirty-region transfer, dynamic-destination
-  `UpdateTexture`, partial／depth／stencil Clear, `EndScene`, other sampler／state／
+  `UpdateTexture`, partial／depth／stencil Clear, other scene variants, other sampler／state／
   filter variants, other texture stages／operations／arguments／resources,
   other vertex formats, other streams／vertex buffers／offsets／strides, NULL
-  stream unbind, other draws, `EndScene`, Present, Reset,
+  stream unbind, other draws, Present, Reset,
   and renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
   bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
   texture-stage state, bounded texture binding, bounded FVF state, bounded
-  stream-source binding, and bounded immutable draw submission create Rust logical state
+  stream-source binding, bounded immutable draw submission, and bounded scene close create Rust logical state
   only. They do
   not create a browser renderer resource,
   Canvas／WebGL／WebGPU context, swap chain, or visible frame.

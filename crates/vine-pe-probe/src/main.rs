@@ -258,6 +258,7 @@ enum GenericRuntimeCapability {
     D3d9SetFvf,
     D3d9SetStreamSource,
     D3d9DrawPrimitive,
+    D3d9EndScene,
 }
 
 struct GenericRuntimeProcess {
@@ -2705,6 +2706,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9SetFvf
                     | GenericRuntimeCapability::D3d9SetStreamSource
                     | GenericRuntimeCapability::D3d9DrawPrimitive
+                    | GenericRuntimeCapability::D3d9EndScene
             )
         ) {
             let loader = kernel32_policy
@@ -3370,10 +3372,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let d3d9_draw_primitive_enabled = matches!(
+    let d3d9_end_scene_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9DrawPrimitive)
+        Some(GenericRuntimeCapability::D3d9EndScene)
     );
+    let d3d9_draw_primitive_enabled = d3d9_end_scene_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::D3d9DrawPrimitive)
+        );
     let d3d9_set_stream_source_enabled = d3d9_draw_primitive_enabled
         || matches!(
             enabled_capability,
@@ -3607,7 +3614,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9SetTexture
             | GenericRuntimeCapability::D3d9SetFvf
             | GenericRuntimeCapability::D3d9SetStreamSource
-            | GenericRuntimeCapability::D3d9DrawPrimitive,
+            | GenericRuntimeCapability::D3d9DrawPrimitive
+            | GenericRuntimeCapability::D3d9EndScene,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3938,7 +3946,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v27();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v28();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -3968,6 +3976,9 @@ fn run_v86_generic_runtime_session(
     }
     if !d3d9_draw_primitive_enabled {
         d3d9_policy.draw_primitive = None;
+    }
+    if !d3d9_end_scene_enabled {
+        d3d9_policy.end_scene = None;
     }
     if !matches!(
         requested_capability,
@@ -6350,6 +6361,7 @@ fn run_v86_generic_runtime_session(
                         21 => d3d9_add_dirty_rect_enabled && d3d9_policy.add_dirty_rect.is_some(),
                         31 => d3d9_update_texture_enabled && d3d9_policy.update_texture.is_some(),
                         41 => d3d9_begin_scene_enabled && d3d9_policy.begin_scene.is_some(),
+                        42 => d3d9_end_scene_enabled && d3d9_policy.end_scene.is_some(),
                         23 => d3d9_policy.create_texture.is_some(),
                         26 | 11 | 12 => d3d9_policy.initial_vertex_buffer.is_some(),
                         43 => d3d9_clear_enabled && d3d9_policy.clear.is_some(),
@@ -6428,6 +6440,7 @@ fn run_v86_generic_runtime_session(
                                     | "SetFVF"
                                     | "SetStreamSource"
                                     | "DrawPrimitive"
+                                    | "EndScene"
                             ) {
                             process
                                 .runtime
@@ -14148,6 +14161,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-set-fvf" => GenericRuntimeCapability::D3d9SetFvf,
                 "d3d9-set-stream-source" => GenericRuntimeCapability::D3d9SetStreamSource,
                 "d3d9-draw-primitive" => GenericRuntimeCapability::D3d9DrawPrimitive,
+                "d3d9-end-scene" => GenericRuntimeCapability::D3d9EndScene,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

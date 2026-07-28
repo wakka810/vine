@@ -890,9 +890,16 @@ capacityをpreflightしてからback-bufferへtargeted commitし、失敗時はg
 Full-target Clearは同じchecked commitでpending submissionを破棄する。これによりguest bytesの後続変更やresource retirementで
 既に発行したcommandの意味が変わらず、renderer adapterはRust snapshotだけを消費できる。
 
+Reached `EndScene`は同じ`RuntimeGraphicsDevice`が所有するactive-scene identityとdevice／graphics generationを
+mutation-free planへ固定し、全generationとlifecycleをpreflightした後、active sceneだけをtargeted commitでclearする。
+Back-buffer clear／draw content、resource binding、COM refcount、guest memoryは変更しない。Outside／repeated end、unknown
+device、stale／duplicate planはmutation前に`D3DERR_INVALIDCALL`またはtyped stale faultとなり、scene allocatorと全generationを
+部分更新しない。これによりscene lifecycleはRust authorityのまま閉じ、後続renderer／Present gatewayは閉じたsceneの
+immutable back-buffer snapshotを明示的に消費できる。
+
 TypeScriptはこれらのimmutable snapshotを検証するだけで、texture content、dirty state、scene state、sampler state、
 texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、renderer resourceの第二のauthorityを
-持たない。他stage／resource binding、他vertex format、他stream binding、他draw、`EndScene`、Present、pixel backing、
+持たない。他stage／resource binding、他vertex format、他stream binding、他draw、他scene variant、Present、pixel backing、
 browser uploadはそれぞれ到達した後続vertical sliceの責務とする。
 
 `GetSurfaceLevel`はlive texture association、policyが明示するsource variant index、bounded level、guest output

@@ -1432,6 +1432,19 @@ device generation 57、back-buffer generation 2、submission／scene sequence 1�
 pixelsなしを一致させる。Canonical stopはinstruction 28,761,332の`IDirect3DDevice9::EndScene` slot 42である。他draw、
 `EndScene` semantics、Present、pixel backing、browser renderer／visible outputはacceptanceへ含めない。
 
+続く`EndScene` gatewayは、focused primary trace二runが同じdevice／thread、caller RVA `0x5B43B`、引数なし、
+`D3D_OK`、LastError 0、HRESULTを分岐へ使わないconsumerを一致させる。共有controlled PE32/i386 scene-lifecycle
+oracleはfirst begin／endとsecond cycleのsuccess、nested begin、outside／repeated endの`D3DERR_INVALIDCALL`、
+LastError sentinel `0x5A5A` preserve、device reference count不変を固定する。
+
+Focused Rust model／dispatcher testsはactive-scene identity、device／graphics generation preflight、active sceneだけを
+clearするtargeted commit、draw／clear content保持、stale／duplicate／unknown／inactive failure atomicity、zero guest writes、
+LastError／COM reference preserveを固定する。Node／Chrome protocol v40はsequence 127,375、instruction 28,761,332、
+device 3／COM 21、device generation 58、active sceneなし、back-buffer generation 2、draw submission保持、reference count 5、
+renderer resource／visible pixelsなしを一致させる。Capability checkpointはinstruction 28,761,389で完了し、次のowned
+endpointを`IDirect3DDevice9::GetRasterStatus` slot 19／`0x01011160`として固定する。続く通常wait loopをunsupported stopとは
+扱わない。他scene variant、renderer translation、Present、pixel backing、browser upload／visible outputはacceptanceへ含めない。
+
 Primary system-menu gatewayは、初期window-creation中のNULL failure chainと、created main windowの
 `GetSystemMenu(FALSE) -> EnableMenuItem(SC_CLOSE, MF_BYCOMMAND | MF_ENABLED)` success chainを分離して検証する。
 `runtime::user32::tests::system_menu_identity_is_window_owned_reentrant_and_failure_atomic`はwindow-owned identity、

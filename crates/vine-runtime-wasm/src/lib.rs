@@ -94,6 +94,7 @@ struct BgiCheckpointCapabilities {
     d3d9_set_fvf: bool,
     d3d9_set_stream_source: bool,
     d3d9_draw_primitive: bool,
+    d3d9_end_scene: bool,
 }
 
 impl Bridge {
@@ -482,7 +483,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v27();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v28();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -669,7 +670,7 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v27();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v28();
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
@@ -699,6 +700,9 @@ impl BrowserRuntime {
         }
         if !capabilities.d3d9_draw_primitive {
             d3d9_policy.draw_primitive = None;
+        }
+        if !capabilities.d3d9_end_scene {
+            d3d9_policy.end_scene = None;
         }
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
@@ -1855,6 +1859,7 @@ impl BrowserRuntime {
                             | "SetFVF"
                             | "SetStreamSource"
                             | "DrawPrimitive"
+                            | "EndScene"
                     ) {
                     self.runtime
                         .graphics_devices()
@@ -4273,6 +4278,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_set_fvf_enabled: u32,
     d3d9_set_stream_source_enabled: u32,
     d3d9_draw_primitive_enabled: u32,
+    d3d9_end_scene_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4292,6 +4298,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 d3d9_set_fvf: d3d9_set_fvf_enabled != 0,
                 d3d9_set_stream_source: d3d9_set_stream_source_enabled != 0,
                 d3d9_draw_primitive: d3d9_draw_primitive_enabled != 0,
+                d3d9_end_scene: d3d9_end_scene_enabled != 0,
             },
         )
     })

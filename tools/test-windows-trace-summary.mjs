@@ -3158,6 +3158,123 @@ assert.throws(
   /violates its caller, topology, result, LastError, or immediate EndScene contract/,
 );
 
+const endSceneImmediateConsumer = makeInstructionWindow(
+  0x0045_b43b,
+  128,
+  8,
+);
+setFixtureInstruction(
+  endSceneImmediateConsumer,
+  0,
+  "mov",
+  "eax, dword ptr [0x5517c8]",
+);
+setFixtureInstruction(endSceneImmediateConsumer, 1, "test", "eax, eax");
+setFixtureInstruction(endSceneImmediateConsumer, 2, "je", "0x45b44e");
+setFixtureInstruction(
+  endSceneImmediateConsumer,
+  3,
+  "mov",
+  "ecx, dword ptr [eax]",
+);
+setFixtureInstruction(
+  endSceneImmediateConsumer,
+  4,
+  "mov",
+  "edx, dword ptr [ecx + 0x18]",
+);
+setFixtureInstruction(endSceneImmediateConsumer, 5, "push", "1");
+setFixtureInstruction(endSceneImmediateConsumer, 6, "push", "eax");
+setFixtureInstruction(endSceneImmediateConsumer, 7, "call", "edx");
+const endSceneCaller = {
+  address: "0x45b43b",
+  module: "BGI.exe",
+  rva: 0x5b43b,
+};
+const endSceneObservation = {
+  lastErrorBefore: 0,
+  immediateConsumer: endSceneImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 0,
+};
+const endSceneCompletionCall = {
+  callId: 1,
+  api: "EndScene",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 42,
+  object: "0x490000",
+  arguments: [],
+  result: 0,
+  resultU32: 0,
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: endSceneImmediateConsumer,
+  caller: endSceneCaller,
+};
+const d3d9EndSceneEvents = structuredClone(d3d9DrawPrimitiveEvents);
+const endSceneTraceStart = d3d9EndSceneEvents.find(
+  (event) => event.kind === "trace-start",
+);
+endSceneTraceStart.arguments.stopOnEvent = "d3d9-end-scene-complete";
+endSceneTraceStart.arguments.observations = ["d3d9-end-scene"];
+const endSceneAgentReady = d3d9EndSceneEvents.find(
+  (event) => event.kind === "agent-ready",
+);
+endSceneAgentReady.selectedObservations = ["d3d9-end-scene"];
+const endSceneEnter = d3d9EndSceneEvents.find(
+  (event) => event.kind === "api-enter" && event.callId === 1,
+);
+endSceneEnter.caller = endSceneCaller;
+endSceneEnter.api = "EndScene";
+endSceneEnter.vtableSlot = 42;
+endSceneEnter.arguments = [];
+const endSceneLeave = d3d9EndSceneEvents.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+);
+endSceneLeave.caller = endSceneCaller;
+endSceneLeave.api = "EndScene";
+endSceneLeave.vtableSlot = 42;
+delete endSceneLeave.d3d9DrawPrimitive;
+endSceneLeave.d3d9EndScene = endSceneObservation;
+const endSceneCompletion = d3d9EndSceneEvents.find(
+  (event) => event.kind === "d3d9-draw-primitive-complete",
+);
+endSceneCompletion.kind = "d3d9-end-scene-complete";
+endSceneCompletion.profile = "x86-bgi-first-frame-end-scene-v1";
+endSceneCompletion.mainModuleCall = endSceneCompletionCall;
+const endSceneTraceStop = d3d9EndSceneEvents.find(
+  (event) => event.kind === "trace-stop",
+);
+endSceneTraceStop.reason = "event-d3d9-end-scene-complete-kill";
+const d3d9EndSceneSummary = summarizeTrace(
+  encode(d3d9EndSceneEvents),
+  "d3d9-end-scene-fixture.jsonl",
+);
+assert.deepEqual(d3d9EndSceneSummary.d3d9.endSceneObservations[0].call, {
+  sequence: 4,
+  caller: { module: "BGI.exe", rva: 0x5b43b },
+  result: "0x0",
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: endSceneImmediateConsumer,
+});
+const missingEndSceneCompletion = d3d9EndSceneEvents.filter(
+  (event) => event.kind !== "d3d9-end-scene-complete",
+);
+assert.throws(
+  () => summarizeTrace(encode(missingEndSceneCompletion)),
+  /requires exactly one structured completion/,
+);
+const changedEndSceneLastError = structuredClone(d3d9EndSceneEvents);
+changedEndSceneLastError.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+).d3d9EndScene.lastErrorAfter = 1;
+assert.throws(
+  () => summarizeTrace(encode(changedEndSceneLastError)),
+  /violates its caller, result, LastError, ignored HRESULT, or post-scene consumer contract/,
+);
+
 const d3d9InitialTextureStageStateEvents = [
   {
     schema,
@@ -5360,6 +5477,13 @@ d3d9DrawPrimitiveSelection.find(
 assert.doesNotThrow(() =>
   summarizeTrace(encode(d3d9DrawPrimitiveSelection)),
 );
+
+const d3d9EndSceneSelection = structuredClone(events);
+d3d9EndSceneSelection[0].arguments.observations = ["d3d9-end-scene"];
+d3d9EndSceneSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-end-scene"];
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9EndSceneSelection)));
 
 const windowDcSelection = structuredClone(events);
 windowDcSelection[0].arguments.observations = ["window-dc"];

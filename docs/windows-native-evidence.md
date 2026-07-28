@@ -5682,3 +5682,32 @@ Rust-ownedで、guest write、COM reference mutation、browser renderer resource
 8 instructions後、endpoint `0x010112D0`、caller return `0x1005B43B`の
 `IDirect3DDevice9::EndScene` slot 42である。他draw、EndScene／Present semantics、pixel backing、browser upload、
 device lossはこのevidenceからclaimしない。
+
+## 169. BGI first `EndScene` and controlled scene lifecycle close
+
+Focused primary captureは471,019 bytes／1,176 lines／SHA-256
+`2602fe98578014f2ce73c332602ae027066c71597dde06b243081e29c204f7f9`、summaryは298,700 bytes／
+SHA-256 `b73672e4ed31d466582a83b922a9e082b24de1b3731a31959af12e4bf52b1e58`で、1,174 events／548
+API pairsがbalancedである。Independent confirmation captureは470,280 bytes／1,174 lines／SHA-256
+`a504b255b08afc271ee9073b4482cc58e9c2e7a564e89e11c2ac8accd2231cad`、summaryは298,602 bytes／
+SHA-256 `d1824e167ed8036e584e9b7aa57a2642d03c4dc42bd7a1ed2595b7cad46994e0`で、1,172 events／547
+balanced pairsである。両runともdiagnostics 0、単一thread、同じnonzero device、引数なし、`D3D_OK`、
+entry／exit LastError 0、caller RVA `0x0005B43B`を一致させる。Return後はHRESULTを分岐へ使わず、EAXをglobal
+pointerで上書きしてNULL testとoptional interface slot-6 callへ進む。Raw trace／summaryは`.work/windows-traces/`に保持し
+Gitへ追加しない。Source executableは1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`で不変である。
+
+Controlled oracle `x86-d3d9-scene-lifecycle-v1`はPE32／COFF-i386 executableである。Sourceは8,025 bytes／
+SHA-256 `47e39e28ca77f7e6164e39afd3ae5448930c221aa84c7711d2e19b57230b8e77`、objectは8,639 bytes／
+SHA-256 `db268f3154fa5fd5d55763b61da9c5f768997f70a95158f3fc2b54ff73be7c34`、executableは5,120 bytes／
+SHA-256 `092ae273c871747c88cd76fac5b476169e479ac04fad50de1ffcf30a0870c1b5`である。独立二runはともに
+exit 0で、最初と二回目のbegin／end cycleを`D3D_OK`、nested `BeginScene`とoutside／repeated `EndScene`を
+`D3DERR_INVALIDCALL`、全callのLastError sentinel 23,130 (`0x5A5A`) preserve、device reference count `[1,1]`を
+一致させる。このlifecycle contractをruntimeのactive-scene plan／preflight／targeted commitとnegative testのoracleにする。
+
+Canonical Node／Chromeはsequence 127,375、instruction 28,761,332、logical device 3／COM 21、device generation 58、
+active sceneなし、back-buffer content generation 2、既存draw submission保持、reference count 5、zero guest writesを
+一致させる。Browser renderer resource／visible pixelは生成しない。Versioned capabilityはinstruction 28,761,389で完了し、
+次のowned endpointを`0x01011160`の`IDirect3DDevice9::GetRasterStatus` slot 19として記録する。Opaque endpoint ID 0は
+prepared API catalog外のCOM methodを示すevidence identityで、guest semanticsには使わない。他scene variant、Present、
+pixel backing、browser upload、device lossはこのevidenceからclaimしない。

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 39 as const;
+export const protocolVersion = 40 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -33,7 +33,8 @@ export type BgiCapabilityProfile =
   | "d3d9-set-texture"
   | "d3d9-set-fvf"
   | "d3d9-set-stream-source"
-  | "d3d9-draw-primitive";
+  | "d3d9-draw-primitive"
+  | "d3d9-end-scene";
 
 export type RuntimeGraphicsTextureDirtyRegionSnapshot =
   | { kind: "clean" }
@@ -962,7 +963,7 @@ export interface SessionReport {
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     createTextureProfileId: "primary-initial-and-recreated-x8r8g8b8-textures-v2";
     getSurfaceLevelProfileId: "primary-system-memory-texture-level-zero-surfaces-v2";
     textureAuthority: "rust-runtime-graphics-logical-texture";
@@ -972,7 +973,7 @@ export interface SessionReport {
   } | null;
   d3d9Clear: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     clearProfileId: "primary-full-render-target-black-v1";
     targetAuthority: "rust-runtime-graphics-logical-device-back-buffer";
     targetScope: "full-presentation-back-buffer";
@@ -984,7 +985,7 @@ export interface SessionReport {
   } | null;
   d3d9AddDirtyRect: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     addDirtyRectProfileId: "primary-recreated-system-memory-texture-dirty-rect-v1";
     textureAuthority: "rust-runtime-graphics-logical-texture";
     initialDirtyRegion: "whole-texture";
@@ -996,7 +997,7 @@ export interface SessionReport {
   } | null;
   d3d9UpdateTexture: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     updateTextureProfileId: "primary-recreated-system-memory-to-static-default-texture-update-v1";
     contentAuthority: "rust-runtime-graphics-logical-texture";
     sourceDirtyRegionBefore: "whole-texture";
@@ -1011,20 +1012,20 @@ export interface SessionReport {
   } | null;
   d3d9BeginScene: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     beginSceneProfileId: "primary-first-frame-scene-begin-v1";
     sceneAuthority: "rust-runtime-graphics-logical-device";
     lifecycle: "inactive-to-active";
     mutation: "validate-plan-preflight-targeted-commit";
     nestedBeginReturnsInvalidCall: true;
     failureAtomicity: true;
-    endSceneImplemented: false;
+    endSceneImplemented: boolean;
     browserRendererResourceCreated: false;
   } | null;
   d3d9InitialSamplerStates: {
     calls: [RuntimeSupportedCallSnapshot, RuntimeSupportedCallSnapshot];
     postSamplerRenderStateRejections: RuntimeSupportedCallSnapshot[];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     samplerStateProfileId: "primary-first-frame-linear-sampler-states-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-sampler-states";
     mutation: "validate-plan-preflight-targeted-idempotent-commit";
@@ -1042,7 +1043,7 @@ export interface SessionReport {
       RuntimeSupportedCallSnapshot,
       RuntimeSupportedCallSnapshot,
     ];
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     textureStageStateProfileId: "primary-first-frame-fixed-function-texture-stage-zero-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-texture-stage-states";
     mutation: "validate-plan-preflight-targeted-idempotent-commit";
@@ -1053,7 +1054,7 @@ export interface SessionReport {
   } | null;
   d3d9SetTexture: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     textureBindingProfileId: "primary-first-frame-static-default-texture-stage-zero-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-texture-bindings";
     bindingOwnership: "non-owning";
@@ -1066,7 +1067,7 @@ export interface SessionReport {
   } | null;
   d3d9SetFvf: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     flexibleVertexFormatProfileId: "primary-first-frame-transformed-diffuse-textured-fvf-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-flexible-vertex-format";
     mutation: "validate-plan-preflight-targeted-idempotent-commit";
@@ -1077,7 +1078,7 @@ export interface SessionReport {
   } | null;
   d3d9SetStreamSource: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     streamSourceProfileId: "primary-first-frame-transformed-diffuse-textured-stream-zero-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-stream-sources";
     bindingOwnership: "non-owning";
@@ -1093,7 +1094,7 @@ export interface SessionReport {
   } | null;
   d3d9DrawPrimitive: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v27";
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
     drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1";
     stateAuthority: "rust-runtime-graphics-logical-device-back-buffer-draw-submissions";
     vertexByteAuthority: "rust-guest-memory-synchronous-immutable-snapshot";
@@ -1105,6 +1106,19 @@ export interface SessionReport {
     pendingSubmissionLimit: 4096;
     pendingVertexBytesLimit: 1048576;
     clearDiscardsPendingSubmissions: true;
+    failureAtomicity: true;
+    browserRendererResourceCreated: false;
+    visiblePixelsProduced: false;
+  } | null;
+  d3d9EndScene: {
+    call: RuntimeSupportedCallSnapshot;
+    compatibilityPolicyId: "d3d9-primary-virtual-adapter-v28";
+    endSceneProfileId: "primary-first-frame-scene-end-v1";
+    sceneAuthority: "rust-runtime-graphics-logical-device-active-scene";
+    lifecycle: "active-to-inactive";
+    mutation: "validate-plan-preflight-targeted-commit";
+    preservesDrawSubmissions: true;
+    repeatedEndReturnsInvalidCall: true;
     failureAtomicity: true;
     browserRendererResourceCreated: false;
     visiblePixelsProduced: false;
@@ -1132,6 +1146,24 @@ export interface SessionReport {
         implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
         requiredCompletions: number;
         completionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "d3d9-end-scene";
+        implementationId: "d3d9.end-scene.logical-scene-close.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
         lastCompletionSequence: number;
         lastCompletionInstructionCount: number;
         instructionCount: number;

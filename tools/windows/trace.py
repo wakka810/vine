@@ -105,6 +105,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-set-fvf",
     "d3d9-set-stream-source",
     "d3d9-draw-primitive",
+    "d3d9-end-scene",
     "d3d9-initial-sampler-states",
     "d3d9-initial-texture-stage-states",
     "d3d9-initial-vertex-buffer",

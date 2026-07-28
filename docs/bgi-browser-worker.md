@@ -79,8 +79,8 @@ IndexedDB, immutable source HTTP identity, memory mapping, physical-pool growth 
 multi-thread execution, and source fingerprint preservation. Performance thresholds and their current results are
 defined by the versioned workload and recorded in the current manifest.
 
-The active private profile is `d3d9-draw-primitive` and uses protocol
-`vine.browser-runtime-worker.v39`. It inherits the immutable boot-archive snapshot,
+The active private profile is `d3d9-end-scene` and uses protocol
+`vine.browser-runtime-worker.v40`. It inherits the immutable boot-archive snapshot,
 writable-profile separation, 480 Rust-owned `Sleep(0)` yields, deterministic 32-byte
 x86 `GlobalMemoryStatus`, and 23 `GetFileAttributesA` path queries. It then durably
 creates the run-local allowlisted `UserData` directory through SQLite before Rust
@@ -211,6 +211,18 @@ next stop eight instructions later at `IDirect3DDevice9::EndScene` slot 42,
 endpoint `0x010112D0`, return address `0x1005B43B`, with the same semantic and
 terminal-memory digests.
 
+Protocol version 40 carries the matching Rust-owned scene close. Device slot 42
+validates the live active scene and commits only the active-to-inactive
+lifecycle transition; back-buffer content generation 2 and the immutable draw
+submission remain intact. Node and Chrome agree on sequence 127,375,
+instruction 28,761,332, device generation 58, reference count 5, zero guest
+writes, no active scene, and no renderer resource or visible pixels. The
+versioned capability completes at instruction 28,761,389 before the next owned
+COM endpoint `0x01011160`, identified from the stable D3D9 vtable as
+`IDirect3DDevice9::GetRasterStatus` slot 19. This explicit completion prevents
+the following ordinary wait loop from being misclassified as either an
+unsupported endpoint or an unbounded checkpoint run.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
@@ -257,7 +269,8 @@ fingerprint before and after execution.
   fixed-function state, SetTexture adds one non-owning Rust-owned binding, SetFVF
   adds the one reached Rust-owned typed vertex format, SetStreamSource adds
   the exact non-owning stream-0／offset-0／stride-28 relation, and DrawPrimitive
-  appends one bounded owning immutable Rust draw submission. EndScene,
+  appends one bounded owning immutable Rust draw submission, and EndScene
+  closes the matching Rust-owned scene while preserving that submission. Other scene variants,
   other sampler／state／filter variants, the three rejected render states, other
   texture-stage／binding variants, other vertex formats, other stream bindings,
   NULL stream unbind, other draws, Present, device loss,
