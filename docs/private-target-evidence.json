@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-28T20:43:07.982Z",
+  "recordedAt": "2026-07-28T23:15:41.112Z",
   "repository": {
-    "implementationCommit": "1c2443508fbe0ce3dec725be8df385a3ad5fb023",
-    "implementationTree": "453d4f331cd41c6c8c5f2459cbd47059344871d7",
-    "headCommit": "1c2443508fbe0ce3dec725be8df385a3ad5fb023",
+    "implementationCommit": "1807711c957e2173975d388aa700f12aeba611e3",
+    "implementationTree": "93869780ff6eecde36d03298a9285b8d412808e4",
+    "headCommit": "1807711c957e2173975d388aa700f12aeba611e3",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "user32-async-key-state-input-continuation",
-    "runtimeProfile": "user32-async-key-state-input-continuation",
+    "runtimeCheckpoint": "user32-async-key-state-initial-scan",
+    "runtimeProfile": "user32-async-key-state-initial-scan",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-user32-async-key-state-input-continuation",
+    "nodeReportSchema": "vine.v86-bgi-user32-async-key-state-initial-scan",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v45",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v46",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -69,97 +69,167 @@
     "outcome": "passed",
     "node": {
       "outcome": "checkpoint-complete",
-      "implementedApiContracts": 124,
-      "supportedCalls": 128117,
-      "callSemanticsSha256": "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404",
-      "instructions": 30263940,
-      "finalGeneration": 236665,
-      "memoryContentSha256": "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87",
+      "implementedApiContracts": 126,
+      "supportedCalls": 148195,
+      "callSemanticsSha256": "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950",
+      "instructions": 147769286,
+      "finalGeneration": 271166,
+      "memoryContentSha256": "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86",
       "checkpointCompletion": {
-        "capability": "user32-async-key-state-input-continuation",
+        "capability": "user32-async-key-state-initial-scan",
         "implementationId": "user32.get-async-key-state.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 127691,
-        "firstCompletionInstructionCount": 29325480,
-        "firstResult": {
-          "action": "set",
-          "value": 4294934529
-        },
-        "lastCompletionSequence": 128117,
-        "lastCompletionInstructionCount": 30263849,
-        "virtualKey": 17,
+        "requiredCompletions": 38,
+        "completionCount": 38,
+        "leadingCallCount": 51,
+        "firstCompletionSequence": 148153,
+        "firstCompletionInstructionCount": 147765769,
+        "lastCompletionSequence": 148195,
+        "lastCompletionInstructionCount": 147769226,
+        "scanVirtualKeys": [
+          14,
+          15,
+          13,
+          16,
+          27,
+          38,
+          33,
+          40,
+          34,
+          37,
+          39,
+          49,
+          97,
+          50,
+          98,
+          51,
+          99,
+          52,
+          100,
+          53,
+          101,
+          54,
+          102,
+          55,
+          103,
+          56,
+          104,
+          57,
+          105,
+          48,
+          96,
+          9,
+          17,
+          1,
+          2,
+          4,
+          5,
+          6
+        ],
         "result": {
           "action": "set",
-          "value": 4294934528
+          "value": 0
         },
         "lastError": 0,
-        "inputEventSequence": 1,
-        "inputVirtualKey": 162,
-        "instructionCount": 30263940,
+        "guestWriteBytes": 0,
+        "instructionCount": 147769286,
         "nextEndpoint": {
-          "id": 75,
-          "address": 2130707616,
-          "module": "KERNEL32.dll",
+          "id": 8,
+          "address": 2130706544,
+          "module": "WINMM.dll",
           "symbol": {
             "kind": "name",
-            "name": "HeapAlloc"
+            "name": "timeGetTime"
           }
         },
-        "memoryContentSha256": "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87"
+        "memoryContentSha256": "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86"
       },
-      "writebackBatches": 128223,
-      "dirtyPages": 177196,
-      "changedBytes": 6792623,
-      "hostDeltaBatches": 107148
+      "writebackBatches": 149916,
+      "dirtyPages": 214431,
+      "changedBytes": 19882726,
+      "hostDeltaBatches": 119273
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 128117,
-      "callSemanticsSha256": "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404",
-      "instructions": 30263940,
-      "finalGeneration": 238183,
-      "memoryContentSha256": "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87",
+      "supportedCalls": 148195,
+      "callSemanticsSha256": "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950",
+      "instructions": 147769286,
+      "finalGeneration": 279500,
+      "memoryContentSha256": "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86",
       "checkpointCompletion": {
-        "capability": "user32-async-key-state-input-continuation",
+        "capability": "user32-async-key-state-initial-scan",
         "implementationId": "user32.get-async-key-state.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 127691,
-        "firstCompletionInstructionCount": 29325480,
-        "firstResult": {
-          "action": "set",
-          "value": 4294934529
-        },
-        "lastCompletionSequence": 128117,
-        "lastCompletionInstructionCount": 30263849,
-        "virtualKey": 17,
+        "requiredCompletions": 38,
+        "completionCount": 38,
+        "leadingCallCount": 51,
+        "firstCompletionSequence": 148153,
+        "firstCompletionInstructionCount": 147765769,
+        "lastCompletionSequence": 148195,
+        "lastCompletionInstructionCount": 147769226,
+        "scanVirtualKeys": [
+          14,
+          15,
+          13,
+          16,
+          27,
+          38,
+          33,
+          40,
+          34,
+          37,
+          39,
+          49,
+          97,
+          50,
+          98,
+          51,
+          99,
+          52,
+          100,
+          53,
+          101,
+          54,
+          102,
+          55,
+          103,
+          56,
+          104,
+          57,
+          105,
+          48,
+          96,
+          9,
+          17,
+          1,
+          2,
+          4,
+          5,
+          6
+        ],
         "result": {
           "action": "set",
-          "value": 4294934528
+          "value": 0
         },
         "lastError": 0,
-        "inputEventSequence": 1,
-        "inputVirtualKey": 162,
-        "instructionCount": 30263940,
+        "guestWriteBytes": 0,
+        "instructionCount": 147769286,
         "nextEndpoint": {
-          "address": 2130707616,
+          "address": 2130706544,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269291988,
-          "id": 75,
-          "module": "kernel32.dll",
+          "iatAddress": 269292772,
+          "id": 8,
+          "module": "winmm.dll",
           "symbol": {
             "kind": "name",
-            "name": "HeapAlloc"
+            "name": "timeGetTime"
           }
         },
-        "memoryContentSha256": "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87"
+        "memoryContentSha256": "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86"
       },
-      "wasmBridgeCalls": 375359,
+      "wasmBridgeCalls": 439069,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 419208,
+          "transitionCount": 509179,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -201,39 +271,77 @@
           "sha256": "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f"
         }
       },
-      "executionEngineLinearMemoryBytes": 18219008
+      "executionEngineLinearMemoryBytes": 43384832
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-async-key-state-initial-scan",
-      "pausedHistoricalCheckpoint": "user32-async-key-state-input-continuation",
-      "instructionCount": 30263940,
-      "capabilityCluster": "user32-async-key-state-initial-scan",
-      "reason": "user32-async-key-state-input-continuation-checkpoint-complete",
+      "nextCheckpoint": "user32-async-key-state-initial-scan-continuation",
+      "pausedHistoricalCheckpoint": "user32-async-key-state-initial-scan",
+      "instructionCount": 147769286,
+      "capabilityCluster": "user32-async-key-state-initial-scan-continuation",
+      "reason": "user32-async-key-state-initial-scan-checkpoint-complete",
       "completion": {
-        "capability": "user32-async-key-state-input-continuation",
+        "capability": "user32-async-key-state-initial-scan",
         "implementationId": "user32.get-async-key-state.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 127691,
-        "firstCompletionInstructionCount": 29325480,
-        "firstResult": "0xffff8001",
-        "lastCompletionSequence": 128117,
-        "lastCompletionInstructionCount": 30263849,
-        "virtualKey": 17,
-        "result": "0xffff8000",
+        "requiredCompletions": 38,
+        "completionCount": 38,
+        "leadingCallCount": 51,
+        "firstCompletionSequence": 148153,
+        "firstCompletionInstructionCount": 147765769,
+        "lastCompletionSequence": 148195,
+        "lastCompletionInstructionCount": 147769226,
+        "scanVirtualKeys": [
+          14,
+          15,
+          13,
+          16,
+          27,
+          38,
+          33,
+          40,
+          34,
+          37,
+          39,
+          49,
+          97,
+          50,
+          98,
+          51,
+          99,
+          52,
+          100,
+          53,
+          101,
+          54,
+          102,
+          55,
+          103,
+          56,
+          104,
+          57,
+          105,
+          48,
+          96,
+          9,
+          17,
+          1,
+          2,
+          4,
+          5,
+          6
+        ],
+        "result": "0x00000000",
         "lastError": 0,
-        "inputEventSequence": 1,
-        "inputVirtualKey": 162
+        "guestWriteBytes": 0
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 75,
-        "api": "KERNEL32.dll!HeapAlloc",
-        "endpointAddress": "0x7f0004a0",
-        "observedModule": "KERNEL32.dll",
-        "observedSymbol": "HeapAlloc"
+        "endpointId": 8,
+        "api": "WINMM.dll!timeGetTime",
+        "endpointAddress": "0x7f000070",
+        "observedModule": "WINMM.dll",
+        "observedSymbol": "timeGetTime"
       }
     },
     "cleanup": {
@@ -249,14 +357,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-async-key-state-input-continuation/report.json",
-      "bytes": 582673,
-      "sha256": "b69728bc026bcd000b1f793dd18e49935674e8d3e4f7d310b084d559ff11f995"
+      "path": ".work/v86-bgi-async-key-state-initial-scan/report.json",
+      "bytes": 1775000,
+      "sha256": "345850b8e9c124cf9e3c41ecca5ff57fab01edb2dc3fdddad13c5821eee989ba"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1969901,
-      "sha256": "54c6c0c46ea6efa5aac0b051b9ba5869cfe04d29ad15b098b5379c46f521c1c0"
+      "bytes": 3403085,
+      "sha256": "092a7898b02cf2f336dc5759b3d0bc4c1d889e94e0cb8f8277270bd73850f335"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -271,12 +379,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "8aee90bf253fff8c55e5433b894b7b5bb91c7e1067b35a8254f3adadb28a57f4"
+      "sha256": "0cdb6f43f01b6fd2d8037f948fb379c31c800b4cd77ec9be18de9eee6e7051c7"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5021416,
-      "sha256": "706216ac277a33c09cc975f026b5acecf0fbfc2f0609eb7d77134be412bee020"
+      "bytes": 5054853,
+      "sha256": "e195e93bc681db98f153a9d877f4624622bce6c7655665cf2a93aa4528f4ec66"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -308,5 +416,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "6d2f865b2869c3060ef355348ab90e50c9e007a0e624d7597febbe4a795ee22d"
+  "payloadSha256": "18da4b21254af9f78fa88e8cb4678e85323122d7ced83c904422daf48e7d928f"
 }
