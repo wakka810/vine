@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-28T12:25:49.296Z",
+  "recordedAt": "2026-07-28T13:50:02.543Z",
   "repository": {
-    "implementationCommit": "2bf7e3128c2558bc29907446392d7cb0f3dab8c3",
-    "implementationTree": "dad570bfaf1637e314af78f324807d81e262ba43",
-    "headCommit": "2bf7e3128c2558bc29907446392d7cb0f3dab8c3",
+    "implementationCommit": "b9cd2ce804c6a16e7f4450507f7cb42b2cdbbf51",
+    "implementationTree": "5fa3d00846220b68bcd37685e2d82da6b3941b03",
+    "headCommit": "b9cd2ce804c6a16e7f4450507f7cb42b2cdbbf51",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-post-raster-status-waitable-timer",
-    "runtimeProfile": "d3d9-post-raster-status-waitable-timer",
+    "runtimeCheckpoint": "d3d9-post-scene-present-gateway",
+    "runtimeProfile": "d3d9-post-scene-present-gateway",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-post-scene-present-gateway",
     "nodeReportSchemaVersion": 2,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v42",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v43",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,72 +70,66 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 122,
-      "supportedCalls": 127377,
-      "callSemanticsSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
-      "instructions": 28761476,
-      "finalGeneration": 235529,
-      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
+      "supportedCalls": 127375,
+      "callSemanticsSha256": "0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6",
+      "instructions": 28761426,
+      "finalGeneration": 235527,
+      "memoryContentSha256": "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e",
       "checkpointCompletion": {
-        "capability": "d3d9-post-raster-status-waitable-timer",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        "capability": "d3d9-post-scene-present-gateway",
+        "implementationId": "d3d9.get-raster-status.last-visible-sample.v2",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "armSequence": 127377,
-        "armInstructionCount": 28761446,
-        "armGeneration": 1,
-        "lastCompletionSequence": 127378,
-        "lastCompletionInstructionCount": 28761452,
-        "instructionCount": 28761476,
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389,
+        "instructionCount": 28761426,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847200,
+          "address": 16847168,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-19"
+            "name": "interface-1-slot-17"
           }
         },
-        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
+        "memoryContentSha256": "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e"
       },
-      "writebackBatches": 127476,
-      "dirtyPages": 175998,
-      "changedBytes": 6620041,
+      "writebackBatches": 127474,
+      "dirtyPages": 175996,
+      "changedBytes": 6619985,
       "hostDeltaBatches": 106770
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 127377,
-      "callSemanticsSha256": "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
-      "instructions": 28761476,
-      "finalGeneration": 236967,
-      "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
+      "supportedCalls": 127375,
+      "callSemanticsSha256": "0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6",
+      "instructions": 28761426,
+      "finalGeneration": 236965,
+      "memoryContentSha256": "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e",
       "checkpointCompletion": {
-        "capability": "d3d9-post-raster-status-waitable-timer",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        "capability": "d3d9-post-scene-present-gateway",
+        "implementationId": "d3d9.get-raster-status.last-visible-sample.v2",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "armSequence": 127377,
-        "armInstructionCount": 28761446,
-        "armGeneration": 1,
-        "lastCompletionSequence": 127378,
-        "lastCompletionInstructionCount": 28761452,
-        "instructionCount": 28761476,
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389,
+        "instructionCount": 28761426,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847200,
+          "address": 16847168,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-19"
+            "name": "interface-1-slot-17"
           }
         },
-        "memoryContentSha256": "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a"
+        "memoryContentSha256": "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e"
       },
-      "wasmBridgeCalls": 373357,
+      "wasmBridgeCalls": 373352,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 416570,
+          "transitionCount": 416563,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -182,29 +176,26 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "d3d9-post-waitable-timer-raster-status",
-      "pausedHistoricalCheckpoint": "d3d9-post-raster-status-waitable-timer",
-      "instructionCount": 28761476,
-      "capabilityCluster": "d3d9-first-frame-post-scene-pacing",
-      "reason": "post-scene-waitable-timer-checkpoint-complete",
+      "nextCheckpoint": "d3d9-first-present",
+      "pausedHistoricalCheckpoint": "d3d9-post-scene-present-gateway",
+      "instructionCount": 28761426,
+      "capabilityCluster": "d3d9-first-present",
+      "reason": "d3d9-post-scene-present-gateway-checkpoint-complete",
       "completion": {
-        "capability": "d3d9-post-raster-status-waitable-timer",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        "capability": "d3d9-post-scene-present-gateway",
+        "implementationId": "d3d9.get-raster-status.last-visible-sample.v2",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "armSequence": 127377,
-        "armInstructionCount": 28761446,
-        "armGeneration": 1,
-        "lastCompletionSequence": 127378,
-        "lastCompletionInstructionCount": 28761452
+        "lastCompletionSequence": 127376,
+        "lastCompletionInstructionCount": 28761389
       },
       "nextEndpoint": {
         "endpointKind": "com-method",
         "endpointId": 0,
-        "api": "IDirect3DDevice9::GetRasterStatus",
-        "endpointAddress": "0x01011160",
+        "api": "IDirect3DDevice9::Present",
+        "endpointAddress": "0x01011140",
         "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-19"
+        "observedSymbol": "interface-1-slot-17"
       }
     },
     "cleanup": {
@@ -220,14 +211,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-post-raster-status-waitable-timer/report.json",
-      "bytes": 561111,
-      "sha256": "456efd128b067cfa7046b0af1ed5a23ae3f06b32af2cc12cf1fc795e4a35144d"
+      "path": ".work/v86-bgi-d3d9-post-scene-present-gateway/report.json",
+      "bytes": 561038,
+      "sha256": "32e1b2395eeeb73d5d598c1ef8b03b93403bc9763de9b702ac33de74922d999a"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1936938,
-      "sha256": "537a68a4e1dc6858eff2963a17776204333573e640b77b2f92b4134671f61149"
+      "bytes": 1936622,
+      "sha256": "d6c9c76727892a1c84e5ffbc967abf171adc32c82a7a319ed42b34ded9e4fccc"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -242,12 +233,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3765,
-      "sha256": "a9b7052dee131ddd34763affd8146bed060193898bbbd6aa6dd40ff02531491a"
+      "sha256": "80fea21617f3676194298284136e81aadedb799b8f597ebf989f6c0452a3ffc2"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 4973911,
-      "sha256": "d87129146bbf5cce971f1fc8c7b21e62ed190e91e44aa424b3e968f3ca202145"
+      "bytes": 4974009,
+      "sha256": "3090e4b0b84f56b286436af0c67eba1b0000581e2fb282651d0922164017a082"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -279,5 +270,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "d17fc69b95944380e41505bd1ac5342cbd14825e395a43c0585739443d31b653"
+  "payloadSha256": "5cb6dc9166a17c749d2f1197cf693a7c073d3a7bac43ff7014911b98cb55b8d8"
 }
