@@ -430,13 +430,28 @@ function isHeapAlloc24Checkpoint(
   return profile === "kernel32-heap-alloc-24-byte-buffer";
 }
 
+function isPostHeapTimeGetTimeCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "winmm-time-get-time-post-heap-reuse";
+}
+
+function includesHeapAllocationEvidence(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isHeapAlloc24Checkpoint(profile) || isPostHeapTimeGetTimeCheckpoint(profile)
+  );
+}
+
 function includesRuntimeTraplessExecutionBudget(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isRuntimeTraplessExecutionBudget(profile) ||
     isLargeHeapFreeCheckpoint(profile) ||
-    isHeapAlloc24Checkpoint(profile)
+    isHeapAlloc24Checkpoint(profile) ||
+    isPostHeapTimeGetTimeCheckpoint(profile)
   );
 }
 
@@ -600,6 +615,7 @@ interface CompletionMetadata {
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
+  tickCount?: RuntimeSupportedCallSnapshot["tickCount"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -690,6 +706,7 @@ interface HostCompletionMetadata {
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
+  tickCount?: RuntimeSupportedCallSnapshot["tickCount"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -747,6 +764,11 @@ type LargeHeapFreeCheckpoint = Extract<
 type HeapAlloc24Checkpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "kernel32-heap-alloc-24-byte-buffer" }
+>;
+
+type PostHeapTimeGetTimeCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "winmm-time-get-time-post-heap-reuse" }
 >;
 
 interface AppliedHostDeltaEvidence {
@@ -807,6 +829,7 @@ interface CallbackCompletionMetadata {
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
   heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
+  tickCount?: RuntimeSupportedCallSnapshot["tickCount"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -1107,6 +1130,9 @@ class BrowserRuntimeSession {
   readonly #largeHeapFreeInstructionCounts: number[] = [];
   readonly #heapAlloc24Completions: HeapAlloc24Checkpoint["completions"] = [];
   readonly #heapAlloc24InstructionCounts: number[] = [];
+  readonly #postHeapTimeGetTimeCompletions: PostHeapTimeGetTimeCheckpoint["completions"] =
+    [];
+  readonly #postHeapTimeGetTimeInstructionCounts: number[] = [];
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -1434,7 +1460,12 @@ class BrowserRuntimeSession {
               isUser32AsyncKeyStateInitialScan(
                 this.#configuration.capabilityProfile,
               ),
-              isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile),
+              includesHeapAllocationEvidence(
+                this.#configuration.capabilityProfile,
+              ),
+              isPostHeapTimeGetTimeCheckpoint(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -3160,6 +3191,66 @@ class BrowserRuntimeSession {
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
         if (
+          isPostHeapTimeGetTimeCheckpoint(
+            this.#configuration.capabilityProfile,
+          ) &&
+          this.#postHeapTimeGetTimeCompletions.length > 0
+        ) {
+          const reachedEndpoint = prepared.endpoints.find(
+            (candidate) => candidate.address === address,
+          );
+          invariant(
+            reachedEndpoint !== undefined,
+            "post-heap timeGetTime checkpoint reached an unowned API endpoint",
+          );
+          const reachedTimeGetTime =
+            reachedEndpoint.module?.toLowerCase() === "winmm.dll" &&
+            reachedEndpoint.symbol?.kind === "name" &&
+            reachedEndpoint.symbol.name === "timeGetTime";
+          if (!reachedTimeGetTime) {
+            const firstCompletion = this.#postHeapTimeGetTimeCompletions[0];
+            const lastCompletion =
+              this.#postHeapTimeGetTimeCompletions.at(-1);
+            const firstInstructionCount =
+              this.#postHeapTimeGetTimeInstructionCounts[0];
+            const lastInstructionCount =
+              this.#postHeapTimeGetTimeInstructionCounts.at(-1);
+            invariant(
+              firstCompletion !== undefined &&
+                lastCompletion !== undefined &&
+                firstInstructionCount !== undefined &&
+                lastInstructionCount !== undefined,
+              "post-heap timeGetTime checkpoint lost its clock evidence",
+            );
+            this.#report.checkpointCompletion = {
+              capability: "winmm-time-get-time-post-heap-reuse",
+              implementationId: "winmm.time-get-time.v1",
+              requiredCompletions:
+                this.#postHeapTimeGetTimeCompletions.length,
+              completionCount: this.#postHeapTimeGetTimeCompletions.length,
+              firstCompletionSequence: firstCompletion.sequence,
+              firstCompletionInstructionCount: firstInstructionCount,
+              lastCompletionSequence: lastCompletion.sequence,
+              lastCompletionInstructionCount: lastInstructionCount,
+              completions: structuredClone(
+                this.#postHeapTimeGetTimeCompletions,
+              ),
+              instructionCount: 0,
+              nextEndpoint: {
+                id: 0,
+                address: 0,
+                disposition: "declared-runtime-export",
+                iatAddress: 0,
+              },
+              nextArguments: [],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            };
+            this.#bgiCheckpointPending = true;
+          }
+        }
+        if (
           isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile) &&
           this.#heapAlloc24Completions.length > 0
         ) {
@@ -3958,7 +4049,8 @@ class BrowserRuntimeSession {
           checkpoint.capability === "user32-async-key-state-initial-scan" ||
           checkpoint.capability === "runtime-trapless-execution-budget" ||
           checkpoint.capability === "kernel32-heap-free-large-buffer" ||
-          checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
+          checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
+          checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -4015,7 +4107,8 @@ class BrowserRuntimeSession {
     checkpoint.memoryContentSha256 = reflection.contentSha256;
     if (
       checkpoint.capability === "kernel32-heap-free-large-buffer" ||
-      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
+      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
+      checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
     ) {
       checkpoint.nextArguments =
         checkpoint.capability === "kernel32-heap-free-large-buffer"
@@ -4024,14 +4117,17 @@ class BrowserRuntimeSession {
               this.#requireEngine().readGuestU32(stackPointer + 8),
               this.#requireEngine().readGuestU32(stackPointer + 12),
             ]
-          : [];
+          : checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
+            ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
+            : [];
       checkpoint.nextReturnAddress = returnAddress;
       checkpoint.nextStackPointer = stackPointer;
     }
     if (
       checkpoint.capability === "runtime-trapless-execution-budget" ||
       checkpoint.capability === "kernel32-heap-free-large-buffer" ||
-      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
+      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
+      checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
     ) {
       this.#completeInitialScanContinuationReport();
     }
@@ -4043,6 +4139,9 @@ class BrowserRuntimeSession {
           ? "Large-buffer HeapFree batch checkpoint completed"
           : checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
             ? "Private-heap allocation and coalesced reuse batch checkpoint completed"
+            : checkpoint.capability ===
+                "winmm-time-get-time-post-heap-reuse"
+              ? "Post-heap-reuse multimedia clock sample checkpoint completed"
         : checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
@@ -4336,6 +4435,9 @@ class BrowserRuntimeSession {
       ...(metadata.heapAllocation === undefined
         ? {}
         : { heapAllocation: metadata.heapAllocation }),
+      ...(metadata.tickCount === undefined
+        ? {}
+        : { tickCount: metadata.tickCount }),
       ...(metadata.heapFree === undefined
         ? {}
         : { heapFree: metadata.heapFree }),
@@ -5124,6 +5226,34 @@ class BrowserRuntimeSession {
     }
     this.#recordPostPresentContinuationCall(call);
     this.#recordCompletedCallEvidence(call);
+    if (
+      isPostHeapTimeGetTimeCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      completion.implementationId === "winmm.time-get-time.v1" &&
+      sequence >= 158_105
+    ) {
+      invariant(
+        call.module.toLowerCase() === "winmm.dll" &&
+          call.symbol === "timeGetTime" &&
+          call.arguments.length === 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.tickCount?.returnedTickCount === call.result.value &&
+          call.tickCount.nextTickCount === ((call.result.value + 1) >>> 0) &&
+          call.tickCount.incrementPerRead === 1 &&
+          call.guestWrites.length === 0,
+        "post-heap timeGetTime completion omitted its shared clock evidence",
+      );
+      this.#postHeapTimeGetTimeCompletions.push(structuredClone(call));
+      this.#postHeapTimeGetTimeInstructionCounts.push(
+        this.#report.instructions,
+      );
+      invariant(
+        this.#postHeapTimeGetTimeCompletions.length <= 16,
+        "post-heap timeGetTime checkpoint exceeded its bounded batch",
+      );
+    }
     if (
       isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile) &&
       completion.implementationId === "kernel32.heap-alloc.v2" &&
@@ -10454,6 +10584,97 @@ class BrowserRuntimeSession {
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
           `HeapAlloc lifecycle checkpoint changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isPostHeapTimeGetTimeCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const completion =
+          checkpoint?.capability ===
+          "winmm-time-get-time-post-heap-reuse"
+            ? checkpoint.completions[0]
+            : undefined;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_105 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "cb252963b489263ebcf7ae0ecef9db6100c95f9f7307644491f773eb17d61740" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "winmm-time-get-time-post-heap-reuse" &&
+            checkpoint.implementationId === "winmm.time-get-time.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.firstCompletionSequence === 158_105 &&
+            checkpoint.firstCompletionInstructionCount === 276_360_829 &&
+            checkpoint.lastCompletionSequence === 158_105 &&
+            checkpoint.lastCompletionInstructionCount === 276_360_829 &&
+            checkpoint.completions.length === 1 &&
+            completion?.sequence === 158_105 &&
+            completion.module.toLowerCase() === "winmm.dll" &&
+            completion.symbol === "timeGetTime" &&
+            completion.arguments.length === 0 &&
+            "action" in completion.result &&
+            completion.result.action === "set" &&
+            completion.result.value === 3_601_183 &&
+            completion.implementationId === "winmm.time-get-time.v1" &&
+            completion.returnAddress === 268_715_302 &&
+            completion.stackPointerBefore === 7_337_236 &&
+            completion.stackPointerAfter === 7_337_240 &&
+            completion.lastError === 0 &&
+            completion.guestWrites.length === 0 &&
+            completion.tickCount?.returnedTickCount === 3_601_183 &&
+            completion.tickCount.nextTickCount === 3_601_184 &&
+            completion.tickCount.incrementPerRead === 1 &&
+            checkpoint.instructionCount === 276_361_026 &&
+            checkpoint.nextEndpoint.id === 144 &&
+            checkpoint.nextEndpoint.address === 0x7f00_08f0 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_12e8 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "EnterCriticalSection" &&
+            checkpoint.nextArguments.join(",") === "537005576" &&
+            checkpoint.nextReturnAddress === 268_466_106 &&
+            checkpoint.nextStackPointer === 7_337_012 &&
+            checkpoint.memoryContentSha256 ===
+              "979b11ad530a677d061eca5de7f08e146a905133fc09112bb2ac21f1760d9571" &&
+            this.#report.instructions === 276_361_026 &&
+            this.#generation === 305_845n &&
+            this.#report.writebackBatches === 177_121 &&
+            this.#report.writebackPages === 269_353 &&
+            this.#report.mappingDeltas === 125_742 &&
+            this.#report.mappingDirtyPages === 145_847 &&
+            this.#report.contextSwitches === 2_456 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 2_918 &&
+            this.#report.sourceReads.length === 86 &&
+            this.#report.sourceReads.filter(
+              (read) => read.request.sourceId === 1,
+            ).length === 82 &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `post-heap timeGetTime checkpoint changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,

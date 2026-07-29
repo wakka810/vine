@@ -102,6 +102,23 @@ thresholds pass. The 944,587-byte report has SHA-256
 The private executable remains 1,193,472 bytes with SHA-256
 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`.
 
+## Post-heap continuation
+
+The later `winmm-time-get-time-post-heap-reuse` profile reuses this exact ABI
+and semantic handler after the private-heap reuse checkpoint. It records one
+reached sample together with the Rust-owned returned tick, next tick, and
+policy increment, then stops before the first different owned endpoint,
+`KERNEL32.dll!EnterCriticalSection`. Node and Chrome must agree on ordered call
+semantics, terminal guest memory, the critical-section argument, IAT identity,
+and stack state.
+
+This continuation adds no WinMM state and needs no new native oracle: the
+consumer and shared-clock contract are already fixed above. TypeScript only
+transports the Rust completion evidence and does not sample a browser clock.
+Current occurrence counts, instruction counts, report identities, and the next
+structured stop are maintained only in
+[`current-checkpoint.json`](current-checkpoint.json).
+
 ## Non-claims
 
 - One deterministic increment per API read is not elapsed host time and does

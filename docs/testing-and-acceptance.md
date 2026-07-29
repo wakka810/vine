@@ -988,6 +988,13 @@ ordered semantics／memory／`MessageBoxA` stop、clean cancel／watchdog、unch
 importしない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-get-time.md](bgi-time-get-time.md)を正とする。
 
+Heap reuse後に再到達した`timeGetTime` continuationは新しいWindows semanticsとして扱わず、
+同じ`winmm.time-get-time.v1` handlerと`RuntimeProcessState` clock authorityを要求する。
+Node／Chromeはreturned／next tickとpolicy increment、LastError preserve、zero guest write、
+ordered semantic digest、terminal memoryを一致させ、最初の異種owned endpointである
+`EnterCriticalSection`のargument／IAT／stack直前で停止する。TypeScript側のclock sampleや
+WinMM state複製を禁止し、変動するexact valueは`current-checkpoint.json`だけを正本とする。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

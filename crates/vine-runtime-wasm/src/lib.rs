@@ -98,6 +98,7 @@ struct BgiCheckpointCapabilities {
     d3d9_present: bool,
     user32_async_key_state_initial_scan: bool,
     heap_alloc_24_byte_buffer: bool,
+    post_heap_time_get_time: bool,
 }
 
 impl Bridge {
@@ -405,6 +406,7 @@ enum BrowserRuntimeTarget {
         imm32_policy: Box<Imm32CompatibilityPolicy>,
         winmm_policy: Box<WinmmCompatibilityPolicy>,
         heap_allocation_evidence: bool,
+        tick_count_evidence: bool,
     },
 }
 
@@ -909,6 +911,7 @@ impl BrowserRuntime {
                     imm32_policy: Box::new(imm32_policy),
                     winmm_policy: Box::new(winmm_policy),
                     heap_allocation_evidence: capabilities.heap_alloc_24_byte_buffer,
+                    tick_count_evidence: capabilities.post_heap_time_get_time,
                 },
             },
             metadata,
@@ -1359,6 +1362,17 @@ impl BrowserRuntime {
                 ..
             }
         );
+        let tick_count_increment = match &self.target {
+            BrowserRuntimeTarget::Bgi {
+                winmm_policy,
+                tick_count_evidence: true,
+                ..
+            } => winmm_policy
+                .time_get_time
+                .as_ref()
+                .map(|clock| clock.increment_per_read),
+            _ => None,
+        };
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
@@ -1541,6 +1555,27 @@ impl BrowserRuntime {
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
+                let tick_count = if completion.implementation_id == "winmm.time-get-time.v1"
+                    && let Some(increment_per_read) = tick_count_increment
+                {
+                    let RegisterUpdate::Set(returned_tick_count) = completion.eax else {
+                        return Err("completed timeGetTime did not return a tick count".to_owned());
+                    };
+                    let next_tick_count = self.runtime.clock().tick_count;
+                    if next_tick_count != returned_tick_count.wrapping_add(increment_per_read) {
+                        return Err(
+                            "completed timeGetTime clock state does not follow its policy increment"
+                                .to_owned(),
+                        );
+                    }
+                    Some(json!({
+                        "returnedTickCount": returned_tick_count,
+                        "nextTickCount": next_tick_count,
+                        "incrementPerRead": increment_per_read,
+                    }))
+                } else {
+                    None
+                };
                 let heap_allocation = if heap_allocation_evidence
                     && completion.implementation_id == "kernel32.heap-alloc.v2"
                 {
@@ -1628,6 +1663,9 @@ impl BrowserRuntime {
                         }
                         if let Some(heap_allocation) = heap_allocation {
                             metadata["heapAllocation"] = heap_allocation;
+                        }
+                        if let Some(tick_count) = tick_count {
+                            metadata["tickCount"] = tick_count;
                         }
                         if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
                             metadata["currentDirectory"] = json!({
@@ -4390,6 +4428,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_present_enabled: u32,
     user32_async_key_state_initial_scan_enabled: u32,
     heap_alloc_24_byte_buffer_enabled: u32,
+    post_heap_time_get_time_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4414,6 +4453,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 user32_async_key_state_initial_scan: user32_async_key_state_initial_scan_enabled
                     != 0,
                 heap_alloc_24_byte_buffer: heap_alloc_24_byte_buffer_enabled != 0,
+                post_heap_time_get_time: post_heap_time_get_time_enabled != 0,
             },
         )
     })

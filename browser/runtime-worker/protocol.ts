@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 57 as const;
+export const protocolVersion = 58 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -49,7 +49,8 @@ export type BgiCapabilityProfile =
   | "runtime-thread-stack-growth"
   | "runtime-trapless-execution-budget"
   | "kernel32-heap-free-large-buffer"
-  | "kernel32-heap-alloc-24-byte-buffer";
+  | "kernel32-heap-alloc-24-byte-buffer"
+  | "winmm-time-get-time-post-heap-reuse";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -827,6 +828,11 @@ export interface RuntimeSupportedCallSnapshot {
     };
     liveAllocations: number;
   };
+  tickCount?: {
+    returnedTickCount: number;
+    nextTickCount: number;
+    incrementPerRead: number;
+  };
   heapFree?: {
     heapHandle: number;
     allocation: {
@@ -1600,6 +1606,32 @@ export interface SessionReport {
         nextEndpoint: {
           id: number;
           address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: number[];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "winmm-time-get-time-post-heap-reuse";
+        implementationId: "winmm.time-get-time.v1";
+        requiredCompletions: number;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        completions: RuntimeSupportedCallSnapshot[];
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
           module?: string;
           symbol?:
             | { kind: "name"; name: string }

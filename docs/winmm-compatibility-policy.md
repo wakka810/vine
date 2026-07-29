@@ -90,6 +90,11 @@ Timer capabilities and resolution requests remain orthogonal to this datum.
 not alter it. Browser `performance.now()`, host uptime, task scheduling, frame
 cadence, and audio clocks are not imported into either API.
 
+Late continuation profiles, including the reached sample after private-heap
+reuse, must use the same handler and clock owner. They may expose returned and
+next tick values as profile-scoped evidence, but cannot create another clock
+datum or import browser timing.
+
 The capability query is documented in
 [bgi-time-get-dev-caps.md](bgi-time-get-dev-caps.md); native pairing evidence
 and the reached begin call are documented in

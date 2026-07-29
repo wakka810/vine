@@ -241,6 +241,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "runtime-trapless-execution-budget",
         "kernel32-heap-free-large-buffer",
         "kernel32-heap-alloc-24-byte-buffer",
+        "winmm-time-get-time-post-heap-reuse",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -402,6 +403,7 @@ assert(
       "runtime-trapless-execution-budget",
       "kernel32-heap-free-large-buffer",
       "kernel32-heap-alloc-24-byte-buffer",
+      "winmm-time-get-time-post-heap-reuse",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -441,7 +443,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "runtime-thread-stack-growth" ||
     genericRuntimeCapability === "runtime-trapless-execution-budget" ||
     genericRuntimeCapability === "kernel32-heap-free-large-buffer" ||
-    genericRuntimeCapability === "kernel32-heap-alloc-24-byte-buffer"
+    genericRuntimeCapability === "kernel32-heap-alloc-24-byte-buffer" ||
+    genericRuntimeCapability === "winmm-time-get-time-post-heap-reuse"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -766,10 +769,13 @@ const largeHeapFreeCheckpointEnabled =
   genericRuntimeCapability === "kernel32-heap-free-large-buffer";
 const heapAlloc24CheckpointEnabled =
   genericRuntimeCapability === "kernel32-heap-alloc-24-byte-buffer";
+const postHeapTimeGetTimeCheckpointEnabled =
+  genericRuntimeCapability === "winmm-time-get-time-post-heap-reuse";
 const runtimeTraplessExecutionBudgetEnabled =
   runtimeTraplessExecutionBudgetCheckpointEnabled ||
   largeHeapFreeCheckpointEnabled ||
-  heapAlloc24CheckpointEnabled;
+  heapAlloc24CheckpointEnabled ||
+  postHeapTimeGetTimeCheckpointEnabled;
 const runtimeThreadStackGrowthEnabled =
   runtimeThreadStackGrowthCheckpointEnabled ||
   runtimeTraplessExecutionBudgetEnabled;
@@ -1227,6 +1233,8 @@ const outputDirectory = path.join(
         ? "v86-bgi-heap-free-large-buffer"
         : heapAlloc24CheckpointEnabled
           ? "v86-bgi-heap-alloc-24-byte-buffer"
+          : postHeapTimeGetTimeCheckpointEnabled
+            ? "v86-bgi-time-get-time-post-heap-reuse"
         : runtimeTraplessExecutionBudgetCheckpointEnabled
           ? "v86-bgi-runtime-trapless-execution-budget"
           : "v86-bgi-runtime-thread-stack-growth"
@@ -5662,6 +5670,8 @@ async function run() {
         validateLargeHeapFreeResult(genericResult);
       } else if (heapAlloc24CheckpointEnabled) {
         validateHeapAlloc24Result(genericResult);
+      } else if (postHeapTimeGetTimeCheckpointEnabled) {
+        validatePostHeapTimeGetTimeResult(genericResult);
       } else if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
         validateRuntimeTraplessExecutionBudgetResult(genericResult);
       } else if (runtimeThreadStackGrowthCheckpointEnabled) {
@@ -5972,6 +5982,8 @@ async function run() {
               ? "bgi large-buffer private-heap free batch"
               : heapAlloc24CheckpointEnabled
                 ? "bgi private-heap allocation and coalesced reuse batch"
+                : postHeapTimeGetTimeCheckpointEnabled
+                  ? "bgi post-heap-reuse multimedia clock sample batch"
               : runtimeTraplessExecutionBudgetCheckpointEnabled
                 ? "bgi trapless execution budget continuation"
                 : "bgi current-thread stack growth"
@@ -6558,6 +6570,7 @@ async function runGenericRuntimeReentry({
   let checkpointCompletion = null;
   const largeHeapFreeCompletions = [];
   const heapAlloc24Completions = [];
+  const postHeapTimeGetTimeCompletions = [];
   let initialAsyncKeyStateScan = null;
   let d3d9PostEndSceneSequence = null;
   let d3d9PostEndSceneRasterStatusSequence = null;
@@ -6800,6 +6813,33 @@ async function runGenericRuntimeReentry({
       receipt: writebackReceipt,
     });
     if (
+      postHeapTimeGetTimeCheckpointEnabled &&
+      checkpointCompletion === null &&
+      postHeapTimeGetTimeCompletions.length > 0 &&
+      endpoint !== null &&
+      !(
+        endpoint.module.toLowerCase() === "winmm.dll" &&
+        endpoint.symbol === "timeGetTime"
+      )
+    ) {
+      const firstCompletion = postHeapTimeGetTimeCompletions[0];
+      const lastCompletion = postHeapTimeGetTimeCompletions.at(-1);
+      checkpointCompletion = {
+        capability: "winmm-time-get-time-post-heap-reuse",
+        implementationId: "winmm.time-get-time.v1",
+        requiredCompletions: postHeapTimeGetTimeCompletions.length,
+        completionCount: postHeapTimeGetTimeCompletions.length,
+        firstCompletionSequence: firstCompletion.sequence,
+        firstCompletionInstructionCount: firstCompletion.trapInstructionCount,
+        lastCompletionSequence: lastCompletion.sequence,
+        lastCompletionInstructionCount: lastCompletion.trapInstructionCount,
+        completions: structuredClone(postHeapTimeGetTimeCompletions),
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       heapAlloc24CheckpointEnabled &&
       checkpointCompletion === null &&
       heapAlloc24Completions.length > 0 &&
@@ -6890,6 +6930,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "winmm-time-get-time-post-heap-reuse"
+            ? "winmm-time-get-time-post-heap-reuse-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "kernel32-heap-alloc-24-byte-buffer"
             ? "kernel32-heap-alloc-24-byte-buffer-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -6953,12 +6996,22 @@ async function runGenericRuntimeReentry({
             }
           : { kind: "name", name: endpoint.symbol },
       };
+      if (postHeapTimeGetTimeCheckpointEnabled) {
+        assert.equal(terminal.kind, "owned-import-thunk");
+        checkpointCompletion.nextEndpoint.disposition =
+          "declared-runtime-export";
+        checkpointCompletion.nextEndpoint.iatAddress = terminal.thunk.iatAddress;
+      }
       if (largeHeapFreeCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (heapAlloc24CheckpointEnabled) {
         checkpointCompletion.nextArguments = [];
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (postHeapTimeGetTimeCheckpointEnabled) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       }
@@ -7844,6 +7897,17 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      postHeapTimeGetTimeCheckpointEnabled &&
+      call.implementationId === "winmm.time-get-time.v1" &&
+      sequence >= 158_105
+    ) {
+      postHeapTimeGetTimeCompletions.push(structuredClone(call));
+      assert(
+        postHeapTimeGetTimeCompletions.length <= 16,
+        "post-heap-reuse timeGetTime checkpoint exceeded its bounded batch",
+      );
+    }
     if (
       heapAlloc24CheckpointEnabled &&
       call.implementationId === "kernel32.heap-alloc.v2" &&
@@ -23675,6 +23739,78 @@ function validateHeapAlloc24Result(result) {
   );
 }
 
+function validatePostHeapTimeGetTimeResult(result) {
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "winmm-time-get-time-post-heap-reuse",
+  );
+  assert.equal(checkpoint?.implementationId, "winmm.time-get-time.v1");
+  assert.equal(checkpoint?.requiredCompletions, 1);
+  assert.equal(checkpoint?.completionCount, 1);
+  assert.equal(checkpoint?.completions?.length, 1);
+  assert.equal(checkpoint?.firstCompletionSequence, 158_105);
+  assert.equal(checkpoint?.firstCompletionInstructionCount, 276_360_829);
+  assert.equal(checkpoint?.lastCompletionSequence, 158_105);
+  assert.equal(checkpoint?.lastCompletionInstructionCount, 276_360_829);
+  const call = checkpoint.completions[0];
+  assert.equal(call.sequence, 158_105);
+  assert.equal(call.module.toLowerCase(), "winmm.dll");
+  assert.equal(call.symbol, "timeGetTime");
+  assert.equal(call.occurrence, 180);
+  assert.equal(call.trapInstructionCount, 276_360_829);
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_601_183 });
+  assert.equal(call.implementationId, "winmm.time-get-time.v1");
+  assert.equal(call.returnAddress, 268_715_302);
+  assert.equal(call.stackPointerBefore, 7_337_236);
+  assert.equal(call.stackPointerAfter, 7_337_240);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.tickCount, {
+    returnedTickCount: 3_601_183,
+    nextTickCount: 3_601_184,
+    incrementPerRead: 1,
+  });
+  assert.equal(result.supportedCalls.length, 158_105);
+  assert.equal(checkpoint.instructionCount, 276_361_026);
+  assert.equal(result.terminal.instructionCount, 276_361_026);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 144,
+    address: 0x7f00_08f0,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "EnterCriticalSection" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_12e8,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x2002_0e08]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1000_77ba);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f434);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "979b11ad530a677d061eca5de7f08e146a905133fc09112bb2ac21f1760d9571",
+  );
+  assert.equal(result.writebacks.length, 161_065);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    236_699,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    36_243_399,
+  );
+  assert.equal(result.hostDeltas.length, 125_742);
+  assert.equal(result.finalGeneration, 289_895);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -28916,11 +29052,13 @@ function buildGenericRuntimeReentryReport({
     if (runtimeTraplessExecutionBudgetEnabled) {
       assert.equal(
         genericResult.checkpointCompletion?.capability,
-        heapAlloc24CheckpointEnabled
-          ? "kernel32-heap-alloc-24-byte-buffer"
-          : largeHeapFreeCheckpointEnabled
-            ? "kernel32-heap-free-large-buffer"
-            : "runtime-trapless-execution-budget",
+        postHeapTimeGetTimeCheckpointEnabled
+          ? "winmm-time-get-time-post-heap-reuse"
+          : heapAlloc24CheckpointEnabled
+            ? "kernel32-heap-alloc-24-byte-buffer"
+            : largeHeapFreeCheckpointEnabled
+              ? "kernel32-heap-free-large-buffer"
+              : "runtime-trapless-execution-budget",
       );
     } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
       assert.equal(genericResult.checkpointCompletion, undefined);
@@ -29111,6 +29249,8 @@ function buildGenericRuntimeReentryReport({
             ? "vine.v86-bgi-kernel32-heap-free-large-buffer"
             : heapAlloc24CheckpointEnabled
               ? "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer"
+              : postHeapTimeGetTimeCheckpointEnabled
+                ? "vine.v86-bgi-winmm-time-get-time-post-heap-reuse"
             : runtimeTraplessExecutionBudgetCheckpointEnabled
               ? "vine.v86-bgi-runtime-trapless-execution-budget"
               : "vine.v86-bgi-runtime-thread-stack-growth"
@@ -30377,6 +30517,9 @@ function buildGenericRuntimeReentryReport({
                   : genericResult.checkpointCompletion.capability ===
                       "kernel32-heap-alloc-24-byte-buffer"
                     ? "BGI completed the reached private-heap allocation and coalesced reuse batch and stopped before the next owned endpoint"
+                    : genericResult.checkpointCompletion.capability ===
+                        "winmm-time-get-time-post-heap-reuse"
+                      ? "BGI sampled the reached post-heap-reuse multimedia clock batch and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-initial-scan"
                 ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"
