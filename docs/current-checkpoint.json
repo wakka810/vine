@@ -185,8 +185,8 @@
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 5107130,
-      "sha256": "d38f4239bcc14346155587e67824ca57170be709cc3289e9fdbe46757dee2174"
+      "bytes": 5107133,
+      "sha256": "d322e34efc61940777d871552751b2153f3135d6b50aec1eb4ed68374379c6c8"
     },
     "browserRuntimeFixture": {
       "bytes": 3584,
@@ -2901,8 +2901,8 @@
       "createDirectoryABrowserFileSystemImported": false,
       "createDirectoryANodeChromeOrderedSemanticsMatched": true
 ,
-      "runtimeCoreWasmBytes": 5107130,
-      "runtimeCoreWasmSha256": "d38f4239bcc14346155587e67824ca57170be709cc3289e9fdbe46757dee2174",
+      "runtimeCoreWasmBytes": 5107133,
+      "runtimeCoreWasmSha256": "d322e34efc61940777d871552751b2153f3135d6b50aec1eb4ed68374379c6c8",
       "runtimeWorkerBytes": 436088,
       "runtimeWorkerSha256": "b9399a1d113fcc2136ae32ab0f126f18e34eb8c119eceda163123118f59960a5",
       "d3d9TextureLockRectImplemented": true,
