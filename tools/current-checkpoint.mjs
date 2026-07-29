@@ -189,6 +189,9 @@ export function validateCurrentCheckpoint(manifest) {
   const postHeapTimeGetTimeActive =
     root.activeRuntimeCheckpoint?.profile ===
       "winmm-time-get-time-post-heap-reuse";
+  const postClockCriticalSectionActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-enter-critical-section-post-clock";
   const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
       "runtime-trapless-execution-budget";
@@ -196,7 +199,8 @@ export function validateCurrentCheckpoint(manifest) {
     runtimeTraplessExecutionBudgetCheckpointActive ||
     largeHeapFreeActive ||
     heapAlloc24Active ||
-    postHeapTimeGetTimeActive;
+    postHeapTimeGetTimeActive ||
+    postClockCriticalSectionActive;
   const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
   const runtimeThreadStackGrowthActive =
@@ -682,7 +686,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = postHeapTimeGetTimeActive
+  const profileExpectations = postClockCriticalSectionActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_744,
+        browserMappingDirtyPages: 145_849,
+        browserSuccessExecutionTransitions: 567_635,
+        latestSchema:
+          "vine.v86-bgi-kernel32-enter-critical-section-post-clock",
+        latestWritebackBatches: 161_067,
+        latestWritebackDirtyPages: 236_701,
+        latestWritebackChangedBytes: 36_243_412,
+        latestHostDeltaBatches: 125_744,
+        latestFinalMemoryGeneration: 289_899,
+        semanticCallDigestSha256:
+          "1018bc57c47f4b548ffd505f3ec80b6560c590fd9d8bcc809e8760a92d104e2e",
+        memoryContentSha256:
+          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+      }
+    : postHeapTimeGetTimeActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_742,
@@ -1830,9 +1852,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v58") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v59") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v58",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v59",
     );
   }
   if (
@@ -2616,7 +2638,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (postHeapTimeGetTimeActive
+      (postClockCriticalSectionActive
+        ? 27
+        : postHeapTimeGetTimeActive
         ? 26
         : heapAlloc24Active
         ? 25
@@ -2656,7 +2680,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 29
             : 21) ||
     bgiMappingOperations.commit !==
-      (runtimeThreadStackGrowthActive
+      (postClockCriticalSectionActive
+        ? 3_114
+        : runtimeThreadStackGrowthActive
         ? 2_439
         : user32IsIconicActive
         ? 1_810
@@ -2708,7 +2734,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (runtimeThreadStackGrowthActive
+      (postClockCriticalSectionActive
+        ? 2_457
+        : runtimeThreadStackGrowthActive
         ? 2_456
         : user32IsIconicActive
         ? 2_317
@@ -19495,7 +19523,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (postHeapTimeGetTimeActive
+      (postClockCriticalSectionActive
+        ? "Rust-owned balanced critical-section acquire/release roundtrip through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
+        : postHeapTimeGetTimeActive
         ? "Rust-owned post-heap multimedia tick sampling over shared RuntimeProcessState clock authority without browser clock import"
         : largeHeapFreeActive
         ? "Rust-owned large ordinary private-heap allocation retirement with failure-atomic deterministic poison publication through binary host deltas"
@@ -22296,6 +22326,130 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
+  if (postClockCriticalSectionActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "kernel32-wait-for-single-object-ex-post-critical-section" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "kernel32-enter-critical-section-post-clock" ||
+      currentStop.instructionCount !== 276_361_050 ||
+      currentStop.capabilityCluster !== "kernel32-waitable-timer-wait" ||
+      currentStop.reason !==
+        "kernel32-enter-critical-section-post-clock-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "kernel32-enter-critical-section-post-clock" ||
+      expectedCompletion.implementationId !==
+        "kernel32.critical-section-roundtrip.v1" ||
+      expectedCompletion.requiredCompletions !== 2 ||
+      expectedCompletion.completionCount !== 2 ||
+      expectedCompletion.firstCompletionSequence !== 158_106 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_361_026 ||
+      expectedCompletion.lastCompletionSequence !== 158_107 ||
+      expectedCompletion.lastCompletionInstructionCount !== 276_361_044 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 122 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "kernel32.dll!waitforsingleobjectex" ||
+      expectedEndpoint.endpointAddress !== "0x7f000790" ||
+      expectedEndpoint.iatAddress !== "0x100d1290" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "WaitForSingleObjectEx" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x57010002,0x0000000a,0x00000001" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "kernel32-wait-for-single-object-ex-post-critical-section" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("post-clock critical-section checkpoint stop is invalid");
+    }
+    const expectedCalls = [
+      {
+        sequence: 158_106,
+        instructionCount: 276_361_026,
+        api: "KERNEL32.dll!EnterCriticalSection",
+        implementationId: "kernel32.enter-critical-section.v1",
+        returnAddress: "0x100077ba",
+        guestWriteHex:
+          "fffffffffeffffff010000000020000000000000d0070002",
+      },
+      {
+        sequence: 158_107,
+        instructionCount: 276_361_044,
+        api: "KERNEL32.dll!LeaveCriticalSection",
+        implementationId: "kernel32.leave-critical-section.v1",
+        returnAddress: "0x100077fc",
+        guestWriteHex:
+          "ffffffffffffffff000000000000000000000000d0070002",
+      },
+    ];
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !==
+          "kernel32-enter-critical-section-post-clock" ||
+        completion.implementationId !==
+          "kernel32.critical-section-roundtrip.v1" ||
+        completion.requiredCompletions !== 2 ||
+        completion.completionCount !== 2 ||
+        completion.firstCompletionSequence !== 158_106 ||
+        completion.firstCompletionInstructionCount !== 276_361_026 ||
+        completion.lastCompletionSequence !== 158_107 ||
+        completion.lastCompletionInstructionCount !== 276_361_044 ||
+        completion.completions?.length !== 2 ||
+        completion.criticalSectionAddress !== "0x20020e08" ||
+        completion.threadId !== 8_192 ||
+        completion.balanced !== true ||
+        completion.instructionCount !== 276_361_050 ||
+        completion.nextEndpoint?.endpointId !== 122 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000790" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "kernel32.dll!waitforsingleobjectex" ||
+        completion.nextEndpoint?.iatAddress !== "0x100d1290" ||
+        completion.nextArguments?.join(",") !==
+          "0x57010002,0x0000000a,0x00000001" ||
+        completion.nextReturnAddress !== "0x10050615" ||
+        completion.nextStackPointer !== "0x500fff88" ||
+        completion.memoryContentSha256 !==
+          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf"
+      ) {
+        errors.push(
+          `${label} post-clock critical-section checkpoint evidence is invalid`,
+        );
+        continue;
+      }
+      for (const [index, expected] of expectedCalls.entries()) {
+        const call = completion.completions[index] ?? {};
+        if (
+          call.sequence !== expected.sequence ||
+          call.instructionCount !== expected.instructionCount ||
+          call.occurrence !== 51_333 ||
+          call.api !== expected.api ||
+          call.arguments?.join(",") !== "0x20020e08" ||
+          call.result !== "void-eax-preserved" ||
+          call.implementationId !== expected.implementationId ||
+          call.returnAddress !== expected.returnAddress ||
+          call.stackPointers?.join(",") !== "0x006ff434,0x006ff43c" ||
+          call.lastError !== 0 ||
+          call.guestWriteAddress !== "0x20020e08" ||
+          call.guestWriteBytes !== 24 ||
+          call.guestWriteHex !== expected.guestWriteHex
+        ) {
+          errors.push(
+            `${label} post-clock critical-section completion ${index} is invalid`,
+          );
+        }
+      }
+    }
+  }
   if (active.profile === "d3d9-end-scene") {
     if (
       currentStop.nextEndpoint?.observedModule !== "<com>" ||
@@ -23281,7 +23435,8 @@ export function validateCurrentCheckpoint(manifest) {
             if (
               largeHeapFreeActive ||
               heapAlloc24Active ||
-              postHeapTimeGetTimeActive
+              postHeapTimeGetTimeActive ||
+              postClockCriticalSectionActive
             ) {
               if (currentStop.kind !== "capability-checkpoint") {
                 errors.push(
@@ -24527,6 +24682,9 @@ export function renderReadmeStatus(manifest) {
                                   : next.completion.capability ===
                                       "winmm-time-get-time-post-heap-reuse"
                                     ? "multimedia clock sample"
+                                    : next.completion.capability ===
+                                        "kernel32-enter-critical-section-post-clock"
+                                      ? "critical-section acquire/release roundtrip"
                                   : next.completion.capability ===
                                       "user32-async-key-state-input-continuation"
                                     ? "held-key async-key queries"

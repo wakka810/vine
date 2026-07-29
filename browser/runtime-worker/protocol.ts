@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 58 as const;
+export const protocolVersion = 59 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -50,7 +50,8 @@ export type BgiCapabilityProfile =
   | "runtime-trapless-execution-budget"
   | "kernel32-heap-free-large-buffer"
   | "kernel32-heap-alloc-24-byte-buffer"
-  | "winmm-time-get-time-post-heap-reuse";
+  | "winmm-time-get-time-post-heap-reuse"
+  | "kernel32-enter-critical-section-post-clock";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -1638,6 +1639,35 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: number[];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-enter-critical-section-post-clock";
+        implementationId: "kernel32.critical-section-roundtrip.v1";
+        requiredCompletions: 2;
+        completionCount: 2;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        completions: [RuntimeSupportedCallSnapshot, RuntimeSupportedCallSnapshot];
+        criticalSectionAddress: number;
+        threadId: number;
+        balanced: true;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;

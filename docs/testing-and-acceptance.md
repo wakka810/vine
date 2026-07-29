@@ -995,6 +995,14 @@ ordered semantic digest、terminal memoryを一致させ、最初の異種owned 
 `EnterCriticalSection`のargument／IAT／stack直前で停止する。TypeScript側のclock sampleや
 WinMM state複製を禁止し、変動するexact valueは`current-checkpoint.json`だけを正本とする。
 
+Post-clock critical-section continuationは、同一guest addressに対する連続した
+`EnterCriticalSection`／`LeaveCriticalSection`を一つのbalanced roundtripとして検査する。
+両callの実行thread、EAX／LastError preserve、24-byte locked／unlocked guest state、atomic
+publication、ordered semantic digest、terminal memoryをNode／Chromeで一致させ、release後の
+scheduler handoffとcall provenanceを混同しない。既存`RuntimeSynchronization`を唯一のauthority
+とし、最初の異種owned endpointである`WaitForSingleObjectEx(handle,10,TRUE)`直前で停止する。
+Cross-thread blockingやAPC一般化はclaimせず、変動するexact値は`current-checkpoint.json`を正とする。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

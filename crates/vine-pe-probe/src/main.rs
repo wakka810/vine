@@ -14456,7 +14456,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "runtime-trapless-execution-budget"
                 | "kernel32-heap-free-large-buffer"
                 | "kernel32-heap-alloc-24-byte-buffer"
-                | "winmm-time-get-time-post-heap-reuse" => {
+                | "winmm-time-get-time-post-heap-reuse"
+                | "kernel32-enter-critical-section-post-clock" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }
                 "kernel32-leave-critical-section" => {

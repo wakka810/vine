@@ -53,7 +53,8 @@ const d3d9Canvas =
   capabilityProfile === "runtime-trapless-execution-budget" ||
   capabilityProfile === "kernel32-heap-free-large-buffer" ||
   capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
-  capabilityProfile === "winmm-time-get-time-post-heap-reuse"
+  capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
+  capabilityProfile === "kernel32-enter-critical-section-post-clock"
     ? requiredElement<HTMLCanvasElement>(
         "#surface",
       ).transferControlToOffscreen()
@@ -150,7 +151,8 @@ const startMessage = {
         : capabilityProfile === "runtime-trapless-execution-budget" ||
             capabilityProfile === "kernel32-heap-free-large-buffer" ||
             capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
-            capabilityProfile === "winmm-time-get-time-post-heap-reuse"
+            capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
+            capabilityProfile === "kernel32-enter-critical-section-post-clock"
           ? 320_000_000
           : capabilityProfile === "runtime-thread-stack-growth"
           ? 300_000_000
@@ -197,7 +199,8 @@ const startMessage = {
       capabilityProfile === "runtime-trapless-execution-budget" ||
       capabilityProfile === "kernel32-heap-free-large-buffer" ||
       capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
-      capabilityProfile === "winmm-time-get-time-post-heap-reuse"
+      capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
+      capabilityProfile === "kernel32-enter-critical-section-post-clock"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
             capabilityProfile === "kernel32-global-memory-status" ||
@@ -346,7 +349,8 @@ function parseCapabilityProfile(
     value === "runtime-trapless-execution-budget" ||
     value === "kernel32-heap-free-large-buffer" ||
     value === "kernel32-heap-alloc-24-byte-buffer" ||
-    value === "winmm-time-get-time-post-heap-reuse"
+    value === "winmm-time-get-time-post-heap-reuse" ||
+    value === "kernel32-enter-critical-section-post-clock"
     ? value
     : undefined;
 }

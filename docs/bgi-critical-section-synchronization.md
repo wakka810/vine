@@ -202,8 +202,31 @@ scheduling. Exact historical and current stop metadata remain in
 
 The historical scheduler continuation is documented in
 [bgi-primary-main-loop-progression.md](bgi-primary-main-loop-progression.md);
-the active main-thread release checkpoint is
+the historical main-thread release checkpoint is
 [bgi-leave-critical-section.md](bgi-leave-critical-section.md).
+
+## Post-clock balanced roundtrip
+
+The `kernel32-enter-critical-section-post-clock` profile resumes after the
+post-heap multimedia-clock sample and consumes the contiguous synchronization
+batch through the first different owned endpoint. It records one
+`EnterCriticalSection` and the matching `LeaveCriticalSection` on guest storage
+`0x20020E08`, both executed by controlled thread `8192`. The calls preserve EAX
+and LastError, publish the 24-byte locked and unlocked representations through
+the existing guest-memory transaction, and leave the critical section balanced.
+
+The release completes before the scheduler selects thread `8193`; the call
+provenance therefore remains the executing thread rather than the thread
+selected at the terminal stop. Node and Chrome agree on the ordered call
+digest, both guest-state publications, the scheduler handoff, and final guest
+memory. `RuntimeSynchronization` remains the only Windows-visible authority,
+and TypeScript retains only non-owning execution evidence. The bounded batch
+then stops before `WaitForSingleObjectEx(0x57010002, 10, TRUE)`. Exact current
+instructions, endpoint identity, report identities, and the follow-on profile
+are authoritative in [current-checkpoint.json](current-checkpoint.json).
+
+This evidence does not add cross-thread critical-section blocking, fairness,
+abandonment, timeout, or APC semantics.
 
 ## Historical next structured stop
 

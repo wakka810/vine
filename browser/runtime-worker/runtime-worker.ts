@@ -436,11 +436,27 @@ function isPostHeapTimeGetTimeCheckpoint(
   return profile === "winmm-time-get-time-post-heap-reuse";
 }
 
+function isPostClockCriticalSectionCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "kernel32-enter-critical-section-post-clock";
+}
+
+function includesPostHeapTimeGetTimeEvidence(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isPostHeapTimeGetTimeCheckpoint(profile) ||
+    isPostClockCriticalSectionCheckpoint(profile)
+  );
+}
+
 function includesHeapAllocationEvidence(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    isHeapAlloc24Checkpoint(profile) || isPostHeapTimeGetTimeCheckpoint(profile)
+    isHeapAlloc24Checkpoint(profile) ||
+    includesPostHeapTimeGetTimeEvidence(profile)
   );
 }
 
@@ -451,7 +467,7 @@ function includesRuntimeTraplessExecutionBudget(
     isRuntimeTraplessExecutionBudget(profile) ||
     isLargeHeapFreeCheckpoint(profile) ||
     isHeapAlloc24Checkpoint(profile) ||
-    isPostHeapTimeGetTimeCheckpoint(profile)
+    includesPostHeapTimeGetTimeEvidence(profile)
   );
 }
 
@@ -769,6 +785,11 @@ type HeapAlloc24Checkpoint = Extract<
 type PostHeapTimeGetTimeCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "winmm-time-get-time-post-heap-reuse" }
+>;
+
+type PostClockCriticalSectionCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "kernel32-enter-critical-section-post-clock" }
 >;
 
 interface AppliedHostDeltaEvidence {
@@ -1133,6 +1154,11 @@ class BrowserRuntimeSession {
   readonly #postHeapTimeGetTimeCompletions: PostHeapTimeGetTimeCheckpoint["completions"] =
     [];
   readonly #postHeapTimeGetTimeInstructionCounts: number[] = [];
+  readonly #postClockCriticalSectionCompletions: Array<
+    PostClockCriticalSectionCheckpoint["completions"][number]
+  > = [];
+  readonly #postClockCriticalSectionInstructionCounts: number[] = [];
+  #postClockCriticalSectionThreadId: number | null = null;
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -1463,7 +1489,7 @@ class BrowserRuntimeSession {
               includesHeapAllocationEvidence(
                 this.#configuration.capabilityProfile,
               ),
-              isPostHeapTimeGetTimeCheckpoint(
+              includesPostHeapTimeGetTimeEvidence(
                 this.#configuration.capabilityProfile,
               ),
             )
@@ -3191,6 +3217,75 @@ class BrowserRuntimeSession {
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
         if (
+          isPostClockCriticalSectionCheckpoint(
+            this.#configuration.capabilityProfile,
+          ) &&
+          this.#postClockCriticalSectionCompletions.length > 0
+        ) {
+          const reachedEndpoint = prepared.endpoints.find(
+            (candidate) => candidate.address === address,
+          );
+          invariant(
+            reachedEndpoint !== undefined,
+            "post-clock critical-section checkpoint reached an unowned API endpoint",
+          );
+          const reachedCriticalSection =
+            reachedEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            reachedEndpoint.symbol?.kind === "name" &&
+            (reachedEndpoint.symbol.name === "EnterCriticalSection" ||
+              reachedEndpoint.symbol.name === "LeaveCriticalSection");
+          if (!reachedCriticalSection) {
+            const [acquisition, release] =
+              this.#postClockCriticalSectionCompletions;
+            const [acquisitionInstructionCount, releaseInstructionCount] =
+              this.#postClockCriticalSectionInstructionCounts;
+            invariant(
+              this.#postClockCriticalSectionCompletions.length === 2 &&
+                acquisition !== undefined &&
+                release !== undefined &&
+                acquisitionInstructionCount !== undefined &&
+                releaseInstructionCount !== undefined &&
+                acquisition.arguments[0] === release.arguments[0],
+              "post-clock critical-section checkpoint lost its balanced roundtrip evidence",
+            );
+            this.#report.checkpointCompletion = {
+              capability: "kernel32-enter-critical-section-post-clock",
+              implementationId: "kernel32.critical-section-roundtrip.v1",
+              requiredCompletions: 2,
+              completionCount: 2,
+              firstCompletionSequence: acquisition.sequence,
+              firstCompletionInstructionCount: acquisitionInstructionCount,
+              lastCompletionSequence: release.sequence,
+              lastCompletionInstructionCount: releaseInstructionCount,
+              completions: [
+                structuredClone(acquisition),
+                structuredClone(release),
+              ],
+              criticalSectionAddress:
+                acquisition.arguments[0] ??
+                failInvariant("post-clock critical-section address is missing"),
+              threadId:
+                this.#postClockCriticalSectionThreadId ??
+                failInvariant(
+                  "post-clock critical-section thread provenance is missing",
+                ),
+              balanced: true,
+              instructionCount: 0,
+              nextEndpoint: {
+                id: 0,
+                address: 0,
+                disposition: "declared-runtime-export",
+                iatAddress: 0,
+              },
+              nextArguments: [0, 0, 0],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            };
+            this.#bgiCheckpointPending = true;
+          }
+        }
+        if (
           isPostHeapTimeGetTimeCheckpoint(
             this.#configuration.capabilityProfile,
           ) &&
@@ -4050,7 +4145,9 @@ class BrowserRuntimeSession {
           checkpoint.capability === "runtime-trapless-execution-budget" ||
           checkpoint.capability === "kernel32-heap-free-large-buffer" ||
           checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
-          checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
+          checkpoint.capability === "winmm-time-get-time-post-heap-reuse" ||
+          checkpoint.capability ===
+            "kernel32-enter-critical-section-post-clock"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -4108,7 +4205,8 @@ class BrowserRuntimeSession {
     if (
       checkpoint.capability === "kernel32-heap-free-large-buffer" ||
       checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
-      checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
+      checkpoint.capability === "winmm-time-get-time-post-heap-reuse" ||
+      checkpoint.capability === "kernel32-enter-critical-section-post-clock"
     ) {
       checkpoint.nextArguments =
         checkpoint.capability === "kernel32-heap-free-large-buffer"
@@ -4119,6 +4217,13 @@ class BrowserRuntimeSession {
             ]
           : checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
             ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
+            : checkpoint.capability ===
+                "kernel32-enter-critical-section-post-clock"
+              ? [
+                  this.#requireEngine().readGuestU32(stackPointer + 4),
+                  this.#requireEngine().readGuestU32(stackPointer + 8),
+                  this.#requireEngine().readGuestU32(stackPointer + 12),
+                ]
             : [];
       checkpoint.nextReturnAddress = returnAddress;
       checkpoint.nextStackPointer = stackPointer;
@@ -4127,7 +4232,8 @@ class BrowserRuntimeSession {
       checkpoint.capability === "runtime-trapless-execution-budget" ||
       checkpoint.capability === "kernel32-heap-free-large-buffer" ||
       checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
-      checkpoint.capability === "winmm-time-get-time-post-heap-reuse"
+      checkpoint.capability === "winmm-time-get-time-post-heap-reuse" ||
+      checkpoint.capability === "kernel32-enter-critical-section-post-clock"
     ) {
       this.#completeInitialScanContinuationReport();
     }
@@ -4142,6 +4248,9 @@ class BrowserRuntimeSession {
             : checkpoint.capability ===
                 "winmm-time-get-time-post-heap-reuse"
               ? "Post-heap-reuse multimedia clock sample checkpoint completed"
+              : checkpoint.capability ===
+                  "kernel32-enter-critical-section-post-clock"
+                ? "Post-clock critical-section roundtrip checkpoint completed"
         : checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
@@ -5226,6 +5335,51 @@ class BrowserRuntimeSession {
     }
     this.#recordPostPresentContinuationCall(call);
     this.#recordCompletedCallEvidence(call);
+    if (
+      isPostClockCriticalSectionCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      sequence >= 158_106 &&
+      (completion.implementationId ===
+        "kernel32.enter-critical-section.v1" ||
+        completion.implementationId === "kernel32.leave-critical-section.v1")
+    ) {
+      if (this.#postClockCriticalSectionThreadId === null) {
+        this.#postClockCriticalSectionThreadId = this.#currentThreadId;
+      } else {
+        invariant(
+          this.#currentThreadId === this.#postClockCriticalSectionThreadId,
+          "post-clock critical-section roundtrip changed execution thread",
+        );
+      }
+      const expectedImplementation =
+        this.#postClockCriticalSectionCompletions.length === 0
+          ? "kernel32.enter-critical-section.v1"
+          : "kernel32.leave-critical-section.v1";
+      invariant(
+        sequence === 158_106 + this.#postClockCriticalSectionCompletions.length &&
+          completion.implementationId === expectedImplementation &&
+          call.module.toLowerCase() === "kernel32.dll" &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === 0x2002_0e08 &&
+          "action" in call.result &&
+          call.result.action === "preserve" &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === 0x2002_0e08 &&
+          "bytes" in call.guestWrites[0] &&
+          call.guestWrites[0].bytes.length === 24,
+        "post-clock critical-section completion changed its balanced roundtrip contract",
+      );
+      this.#postClockCriticalSectionCompletions.push(structuredClone(call));
+      this.#postClockCriticalSectionInstructionCounts.push(
+        this.#report.instructions,
+      );
+      invariant(
+        this.#postClockCriticalSectionCompletions.length <= 2,
+        "post-clock critical-section checkpoint exceeded its bounded roundtrip",
+      );
+    }
     if (
       isPostHeapTimeGetTimeCheckpoint(
         this.#configuration.capabilityProfile,
@@ -10675,6 +10829,124 @@ class BrowserRuntimeSession {
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
           `post-heap timeGetTime checkpoint changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isPostClockCriticalSectionCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const completions =
+          checkpoint?.capability ===
+          "kernel32-enter-critical-section-post-clock"
+            ? checkpoint.completions
+            : [];
+        const [acquisition, release] = completions;
+        const acquisitionWrite = acquisition?.guestWrites[0];
+        const releaseWrite = release?.guestWrites[0];
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_107 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "1018bc57c47f4b548ffd505f3ec80b6560c590fd9d8bcc809e8760a92d104e2e" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "kernel32-enter-critical-section-post-clock" &&
+            checkpoint.implementationId ===
+              "kernel32.critical-section-roundtrip.v1" &&
+            checkpoint.requiredCompletions === 2 &&
+            checkpoint.completionCount === 2 &&
+            checkpoint.firstCompletionSequence === 158_106 &&
+            checkpoint.firstCompletionInstructionCount === 276_361_026 &&
+            checkpoint.lastCompletionSequence === 158_107 &&
+            checkpoint.lastCompletionInstructionCount === 276_361_044 &&
+            checkpoint.criticalSectionAddress === 0x2002_0e08 &&
+            checkpoint.threadId === 8_192 &&
+            checkpoint.balanced &&
+            completions.length === 2 &&
+            acquisition?.sequence === 158_106 &&
+            acquisition.module.toLowerCase() === "kernel32.dll" &&
+            acquisition.symbol === "EnterCriticalSection" &&
+            acquisition.arguments.join(",") === "537005576" &&
+            "action" in acquisition.result &&
+            acquisition.result.action === "preserve" &&
+            acquisition.implementationId ===
+              "kernel32.enter-critical-section.v1" &&
+            acquisition.returnAddress === 0x1000_77ba &&
+            acquisition.stackPointerBefore === 0x006f_f434 &&
+            acquisition.stackPointerAfter === 0x006f_f43c &&
+            acquisition.lastError === 0 &&
+            acquisition.guestWrites.length === 1 &&
+            acquisitionWrite !== undefined &&
+            "bytes" in acquisitionWrite &&
+            acquisitionWrite.address === 0x2002_0e08 &&
+            acquisitionWrite.bytes.join(",") ===
+              "255,255,255,255,254,255,255,255,1,0,0,0,0,32,0,0,0,0,0,0,208,7,0,2" &&
+            release?.sequence === 158_107 &&
+            release.module.toLowerCase() === "kernel32.dll" &&
+            release.symbol === "LeaveCriticalSection" &&
+            release.arguments.join(",") === "537005576" &&
+            "action" in release.result &&
+            release.result.action === "preserve" &&
+            release.implementationId ===
+              "kernel32.leave-critical-section.v1" &&
+            release.returnAddress === 0x1000_77fc &&
+            release.stackPointerBefore === 0x006f_f434 &&
+            release.stackPointerAfter === 0x006f_f43c &&
+            release.lastError === 0 &&
+            release.guestWrites.length === 1 &&
+            releaseWrite !== undefined &&
+            "bytes" in releaseWrite &&
+            releaseWrite.address === 0x2002_0e08 &&
+            releaseWrite.bytes.join(",") ===
+              "255,255,255,255,255,255,255,255,0,0,0,0,0,0,0,0,0,0,0,0,208,7,0,2" &&
+            checkpoint.instructionCount === 276_361_050 &&
+            checkpoint.nextEndpoint.id === 122 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0790 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1290 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "WaitForSingleObjectEx" &&
+            checkpoint.nextArguments.join(",") === "1459683330,10,1" &&
+            checkpoint.nextReturnAddress === 0x1005_0615 &&
+            checkpoint.nextStackPointer === 0x500f_ff88 &&
+            checkpoint.memoryContentSha256 ===
+              "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf" &&
+            this.#report.instructions === 276_361_050 &&
+            this.#generation === 305_849n &&
+            this.#report.writebackBatches === 177_123 &&
+            this.#report.writebackPages === 269_355 &&
+            this.#report.mappingDeltas === 125_744 &&
+            this.#report.mappingDirtyPages === 145_849 &&
+            this.#report.contextSwitches === 2_457 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 2_918 &&
+            this.#report.sourceReads.length === 86 &&
+            this.#report.sourceReads.filter(
+              (read) => read.request.sourceId === 1,
+            ).length === 82 &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `post-clock critical-section checkpoint changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,
